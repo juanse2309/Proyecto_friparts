@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏭 Sistema de Producción - PlastiCorp</title>
+    <link rel="stylesheet" href="static/css/styles.css">
+    <link rel="stylesheet" href="static/css/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div class="company-logo">
+                <i class="fas fa-industry"></i>
+                <div>
+                    <h2>FriTech</h2>
+                    <p>Sistema de Producción</p>
+                </div>
+            </div>
+        </div>
+
+        <ul class="sidebar-menu">
+            <li class="menu-item active" data-page="dashboard">
+                <a href="#">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Dashboard</span>
+                </a>
+            </li>
+            <li class="menu-item" data-page="inventario">
+                <a href="#">
+                    <i class="fas fa-boxes"></i>
+                    <span>Productos y Existencias</span>
+                </a>
+            </li>
+            <li class="menu-item" data-page="inyeccion">
+                <a href="#">
+                    <i class="fas fa-syringe"></i>
+                    <span>Inyección</span>
+                </a>
+            </li>
+            <li class="menu-item" data-page="pulido">
+                <a href="#">
+                    <i class="fas fa-sparkles"></i>
+                    <span>Pulido</span>
+                </a>
+            </li>
+            <li class="menu-item" data-page="ensamble">
+                <a href="#">
+                    <i class="fas fa-puzzle-piece"></i>
+                    <span>Ensamble</span>
+                </a>
+            </li>
+            <li class="menu-item" data-page="facturacion">
+                <a href="#">
+                    <i class="fas fa-file-invoice-dollar"></i>
+                    <span>Facturación</span>
+                </a>
+            </li>
+            <li class="menu-item" data-page="reportes">
+                <a href="#">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Reportes</span>
+                </a>
+            </li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="user-avatar">
+                    <i class="fas fa-user"></i>
+                </div>
+                <div class="user-details">
+                    <span class="user-name">Administrador</span>
+                    <span class="user-role">Supervisor</span>
+                </div>
+            </div>
+            <div class="current-date" id="fecha-actual"></div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main-content">
+        <!-- Contenido dinámico se carga aquí -->
+        <div id="page-content">
+            <!-- Dashboard se carga por defecto -->
+            <div id="dashboard-page" class="page active">
+                <!-- Top Bar -->
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-line"></i> Dashboard Analítico</h1>
+                        <p class="subtitle">Monitoreo en tiempo real de producción y ventas</p>
+                    </div>
+                    
+                    <div class="top-controls">
+                        <div class="period-selector">
+                            <select id="filtro-periodo" class="styled-select">
+                                <option value="hoy">Hoy</option>
+                                <option value="semana" selected>Esta Semana</option>
+                                <option value="mes">Este Mes</option>
+                                <option value="trimestre">Este Trimestre</option>
+                            </select>
+                        </div>
+                        
+                        <button class="btn btn-primary" id="btn-actualizar-dashboard">
+                            <i class="fas fa-sync-alt"></i> Actualizar
+                        </button>
+                        
+                        <button class="btn btn-secondary" id="btn-exportar-dashboard">
+                            <i class="fas fa-download"></i> Exportar
+                        </button>
+                    </div>
+                </header>
+
+                <!-- KPIs Grid -->
+                <section class="kpis-section">
+                    <div class="kpi-grid">
+                        <!-- KPI 1: Producción -->
+                        <div class="kpi-card kpi-primary">
+                            <div class="kpi-icon">
+                                <i class="fas fa-industry"></i>
+                            </div>
+                            <div class="kpi-content">
+                                <h3>Producción Total</h3>
+                                <div class="kpi-value" id="kpi-produccion">0</div>
+                                <div class="kpi-trend">
+                                    <span id="kpi-produccion-tendencia" class="trend-up">
+                                        <i class="fas fa-arrow-up"></i> 0%
+                                    </span>
+                                    <span class="kpi-subtext">vs mes anterior</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KPI 2: Ventas -->
+                        <div class="kpi-card kpi-success">
+                            <div class="kpi-icon">
+                                <i class="fas fa-dollar-sign"></i>
+                            </div>
+                            <div class="kpi-content">
+                                <h3>Ventas Totales</h3>
+                                <div class="kpi-value" id="kpi-ventas">$0</div>
+                                <div class="kpi-trend">
+                                    <span id="kpi-ventas-tendencia" class="trend-up">
+                                        <i class="fas fa-arrow-up"></i> 0%
+                                    </span>
+                                    <span class="kpi-subtext">vs mes anterior</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KPI 3: Eficiencia -->
+                        <div class="kpi-card kpi-warning">
+                            <div class="kpi-icon">
+                                <i class="fas fa-tachometer-alt"></i>
+                            </div>
+                            <div class="kpi-content">
+                                <h3>Eficiencia Global</h3>
+                                <div class="kpi-value" id="kpi-eficiencia">0%</div>
+                                <div class="kpi-trend">
+                                    <span id="kpi-eficiencia-tendencia" class="trend-up">
+                                        <i class="fas fa-arrow-up"></i> 0%
+                                    </span>
+                                    <span class="kpi-subtext">vs mes anterior</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KPI 4: Stock Crítico -->
+                        <div class="kpi-card kpi-danger">
+                            <div class="kpi-icon">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </div>
+                            <div class="kpi-content">
+                                <h3>Stock Crítico</h3>
+                                <div class="kpi-value" id="kpi-stock-critico">0</div>
+                                <div class="kpi-trend">
+                                    <span class="kpi-subtext">productos con bajo stock</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Main Dashboard Grid -->
+                <section class="dashboard-grid">
+                    <!-- Columna 1 -->
+                    <div class="column">
+                        <!-- Card: Inyección -->
+                        <div class="dashboard-card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-syringe card-icon"></i>
+                                    <h3>Inyección - Producción Mensual</h3>
+                                </div>
+                                <button class="btn-icon" id="btn-detalle-inyeccion" title="Ver detalles de inyección">
+                                    <i class="fas fa-info-circle"></i>
+                                </button>
+                            </div>
+                            
+                            <div class="card-content">
+                                <div class="stats-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-label">Producción</span>
+                                        <span class="stat-value" id="inyeccion-produccion">0</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Meta</span>
+                                        <span class="stat-value" id="inyeccion-meta">0</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">PNC</span>
+                                        <span class="stat-value text-danger" id="inyeccion-pnc">0</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Eficiencia</span>
+                                        <span class="stat-value text-success" id="inyeccion-eficiencia">0%</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="progress-section">
+                                    <div class="progress-info">
+                                        <span>Progreso Mensual</span>
+                                        <span id="inyeccion-porcentaje">0%</span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar" id="inyeccion-progress" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                
+                                <div class="chart-container">
+                                    <canvas id="chartInyeccionCircular"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Card: Máquinas -->
+                        <div class="dashboard-card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-cogs card-icon"></i>
+                                    <h3>Producción por Máquina</h3>
+                                </div>
+                            </div>
+                            
+                            <div class="card-content">
+                                <div class="top-indicator">
+                                    <i class="fas fa-crown text-warning"></i>
+                                    <span>Máquina más eficiente:</span>
+                                    <strong id="top-maquina">-</strong>
+                                </div>
+                                
+                                <div class="chart-container">
+                                    <canvas id="chartMaquinasRadar"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Columna 2 -->
+                    <div class="column">
+                        <!-- Card: Pulido -->
+                        <div class="dashboard-card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-sparkles card-icon"></i>
+                                    <h3>Pulido - Eficiencia</h3>
+                                </div>
+                                <button class="btn-icon" id="btn-detalle-pulido">
+                                    <i class="fas fa-ellipsis-v"></i>
+                                </button>
+                            </div>
+                            
+                            <div class="card-content">
+                                <div class="stats-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-label">Eficiencia Prom.</span>
+                                        <span class="stat-value text-success" id="pulido-eficiencia">0%</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">PNC %</span>
+                                        <span class="stat-value text-danger" id="pulido-pnc">0%</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="chart-container">
+                                    <canvas id="chartPulidoBarras"></canvas>
+                                </div>
+                                
+                                <div class="info-box">
+                                    <i class="fas fa-info-circle"></i>
+                                    <small>Eficiencia promedio del área de pulido este mes</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Card: Ventas por Cliente -->
+                        <div class="dashboard-card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-users card-icon"></i>
+                                    <h3>Top Clientes</h3>
+                                </div>
+                                <button class="btn-icon" id="btn-cambiar-chart-ventas">
+                                    <i class="fas fa-exchange-alt"></i>
+                                </button>
+                            </div>
+                            
+                            <div class="card-content">
+                                <div class="top-indicator">
+                                    <i class="fas fa-trophy text-warning"></i>
+                                    <span>Cliente Top:</span>
+                                    <strong id="top-cliente">-</strong>
+                                    <span id="tendencia-ventas" class="trend-up">
+                                        <i class="fas fa-arrow-up"></i> 0%
+                                    </span>
+                                </div>
+                                
+                                <div class="chart-container">
+                                    <canvas id="chartVentasClienteInteractivo"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Columna 3 -->
+                    <div class="column">
+                        <!-- Card: Ranking Operarios -->
+                        <div class="dashboard-card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-medal card-icon"></i>
+                                    <h3>Ranking de Operarios</h3>
+                                </div>
+                                <div class="card-controls">
+                                    <select id="filtro-tipo-ranking" class="mini-select">
+                                        <option value="inyeccion">Inyección</option>
+                                        <option value="pulido">Pulido</option>
+                                    </select>
+                                    <select id="filtro-ranking" class="mini-select">
+                                        <option value="total">Por Producción</option>
+                                        <option value="productividad">Productividad</option>
+                                        <option value="eficiencia">Eficiencia</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="card-content">
+                                <div class="top-indicator highlight">
+                                    <i class="fas fa-star text-warning"></i>
+                                    <span>Operario Destacado:</span>
+                                    <strong id="operario-destacado">-</strong>
+                                    <span id="operario-metrica" class="metric-value">0 unidades</span>
+                                </div>
+                                
+                                <div class="ranking-container" id="ranking-operarios">
+                                    <!-- Ranking será cargado aquí dinámicamente -->
+                                    <div class="ranking-placeholder">
+                                        <i class="fas fa-spinner fa-spin"></i>
+                                        <span>Cargando ranking...</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="chart-container-small">
+                                    <canvas id="chartOperariosDonut"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Card: Stock Inteligente -->
+                        <div class="dashboard-card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-boxes card-icon"></i>
+                                    <h3>Stock Inteligente</h3>
+                                </div>
+                                <div class="status-badge" id="estado-stock-badge">
+                                    <span class="status-optimo">ÓPTIMO</span>
+                                </div>
+                            </div>
+                            
+                            <div class="card-content">
+                                <div class="status-indicator">
+                                    <strong id="estado-stock">Estado: ÓPTIMO</strong>
+                                    <div class="risk-chart">
+                                        <canvas id="chartStockRiesgo"></canvas>
+                                    </div>
+                                </div>
+                                
+                                <div class="alert-box" id="recomendacion-stock">
+                                    <i class="fas fa-info-circle"></i>
+                                    <span>Stock en condiciones óptimas.</span>
+                                </div>
+                                
+                                <div class="critical-items" id="lista-stock-critico">
+                                    <h4><i class="fas fa-exclamation-triangle"></i> Productos Críticos</h4>
+                                    <!-- Lista será cargada aquí dinámicamente -->
+                                    <div class="no-critical">
+                                        <i class="fas fa-check-circle text-success"></i>
+                                        <span>No hay productos críticos</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Timeline Section -->
+                <section class="timeline-section">
+                    <div class="dashboard-card full-width">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-chart-area card-icon"></i>
+                                <h3>Timeline de Producción vs Ventas (30 días)</h3>
+                            </div>
+                            <div class="chart-legend">
+                                <div class="legend-item">
+                                    <span class="legend-color production"></span>
+                                    <span>Producción</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color sales"></span>
+                                    <span>Ventas</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-content">
+                            <div class="chart-container-large">
+                                <canvas id="chartTimeline"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Página de Inventario -->
+            <div id="inventario-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-boxes"></i> Productos y Existencias</h1>
+                        <p class="subtitle">Gestión completa de inventario y stock</p>
+                    </div>
+                    
+                    <div class="top-controls">
+                        <button class="btn btn-primary" id="btn-actualizar-productos">
+                            <i class="fas fa-sync-alt"></i> Actualizar
+                        </button>
+                        <button class="btn btn-success" id="btn-nuevo-producto">
+                            <i class="fas fa-plus"></i> Nuevo Producto
+                        </button>
+                        <button class="btn btn-secondary" id="btn-exportar-inventario">
+                            <i class="fas fa-download"></i> Exportar
+                        </button>
+                    </div>
+                </header>
+
+                <div class="inventario-container">
+                    <!-- Filtros y búsqueda -->
+                    <div class="filtros-section">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="buscar-producto" placeholder="Buscar por código, descripción o OEM...">
+                        </div>
+                        
+                        <div class="filter-buttons">
+                            <button class="filter-btn active" data-filter="todos">Todos</button>
+                            <button class="filter-btn" data-filter="bajo-stock">
+                                <i class="fas fa-exclamation-triangle"></i> Bajo Stock
+                            </button>
+                            <button class="filter-btn" data-filter="agotados">
+                                <i class="fas fa-times-circle"></i> Agotados
+                            </button>
+                            <button class="filter-btn" data-filter="stock-ok">
+                                <i class="fas fa-check-circle"></i> Stock OK
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Estadísticas rápidas -->
+                    <div class="stats-inventario">
+                        <div class="stat-card">
+                            <i class="fas fa-box"></i>
+                            <div>
+                                <h3 id="total-productos">0</h3>
+                                <p>Productos Totales</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-check-circle"></i>
+                            <div>
+                                <h3 id="productos-stock-ok">0</h3>
+                                <p>Con Stock OK</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <div>
+                                <h3 id="productos-bajo-stock">0</h3>
+                                <p>Bajo Stock</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-times-circle"></i>
+                            <div>
+                                <h3 id="productos-agotados">0</h3>
+                                <p>Agotados</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabla de productos -->
+                    <div class="table-container">
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th>Imagen</th>
+                                      <th>Código Sistema</th>
+                                      <th>Descripción</th>
+                                      <th>Por Pulir</th>
+                                      <th>P. Terminado</th>
+                                      <th>Acciones</th>
+                                    </tr>
+                                  </thead>
+                              
+                            <tbody id="tabla-productos-body">
+                                <!-- Los productos se cargarán aquí dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Detalle de producto (se muestra al hacer clic) -->
+                    <div id="detalle-producto" class="detalle-producto" style="display: none;">
+                        <div class="detalle-header">
+                            <h3>Detalle del Producto</h3>
+                            <button class="btn-icon" id="btn-cerrar-detalle">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="detalle-content" id="detalle-content">
+                            <!-- Contenido dinámico -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Página de Inyección -->
+            <div id="inyeccion-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-syringe"></i> Registro de Inyección</h1>
+                        <p class="subtitle">Registra nuevas operaciones de inyección</p>
+                    </div>
+                </header>
+
+                <div class="form-container">
+                    <form id="form-inyeccion" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-inyeccion"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-inyeccion" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="responsable-inyeccion"><i class="fas fa-user"></i> Responsable</label>
+                                <select id="responsable-inyeccion" required>
+                                    <option value="">Seleccionar responsable...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="maquina-inyeccion"><i class="fas fa-cogs"></i> Máquina</label>
+                                <select id="maquina-inyeccion" required>
+                                    <option value="">Seleccionar máquina...</option>
+                                    <option value="INY-01">INY-01</option>
+                                    <option value="INY-02">INY-02</option>
+                                    <option value="INY-03">INY-03</option>
+                                    <option value="INY-04">INY-04</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="codigo-producto-inyeccion"><i class="fas fa-barcode"></i> Producto</label>
+                                <select id="codigo-producto-inyeccion" required>
+                                    <option value="">Buscar producto...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cantidad-inyeccion"><i class="fas fa-hashtag"></i> Cantidad Real</label>
+                                <input type="number" id="cantidad-inyeccion" min="1" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i> PNC</label>
+                                <input type="number" id="pnc-inyeccion" min="0" value="0">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="criterio-pnc-inyeccion"><i class="fas fa-clipboard-check"></i> Criterio PNC</label>
+                                <select id="criterio-pnc-inyeccion">
+                                    <option value="">Seleccionar criterio...</option>
+                                    <option value="Carcaza manchada">Carcaza manchada</option>
+                                    <option value="Carcaza abierta">Carcaza abierta</option>
+                                    <option value="Material defectuoso">Material defectuoso</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group full-width">
+                                <label for="observaciones-inyeccion"><i class="fas fa-sticky-note"></i> Observaciones</label>
+                                <textarea id="observaciones-inyeccion" rows="3"></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Registrar Inyección
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i> Limpiar
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <!-- Información de la ficha técnica -->
+                    <div id="ficha-tecnica" class="ficha-tecnica" style="display: none;">
+                        <h4><i class="fas fa-clipboard-list"></i> Información del Producto</h4>
+                        <div class="ficha-content" id="ficha-content">
+                            <!-- Información dinámica -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Página de Pulido -->
+            <div id="pulido-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-sparkles"></i> Registro de Pulido</h1>
+                        <p class="subtitle">Registra operaciones de pulido</p>
+                    </div>
+                </header>
+
+                <div class="form-container">
+                    <form id="form-pulido" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-pulido"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-pulido" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="responsable-pulido"><i class="fas fa-user"></i> Responsable</label>
+                                <select id="responsable-pulido" required>
+                                    <option value="">Seleccionar responsable...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="codigo-producto-pulido"><i class="fas fa-barcode"></i> Producto</label>
+                                <select id="codigo-producto-pulido" required>
+                                    <option value="">Buscar producto...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cantidad-recibida-pulido"><i class="fas fa-box-open"></i> Cantidad Recibida</label>
+                                <input type="number" id="cantidad-recibida-pulido" min="1" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cantidad-pulido"><i class="fas fa-hashtag"></i> Cantidad Real</label>
+                                <input type="number" id="cantidad-pulido" min="1" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pnc-pulido"><i class="fas fa-times-circle"></i> PNC</label>
+                                <input type="number" id="pnc-pulido" min="0" value="0">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="criterio-pnc-pulido"><i class="fas fa-clipboard-check"></i> Criterio PNC</label>
+                                <select id="criterio-pnc-pulido">
+                                    <option value="">Seleccionar criterio...</option>
+                                    <option value="Daño en pulido">Daño en pulido</option>
+                                    <option value="Acabado defectuoso">Acabado defectuoso</option>
+                                    <option value="Rayones">Rayones</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group full-width">
+                                <label for="observaciones-pulido"><i class="fas fa-sticky-note"></i> Observaciones</label>
+                                <textarea id="observaciones-pulido" rows="3"></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Registrar Pulido
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i> Limpiar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Página de Ensamble -->
+            <div id="ensamble-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-puzzle-piece"></i> Registro de Ensamble</h1>
+                        <p class="subtitle">Registra operaciones de ensamble</p>
+                    </div>
+                </header>
+
+                <div class="form-container">
+                    <form id="form-ensamble" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-ensamble"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-ensamble" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="responsable-ensamble"><i class="fas fa-user"></i> Responsable</label>
+                                <select id="responsable-ensamble" required>
+                                    <option value="">Seleccionar responsable...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="codigo-producto-ensamble"><i class="fas fa-barcode"></i> Producto Final</label>
+                                <select id="codigo-producto-ensamble" required>
+                                    <option value="">Buscar producto...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cantidad-ensamble"><i class="fas fa-hashtag"></i> Cantidad</label>
+                                <input type="number" id="cantidad-ensamble" min="1" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pnc-ensamble"><i class="fas fa-times-circle"></i> PNC</label>
+                                <input type="number" id="pnc-ensamble" min="0" value="0">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="criterio-pnc-ensamble"><i class="fas fa-clipboard-check"></i> Criterio PNC</label>
+                                <select id="criterio-pnc-ensamble">
+                                    <option value="">Seleccionar criterio...</option>
+                                    <option value="Falta de piezas">Falta de piezas</option>
+                                    <option value="Ensamblaje defectuoso">Ensamblaje defectuoso</option>
+                                    <option value="Daño en transporte">Daño en transporte</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="almacen-origen"><i class="fas fa-warehouse"></i> Almacén Origen</label>
+                                <select id="almacen-origen" required>
+                                    <option value="POR PULIR">POR PULIR</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="almacen-destino"><i class="fas fa-arrow-right"></i> Almacén Destino</label>
+                                <select id="almacen-destino" required>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                    <option value="CLIENTE">CLIENTE</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group full-width">
+                                <label for="observaciones-ensamble"><i class="fas fa-sticky-note"></i> Observaciones</label>
+                                <textarea id="observaciones-ensamble" rows="3"></textarea>
+                            </div>
+                        </div>
+                        
+                        <!-- Información de la receta -->
+                        <div id="info-receta" class="info-receta" style="display: none;">
+                            <h4><i class="fas fa-clipboard-check"></i> Información de la Receta</h4>
+                            <div class="receta-content" id="receta-content">
+                                <!-- Información dinámica -->
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Registrar Ensamble
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i> Limpiar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Página de Facturación -->
+            <div id="facturacion-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-file-invoice-dollar"></i> Facturación</h1>
+                        <p class="subtitle">Registra ventas y facturación</p>
+                    </div>
+                </header>
+
+                <div class="form-container">
+                    <form id="form-facturacion" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-facturacion"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-facturacion" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cliente-facturacion"><i class="fas fa-user-tie"></i> Cliente</label>
+                                <select id="cliente-facturacion" required>
+                                    <option value="">Seleccionar cliente...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="codigo-producto-facturacion"><i class="fas fa-barcode"></i> Producto</label>
+                                <select id="codigo-producto-facturacion" required>
+                                    <option value="">Buscar producto...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cantidad-facturacion"><i class="fas fa-hashtag"></i> Cantidad</label>
+                                <input type="number" id="cantidad-facturacion" min="1" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="precio-unitario"><i class="fas fa-tag"></i> Precio Unitario</label>
+                                <input type="number" id="precio-unitario" min="0" step="0.01" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="total-venta"><i class="fas fa-calculator"></i> Total Venta</label>
+                                <input type="number" id="total-venta" readonly>
+                            </div>
+                            
+                            <div class="form-group full-width">
+                                <label for="observaciones-facturacion"><i class="fas fa-sticky-note"></i> Observaciones</label>
+                                <textarea id="observaciones-facturacion" rows="3"></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-file-invoice"></i> Generar Factura
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i> Limpiar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Página de Reportes -->
+            <div id="reportes-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-bar"></i> Reportes</h1>
+                        <p class="subtitle">Genera reportes y análisis detallados</p>
+                    </div>
+                </header>
+
+                <div class="reportes-container">
+                    <div class="reportes-grid">
+                        <!-- Card: Reporte de Producción -->
+                        <div class="reporte-card">
+                            <div class="reporte-icon">
+                                <i class="fas fa-industry"></i>
+                            </div>
+                            <div class="reporte-content">
+                                <h3>Reporte de Producción</h3>
+                                <p>Genera reportes detallados de producción por período, máquina y operario.</p>
+                                <button class="btn btn-primary" id="btn-reporte-produccion">
+                                    <i class="fas fa-download"></i> Generar
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Card: Reporte de Ventas -->
+                        <div class="reporte-card">
+                            <div class="reporte-icon">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                            <div class="reporte-content">
+                                <h3>Reporte de Ventas</h3>
+                                <p>Análisis de ventas por cliente, producto y período con tendencias.</p>
+                                <button class="btn btn-primary" id="btn-reporte-ventas">
+                                    <i class="fas fa-download"></i> Generar
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Card: Reporte de Stock -->
+                        <div class="reporte-card">
+                            <div class="reporte-icon">
+                                <i class="fas fa-boxes"></i>
+                            </div>
+                            <div class="reporte-content">
+                                <h3>Reporte de Stock</h3>
+                                <p>Inventario detallado con productos críticos y sugerencias de reposición.</p>
+                                <button class="btn btn-primary" id="btn-reporte-stock">
+                                    <i class="fas fa-download"></i> Generar
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Card: Reporte de PNC -->
+                        <div class="reporte-card">
+                            <div class="reporte-icon">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </div>
+                            <div class="reporte-content">
+                                <h3>Reporte de PNC</h3>
+                                <p>Análisis de productos no conformes por proceso y responsable.</p>
+                                <button class="btn btn-primary" id="btn-reporte-pnc">
+                                    <i class="fas fa-download"></i> Generar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Opciones de Reporte -->
+                    <div class="opciones-reporte">
+                        <h3><i class="fas fa-cog"></i> Opciones del Reporte</h3>
+                        
+                        <div class="opciones-grid">
+                            <div class="opcion-group">
+                                <label for="periodo-reporte"><i class="fas fa-calendar"></i> Período</label>
+                                <select id="periodo-reporte" class="styled-select">
+                                    <option value="hoy">Hoy</option>
+                                    <option value="semana">Esta Semana</option>
+                                    <option value="mes" selected>Este Mes</option>
+                                    <option value="trimestre">Este Trimestre</option>
+                                    <option value="anio">Este Año</option>
+                                    <option value="personalizado">Personalizado</option>
+                                </select>
+                            </div>
+                            
+                            <div class="opcion-group">
+                                <label for="formato-reporte"><i class="fas fa-file"></i> Formato</label>
+                                <select id="formato-reporte" class="styled-select">
+                                    <option value="pdf">PDF</option>
+                                    <option value="excel">Excel</option>
+                                    <option value="csv">CSV</option>
+                                </select>
+                            </div>
+                            
+                            <div class="opcion-group">
+                                <label for="detalle-reporte"><i class="fas fa-chart-pie"></i> Nivel de Detalle</label>
+                                <select id="detalle-reporte" class="styled-select">
+                                    <option value="resumen">Resumen</option>
+                                    <option value="detallado">Detallado</option>
+                                    <option value="completo">Completo</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="opciones-actions">
+                            <button class="btn btn-success" id="btn-generar-todos-reportes">
+                                <i class="fas fa-file-download"></i> Generar Todos los Reportes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal para nuevo producto -->
+    <div id="modal-nuevo-producto" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-plus"></i> Nuevo Producto</h3>
+                <button class="btn-icon" id="btn-cerrar-modal-producto">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="form-nuevo-producto">
+                    <!-- Contenido del formulario de nuevo producto -->
+                    <p>Funcionalidad en desarrollo...</p>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-cancelar-modal-producto">
+                    Cancelar
+                </button>
+                <button class="btn btn-primary" id="btn-guardar-producto">
+                    Guardar Producto
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notifications Container -->
+    <div class="notifications-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Cargando...</div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Estado Global Inicializado -->
+    <script>
+        window.AppState = {
+            currentPage: 'dashboard',
+            dashboardData: {
+                indicador_inyeccion: { meta: 10000, actual: 0, pnc: 0 },
+                indicador_pulido: { meta: 8000, actual: 0, pnc: 0 },
+                ranking_inyeccion: [],
+                produccion_maquina_avanzado: [],
+                ventas_cliente_detallado: [],
+                stock_inteligente: { criticos: [], bajo_stock: [] }
+            },
+            productosData: [],
+            responsables: [],
+            clientes: [],
+            criteriosPNC: { inyeccion: [], pulido: [], ensamble: [] }
+        };
+    </script>
+
+    <!-- Scripts de la aplicación -->
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+
+    <script>
+        // Inicialización cuando el DOM está completamente cargado
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🏭 Sistema listo. Inicializando...');
+            
+            // Mostrar fecha actual
+            const fechaElement = document.getElementById('fecha-actual');
+            if (fechaElement) {
+                const hoy = new Date();
+                fechaElement.textContent = hoy.toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+            
+            // Configurar fecha actual en los formularios
+            const fechaHoy = new Date().toISOString().split('T')[0];
+            document.querySelectorAll('input[type="date"]').forEach(input => {
+                if (!input.value) {
+                    input.value = fechaHoy;
+                }
+            });
+            
+            // Inicializar eventos del dashboard si estamos en esa página
+            if (window.AppState.currentPage === 'dashboard' && window.initDashboard) {
+                window.initDashboard();
+            }
+        });
+    </script>
+        <!-- Modal para detalle de producto -->
+    <div id="modalDetalleProducto" class="modal fade" tabindex="-1">
+        <!-- El contenido se genera dinámicamente con JavaScript -->
+    </div>
+</body>
+</html>
