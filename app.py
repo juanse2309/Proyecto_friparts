@@ -1078,80 +1078,52 @@ def obtener_productos():
 
 @app.route('/api/productos/listar', methods=['GET'])
 def listar_productos():
-    """Lista todos los productos con sus existencias y estado (con cache)."""
+    """Lista todos los productos con stock y estado (cache opcional)."""
     try:
         ahora = time.time()
         
-        # 1. Comprobar cache
-        if (
-            PRODUCTOS_CACHE["data"] is not None and
-            (ahora - PRODUCTOS_CACHE["timestamp"]) < PRODUCTOS_CACHE_TTL
-        ):
-            print("📦 Usando PRODUCTOS_CACHE (sin leer Google Sheets)")
-            return jsonify(PRODUCTOS_CACHE["data"]), 200
-
-        print("🔄 Cache de productos vencido o vacío. Leyendo Google Sheets...")
-
-        # 2. Leer de Google Sheets
-        sh = gc.open(GSHEET_FILE_NAME)
-        ws = sh.worksheet(Hojas.PRODUCTOS)
+        # Cache (si quieres mantenerlo)
+        if (PRODUCTOS_CACHE["data"] is not None and 
+            (ahora - PRODUCTOS_CACHE["timestamp"]) < PRODUCTOS_CACHE_TTL):
+            print("📦 Cache HIT!")
+            return jsonify(PRODUCTOS_CACHE["data"])
+        
+        # Leer directo del sheet (igual que clientes/productos)
+        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ws = ss.worksheet("PRODUCTOS")
+        
         registros = ws.get_all_records()
-
-        items = []
-
+        
+        productos = []
         for r in registros:
-            por_pulir = to_int(r.get('POR PULIR'))
-            terminado = to_int(r.get('P. TERMINADO'))
-            ensamblado = to_int(r.get('PRODUCTO ENSAMBLADO'))
-            total = por_pulir + terminado
-            stock_minimo = to_int(r.get('STOCK MINIMO'), 10)
-
-            if total == 0:
-                estado = 'AGOTADO'
-            elif total < stock_minimo:
-                estado = 'BAJO'
-            else:
-                estado = 'OK'
-
-            codigo = str(r.get('CODIGO SISTEMA', '')).strip()
-            if not codigo:
-                continue
-
-            items.append({
-                'producto': {
+            codigo = r.get('CODIGO SISTEMA', '').strip()
+            if codigo:
+                stock_por_pulir = int(r.get('POR PULIR', 0) or 0)
+                stock_term = int(r.get('P. TERMINADO', 0) or 0)
+                stock_total = stock_por_pulir + stock_term
+                
+                productos.append({
                     'codigo_sistema': codigo,
                     'descripcion': r.get('DESCRIPCION', ''),
-                    'unidad': r.get('UNIDAD', 'PZ'),
-                    'stock_minimo': stock_minimo,
-                    'estado': estado,
-                    'oem': r.get('OEM', '')
-                },
-                'existencias': {
-                    'por_pulir': por_pulir,
-                    'terminado': terminado,
-                    'ensamblado': ensamblado,
-                    'total': total
-                }
-            })
-
-        items.sort(key=lambda x: x['producto']['codigo_sistema'])
-
-        respuesta = {
-            'status': 'success',
-            'total': len(items),
-            'items': items
-        }
-
-        # 3. Guardar en cache
-        PRODUCTOS_CACHE["data"] = respuesta
+                    'stock_por_pulir': stock_por_pulir,
+                    'stock_terminado': stock_term,
+                    'stock_total': stock_total,
+                    'precio': r.get('PRECIO', 0),
+                    'stock_minimo': int(r.get('STOCK MINIMO', 10) or 10),
+                    'estado': 'AGOTADO' if stock_total == 0 else ('BAJO' if stock_total < 10 else 'OK')
+                })
+        
+        # Guardar en cache
+        PRODUCTOS_CACHE["data"] = productos
         PRODUCTOS_CACHE["timestamp"] = ahora
-        print(f"✅ PRODUCTOS_CACHE actualizado ({len(items)} productos)")
-
-        return jsonify(respuesta), 200
+        
+        print(f"📦 {len(productos)} productos cargados")
+        return jsonify(productos), 200
 
     except Exception as e:
-        print(f"Error listando productos: {str(e)}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        print(f"❌ Error listar productos: {e}")
+        # Retornar lista vacía en lugar de 500
+        return jsonify([]), 200
 
 @app.route('/api/productos/buscar/<query>', methods=['GET'])
 def buscar_productos(query):
