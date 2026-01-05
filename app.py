@@ -135,7 +135,7 @@ def invalidar_cache_productos():
 def buscar_producto_en_inventario(codigo_sistema):
     """Busca un producto en la hoja PRODUCTOS y devuelve su información."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
