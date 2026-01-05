@@ -213,7 +213,7 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
         else:
             return False, f'Operación {operacion} no válida'
         
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws = ss.worksheet(Hojas.PRODUCTOS)
         
         headers = ws.row_values(1)
@@ -279,7 +279,7 @@ def to_int(valor, default=0):
 def obtener_codigo_sistema_real(valor_buscado):
     """Busca en PRODUCTOS el 'CODIGO SISTEMA' real."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -407,7 +407,7 @@ def registrar_log_operacion(hoja, fila):
 def obtener_buje_origen_y_qty(codigo_producto):
     """Obtiene el buje origen y qty unitaria desde la ficha técnica."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws_productos = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws_productos.get_all_records()
         
@@ -536,7 +536,7 @@ def registrar_log_facturacion(fila):
 def verificar_estructura_completa():
     """Verifica TODAS las hojas y sus encabezados."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         resultado = {}
         
         # Lista de todas las hojas esperadas
@@ -592,7 +592,7 @@ def health_check():
     """Health check endpoint para verificar que la app está funcionando."""
     try:
         # Verificar conexión a Google Sheets
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         hojas = [ws.title for ws in ss.worksheets()]
         
         return jsonify({
@@ -956,7 +956,7 @@ def obtener_responsables():
         logger.info(f"🔍 Obteniendo responsables desde: {GSHEET_FILE_NAME}")
         
         # Debug: listar todas las hojas primero
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         hojas = [ws.title for ws in ss.worksheets()]
         logger.info(f"📋 Hojas disponibles: {hojas}")
         
@@ -1131,7 +1131,7 @@ def listar_productos():
 def buscar_productos(query):
     """Busca productos por código, descripción o OEM."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1178,7 +1178,7 @@ def detalle_producto(codigo):
     try:
         codigo_sis = obtener_codigo_sistema_real(codigo)
         
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1276,7 +1276,7 @@ def detalle_producto(codigo):
 def productos_stock_bajo():
     """Obtiene productos con stock por debajo del mínimo."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1324,7 +1324,7 @@ def productos_stock_bajo():
 def estadisticas_productos():
     """Obtiene estadísticas generales de productos."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1473,7 +1473,7 @@ def estado_cache():
 def indicador_inyeccion():
     """Indicador avanzado de inyección con metas."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws_iny = ss.worksheet(Hojas.INYECCION)
         inyecciones = ws_iny.get_all_records()
         
@@ -1546,7 +1546,7 @@ def indicador_inyeccion():
 def indicador_pulido():
     """Indicador avanzado de pulido."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws_pul = ss.worksheet(Hojas.PULIDO)
         pulidos = ws_pul.get_all_records()
         
@@ -1617,7 +1617,7 @@ def indicador_pulido():
 def ventas_cliente_detallado():
     """Ventas por cliente con análisis detallado."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws_fac = ss.worksheet(Hojas.FACTURACION)
         facturaciones = ws_fac.get_all_records()
         
@@ -1696,7 +1696,7 @@ def ventas_cliente_detallado():
 def produccion_maquina_avanzado():
     """Producción por máquina con análisis avanzado."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws_iny = ss.worksheet(Hojas.INYECCION)
         inyecciones = ws_iny.get_all_records()
         
@@ -1776,7 +1776,7 @@ def produccion_operario_ranking():
     """Ranking de producción por operario - SOLUCIÓN CORREGIDA."""
     try:
         print("=== INICIANDO RANKING DE OPERARIOS ===")
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         
         # Buscar datos en diferentes hojas
         datos_operarios = {}
@@ -1978,7 +1978,7 @@ def ranking_inyeccion():
     """Ranking específico para operarios de inyección."""
     try:
         print("=== INICIANDO RANKING DE INYECCIÓN ===")
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         
         ws_iny = ss.worksheet(Hojas.INYECCION)
         registros_iny = ws_iny.get_all_records()
@@ -2172,7 +2172,7 @@ def ranking_inyeccion():
 def debug_inyeccion():
     """Endpoint para debug de la hoja de inyección."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws_iny = ss.worksheet(Hojas.INYECCION)
         
         # Obtener encabezados
@@ -2194,7 +2194,7 @@ def debug_inyeccion():
 def stock_inteligente():
     """Análisis inteligente de stock con tendencias."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         ws_prod = ss.worksheet(Hojas.PRODUCTOS)
         productos = ws_prod.get_all_records()
         
@@ -2313,7 +2313,7 @@ def stock_inteligente():
 def obtener_detalles_dashboard(tipo):
     """Obtiene detalles específicos para el dashboard."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         
         detalles = {}
         
@@ -2446,7 +2446,7 @@ def to_int_seguro(valor, default=0):
 def obtener_movimientos_producto(codigo):
     """Obtiene todos los movimientos de un producto - VERSIÓN CON CONVERSIÓN SEGURA."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         
         # Convertir todo a mayúsculas para comparación
         codigo_original = str(codigo).upper()
@@ -2763,7 +2763,7 @@ def debug_conexion():
         }
         
         # Probar conexión
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         info['archivo_encontrado'] = True
         info['titulo_archivo'] = ss.title
         
@@ -2812,7 +2812,7 @@ def debug_conexion():
 def debug_hojas():
     """Debug: Muestra todas las hojas y sus columnas."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         hojas_info = {}
         
         for nombre_hoja in [Hojas.INYECCION, Hojas.PULIDO, Hojas.FACTURACION, Hojas.ENSAMBLES]:
@@ -2839,7 +2839,7 @@ def debug_hojas():
 def debug_columnas_detalle():
     """Muestra las primeras filas de cada hoja para ver los nombres reales de las columnas."""
     try:
-        ss = gc.open(GSHEET_FILE_NAME)
+        ss = gc.open_by_key("1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB")
         resultado = {}
         
         for nombre_hoja, hoja_enum in [
