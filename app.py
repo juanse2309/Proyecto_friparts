@@ -1014,37 +1014,63 @@ def obtener_responsables():
 
 @app.route('/api/obtener_clientes', methods=['GET'])
 def obtener_clientes():
-    """Obtiene la lista de clientes activos."""
     try:
-        ws = gc.open(GSHEET_FILE_NAME).worksheet(Hojas.CLIENTES)
-        clientes = [r['CLIENTE'] for r in ws.get_all_records() if r.get('CLIENTE')]
-        return jsonify(clientes), 200
+        # Usamos el ID directo que ya sabemos que funciona
+        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ws = ss.worksheet("CLIENTES") 
+        
+        datos = ws.get_all_values()
+        encabezados = datos[0]
+        filas = datos[1:]
+        
+        clientes = []
+        idx = 0
+        # Buscar columna CLIENTE
+        if "CLIENTE" in encabezados:
+             idx = encabezados.index("CLIENTE")
+
+        for fila in filas:
+            if len(fila) > idx and fila[idx].strip():
+                clientes.append(fila[idx].strip())
+        
+        return jsonify(sorted(list(set(clientes))))
+
     except Exception as e:
-        print(f"Error obteniendo clientes: {e}")
+        print(f"❌ Error real clientes: {e}")
         return jsonify([]), 500
 
 @app.route('/api/obtener_productos', methods=['GET'])
 def obtener_productos():
-    """Obtiene la lista de códigos de sistema de productos."""
     try:
-        ws = gc.open(GSHEET_FILE_NAME).worksheet(Hojas.PRODUCTOS)
-        registros = ws.get_all_records()
+        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ws = ss.worksheet("PRODUCTOS")
+        
+        datos = ws.get_all_values()
+        encabezados = datos[0]
+        filas = datos[1:]
         
         productos = []
-        for r in registros:
-            if r.get('CODIGO SISTEMA'):
-                cod_sis = str(r['CODIGO SISTEMA']).strip()
-                if cod_sis:
-                    productos.append(cod_sis)
-        
-        productos = list(set([p for p in productos if p]))
-        productos.sort()
-        
-        print(f"{len(productos)} productos disponibles")
-        return jsonify(productos), 200
+        idx = 0
+        # Buscar columna PRODUCTO o REFERENCIA
+        if "PRODUCTO" in encabezados:
+             idx = encabezados.index("PRODUCTO")
+        elif "REFERENCIA" in encabezados:
+             idx = encabezados.index("REFERENCIA")
+        elif "CODIGO SISTEMA" in encabezados:
+             idx = encabezados.index("CODIGO SISTEMA")
+
+        for fila in filas:
+            if len(fila) > idx and fila[idx].strip():
+                productos.append(fila[idx].strip())
+
+        return jsonify(sorted(list(set(productos))))
+
     except Exception as e:
-        print(f"Error en obtener_productos: {e}")
+        print(f"❌ Error real productos: {e}")
         return jsonify([]), 500
+
+
+
 
 # ====================================================================
 # ENDPOINTS PARA PRODUCTOS (CON CACHÉ)
