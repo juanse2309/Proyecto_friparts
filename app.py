@@ -21,6 +21,7 @@ CORS(app)
 # CONFIGURACIÓN GLOBAL
 # ====================================================================
 GSHEET_FILE_NAME = "1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM"
+GSHEET_KEY = "1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM"
 
 # Cache simple en memoria
 PRODUCTOS_CACHE = {
@@ -135,7 +136,7 @@ def invalidar_cache_productos():
 def buscar_producto_en_inventario(codigo_sistema):
     """Busca un producto en la hoja PRODUCTOS y devuelve su información."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -194,7 +195,7 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
         mapeo_almacenes = {
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
-            'PRODUCTO ENSAMBLado': 'PRODUCTO ENSAMBLADO',
+            'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
             'CLIENTE': 'CLIENTE'
         }
         
@@ -213,7 +214,7 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
         else:
             return False, f'Operación {operacion} no válida'
         
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         
         headers = ws.row_values(1)
@@ -279,7 +280,7 @@ def to_int(valor, default=0):
 def obtener_codigo_sistema_real(valor_buscado):
     """Busca en PRODUCTOS el 'CODIGO SISTEMA' real."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -319,7 +320,7 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
             print(f"Tipo de proceso no válido para PNC: {tipo_proceso}")
             return False
         
-        spreadsheet = gc.open(GSHEET_FILE_NAME)
+        spreadsheet = gc.open_by_key(GSHEET_KEY)
         
         try:
             worksheet = spreadsheet.worksheet(hoja_pnc)
@@ -357,7 +358,7 @@ def registrar_log_operacion(hoja, fila):
     try:
         print(f"📝 Registrando en {hoja}: {fila[:3]}...")  # Solo primeros elementos para log
         
-        spreadsheet = gc.open(GSHEET_FILE_NAME)
+        spreadsheet = gc.open_by_key(GSHEET_KEY)
         
         try:
             worksheet = spreadsheet.worksheet(hoja)
@@ -407,7 +408,7 @@ def registrar_log_operacion(hoja, fila):
 def obtener_buje_origen_y_qty(codigo_producto):
     """Obtiene el buje origen y qty unitaria desde la ficha técnica."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws_productos = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws_productos.get_all_records()
         
@@ -502,7 +503,7 @@ def registrar_log_facturacion(fila):
     try:
         print(f"Registrando en LOG_FACTURACION: {fila}")
         
-        spreadsheet = gc.open(GSHEET_FILE_NAME)
+        spreadsheet = gc.open_by_key(GSHEET_KEY)
         
         try:
             worksheet = spreadsheet.worksheet(Hojas.FACTURACION)
@@ -536,7 +537,7 @@ def registrar_log_facturacion(fila):
 def verificar_estructura_completa():
     """Verifica TODAS las hojas y sus encabezados."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         resultado = {}
         
         # Lista de todas las hojas esperadas
@@ -592,7 +593,7 @@ def health_check():
     """Health check endpoint para verificar que la app está funcionando."""
     try:
         # Verificar conexión a Google Sheets
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         hojas = [ws.title for ws in ss.worksheets()]
         
         return jsonify({
@@ -630,19 +631,37 @@ def handle_inyeccion():
 
         codigo_sis = obtener_codigo_sistema_real(cleaned['codigo_producto'])
         num_cavidades = int(cleaned['no_cavidades'] or 1)
-        piezas_ok = (cleaned['cantidad_real'] * num_cavidades) - cleaned['pnc']
+        
+        # CÁLCULO CORREGIDO CON CAVIDADES
+        # cantidad_real es el número de disparos, multiplicamos por cavidades
+        piezas_totales = cleaned['cantidad_real'] * num_cavidades
+        piezas_ok = piezas_totales - cleaned['pnc']
         
         exito, mensaje_inv = registrar_entrada(codigo_sis, piezas_ok, "POR PULIR")
 
         if exito:
             id_iny = f"INY-{str(uuid.uuid4())[:5].upper()}"
             fila_iny = [
-                datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "ENTRADA_INYECCION",           
-                codigo_sis, piezas_ok, cleaned['fecha_inicio'], cleaned['fecha_fin'], 
-                "Inyección", cleaned['maquina'], cleaned['responsable'], num_cavidades, 
-                cleaned['hora_inicio'], cleaned['hora_fin'], cleaned['contador_maquina'], 
-                cleaned['orden_produccion'], f"PNC: {cleaned['pnc']}", cleaned['peso_vela_maquina'],  
-                cleaned['peso_bujes'], id_iny, "TRUE", mensaje_inv 
+                datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                "ENTRADA_INYECCION",           
+                codigo_sis, 
+                piezas_ok, 
+                cleaned['fecha_inicio'], 
+                cleaned['fecha_fin'], 
+                "Inyección", 
+                cleaned['maquina'], 
+                cleaned['responsable'], 
+                num_cavidades, 
+                cleaned['hora_inicio'], 
+                cleaned['hora_fin'], 
+                cleaned['contador_maquina'], 
+                cleaned['orden_produccion'], 
+                f"PNC: {cleaned['pnc']}", 
+                cleaned['peso_vela_maquina'],  
+                cleaned['peso_bujes'], 
+                id_iny, 
+                "TRUE", 
+                mensaje_inv 
             ]
             registrar_log_operacion(Hojas.INYECCION, fila_iny)
 
@@ -658,7 +677,10 @@ def handle_inyeccion():
             
             # El caché ya se invalidó en registrar_entrada
             
-            return jsonify({"status": "success", "message": "Inyección registrada correctamente."}), 200
+            return jsonify({
+                "status": "success", 
+                "message": f"Inyección registrada correctamente. Piezas OK: {piezas_ok}, PNC: {cleaned['pnc']}, Cavidades: {num_cavidades}"
+            }), 200
         
         return jsonify({"status": "error", "message": mensaje_inv}), 400
     except Exception as e:
@@ -857,7 +879,8 @@ def handle_facturacion():
         
         nit_cliente = ""
         try:
-            ws_clientes = gc.open(GSHEET_FILE_NAME).worksheet(Hojas.CLIENTES)
+            ss = gc.open_by_key(GSHEET_KEY)
+            ws_clientes = ss.worksheet(Hojas.CLIENTES)
             clientes_registros = ws_clientes.get_all_records()
             for cliente in clientes_registros:
                 if cliente.get('CLIENTE') == data['cliente']:
@@ -956,7 +979,7 @@ def obtener_responsables():
         logger.info(f"🔍 Obteniendo responsables desde: {GSHEET_FILE_NAME}")
         
         # Debug: listar todas las hojas primero
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         hojas = [ws.title for ws in ss.worksheets()]
         logger.info(f"📋 Hojas disponibles: {hojas}")
         
@@ -1016,7 +1039,7 @@ def obtener_responsables():
 def obtener_clientes():
     try:
         # Usamos el ID directo que ya sabemos que funciona
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet("CLIENTES") 
         
         datos = ws.get_all_values()
@@ -1042,7 +1065,7 @@ def obtener_clientes():
 @app.route('/api/obtener_productos', methods=['GET'])
 def obtener_productos():
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet("PRODUCTOS")
         
         datos = ws.get_all_values()
@@ -1069,9 +1092,6 @@ def obtener_productos():
         print(f"❌ Error real productos: {e}")
         return jsonify([]), 500
 
-
-
-
 # ====================================================================
 # ENDPOINTS PARA PRODUCTOS (CON CACHÉ)
 # ====================================================================
@@ -1089,7 +1109,7 @@ def listar_productos():
             return jsonify(PRODUCTOS_CACHE["data"])
         
         # Leer directo del sheet (igual que clientes/productos)
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet("PRODUCTOS")
         
         registros = ws.get_all_records()
@@ -1129,7 +1149,7 @@ def listar_productos():
 def buscar_productos(query):
     """Busca productos por código, descripción o OEM."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1176,7 +1196,7 @@ def detalle_producto(codigo):
     try:
         codigo_sis = obtener_codigo_sistema_real(codigo)
         
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1274,7 +1294,7 @@ def detalle_producto(codigo):
 def productos_stock_bajo():
     """Obtiene productos con stock por debajo del mínimo."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1322,7 +1342,7 @@ def productos_stock_bajo():
 def estadisticas_productos():
     """Obtiene estadísticas generales de productos."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
@@ -1388,7 +1408,8 @@ def obtener_pnc(tipo):
         else:
             return jsonify({"error": "Tipo de PNC no válido"}), 400
         
-        ws = gc.open(GSHEET_FILE_NAME).worksheet(hoja_pnc)
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet(hoja_pnc)
         registros = ws.get_all_records()
         
         return jsonify(registros), 200
@@ -1471,7 +1492,7 @@ def estado_cache():
 def indicador_inyeccion():
     """Indicador avanzado de inyección con metas."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws_iny = ss.worksheet(Hojas.INYECCION)
         inyecciones = ws_iny.get_all_records()
         
@@ -1544,7 +1565,7 @@ def indicador_inyeccion():
 def indicador_pulido():
     """Indicador avanzado de pulido."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws_pul = ss.worksheet(Hojas.PULIDO)
         pulidos = ws_pul.get_all_records()
         
@@ -1615,7 +1636,7 @@ def indicador_pulido():
 def ventas_cliente_detallado():
     """Ventas por cliente con análisis detallado."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws_fac = ss.worksheet(Hojas.FACTURACION)
         facturaciones = ws_fac.get_all_records()
         
@@ -1694,7 +1715,7 @@ def ventas_cliente_detallado():
 def produccion_maquina_avanzado():
     """Producción por máquina con análisis avanzado."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws_iny = ss.worksheet(Hojas.INYECCION)
         inyecciones = ws_iny.get_all_records()
         
@@ -1774,7 +1795,7 @@ def produccion_operario_ranking():
     """Ranking de producción por operario - SOLUCIÓN CORREGIDA."""
     try:
         print("=== INICIANDO RANKING DE OPERARIOS ===")
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         
         # Buscar datos en diferentes hojas
         datos_operarios = {}
@@ -1976,7 +1997,7 @@ def ranking_inyeccion():
     """Ranking específico para operarios de inyección."""
     try:
         print("=== INICIANDO RANKING DE INYECCIÓN ===")
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         
         ws_iny = ss.worksheet(Hojas.INYECCION)
         registros_iny = ws_iny.get_all_records()
@@ -2170,7 +2191,7 @@ def ranking_inyeccion():
 def debug_inyeccion():
     """Endpoint para debug de la hoja de inyección."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws_iny = ss.worksheet(Hojas.INYECCION)
         
         # Obtener encabezados
@@ -2192,7 +2213,7 @@ def debug_inyeccion():
 def stock_inteligente():
     """Análisis inteligente de stock con tendencias."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         ws_prod = ss.worksheet(Hojas.PRODUCTOS)
         productos = ws_prod.get_all_records()
         
@@ -2311,7 +2332,7 @@ def stock_inteligente():
 def obtener_detalles_dashboard(tipo):
     """Obtiene detalles específicos para el dashboard."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         
         detalles = {}
         
@@ -2444,7 +2465,7 @@ def to_int_seguro(valor, default=0):
 def obtener_movimientos_producto(codigo):
     """Obtiene todos los movimientos de un producto - VERSIÓN CON CONVERSIÓN SEGURA."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         
         # Convertir todo a mayúsculas para comparación
         codigo_original = str(codigo).upper()
@@ -2761,7 +2782,7 @@ def debug_conexion():
         }
         
         # Probar conexión
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         info['archivo_encontrado'] = True
         info['titulo_archivo'] = ss.title
         
@@ -2810,7 +2831,7 @@ def debug_conexion():
 def debug_hojas():
     """Debug: Muestra todas las hojas y sus columnas."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         hojas_info = {}
         
         for nombre_hoja in [Hojas.INYECCION, Hojas.PULIDO, Hojas.FACTURACION, Hojas.ENSAMBLES]:
@@ -2837,7 +2858,7 @@ def debug_hojas():
 def debug_columnas_detalle():
     """Muestra las primeras filas de cada hoja para ver los nombres reales de las columnas."""
     try:
-        ss = gc.open_by_key("1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
+        ss = gc.open_by_key(GSHEET_KEY)
         resultado = {}
         
         for nombre_hoja, hoja_enum in [
@@ -2892,8 +2913,88 @@ def serve_static(path):
     return send_from_directory('static', path)
 
 # ====================================================================
-# INICIO DEL SERVIDOR
+# ENDPOINTS PARA CAVIDADES
 # ====================================================================
+
+@app.route('/api/cavidades/config', methods=['GET'])
+def obtener_config_cavidades():
+    """Obtiene la configuración de cavidades disponibles."""
+    try:
+        # Configuración de cavidades por máquina (puedes personalizar esto)
+        config = {
+            "cavidades_disponibles": [1, 2, 4, 6, 8, 12, 16, 24, 32, 48],
+            "cavidades_por_defecto": 1,
+            "maquinas_config": {
+                "INYECTORA 1": {"cavidades": [1, 2, 4, 6, 8], "default": 1},
+                "INYECTORA 2": {"cavidades": [1, 2, 4, 6, 8], "default": 2},
+                "INYECTORA 3": {"cavidades": [2, 4, 6, 8, 12], "default": 4},
+                "INYECTORA 4": {"cavidades": [4, 6, 8, 12, 16], "default": 8},
+                "INYECTORA 5": {"cavidades": [8, 12, 16, 24, 32], "default": 12},
+                "INYECTORA 6": {"cavidades": [16, 24, 32, 48], "default": 24}
+            }
+        }
+        
+        return jsonify({
+            "status": "success",
+            "config": config
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/inyeccion/calcular', methods=['POST'])
+def calcular_inyeccion():
+    """Calcula la producción total basada en cantidad y cavidades."""
+    try:
+        data = request.get_json()
+        
+        if not data.get('cantidad') or not data.get('cavidades'):
+            return jsonify({
+                "status": "error",
+                "message": "Se requieren cantidad y cavidades"
+            }), 400
+        
+        try:
+            cantidad = int(data['cantidad'])
+            cavidades = int(data['cavidades'])
+            
+            if cantidad <= 0 or cavidades <= 0:
+                return jsonify({
+                    "status": "error",
+                    "message": "La cantidad y cavidades deben ser mayores a 0"
+                }), 400
+            
+            total_piezas = cantidad * cavidades
+            
+            # Si se envía PNC, calcular piezas OK
+            pnc = int(data.get('pnc', 0))
+            piezas_ok = total_piezas - pnc
+            
+            return jsonify({
+                "status": "success",
+                "calculos": {
+                    "disparos": cantidad,
+                    "cavidades": cavidades,
+                    "total_piezas": total_piezas,
+                    "pnc": pnc,
+                    "piezas_ok": piezas_ok,
+                    "eficiencia": round((piezas_ok / total_piezas * 100), 2) if total_piezas > 0 else 0
+                }
+            }), 200
+            
+        except ValueError:
+            return jsonify({
+                "status": "error",
+                "message": "Cantidad y cavidades deben ser números válidos"
+            }), 400
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 # ====================================================================
 # INICIO DEL SERVIDOR
@@ -2916,6 +3017,8 @@ if __name__ == '__main__':
     print(f"- GET  /api/obtener_clientes - Lista de clientes")
     print(f"- GET  /api/obtener_productos - Lista de productos")
     print(f"- GET  /api/debug/conexion   - Debug de conexión")
+    print(f"- GET  /api/cavidades/config - Configuración de cavidades")
+    print(f"- POST /api/inyeccion/calcular - Calcular producción con cavidades")
     print("=" * 50)
     
     app.run(host=host, port=port, debug=False)  # debug=False en producción
