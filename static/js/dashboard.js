@@ -82,8 +82,7 @@ async function cargarDashboardCompleto() {
 // Cargar endpoint específico
 async function cargarEndpointDashboard(endpoint) {
     try {
-        const res = await fetch(`http://127.0.0.1:5000/api/dashboard/avanzado/${endpoint}`);
-        
+        const res = await fetch(`/api/dashboard/avanzado/${endpoint}`);
         if (!res.ok) {
             throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         }
