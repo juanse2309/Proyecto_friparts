@@ -20,7 +20,7 @@ CORS(app)
 # ====================================================================
 # CONFIGURACIÓN GLOBAL
 # ====================================================================
-GSHEET_FILE_NAME = "BASES PARA NUEVA APP"
+GSHEET_FILE_NAME = "1gZ_-lcPlXh6dDxRYCssAEgjRIqitj9fB"
 
 # Cache simple en memoria
 PRODUCTOS_CACHE = {
