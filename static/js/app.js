@@ -2264,6 +2264,40 @@ function exportarMovimientos(codigo) {
     }, 1500);
 }
 
+// Agrega esta función al final de tu app.js
+function cerrarDetalle() {
+    console.log("🔒 Cerrando detalles...");
+    const modal = document.getElementById('modal-detalle');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    const overlay = document.querySelector('.modal-overlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+    document.body.style.overflow = 'auto';
+}
+
+// También puedes agregar la función para abrir detalles
+function abrirDetalle(titulo, contenido) {
+    console.log("🔓 Abriendo detalles: " + titulo);
+    const modal = document.getElementById('modal-detalle');
+    const modalTitle = document.getElementById('modal-detalle-title');
+    const modalBody = document.getElementById('modal-detalle-body');
+    
+    if (modal && modalTitle && modalBody) {
+        modalTitle.textContent = titulo;
+        modalBody.innerHTML = contenido;
+        modal.style.display = 'block';
+        
+        const overlay = document.querySelector('.modal-overlay');
+        if (overlay) {
+            overlay.style.display = 'block';
+        }
+        document.body.style.overflow = 'hidden';
+    }
+}
+
 // ===== INICIALIZACIÓN DE LA APLICACIÓN =====
 
 function inicializarAplicacion() {

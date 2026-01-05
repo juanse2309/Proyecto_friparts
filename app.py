@@ -5,7 +5,14 @@ import uuid
 import gspread
 import traceback
 import time  # Importar time para el cache
+import os
+import json
 from google.oauth2.service_account import Credentials
+import logging
+
+# Configurar logging detallado
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
@@ -13,7 +20,7 @@ CORS(app)
 # ====================================================================
 # CONFIGURACIÓN GLOBAL
 # ====================================================================
-GSHEET_FILE_NAME = "BASES PARA NUEVA APP_FINAL"
+GSHEET_FILE_NAME = "BASES PARA NUEVA APP"
 
 # Cache simple en memoria
 PRODUCTOS_CACHE = {
@@ -23,21 +30,93 @@ PRODUCTOS_CACHE = {
 PRODUCTOS_CACHE_TTL = 120  # segundos (ajusta a 120, 300, etc.)
 
 class Hojas:
-    INYECCION = "LOG_INYECCION"
+    INYECCION = "INYECCION"
     PNC_INYECCION = "PNC INYECCION"
     PNC_PULIDO = "PNC PULIDO"
-    PNC_ENSAMBLE = "PNC ENSAMBLADO"
+    PNC_ENSAMBLE = "PNC ENSAMBLE"
     PRODUCTOS = "PRODUCTOS"
-    ENSAMBLES = "LOG_ENSAMBLES"
+    ENSAMBLES = "ENSAMBLES"
     FICHAS = "FICHAS"
     RESPONSABLES = "RESPONSABLES"
-    LOG_PULIDO = "LOG_PULIDO"
-    FACTURACION = "LOG_FACTURACION"
+    PULIDO = "PULIDO"
+    FACTURACION = "FACTURACION"
     CLIENTES = "CLIENTES"
 
+# ====================================================================
+# CONFIGURACIÓN DE CREDENCIALES (compatible con desarrollo y producción)
+# ====================================================================
+
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_file("credentials_apps.json", scopes=scope)
-gc = gspread.authorize(creds)
+
+# Configurar rutas posibles para las credenciales
+CREDENTIALS_PATHS = [
+    "credentials_apps.json",  # Ruta local
+    "/etc/secrets/credentials_apps.json",  # Ruta típica en servidores
+    "./config/credentials_apps.json",  # Otra ruta común
+]
+
+def cargar_credenciales():
+    """Carga las credenciales desde variable de entorno o archivo."""
+    
+    # 1. Intentar desde variable de entorno (para producción/entornos cloud)
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+    if creds_json:
+        try:
+            print("🔑 Intentando cargar credenciales desde variable de entorno...")
+            creds_info = json.loads(creds_json)
+            creds = Credentials.from_service_account_info(creds_info, scopes=scope)
+            print("✅ Credenciales cargadas desde variable de entorno")
+            return creds
+        except json.JSONDecodeError as e:
+            print(f"❌ Error en formato JSON de variable de entorno: {e}")
+        except Exception as e:
+            print(f"❌ Error cargando credenciales desde variable de entorno: {e}")
+    
+    # 2. Intentar desde archivo en diferentes rutas (para desarrollo local)
+    print("📁 Buscando archivo de credenciales...")
+    for path in CREDENTIALS_PATHS:
+        try:
+            if os.path.exists(path):
+                print(f"📄 Encontrado archivo en: {path}")
+                creds = Credentials.from_service_account_file(path, scopes=scope)
+                print(f"✅ Credenciales cargadas desde archivo: {path}")
+                return creds
+        except Exception as e:
+            print(f"⚠️  No se pudo cargar desde {path}: {e}")
+            continue
+    
+    # 3. Si no se encuentra en ninguna parte, mostrar error claro
+    print("\n" + "="*60)
+    print("❌ ERROR: No se pudieron cargar las credenciales")
+    print("="*60)
+    print("Opciones para solucionar:")
+    print("1. Para PRODUCCIÓN (Railway, Render, etc.):")
+    print("   - Configura la variable de entorno GOOGLE_CREDENTIALS_JSON")
+    print("   - Con el contenido completo del JSON de credenciales")
+    print()
+    print("2. Para DESARROLLO LOCAL:")
+    print("   - Asegúrate de que el archivo 'credentials_apps.json'")
+    print("   - Esté en la misma carpeta que app.py")
+    print("   - O en una de estas rutas:", CREDENTIALS_PATHS)
+    print("="*60)
+    raise FileNotFoundError("No se encontraron credenciales de Google Sheets")
+
+try:
+    creds = cargar_credenciales()
+    gc = gspread.authorize(creds)
+    print("✅ Autenticación exitosa con Google Sheets API")
+    print(f"📊 Accediendo a: {GSHEET_FILE_NAME}")
+    
+except Exception as e:
+    print(f"\n❌ ERROR CRÍTICO en autenticación: {e}")
+    print("💡 Consejos de solución:")
+    print("1. Verifica que el archivo credentials_apps.json sea válido")
+    print("2. Asegúrate de que el correo del service account tenga acceso al Google Sheet")
+    print("3. Revisa que el Google Sheet tenga el nombre exacto: 'BASES PARA NUEVA APP'")
+    print("4. Verifica que las credenciales tengan permisos de lectura/escritura")
+    print("\n🔧 Para debug, agrega esta ruta de debug:")
+    print("   GET /api/debug/conexion")
+    exit(1)
 
 # ====================================================================
 # FUNCIONES DE CACHÉ
@@ -276,23 +355,52 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
 def registrar_log_operacion(hoja, fila):
     """Registra una operación en la hoja especificada."""
     try:
-        print(f"Registrando en {hoja}: {fila}")
+        print(f"📝 Registrando en {hoja}: {fila[:3]}...")  # Solo primeros elementos para log
         
         spreadsheet = gc.open(GSHEET_FILE_NAME)
         
         try:
             worksheet = spreadsheet.worksheet(hoja)
         except gspread.exceptions.WorksheetNotFound:
-            print(f"Hoja '{hoja}' no encontrada, creándola...")
-            worksheet = spreadsheet.add_worksheet(title=hoja, rows=1000, cols=20)
-            print(f"Hoja '{hoja}' creada")
+            print(f"⚠️  Hoja '{hoja}' no encontrada, creándola...")
+            
+            # Crear hoja con encabezados según el tipo
+            if hoja == Hojas.INYECCION:
+                encabezados = [
+                    "TIMESTAMP", "TRANSACTION_TYPE", "CODIGO", "CANTIDAD", 
+                    "FECHA_INICIO", "FECHA_FIN", "PROCESO", "MAQUINA", 
+                    "RESPONSABLE", "NO_CAVIDADES", "HORA_INICIO", "HORA_FIN",
+                    "CONTADOR_MAQUINA", "ORDEN_PRODUCCION", "OBSERVACIONES",
+                    "PESO_VELA_MAQUINA", "PESO_BUJES", "ID_OPERACION", 
+                    "ACTIVO", "MENSAJE_INVENTARIO"
+                ]
+            elif hoja == Hojas.PULIDO:
+                encabezados = [
+                    "ID_PULIDO", "FECHA", "PROCESO", "RESPONSABLE", 
+                    "HORA_INICIO", "HORA_FIN", "CODIGO", "LOTE", 
+                    "ORDEN_PRODUCCION", "CANTIDAD_RECIBIDA", "PNC", 
+                    "CANTIDAD_REAL", "OBSERVACIONES", "ALMACEN_DESTINO", "ESTADO"
+                ]
+            elif hoja == Hojas.ENSAMBLES:
+                encabezados = [
+                    "ID_ENSAMBLE", "CODIGO_FINAL", "CANTIDAD", 
+                    "ORDEN_PRODUCCION", "RESPONSABLE", "HORA_INICIO", 
+                    "HORA_FIN", "BUJE_ORIGEN", "CONSUMO_TOTAL", 
+                    "ALMACEN_ORIGEN", "ALMACEN_DESTINO"
+                ]
+            else:
+                encabezados = [f"Columna_{i+1}" for i in range(len(fila))]
+            
+            worksheet = spreadsheet.add_worksheet(title=hoja, rows=1000, cols=len(encabezados))
+            worksheet.append_row(encabezados)
+            print(f"✅ Hoja '{hoja}' creada con {len(encabezados)} columnas")
         
         worksheet.append_row(fila)
-        print(f"Registro exitoso en {hoja}")
+        print(f"✅ Registro exitoso en {hoja} (fila {worksheet.row_count})")
         return True
         
     except Exception as e:
-        print(f"ERROR en registrar_log_operacion: {type(e).__name__}: {str(e)}")
+        print(f"❌ ERROR en registrar_log_operacion: {type(e).__name__}: {str(e)}")
         traceback.print_exc()
         return False
 
@@ -424,6 +532,93 @@ def registrar_log_facturacion(fila):
 # ENDPOINTS PARA REGISTROS
 # ====================================================================
 
+@app.route('/api/verificar-estructura-completa', methods=['GET'])
+def verificar_estructura_completa():
+    """Verifica TODAS las hojas y sus encabezados."""
+    try:
+        ss = gc.open(GSHEET_FILE_NAME)
+        resultado = {}
+        
+        # Lista de todas las hojas esperadas
+        todas_hojas = [
+            ("INYECCION", Hojas.INYECCION),
+            ("PULIDO", Hojas.PULIDO),  # ¡IMPORTANTE! Antes era LOG_PULIDO
+            ("ENSAMBLES", Hojas.ENSAMBLES),
+            ("FACTURACION", Hojas.FACTURACION),
+            ("PRODUCTOS", Hojas.PRODUCTOS),
+            ("FICHAS", Hojas.FICHAS),
+            ("RESPONSABLES", Hojas.RESPONSABLES),
+            ("CLIENTES", Hojas.CLIENTES),
+            ("PNC INYECCION", Hojas.PNC_INYECCION),
+            ("PNC PULIDO", Hojas.PNC_PULIDO),
+            ("PNC ENSAMBLE", Hojas.PNC_ENSAMBLE)
+        ]
+        
+        for nombre_display, nombre_real in todas_hojas:
+            try:
+                ws = ss.worksheet(nombre_real)
+                encabezados = ws.row_values(1)
+                primera_fila = ws.row_values(2) if ws.row_count > 1 else []
+                
+                resultado[nombre_display] = {
+                    'existe': True,
+                    'nombre_real': nombre_real,
+                    'encabezados': encabezados,
+                    'total_filas': ws.row_count,
+                    'muestra_primera': dict(zip(encabezados, primera_fila + [''] * (len(encabezados) - len(primera_fila)))) if primera_fila else {}
+                }
+                
+                print(f"✅ {nombre_display} ({nombre_real}): {len(encabezados)} columnas, {ws.row_count} filas")
+                
+            except Exception as e:
+                resultado[nombre_display] = {
+                    'existe': False,
+                    'nombre_real': nombre_real,
+                    'error': str(e)
+                }
+                print(f"❌ {nombre_display} ({nombre_real}): NO EXISTE - {e}")
+        
+        return jsonify({
+            'status': 'success',
+            'archivo': GSHEET_FILE_NAME,
+            'hojas': resultado
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint para verificar que la app está funcionando."""
+    try:
+        # Verificar conexión a Google Sheets
+        ss = gc.open(GSHEET_FILE_NAME)
+        hojas = [ws.title for ws in ss.worksheets()]
+        
+        return jsonify({
+            "status": "healthy",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "service": "bujes_produccion",
+            "google_sheets": {
+                "connected": True,
+                "file": GSHEET_FILE_NAME,
+                "sheets_count": len(hojas),
+                "sheets_sample": hojas[:5]  # Primeras 5 hojas
+            },
+            "endpoints": {
+                "obtener_responsables": "/api/obtener_responsables",
+                "obtener_clientes": "/api/obtener_clientes",
+                "obtener_productos": "/api/obtener_productos",
+                "debug_conexion": "/api/debug/conexion"
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        }), 500
+
 @app.route('/api/inyeccion', methods=['POST'])
 def handle_inyeccion():
     """Endpoint para registrar operaciones de inyección."""
@@ -491,7 +686,7 @@ def handle_pulido():
                 cleaned['lote'], cleaned['orden_produccion'], cleaned['cantidad_recibida'], 
                 cleaned['pnc'], cleaned['cantidad_real'], cleaned['observaciones'], "P. TERMINADO", ""
             ]
-            registrar_log_operacion(Hojas.LOG_PULIDO, fila_pul)
+            registrar_log_operacion(Hojas.PULIDO, fila_pul)
 
             if cleaned['pnc'] > 0:
                 registrar_pnc_detalle(
@@ -758,12 +953,64 @@ def obtener_ficha(id_codigo):
 def obtener_responsables():
     """Obtiene la lista de responsables activos."""
     try:
-        ws = gc.open(GSHEET_FILE_NAME).worksheet(Hojas.RESPONSABLES)
-        nombres = [r['RESPONSABLE'] for r in ws.get_all_records() if str(r.get('ACTIVO?', '')) == '1']
-        return jsonify(nombres), 200
+        logger.info(f"🔍 Obteniendo responsables desde: {GSHEET_FILE_NAME}")
+        
+        # Debug: listar todas las hojas primero
+        ss = gc.open(GSHEET_FILE_NAME)
+        hojas = [ws.title for ws in ss.worksheets()]
+        logger.info(f"📋 Hojas disponibles: {hojas}")
+        
+        # Intentar diferentes nombres de hoja
+        nombres_posibles = [
+            Hojas.RESPONSABLES,
+            "RESPONSABLES",
+            "Responsables",
+            "OPERARIOS",
+            "Operarios"
+        ]
+        
+        for nombre_hoja in nombres_posibles:
+            try:
+                logger.info(f"🔍 Probando hoja: {nombre_hoja}")
+                ws = ss.worksheet(nombre_hoja)
+                registros = ws.get_all_records()
+                logger.info(f"✅ Encontrada hoja {nombre_hoja} con {len(registros)} registros")
+                
+                # Verificar estructura
+                if registros:
+                    logger.info(f"📝 Encabezados: {list(registros[0].keys())}")
+                
+                nombres = []
+                for r in registros:
+                    # Buscar responsable en diferentes columnas posibles
+                    for col in ['RESPONSABLE', 'NOMBRE', 'OPERARIO', 'NOMBRE COMPLETO']:
+                        if col in r and r[col]:
+                            responsable = str(r[col]).strip()
+                            # Verificar si está activo
+                            activo = str(r.get('ACTIVO?', r.get('ACTIVO', r.get('ESTADO', '1')))).strip()
+                            if activo == '1' and responsable:
+                                nombres.append(responsable)
+                                break
+                
+                logger.info(f"👥 Responsables encontrados: {len(nombres)}")
+                return jsonify(sorted(list(set(nombres)))), 200
+                
+            except Exception as e:
+                logger.warning(f"❌ Hoja {nombre_hoja} no encontrada: {e}")
+                continue
+        
+        # Si no encontró ninguna hoja, crear datos de ejemplo
+        logger.warning("⚠️ No se encontró hoja de responsables, usando datos de ejemplo")
+        ejemplo_responsables = [
+            "OPERADOR 1", "OPERADOR 2", "OPERADOR 3",
+            "SUPERVISOR", "ADMINISTRADOR"
+        ]
+        return jsonify(ejemplo_responsables), 200
+        
     except Exception as e:
-        print(f"Error obteniendo responsables: {e}")
-        return jsonify([]), 500
+        logger.error(f"❌ ERROR crítico en obtener_responsables: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/obtener_clientes', methods=['GET'])
 def obtener_clientes():
@@ -1300,7 +1547,7 @@ def indicador_pulido():
     """Indicador avanzado de pulido."""
     try:
         ss = gc.open(GSHEET_FILE_NAME)
-        ws_pul = ss.worksheet(Hojas.LOG_PULIDO)
+        ws_pul = ss.worksheet(Hojas.PULIDO)
         pulidos = ws_pul.get_all_records()
         
         hoy = datetime.datetime.now()
@@ -1594,7 +1841,7 @@ def produccion_operario_ranking():
         # 2. Buscar en PULIDO si hay pocos datos
         if len(datos_operarios) < 3:
             try:
-                ws_pul = ss.worksheet(Hojas.LOG_PULIDO)
+                ws_pul = ss.worksheet(Hojas.PULIDO)
                 registros_pul = ws_pul.get_all_records()
                 print(f"Registros en PULIDO: {len(registros_pul)}")
                 
@@ -2127,7 +2374,7 @@ def obtener_detalles_dashboard(tipo):
             
         elif tipo == 'pulido':
             # Detalles específicos de pulido
-            ws_pul = ss.worksheet(Hojas.LOG_PULIDO)
+            ws_pul = ss.worksheet(Hojas.PULIDO)
             registros = ws_pul.get_all_records()
             
             hoy = datetime.datetime.now()
@@ -2283,7 +2530,7 @@ def obtener_movimientos_producto(codigo):
 
         # 2. PULIDO
         try:
-            ws_pul = ss.worksheet(Hojas.LOG_PULIDO)
+            ws_pul = ss.worksheet(Hojas.PULIDO)
             pulidos = ws_pul.get_all_records()
             print(f"\n📊 PULIDO: {len(pulidos)} registros totales")
 
@@ -2499,6 +2746,68 @@ def obtener_movimientos_producto(codigo):
 # ENDPOINTS DE DEBUG
 # ====================================================================
 
+@app.route('/api/debug/conexion', methods=['GET'])
+def debug_conexion():
+    """Debug completo de la conexión a Google Sheets."""
+    try:
+        info = {
+            'estado': 'conectando',
+            'archivo': GSHEET_FILE_NAME,
+            'hojas_esperadas': [
+                Hojas.INYECCION,
+                Hojas.PULIDO,
+                Hojas.ENSAMBLES,
+                Hojas.FACTURACION,
+                Hojas.PRODUCTOS
+            ]
+        }
+        
+        # Probar conexión
+        ss = gc.open(GSHEET_FILE_NAME)
+        info['archivo_encontrado'] = True
+        info['titulo_archivo'] = ss.title
+        
+        # Listar todas las hojas
+        worksheets = ss.worksheets()
+        info['hojas_encontradas'] = [ws.title for ws in worksheets]
+        info['total_hojas'] = len(worksheets)
+        
+        # Verificar hojas específicas
+        hojas_faltantes = []
+        for hoja_esperada in info['hojas_esperadas']:
+            try:
+                ws = ss.worksheet(hoja_esperada)
+                hojas_faltantes.append({
+                    'nombre': hoja_esperada,
+                    'existe': True,
+                    'filas': ws.row_count,
+                    'columnas': ws.col_count
+                })
+            except Exception as e:
+                hojas_faltantes.append({
+                    'nombre': hoja_esperada,
+                    'existe': False,
+                    'error': str(e)
+                })
+        
+        info['verificacion_hojas'] = hojas_faltantes
+        
+        return jsonify({
+            'status': 'success',
+            'conexion': True,
+            'info': info,
+            'timestamp': datetime.datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'conexion': False,
+            'error': str(e),
+            'archivo_buscado': GSHEET_FILE_NAME,
+            'timestamp': datetime.datetime.now().isoformat()
+        }), 500
+
 @app.route('/api/debug/hojas', methods=['GET'])
 def debug_hojas():
     """Debug: Muestra todas las hojas y sus columnas."""
@@ -2506,7 +2815,7 @@ def debug_hojas():
         ss = gc.open(GSHEET_FILE_NAME)
         hojas_info = {}
         
-        for nombre_hoja in [Hojas.INYECCION, Hojas.LOG_PULIDO, Hojas.FACTURACION, Hojas.ENSAMBLES]:
+        for nombre_hoja in [Hojas.INYECCION, Hojas.PULIDO, Hojas.FACTURACION, Hojas.ENSAMBLES]:
             try:
                 ws = ss.worksheet(nombre_hoja)
                 encabezados = ws.row_values(1)
@@ -2535,7 +2844,7 @@ def debug_columnas_detalle():
         
         for nombre_hoja, hoja_enum in [
             ("INYECCION", Hojas.INYECCION),
-            ("LOG_PULIDO", Hojas.LOG_PULIDO),
+            ("LOG_PULIDO", Hojas.PULIDO),
             ("ENSAMBLES", Hojas.ENSAMBLES),
             ("FACTURACION", Hojas.FACTURACION)
         ]:
@@ -2588,14 +2897,27 @@ def serve_static(path):
 # INICIO DEL SERVIDOR
 # ====================================================================
 
+# ====================================================================
+# INICIO DEL SERVIDOR
+# ====================================================================
+
 if __name__ == '__main__':
     print("=" * 50)
     print("SISTEMA DE PRODUCCIÓN CON PNC Y FACTURACIÓN")
-    print("CON CACHÉ IMPLEMENTADO (TTL: 120 segundos)")
+    print(f"ARCHIVO: {GSHEET_FILE_NAME}")
     print("=" * 50)
-    print("Servidor iniciado en http://127.0.0.1:5000")
-    print("Endpoints de caché disponibles:")
-    print("- GET /api/cache/estado    - Ver estado del caché")
-    print("- POST /api/cache/invalidar - Forzar invalidación del caché")
+    
+    # Obtener puerto de variable de entorno (Render) o usar 8080 por defecto
+    port = int(os.environ.get('PORT', 8080))
+    host = '0.0.0.0'
+    
+    print(f"🌐 Servidor iniciando en http://{host}:{port}")
+    print("📊 Endpoints disponibles:")
+    print(f"- GET  /api/health           - Health check")
+    print(f"- GET  /api/obtener_responsables - Lista de responsables")
+    print(f"- GET  /api/obtener_clientes - Lista de clientes")
+    print(f"- GET  /api/obtener_productos - Lista de productos")
+    print(f"- GET  /api/debug/conexion   - Debug de conexión")
     print("=" * 50)
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    
+    app.run(host=host, port=port, debug=False)  # debug=False en producción
