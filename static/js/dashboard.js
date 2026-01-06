@@ -336,82 +336,76 @@ function actualizarEstadisticasRanking() {
         </div>
     `;
 }
-// Cargar dashboard completo con datos REALES
+// Cargar dashboard completo - VERSIÓN SIMPLE
 async function cargarDashboardCompleto() {
     try {
-        console.log('🔄 Cargando dashboard con datos reales...');
-        document.body.classList.add('updating');
+        console.log('🔄 Iniciando carga de dashboard...');
         
-        // 1. CARGAR DATOS REALES DEL BACKEND
-        const dataReal = await fetchData('/api/dashboard/real');
+        // Llamar endpoint simple
+        const response = await fetch('/api/dashboard/real');
         
-        if (!dataReal) {
-            throw new Error('No se recibieron datos del dashboard');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
         
-        console.log('✅ Datos del dashboard:', dataReal);
+        const data = await response.json();
+        console.log('✅ Datos recibidos:', data);
         
-        // 2. ACTUALIZAR TARJETAS SUPERIORES
-        const elemProduccion = document.getElementById('produccion-total');
-        if (elemProduccion) {
-            elemProduccion.textContent = formatNumber(dataReal.produccion_total || 0);
+        // Actualizar elementos del DOM
+        updateDashboardElement('produccion-total', data.produccion_total || 0);
+        updateDashboardElement('ventas-totales', data.ventas_totales || 0);
+        updateDashboardElement('eficiencia-global', data.eficiencia_global || 0);
+        updateDashboardElement('stock-critico', data.stock_critico || 0);
+        
+        // Actualizar Inyección
+        if (data.inyeccion) {
+            updateDashboardElement('produccion-inyeccion', data.inyeccion.produccion || 0);
+            updateDashboardElement('pnc-inyeccion', data.inyeccion.pnc || 0);
+            updateDashboardElement('eficiencia-inyeccion', data.inyeccion.eficiencia || 0);
         }
         
-        const elemVentas = document.getElementById('ventas-totales');
-        if (elemVentas) {
-            elemVentas.textContent = `$${formatNumber(dataReal.ventas_totales || 0)}`;
+        // Actualizar Pulido
+        if (data.pulido) {
+            updateDashboardElement('produccion-pulido', data.pulido.produccion || 0);
+            updateDashboardElement('pnc-pulido', data.pulido.pnc || 0);
+            updateDashboardElement('eficiencia-pulido', data.pulido.eficiencia || 0);
         }
         
-        const elemEficiencia = document.getElementById('eficiencia-global');
-        if (elemEficiencia) {
-            elemEficiencia.textContent = `${(dataReal.eficiencia_global || 0).toFixed(1)}%`;
-        }
-        
-        const elemStock = document.getElementById('stock-critico');
-        if (elemStock) {
-            elemStock.textContent = dataReal.stock_critico || 0;
-        }
-        
-        // 3. ACTUALIZAR INYECCION
-        if (dataReal.inyeccion) {
-            const elemProd = document.querySelector('[id*="produccion-inyeccion"]') || document.getElementById('produccion-inyeccion');
-            if (elemProd) elemProd.textContent = formatNumber(dataReal.inyeccion.produccion || 0);
-            
-            const elemPNC = document.querySelector('[id*="pnc-inyeccion"]') || document.getElementById('pnc-inyeccion');
-            if (elemPNC) elemPNC.textContent = dataReal.inyeccion.pnc || 0;
-            
-            const elemEf = document.querySelector('[id*="eficiencia-inyeccion"]') || document.getElementById('eficiencia-inyeccion');
-            if (elemEf) elemEf.textContent = `${(dataReal.inyeccion.eficiencia || 0).toFixed(1)}%`;
-        }
-        
-        // 4. ACTUALIZAR PULIDO
-        if (dataReal.pulido) {
-            const elemProd = document.querySelector('[id*="produccion-pulido"]') || document.getElementById('produccion-pulido');
-            if (elemProd) elemProd.textContent = formatNumber(dataReal.pulido.produccion || 0);
-            
-            const elemPNC = document.querySelector('[id*="pnc-pulido"]') || document.getElementById('pnc-pulido');
-            if (elemPNC) elemPNC.textContent = dataReal.pulido.pnc || 0;
-            
-            const elemEf = document.querySelector('[id*="eficiencia-pulido"]') || document.getElementById('eficiencia-pulido');
-            if (elemEf) elemEf.textContent = `${(dataReal.pulido.eficiencia || 0).toFixed(1)}%`;
-        }
-        
-        // 5. ACTUALIZAR ENSAMBLE
-        if (dataReal.ensamble) {
-            const elemProd = document.querySelector('[id*="produccion-ensamble"]') || document.getElementById('produccion-ensamble');
-            if (elemProd) elemProd.textContent = formatNumber(dataReal.ensamble.produccion || 0);
+        // Actualizar Ensamble
+        if (data.ensamble) {
+            updateDashboardElement('produccion-ensamble', data.ensamble.produccion || 0);
         }
         
         console.log('✅ Dashboard actualizado correctamente');
-        mostrarNotificacion('Dashboard actualizado correctamente', 'success');
+        mostrarNotificacion('Dashboard cargado correctamente', 'success');
         
     } catch (error) {
-        console.error('❌ Error cargando dashboard:', error);
-        mostrarNotificacion('Error cargando dashboard: ' + error.message, 'error');
-    } finally {
-        document.body.classList.remove('updating');
+        console.error('❌ Error en dashboard:', error);
+        mostrarNotificacion(`Error: ${error.message}`, 'error');
     }
 }
+
+// Función auxiliar para actualizar elementos
+function updateDashboardElement(elementId, valor) {
+    try {
+        const elem = document.getElementById(elementId);
+        if (elem) {
+            if (typeof valor === 'number' && elementId.includes('eficiencia')) {
+                elem.textContent = valor.toFixed(1) + '%';
+            } else if (elementId.includes('ventas')) {
+                elem.textContent = '$' + formatNumber(valor);
+            } else {
+                elem.textContent = formatNumber(valor);
+            }
+            console.log(`✅ ${elementId} = ${valor}`);
+        } else {
+            console.warn(`⚠️ Elemento no encontrado: ${elementId}`);
+        }
+    } catch (e) {
+        console.error(`Error actualizando ${elementId}:`, e);
+    }
+}
+
 
 
 // Cargar endpoint específico
