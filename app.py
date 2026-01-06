@@ -676,132 +676,157 @@ def health_check():
         }), 500
 
 # ========== ENDPOINT INYECCIÓN - VERSIÓN CORREGIDA ==========
+# ========== NORMALIZACIÓN Y BÚSQUEDA DE PRODUCTOS ==========
+
+def obtener_producto_por_codigo(codigo_entrada: str):
+    """
+    Busca un producto aceptando CODIGO SISTEMA (FR-9304) o ID CODIGO (9304).
+    Devuelve un diccionario con ambos códigos o None si no lo encuentra.
+    """
+    if not codigo_entrada:
+        return None
+    
+    try:
+        entrada_limpia = str(codigo_entrada).strip().upper()
+        
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet("PRODUCTOS")
+        registros = ws.get_all_records()
+        
+        # Búsqueda exacta por CODIGO SISTEMA o ID CODIGO
+        for r in registros:
+            codigo_sistema = str(r.get("CODIGO SISTEMA", "")).strip().upper()
+            id_codigo = str(r.get("ID CODIGO", "")).strip().upper()
+            
+            if codigo_sistema == entrada_limpia or id_codigo == entrada_limpia:
+                return {
+                    "id_codigo": str(r.get("ID CODIGO", "")).strip(),
+                    "codigo_sistema": str(r.get("CODIGO SISTEMA", "")).strip(),
+                    "descripcion": str(r.get("DESCRIPCION", "")).strip()
+                }
+        
+        print(f"⚠️ Producto no encontrado: {codigo_entrada}")
+        return None
+        
+    except Exception as e:
+        print(f"❌ Error buscando producto: {e}")
+        return None
+
+
+def actualizar_stock_producto(codigo_sistema: str, cantidad: int):
+    """
+    Actualiza el stock en PRODUCTOS. Busca por CODIGO SISTEMA y suma a POR PULIR.
+    """
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet("PRODUCTOS")
+        
+        headers = ws.row_values(1)
+        col_por_pulir = headers.index("POR PULIR") + 1
+        
+        registros = ws.get_all_records()
+        for idx, r in enumerate(registros):
+            if str(r.get("CODIGO SISTEMA", "")).strip() == codigo_sistema:
+                stock_actual = int(r.get("POR PULIR", 0) or 0)
+                nuevo_stock = stock_actual + cantidad
+                ws.update_cell(idx + 2, col_por_pulir, nuevo_stock)
+                print(f"✅ Stock: {codigo_sistema} POR PULIR = {nuevo_stock}")
+                return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"⚠️ Stock error: {e}")
+        return False
+
 
 @app.route('/api/inyeccion', methods=['POST'])
 def registrar_inyeccion():
     """
-    Registra INYECCION con headers exactos y descuento automático de PNC.
+    Registra INYECCION usando ID CODIGO en el registro y CODIGO SISTEMA para stock.
     """
     try:
         data = request.json
-        print(f"📥 Datos recibidos en /api/inyeccion: {data}")
+        print(f"📥 POST /api/inyeccion: {data}")
         
-        # 1. VALIDAR DATOS BÁSICOS
-        valido, errores, cleaned = validate_form(data, "inyeccion")
-        if not valido:
-            print(f"❌ Validación fallida: {errores}")
-            return jsonify({"success": False, "errors": errores}), 400
+        # 1. OBTENER PRODUCTO (acepta 9304 o FR-9304)
+        producto = obtener_producto_por_codigo(data.get("codigo_producto", ""))
+        if not producto:
+            return jsonify({
+                "success": False, 
+                "error": "Producto no encontrado"
+            }), 400
         
-        # 2. VALIDAR MÁQUINA (debe existir en maestro)
-        maquina_raw = cleaned.get("maquina", "").strip()
-        if not maquina_raw:
-            return jsonify({"success": False, "error": "Máquina es obligatoria"}), 400
+        id_codigo = producto["id_codigo"]          # 9304
+        codigo_sistema = producto["codigo_sistema"]  # FR-9304
         
-        # Usar máquina tal cual viene del formulario (validar en frontend)
-        maquina = maquina_raw
+        # 2. VALIDACIÓN Y CÁLCULOS
+        try:
+            cantidad_real = int(data.get("cantidad_real", 0) or 0)
+            pnc = int(data.get("pnc", 0) or 0)
+            cantidad_buena = max(0, cantidad_real - pnc)
+        except ValueError:
+            return jsonify({
+                "success": False, 
+                "error": "Cantidad y PNC deben ser números"
+            }), 400
         
-        # 3. OBTENER CÓDIGO REAL
-        codigo_sistema = obtener_codigo_sistema_real(cleaned["codigo_producto"])
-        print(f"✓ Código sistema obtenido: {codigo_sistema}")
-        
-        # 4. CREAR ID INYECCION ÚNICO
-        id_inyeccion = f"INY-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
-        # 5. PREPARAR FILA CON HEADERS EXACTOS (en orden exacto)
-        cantidad_total = int(cleaned.get("cantidad_real", 0) or 0)
-        cantidad_pnc = int(cleaned.get("pnc", 0) or 0)
-        cantidad_buena = cantidad_total - cantidad_pnc
-        
+        # 3. PREPARAR FILA PARA INYECCION (usa ID CODIGO)
         fila = [
-            id_inyeccion,                              # ID INYECCION
-            cleaned.get("fecha_inicio", ""),           # FECHA INICIA
-            cleaned.get("fecha_fin", ""),              # FECHA FIN
-            "Inyección",                               # DEPARTAMENTO (fijo)
-            maquina,                                   # MAQUINA (validar en frontend)
-            cleaned.get("responsable", ""),            # RESPONSABLE
-            codigo_sistema,                            # ID CODIGO (código sistema real)
-            cleaned.get("no_cavidades", "1"),          # No. CAVIDADES
-            cleaned.get("hora_inicio", "00:00"),       # HORA LLEGADA
-            cleaned.get("hora_inicio", "00:00"),       # HORA INICIO
-            cleaned.get("hora_fin", "00:00"),          # HORA TERMINA
-            cleaned.get("contador_maquina", ""),       # CONTADOR MAQ.
-            cantidad_total,                            # CANT. CONTADOR
-            cantidad_total,                            # TOMADOS EN PROCESO
-            cleaned.get("peso_vela_maquina", ""),      # PESO TOMADAS EN PROCESO
-            cantidad_buena,                            # CANTIDAD REAL (DESCUENTA PNC AQUÍ)
-            "POR PULIR",                               # ALMACEN DESTINO (fijo)
-            "",                                        # CODIGO ENSAMBLE (vacío)
-            cleaned.get("orden_produccion", ""),       # ORDEN PRODUCCION
-            cleaned.get("observaciones", ""),          # OBSERVACIONES
-            cleaned.get("peso_vela_maquina", ""),      # PESO VELA MAQUINA
-            cleaned.get("peso_bujes", "")              # PESO BUJES
+            f"INY-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",  # ID INYECCION
+            data.get("fecha_inicio", ""),                               # FECHA INICIA
+            data.get("fecha_fin", ""),                                  # FECHA FIN
+            "Inyección",                                                # DEPARTAMENTO
+            data.get("maquina", ""),                                    # MAQUINA
+            data.get("responsable", ""),                                # RESPONSABLE
+            id_codigo,                                                  # ID CODIGO ← (9304)
+            data.get("no_cavidades", "1"),                              # No. CAVIDADES
+            data.get("hora_inicio", "00:00"),                           # HORA LLEGADA
+            data.get("hora_inicio", "00:00"),                           # HORA INICIO
+            data.get("hora_fin", "00:00"),                              # HORA TERMINA
+            data.get("contador_maquina", ""),                           # CONTADOR MAQ.
+            cantidad_real,                                              # CANT. CONTADOR
+            cantidad_real,                                              # TOMADOS EN PROCESO
+            data.get("peso_vela_maquina", ""),                          # PESO TOMADAS
+            cantidad_buena,                                             # CANTIDAD REAL
+            "POR PULIR",                                                # ALMACEN DESTINO
+            "",                                                         # CODIGO ENSAMBLE
+            data.get("orden_produccion", ""),                           # ORDEN PRODUCCION
+            data.get("observaciones", ""),                              # OBSERVACIONES
+            data.get("peso_vela_maquina", ""),                          # PESO VELA
+            data.get("peso_bujes", "")                                  # PESO BUJES
         ]
         
-        print(f"📝 Fila a registrar ({len(fila)} columnas): {fila[:5]}...")
+        # 4. REGISTRAR EN INYECCION
+        exito = registrar_log_operacion("INYECCION", fila)
+        if not exito:
+            return jsonify({
+                "success": False, 
+                "error": "Error al registrar en base de datos"
+            }), 500
         
-        # 6. REGISTRAR EN INYECCION (con headers correctos)
-        exito_log = registrar_log_operacion("INYECCION", fila)
-        if not exito_log:
-            print("❌ Error registrando en INYECCION")
-            return jsonify({"success": False, "error": "Error registrando en INYECCION"}), 500
-        
-        print(f"✅ Registro exitoso en INYECCION: {id_inyeccion}")
-        
-        # 7. ACTUALIZAR STOCK (mover a POR PULIR)
+        # 5. ACTUALIZAR STOCK EN PRODUCTOS (usa CODIGO SISTEMA)
         if cantidad_buena > 0:
-            try:
-                # Obtener stock actual
-                stock_actual = obtener_stock(codigo_sistema, "POR PULIR")
-                nuevo_stock = stock_actual + cantidad_buena
-                
-                # Actualizar stock en PRODUCTOS
-                ss = gc.open_by_key(GSHEET_KEY)
-                ws = ss.worksheet("PRODUCTOS")
-                headers = ws.row_values(1)
-                
-                try:
-                    col_index = headers.index("POR PULIR") + 1
-                    # Buscar fila del producto
-                    registros = ws.get_all_records()
-                    for idx, r in enumerate(registros):
-                        if str(r.get("CODIGO SISTEMA", "")).strip() == codigo_sistema:
-                            ws.update_cell(idx + 2, col_index, nuevo_stock)
-                            print(f"✅ Stock actualizado: {codigo_sistema} en POR PULIR = {nuevo_stock}")
-                            break
-                except Exception as e:
-                    print(f"⚠️ No se actualizó stock en PRODUCTOS: {e}")
-            except Exception as e:
-                print(f"⚠️ Error en stock: {e}")
+            actualizar_stock_producto(codigo_sistema, cantidad_buena)
         
-        # 8. REGISTRAR PNC SI EXISTE
-        if cantidad_pnc > 0:
-            registrar_pnc_detalle(
-                tipo_proceso="inyeccion",
-                id_operacion=id_inyeccion,
-                codigo_producto=codigo_sistema,
-                cantidad_pnc=cantidad_pnc,
-                criterio_pnc=cleaned.get("criterio_pnc", "No especificado"),
-                observaciones=f"Descuento automático de PNC en inyección: {cleaned.get('observaciones', '')}"
-            )
-            print(f"✅ PNC registrado: {cantidad_pnc} piezas")
-        
-        # 9. RESPUESTA
-        respuesta = {
+        # 6. RESPONDER
+        print(f"✅ Inyección registrada: {cantidad_buena} piezas de {producto['descripcion']}")
+        return jsonify({
             "success": True,
-            "id_inyeccion": id_inyeccion,
-            "cantidad_total": cantidad_total,
-            "cantidad_pnc": cantidad_pnc,
+            "id_codigo": id_codigo,
+            "codigo_sistema": codigo_sistema,
             "cantidad_buena": cantidad_buena,
-            "mensaje": f"✅ Inyección registrada: {cantidad_buena} piezas buenas a POR PULIR, {cantidad_pnc} PNC descuentadas"
-        }
+            "mensaje": f"✅ Inyección registrada: {cantidad_buena} piezas de {producto['descripcion']}"
+        }), 201
         
-        print(f"📤 Respuesta: {respuesta}")
-        return jsonify(respuesta), 201
-    
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO en /api/inyeccion: {type(e).__name__}: {str(e)}")
+        print(f"❌ ERROR /api/inyeccion: {str(e)}")
         traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({
+            "success": False, 
+            "error": str(e)
+        }), 500
+
 
 @app.route('/api/pulido', methods=['POST'])
 def handle_pulido():
