@@ -3102,12 +3102,12 @@ def obtener_config_cavidades():
     try:
         # Configuración de cavidades por máquina (puedes personalizar esto)
         config = {
-            "cavidades_disponibles": [1, 2, 4, 6, 8, 12, 16, 24, 32, 48],
+            "cavidades_disponibles": [1, 2, 3, 4, 5, 6],
             "cavidades_por_defecto": 1,
             "maquinas_config": {
-                "INYECTORA 1": {"cavidades": [1, 2, 4, 6, 8], "default": 1},
-                "INYECTORA 2": {"cavidades": [1, 2, 4, 6, 8], "default": 2},
-                "INYECTORA 3": {"cavidades": [2, 4, 6, 8, 12], "default": 4},
+                "INYECTORA 1": {"cavidades": [1, 2, 3, 4, 5, 6], "default": 1},
+                "INYECTORA 2": {"cavidades": [1, 2, 3, 4, 5, 6], "default": 2},
+                "INYECTORA 3": {"cavidades": [2, 3, 4, 5, 6], "default": 3},
                 "INYECTORA 4": {"cavidades": [4, 6, 8, 12, 16], "default": 8},
                 "INYECTORA 5": {"cavidades": [8, 12, 16, 24, 32], "default": 12},
                 "INYECTORA 6": {"cavidades": [16, 24, 32, 48], "default": 24}
