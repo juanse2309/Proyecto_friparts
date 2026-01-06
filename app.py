@@ -1269,7 +1269,15 @@ def listar_productos():
         
         productos = []
         for r in registros:
-            codigo = r.get('CODIGO SISTEMA', '').strip()
+            codigo = str(
+                r.get('CODIGO SISTEMA', '') or 
+                r.get('ID CODIGO', '') or
+                r.get('CODIGO', '') or
+                r.get("REFERENCIA", '') 
+                or ""
+            ).strip()    
+               
+
             if codigo:
                 stock_por_pulir = int(r.get('POR PULIR', 0) or 0)
                 stock_term = int(r.get('P. TERMINADO', 0) or 0)
@@ -2820,6 +2828,82 @@ def stock_inteligente():
         
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+    
+# ========== DASHBOARD SIMPLE ==========
+
+@app.route('/api/dashboard/real', methods=['GET'])
+def dashboard_real():
+    """Dashboard simple sin complicaciones para las tarjetas principales."""
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+
+        # INYECCION
+        try:
+            ws_iny = ss.worksheet(Hojas.INYECCION)
+            registros = ws_iny.get_all_records()
+            produccion_iny = sum(int(str(r.get("CANTIDAD REAL", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD REAL"))
+            pnc_iny = sum(int(str(r.get("PNC", "") or 0).replace(",", "")) for r in registros if r.get("PNC"))
+            eficiencia_iny = ((produccion_iny - pnc_iny) / (produccion_iny + pnc_iny) * 100) if (produccion_iny + pnc_iny) > 0 else 0
+        except Exception as e:
+            print(f"[DASH] Error INYECCION: {e}")
+            produccion_iny = pnc_iny = eficiencia_iny = 0
+
+        # PULIDO
+        try:
+            ws_pul = ss.worksheet(Hojas.PULIDO)
+            registros = ws_pul.get_all_records()
+            produccion_pul = sum(int(str(r.get("CANTIDAD RECIBIDA", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD RECIBIDA"))
+            pnc_pul = sum(int(str(r.get("PNC", "") or 0).replace(",", "")) for r in registros if r.get("PNC"))
+            eficiencia_pul = ((produccion_pul - pnc_pul) / (produccion_pul + pnc_pul) * 100) if (produccion_pul + pnc_pul) > 0 else 0
+        except Exception as e:
+            print(f"[DASH] Error PULIDO: {e}")
+            produccion_pul = pnc_pul = eficiencia_pul = 0
+
+        # ENSAMBLES
+        try:
+            ws_ens = ss.worksheet(Hojas.ENSAMBLES)
+            registros = ws_ens.get_all_records()
+            produccion_ens = sum(int(str(r.get("CANTIDAD", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD"))
+        except Exception as e:
+            print(f"[DASH] Error ENSAMBLES: {e}")
+            produccion_ens = 0
+
+        # FACTURACION
+        try:
+            ws_fac = ss.worksheet(Hojas.FACTURACION)
+            registros = ws_fac.get_all_records()
+            ventas = sum(float(str(r.get("TOTAL VENTA", "") or 0).replace(",", "")) for r in registros if r.get("TOTAL VENTA"))
+        except Exception as e:
+            print(f"[DASH] Error FACTURACION: {e}")
+            ventas = 0
+
+        data = {
+            "produccion_total": produccion_iny + produccion_pul + produccion_ens,
+            "ventas_totales": ventas,
+            "eficiencia_global": (eficiencia_iny + eficiencia_pul) / 2 if (eficiencia_iny + eficiencia_pul) > 0 else 0,
+            "stock_critico": 0,
+            "inyeccion": {
+                "produccion": produccion_iny,
+                "pnc": pnc_iny,
+                "eficiencia": eficiencia_iny,
+            },
+            "pulido": {
+                "produccion": produccion_pul,
+                "pnc": pnc_pul,
+                "eficiencia": eficiencia_pul,
+            },
+            "ensamble": {
+                "produccion": produccion_ens,
+            }
+        }
+
+        return jsonify(data), 200
+    except Exception as e:
+        import traceback
+        print(f"❌ ERROR /api/dashboard/real: {e}")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
     
 @app.route('/api/dashboard/detalles/<tipo>', methods=['GET'])
 def obtener_detalles_dashboard(tipo):
