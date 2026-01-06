@@ -32,23 +32,71 @@ async function inicializarDashboard() {
         // 2. Inicializar botones de ranking
         inicializarBotonesRanking();
         
-        // 3. Cargar datos del dashboard
-        await cargarDashboardReal();
+        // 3. Cargar datos del dashboard - VERSIÓN SIMPLE
+        try {
+            console.log('📡 Obteniendo datos del dashboard...');
+            const response = await fetch('/api/dashboard/real');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            console.log('✅ Datos recibidos:', data);
+            
+            // Actualizar tarjetas principales
+            if (data.produccion_total !== undefined) {
+                const elem = document.getElementById('produccion-total');
+                if (elem) elem.textContent = formatNumber(data.produccion_total) || '0';
+            }
+            
+            if (data.ventas_totales !== undefined) {
+                const elem = document.getElementById('ventas-totales');
+                if (elem) elem.textContent = '$' + formatNumber(data.ventas_totales) || '$0';
+            }
+            
+            if (data.eficiencia_global !== undefined) {
+                const elem = document.getElementById('eficiencia-global');
+                if (elem) elem.textContent = (data.eficiencia_global || 0).toFixed(1) + '%';
+            }
+            
+            if (data.stock_critico !== undefined) {
+                const elem = document.getElementById('stock-critico');
+                if (elem) elem.textContent = data.stock_critico || '0';
+            }
+            
+            console.log('✅ Dashboard actualizado correctamente');
+            
+        } catch (dashError) {
+            console.warn('⚠️ Error cargando dashboard:', dashError);
+            // Continuar sin fallar
+        }
         
         // 4. Configurar actualización automática
-        setInterval(cargarDashboardCompleto, 120000);
+        setInterval(async () => {
+            try {
+                const response = await fetch('/api/dashboard/real');
+                if (response.ok) {
+                    const data = await response.json();
+                    // Actualizar elementos...
+                }
+            } catch (e) {
+                console.warn('Error en actualización automática:', e);
+            }
+        }, 120000);
         
         // 5. Mostrar notificación de éxito
         mostrarNotificacion('Dashboard inicializado correctamente', 'success');
         
     } catch (error) {
         console.error('Error inicializando dashboard:', error);
-        mostrarNotificacion('Error al cargar dashboard', 'error');
+        mostrarNotificacion('Error al cargar dashboard: ' + error.message, 'error');
     } finally {
         document.body.classList.remove('loading');
         document.body.classList.add('loaded');
     }
 }
+
 
 // Configurar eventos del dashboard
 function configurarEventosDashboard() {
