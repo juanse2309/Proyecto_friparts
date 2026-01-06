@@ -1649,344 +1649,6 @@ def estado_cache():
 # DASHBOARD ANALÍTICO AVANZADO
 # ====================================================================
 
-def calcular_dashboard_simple():
-    """Dashboard simple sin complicaciones."""
-    try:
-        ss = gc.open_by_key(GSHEET_KEY)
-        
-        # INYECCION
-        try:
-            ws_iny = ss.worksheet("INYECCION")
-            registros = ws_iny.get_all_records()
-            produccion_iny = sum(int(str(r.get("CANTIDAD REAL", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD REAL"))
-            pnc_iny = sum(int(str(r.get("PNC", "") or 0).replace(",", "")) for r in registros if r.get("PNC"))
-            eficiencia_iny = ((produccion_iny - pnc_iny) / (produccion_iny + pnc_iny) * 100) if (produccion_iny + pnc_iny) > 0 else 0
-        except Exception as e:
-            print(f"⚠️ INYECCION error: {e}")
-            produccion_iny = pnc_iny = eficiencia_iny = 0
-        
-        # PULIDO
-        try:
-            ws_pul = ss.worksheet("PULIDO")
-            registros = ws_pul.get_all_records()
-            produccion_pul = sum(int(str(r.get("CANTIDAD RECIBIDA", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD RECIBIDA"))
-            pnc_pul = sum(int(str(r.get("PNC", "") or 0).replace(",", "")) for r in registros if r.get("PNC"))
-            eficiencia_pul = ((produccion_pul - pnc_pul) / (produccion_pul + pnc_pul) * 100) if (produccion_pul + pnc_pul) > 0 else 0
-        except Exception as e:
-            print(f"⚠️ PULIDO error: {e}")
-            produccion_pul = pnc_pul = eficiencia_pul = 0
-        
-        # ENSAMBLE
-        try:
-            ws_ens = ss.worksheet("ENSAMBLES")
-            registros = ws_ens.get_all_records()
-            produccion_ens = sum(int(str(r.get("CANTIDAD", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD"))
-        except Exception as e:
-            print(f"⚠️ ENSAMBLE error: {e}")
-            produccion_ens = 0
-        
-        # VENTAS
-        try:
-            ws_fac = ss.worksheet("FACTURACION")
-            registros = ws_fac.get_all_records()
-            ventas = sum(float(str(r.get("TOTAL VENTA", "") or 0).replace(",", "")) for r in registros if r.get("TOTAL VENTA"))
-        except Exception as e:
-            print(f"⚠️ FACTURACION error: {e}")
-            ventas = 0
-        
-        print(f"📊 Dashboard: INY={produccion_iny}, PUL={produccion_pul}, ENS={produccion_ens}, VENTAS={ventas}")
-        
-        return {
-            "produccion_total": produccion_iny + produccion_pul + produccion_ens,
-            "ventas_totales": ventas,
-            "eficiencia_global": (eficiencia_iny + eficiencia_pul) / 2 if (eficiencia_iny + eficiencia_pul) > 0 else 0,
-            "stock_critico": 0,
-            "inyeccion": {
-                "produccion": produccion_iny, 
-                "pnc": pnc_iny, 
-                "eficiencia": eficiencia_iny, 
-                "ranking_operarios": {}, 
-                "ranking_maquinas": {}
-            },
-            "pulido": {
-                "produccion": produccion_pul, 
-                "pnc": pnc_pul, 
-                "eficiencia": eficiencia_pul, 
-                "ranking_operarios": {}
-            },
-            "ensamble": {
-                "produccion": produccion_ens, 
-                "ranking_operarios": {}
-            }
-        }
-    except Exception as e:
-        print(f"❌ Dashboard error: {e}")
-        traceback.print_exc()
-        return {}
-
-
-# ========== FUNCIÓN CALCULAR DASHBOARD REAL ==========
-
-def calcular_dashboard_real():
-    """
-    Calcula métricas reales desde los registros de Google Sheets.
-    Retorna: producción total, ventas, eficiencia, rankings por proceso.
-    """
-    try:
-        ss = gc.open_by_key(GSHEET_KEY)
-        
-        # Período: mes actual
-        hoy = datetime.datetime.now()
-        inicio_mes = datetime.datetime(hoy.year, hoy.month, 1)
-        
-        # ========== INYECCION ==========
-        print("📊 Leyendo datos de INYECCION...")
-        ws_iny = ss.worksheet("INYECCION")
-        registros_iny = ws_iny.get_all_records()
-        
-        produccion_inyeccion = 0
-        pnc_inyeccion = 0
-        ranking_operarios_iny = {}
-        ranking_maquinas = {}
-        
-        for r in registros_iny:
-            try:
-                # Filtrar por mes
-                fecha_str = str(r.get("FECHA INICIA", "")).strip()
-                if fecha_str:
-                    try:
-                        fecha = datetime.datetime.fromisoformat(fecha_str.split()[0])
-                        if fecha < inicio_mes:
-                            continue
-                    except:
-                        pass
-                
-                # Cantidad (es la BUENA, ya descontó PNC)
-                cantidad = int(r.get("CANTIDAD REAL", 0) or 0)
-                produccion_inyeccion += cantidad
-                
-                # PNC si existe
-                pnc = 0
-                try:
-                    pnc = int(r.get("PNC", 0) or 0)
-                except:
-                    pnc = 0
-                pnc_inyeccion += pnc
-                
-                # Ranking por operario
-                operario = str(r.get("RESPONSABLE", "Desconocido")).strip()
-                if not operario or operario == "":
-                    operario = "Sin asignar"
-                if operario not in ranking_operarios_iny:
-                    ranking_operarios_iny[operario] = {"total": 0, "pnc": 0, "eficiencia": 0}
-                ranking_operarios_iny[operario]["total"] += cantidad
-                ranking_operarios_iny[operario]["pnc"] += pnc
-                
-                # Ranking por máquina
-                maquina = str(r.get("MAQUINA", "Desconocida")).strip()
-                if not maquina or maquina == "":
-                    maquina = "Desconocida"
-                if maquina not in ranking_maquinas:
-                    ranking_maquinas[maquina] = {"total": 0, "pnc": 0}
-                ranking_maquinas[maquina]["total"] += cantidad
-                ranking_maquinas[maquina]["pnc"] += pnc
-            
-            except Exception as e:
-                print(f"⚠️ Error procesando registro INYECCION: {e}")
-                continue
-        
-        # Calcular eficiencia INYECCION
-        if produccion_inyeccion > 0:
-            eficiencia_inyeccion = ((produccion_inyeccion - pnc_inyeccion) / (produccion_inyeccion + pnc_inyeccion)) * 100
-        else:
-            eficiencia_inyeccion = 0
-        
-        # Calcular eficiencia por operario
-        for operario in ranking_operarios_iny:
-            total = ranking_operarios_iny[operario]["total"]
-            pnc = ranking_operarios_iny[operario]["pnc"]
-            if (total + pnc) > 0:
-                ranking_operarios_iny[operario]["eficiencia"] = ((total) / (total + pnc)) * 100
-        
-        print(f"✅ INYECCION: {produccion_inyeccion} piezas, {pnc_inyeccion} PNC, {eficiencia_inyeccion:.1f}% eficiencia")
-        
-        # ========== PULIDO ==========
-        print("📊 Leyendo datos de PULIDO...")
-        ws_pul = ss.worksheet("PULIDO")
-        registros_pul = ws_pul.get_all_records()
-        
-        produccion_pulido = 0
-        pnc_pulido = 0
-        ranking_operarios_pul = {}
-        
-        for r in registros_pul:
-            try:
-                cantidad = int(r.get("CANTIDAD RECIBIDA", 0) or 0)
-                produccion_pulido += cantidad
-                
-                pnc = int(r.get("PNC", 0) or 0)
-                pnc_pulido += pnc
-                
-                operario = str(r.get("RESPONSABLE", "Desconocido")).strip()
-                if not operario or operario == "":
-                    operario = "Sin asignar"
-                if operario not in ranking_operarios_pul:
-                    ranking_operarios_pul[operario] = {"total": 0, "pnc": 0, "eficiencia": 0}
-                ranking_operarios_pul[operario]["total"] += cantidad
-                ranking_operarios_pul[operario]["pnc"] += pnc
-            except Exception as e:
-                print(f"⚠️ Error procesando registro PULIDO: {e}")
-                continue
-        
-        if produccion_pulido > 0:
-            eficiencia_pulido = ((produccion_pulido - pnc_pulido) / (produccion_pulido + pnc_pulido)) * 100
-        else:
-            eficiencia_pulido = 0
-        
-        for operario in ranking_operarios_pul:
-            total = ranking_operarios_pul[operario]["total"]
-            pnc = ranking_operarios_pul[operario]["pnc"]
-            if (total + pnc) > 0:
-                ranking_operarios_pul[operario]["eficiencia"] = ((total) / (total + pnc)) * 100
-        
-        print(f"✅ PULIDO: {produccion_pulido} piezas, {pnc_pulido} PNC, {eficiencia_pulido:.1f}% eficiencia")
-        
-        # ========== ENSAMBLE ==========
-        print("📊 Leyendo datos de ENSAMBLES...")
-        try:
-            ws_ens = ss.worksheet("ENSAMBLES")
-            registros_ens = ws_ens.get_all_records()
-            
-            produccion_ensamble = 0
-            ranking_operarios_ens = {}
-            
-            for r in registros_ens:
-                try:
-                    cantidad = int(r.get("CANTIDAD", 0) or 0)
-                    produccion_ensamble += cantidad
-                    
-                    operario = str(r.get("RESPONSABLE", "Desconocido")).strip()
-                    if not operario or operario == "":
-                        operario = "Sin asignar"
-                    if operario not in ranking_operarios_ens:
-                        ranking_operarios_ens[operario] = {"total": 0}
-                    ranking_operarios_ens[operario]["total"] += cantidad
-                except Exception as e:
-                    print(f"⚠️ Error procesando ENSAMBLE: {e}")
-                    continue
-            
-            print(f"✅ ENSAMBLE: {produccion_ensamble} piezas")
-        except:
-            print("⚠️ Hoja ENSAMBLES no encontrada")
-            produccion_ensamble = 0
-            ranking_operarios_ens = {}
-        
-        # ========== FACTURACION ==========
-        print("📊 Leyendo datos de FACTURACION...")
-        try:
-            ws_fac = ss.worksheet("FACTURACION")
-            registros_fac = ws_fac.get_all_records()
-            ventas_totales = 0
-            for r in registros_fac:
-                try:
-                    venta = float(r.get("TOTAL VENTA", 0) or 0)
-                    ventas_totales += venta
-                except:
-                    pass
-            print(f"✅ FACTURACION: ${ventas_totales:,.2f}")
-        except:
-            print("⚠️ Hoja FACTURACION no encontrada")
-            ventas_totales = 0
-        
-        # ========== STOCK CRÍTICO ==========
-        print("📊 Leyendo datos de PRODUCTOS...")
-        try:
-            ws_prod = ss.worksheet("PRODUCTOS")
-            registros_prod = ws_prod.get_all_records()
-            
-            stock_critico = 0
-            for r in registros_prod:
-                try:
-                    por_pulir = int(r.get("POR PULIR", 0) or 0)
-                    p_terminado = int(r.get("P. TERMINADO", 0) or 0)
-                    stock_total = por_pulir + p_terminado
-                    
-                    stock_minimo = int(r.get("STOCK MINIMO", 10) or 10)
-                    if stock_total < stock_minimo:
-                        stock_critico += 1
-                except:
-                    pass
-            
-            print(f"✅ STOCK: {stock_critico} productos críticos")
-        except:
-            print("⚠️ Hoja PRODUCTOS no encontrada")
-            stock_critico = 0
-        
-        # ========== COMPILAR RESPUESTA ==========
-        resultado = {
-            "fecha_actualizado": datetime.datetime.now().isoformat(),
-            "mes": f"{hoy.month}/{hoy.year}",
-            
-            # Tarjetas superiores
-            "produccion_total": produccion_inyeccion + produccion_pulido + produccion_ensamble,
-            "ventas_totales": ventas_totales,
-            "eficiencia_global": (eficiencia_inyeccion + eficiencia_pulido) / 2 if (eficiencia_inyeccion + eficiencia_pulido) > 0 else 0,
-            "stock_critico": stock_critico,
-            
-            # INYECCION
-            "inyeccion": {
-                "produccion": produccion_inyeccion,
-                "pnc": pnc_inyeccion,
-                "eficiencia": eficiencia_inyeccion,
-                "ranking_operarios": dict(sorted(ranking_operarios_iny.items(), 
-                                                 key=lambda x: x[1]["total"], 
-                                                 reverse=True)[:10]),
-                "ranking_maquinas": dict(sorted(ranking_maquinas.items(), 
-                                               key=lambda x: x[1]["total"], 
-                                               reverse=True))
-            },
-            
-            # PULIDO
-            "pulido": {
-                "produccion": produccion_pulido,
-                "pnc": pnc_pulido,
-                "eficiencia": eficiencia_pulido,
-                "ranking_operarios": dict(sorted(ranking_operarios_pul.items(), 
-                                                 key=lambda x: x[1]["total"], 
-                                                 reverse=True)[:10])
-            },
-            
-            # ENSAMBLE
-            "ensamble": {
-                "produccion": produccion_ensamble,
-                "ranking_operarios": dict(sorted(ranking_operarios_ens.items(), 
-                                                 key=lambda x: x[1]["total"], 
-                                                 reverse=True)[:10])
-            }
-        }
-        
-        return resultado
-    
-    except Exception as e:
-        print(f"❌ Error en calcular_dashboard_real: {type(e).__name__}: {str(e)}")
-        traceback.print_exc()
-        return None
-
-@app.route('/api/dashboard/real', methods=['GET'])
-def dashboard_real_simple():
-    """
-    Endpoint que retorna dashboard con datos REALES desde Sheets.
-    """
-    try:
-        datos = calcular_dashboard_real()
-        if datos:
-            return jsonify(datos), 200
-        else:
-            return jsonify({"error": "No se pudieron calcular datos"}), 500
-    except Exception as e:
-        print(f"❌ Error en /api/dashboard/real: {e}")
-        return jsonify({"error": str(e)}), 500
-
 
 @app.route('/api/dashboard/avanzado/indicador_inyeccion', methods=['GET'])
 def indicador_inyeccion():
@@ -3485,6 +3147,122 @@ def calcular_inyeccion():
             "status": "error",
             "message": str(e)
         }), 500
+
+# ====================================================================
+# DASHBOARD ROBUSTO (COPIA ESTO AL FINAL DE app.py)
+# ====================================================================
+
+def obtener_dato_seguro(fila, columna, tipo="float"):
+    """Intenta obtener un dato de un diccionario de forma segura."""
+    try:
+        val = fila.get(columna, 0)
+        if isinstance(val, str):
+            val = val.replace(',', '').replace('$', '').replace('%', '').strip()
+            if val == "": val = 0
+        
+        if tipo == "int":
+            return int(float(val))
+        return float(val)
+    except:
+        return 0
+
+def calcular_dashboard_robusto():
+    """Calcula el dashboard a prueba de fallos."""
+    print("🔄 Iniciando cálculo de dashboard robusto...")
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        
+        # --- 1. INYECCIÓN ---
+        prod_iny = 0
+        pnc_iny = 0
+        try:
+            # Sumar producción de hoja INYECCION
+            ws = ss.worksheet("INYECCION")
+            regs = ws.get_all_records() # Devuelve lista de diccionarios
+            prod_iny = sum(obtener_dato_seguro(r, "CANTIDAD REAL", "int") for r in regs)
+            
+            # Sumar PNC de hoja PNC INYECCION (porque no está en la hoja principal)
+            try:
+                ws_pnc = ss.worksheet("PNC INYECCION")
+                regs_pnc = ws_pnc.get_all_records()
+                pnc_iny = sum(obtener_dato_seguro(r, "CANTIDAD PNC", "int") for r in regs_pnc)
+            except:
+                pnc_iny = 0 # Si no existe la hoja PNC, asumimos 0
+                
+        except Exception as e:
+            print(f"⚠️ Error leyendo INYECCION: {e}")
+
+        # --- 2. PULIDO ---
+        prod_pul = 0
+        pnc_pul = 0
+        try:
+            ws = ss.worksheet("PULIDO")
+            regs = ws.get_all_records()
+            # En tu log anterior vi "CANTIDAD_REAL" con guion bajo
+            prod_pul = sum(obtener_dato_seguro(r, "CANTIDAD_REAL", "int") for r in regs)
+            # Intentar sumar PNC si existe la columna
+            pnc_pul = sum(obtener_dato_seguro(r, "PNC", "int") for r in regs)
+        except Exception as e:
+            print(f"⚠️ Error leyendo PULIDO: {e}")
+
+        # --- 3. ENSAMBLES ---
+        prod_ens = 0
+        try:
+            ws = ss.worksheet("ENSAMBLES")
+            regs = ws.get_all_records()
+            prod_ens = sum(obtener_dato_seguro(r, "CANTIDAD", "int") for r in regs)
+        except Exception as e:
+            print(f"⚠️ Error leyendo ENSAMBLES: {e}")
+
+        # --- 4. VENTAS ---
+        ventas = 0
+        try:
+            ws = ss.worksheet("FACTURACION")
+            regs = ws.get_all_records()
+            ventas = sum(obtener_dato_seguro(r, "TOTAL VENTA", "float") for r in regs)
+        except Exception as e:
+            print(f"⚠️ Error leyendo FACTURACION: {e}")
+
+        # --- CÁLCULOS FINALES ---
+        eficiencia_iny = 100.0
+        if (prod_iny + pnc_iny) > 0:
+            eficiencia_iny = (prod_iny / (prod_iny + pnc_iny)) * 100
+
+        eficiencia_pul = 100.0
+        if (prod_pul + pnc_pul) > 0:
+            eficiencia_pul = (prod_pul / (prod_pul + pnc_pul)) * 100
+
+        return {
+            "produccion_total": int(prod_iny + prod_pul + prod_ens),
+            "ventas_totales": ventas,
+            "eficiencia_global": round((eficiencia_iny + eficiencia_pul) / 2, 1),
+            "stock_critico": 0,
+            "inyeccion": {
+                "produccion": int(prod_iny), 
+                "pnc": int(pnc_iny), 
+                "eficiencia": round(eficiencia_iny, 1)
+            },
+            "pulido": {
+                "produccion": int(prod_pul), 
+                "pnc": int(pnc_pul), 
+                "eficiencia": round(eficiencia_pul, 1)
+            },
+            "ensamble": {
+                "produccion": int(prod_ens)
+            }
+        }
+
+    except Exception as e:
+        print(f"❌ Error GENERAL en dashboard: {e}")
+        traceback.print_exc()
+        return {}
+
+@app.route('/api/dashboard/real', methods=['GET'])
+def dashboard_real_endpoint():
+    """Endpoint único para el dashboard real."""
+    datos = calcular_dashboard_robusto()
+    return jsonify(datos), 200
+
 
 # ====================================================================
 # RUTAS PARA SERVIR ARCHIVOS ESTÁTICOS Y TEMPLATE PRINCIPAL
