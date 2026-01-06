@@ -2320,6 +2320,90 @@ async function registrarFacturacion() {
 async function cargarDatosInyeccion() {
     console.log('Cargando datos de inyección...');
     mostrarNotificacion('Módulo de inyección cargado', 'info');
+    
+    // ========== AUTOCOMPLETE PARA PRODUCTOS ==========
+    const productoInput = document.getElementById('codigo-producto-inyeccion');
+    const sugerenciasContainer = document.getElementById('sugerencias-productos');
+
+    if (productoInput) {
+        productoInput.addEventListener('input', async function(e) {
+            const valor = e.target.value.trim().toUpperCase();
+            
+            console.log('🔍 Buscando productos:', valor);
+            
+            if (valor.length < 1) {
+                if (sugerenciasContainer) sugerenciasContainer.style.display = 'none';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/productos');
+                const productos = await response.json();
+                
+                console.log('📦 Productos disponibles:', productos.length);
+                
+                // Filtrar: busca que CONTENGA el valor (no que empiece)
+                const filtrados = productos.filter(p => 
+                    p.codigo.toUpperCase().includes(valor) || 
+                    p.nombre.toUpperCase().includes(valor)
+                );
+                
+                console.log('✅ Productos filtrados:', filtrados.length);
+                
+                if (!sugerenciasContainer) {
+                    console.warn('⚠️ No existe elemento sugerencias-productos en HTML');
+                    return;
+                }
+                
+                if (filtrados.length === 0) {
+                    sugerenciasContainer.innerHTML = '<div class="sugerencia-item" style="color:red; padding:10px; cursor:default;">❌ Producto no encontrado</div>';
+                    sugerenciasContainer.style.display = 'block';
+                    return;
+                }
+                
+                sugerenciasContainer.innerHTML = filtrados.map(p => 
+                    `<div class="sugerencia-item" onclick="seleccionarProductoInyeccion('${p.codigo}', '${p.nombre}')" style="padding:10px; cursor:pointer; border-bottom:1px solid #eee; background:white;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='white'">
+                        <strong>${p.codigo}</strong> - ${p.nombre}
+                    </div>`
+                ).join('');
+                sugerenciasContainer.style.display = 'block';
+            } catch (error) {
+                console.error('❌ Error cargando productos:', error);
+                if (sugerenciasContainer) {
+                    sugerenciasContainer.innerHTML = '<div class="sugerencia-item" style="color:red; padding:10px;">Error cargando productos</div>';
+                    sugerenciasContainer.style.display = 'block';
+                }
+            }
+        });
+        
+        // Cerrar sugerencias al hacer clic fuera
+        document.addEventListener('click', function(e) {
+            if (sugerenciasContainer && e.target !== productoInput && !sugerenciasContainer.contains(e.target)) {
+                sugerenciasContainer.style.display = 'none';
+            }
+        });
+        
+        // Cerrar sugerencias con ESC
+        productoInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && sugerenciasContainer) {
+                sugerenciasContainer.style.display = 'none';
+            }
+        });
+    }
+}
+
+// Función para seleccionar un producto del autocomplete
+function seleccionarProductoInyeccion(codigo, nombre) {
+    const input = document.getElementById('codigo-producto-inyeccion');
+    if (input) input.value = codigo;
+    
+    const sugerencias = document.getElementById('sugerencias-productos');
+    if (sugerencias) sugerencias.style.display = 'none';
+    
+    console.log(`✅ Producto seleccionado: ${codigo} - ${nombre}`);
+    
+    // Actualizar ficha técnica si existe
+    actualizarFichaProducto(codigo);
 }
 
 async function cargarDatosPulido() {

@@ -578,7 +578,7 @@ def obtener_maquinas_validas():
         "MAQUINA No. 1",
         "MAQUINA No. 2",
         "MAQUINA No. 3",
-        "INY-03"
+        "MAQUINA No. 4"
     ]
     print(f"ℹ️ Usando máquinas por defecto: {maquinas_default}")
     return maquinas_default
@@ -1223,6 +1223,32 @@ def obtener_productos():
 # ENDPOINTS PARA PRODUCTOS (CON CACHÉ)
 # ====================================================================
 
+@app.route('/api/productos', methods=['GET'])
+def get_productos():
+    """Obtener lista de productos para autocomplete."""
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet("PRODUCTOS")
+        registros = ws.get_all_records()
+        
+        productos = []
+        for r in registros:
+            codigo = str(r.get("CODIGO SISTEMA", "")).strip()
+            nombre = str(r.get("NOMBRE", "")).strip()
+            if codigo and nombre:
+                productos.append({
+                    "codigo": codigo,
+                    "nombre": nombre,
+                    "label": f"{codigo} - {nombre}"
+                })
+        
+        print(f"📦 {len(productos)} productos cargados")
+        return jsonify(productos), 200
+    except Exception as e:
+        print(f"❌ Error /api/productos: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/productos/listar', methods=['GET'])
 def listar_productos():
     """Lista todos los productos con stock y estado (cache opcional)."""
@@ -1614,6 +1640,82 @@ def estado_cache():
 # ====================================================================
 # DASHBOARD ANALÍTICO AVANZADO
 # ====================================================================
+
+def calcular_dashboard_simple():
+    """Dashboard simple sin complicaciones."""
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        
+        # INYECCION
+        try:
+            ws_iny = ss.worksheet("INYECCION")
+            registros = ws_iny.get_all_records()
+            produccion_iny = sum(int(str(r.get("CANTIDAD REAL", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD REAL"))
+            pnc_iny = sum(int(str(r.get("PNC", "") or 0).replace(",", "")) for r in registros if r.get("PNC"))
+            eficiencia_iny = ((produccion_iny - pnc_iny) / (produccion_iny + pnc_iny) * 100) if (produccion_iny + pnc_iny) > 0 else 0
+        except Exception as e:
+            print(f"⚠️ INYECCION error: {e}")
+            produccion_iny = pnc_iny = eficiencia_iny = 0
+        
+        # PULIDO
+        try:
+            ws_pul = ss.worksheet("PULIDO")
+            registros = ws_pul.get_all_records()
+            produccion_pul = sum(int(str(r.get("CANTIDAD RECIBIDA", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD RECIBIDA"))
+            pnc_pul = sum(int(str(r.get("PNC", "") or 0).replace(",", "")) for r in registros if r.get("PNC"))
+            eficiencia_pul = ((produccion_pul - pnc_pul) / (produccion_pul + pnc_pul) * 100) if (produccion_pul + pnc_pul) > 0 else 0
+        except Exception as e:
+            print(f"⚠️ PULIDO error: {e}")
+            produccion_pul = pnc_pul = eficiencia_pul = 0
+        
+        # ENSAMBLE
+        try:
+            ws_ens = ss.worksheet("ENSAMBLES")
+            registros = ws_ens.get_all_records()
+            produccion_ens = sum(int(str(r.get("CANTIDAD", "") or 0).replace(",", "")) for r in registros if r.get("CANTIDAD"))
+        except Exception as e:
+            print(f"⚠️ ENSAMBLE error: {e}")
+            produccion_ens = 0
+        
+        # VENTAS
+        try:
+            ws_fac = ss.worksheet("FACTURACION")
+            registros = ws_fac.get_all_records()
+            ventas = sum(float(str(r.get("TOTAL VENTA", "") or 0).replace(",", "")) for r in registros if r.get("TOTAL VENTA"))
+        except Exception as e:
+            print(f"⚠️ FACTURACION error: {e}")
+            ventas = 0
+        
+        print(f"📊 Dashboard: INY={produccion_iny}, PUL={produccion_pul}, ENS={produccion_ens}, VENTAS={ventas}")
+        
+        return {
+            "produccion_total": produccion_iny + produccion_pul + produccion_ens,
+            "ventas_totales": ventas,
+            "eficiencia_global": (eficiencia_iny + eficiencia_pul) / 2 if (eficiencia_iny + eficiencia_pul) > 0 else 0,
+            "stock_critico": 0,
+            "inyeccion": {
+                "produccion": produccion_iny, 
+                "pnc": pnc_iny, 
+                "eficiencia": eficiencia_iny, 
+                "ranking_operarios": {}, 
+                "ranking_maquinas": {}
+            },
+            "pulido": {
+                "produccion": produccion_pul, 
+                "pnc": pnc_pul, 
+                "eficiencia": eficiencia_pul, 
+                "ranking_operarios": {}
+            },
+            "ensamble": {
+                "produccion": produccion_ens, 
+                "ranking_operarios": {}
+            }
+        }
+    except Exception as e:
+        print(f"❌ Dashboard error: {e}")
+        traceback.print_exc()
+        return {}
+
 
 # ========== FUNCIÓN CALCULAR DASHBOARD REAL ==========
 
