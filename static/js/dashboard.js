@@ -336,41 +336,83 @@ function actualizarEstadisticasRanking() {
         </div>
     `;
 }
-// Cargar dashboard completo
+// Cargar dashboard completo con datos REALES
 async function cargarDashboardCompleto() {
     try {
-        // Mostrar estado de carga
+        console.log('🔄 Cargando dashboard con datos reales...');
         document.body.classList.add('updating');
         
-        const endpoints = [
-            'indicador_inyeccion',
-            'indicador_pulido',
-            'ventas_cliente_detallado',
-            'produccion_maquina_avanzado',
-            'ranking_inyeccion',  // NUEVO: Ranking específico
-            'stock_inteligente'
-        ];
+        // 1. CARGAR DATOS REALES DEL BACKEND
+        const dataReal = await fetchData('/api/dashboard/real');
         
-        // Cargar todos los endpoints en paralelo
-        const promises = endpoints.map(endpoint => cargarEndpointDashboard(endpoint));
-        await Promise.all(promises);
+        if (!dataReal) {
+            throw new Error('No se recibieron datos del dashboard');
+        }
         
-        // Actualizar KPIs globales
-        actualizarKPIsGlobales();
+        console.log('✅ Datos del dashboard:', dataReal);
         
-        // Inicializar timeline
-        inicializarTimeline();
+        // 2. ACTUALIZAR TARJETAS SUPERIORES
+        const elemProduccion = document.getElementById('produccion-total');
+        if (elemProduccion) {
+            elemProduccion.textContent = formatNumber(dataReal.produccion_total || 0);
+        }
         
-        // Actualizar estado del stock
-        actualizarEstadoStock();
+        const elemVentas = document.getElementById('ventas-totales');
+        if (elemVentas) {
+            elemVentas.textContent = `$${formatNumber(dataReal.ventas_totales || 0)}`;
+        }
+        
+        const elemEficiencia = document.getElementById('eficiencia-global');
+        if (elemEficiencia) {
+            elemEficiencia.textContent = `${(dataReal.eficiencia_global || 0).toFixed(1)}%`;
+        }
+        
+        const elemStock = document.getElementById('stock-critico');
+        if (elemStock) {
+            elemStock.textContent = dataReal.stock_critico || 0;
+        }
+        
+        // 3. ACTUALIZAR INYECCION
+        if (dataReal.inyeccion) {
+            const elemProd = document.querySelector('[id*="produccion-inyeccion"]') || document.getElementById('produccion-inyeccion');
+            if (elemProd) elemProd.textContent = formatNumber(dataReal.inyeccion.produccion || 0);
+            
+            const elemPNC = document.querySelector('[id*="pnc-inyeccion"]') || document.getElementById('pnc-inyeccion');
+            if (elemPNC) elemPNC.textContent = dataReal.inyeccion.pnc || 0;
+            
+            const elemEf = document.querySelector('[id*="eficiencia-inyeccion"]') || document.getElementById('eficiencia-inyeccion');
+            if (elemEf) elemEf.textContent = `${(dataReal.inyeccion.eficiencia || 0).toFixed(1)}%`;
+        }
+        
+        // 4. ACTUALIZAR PULIDO
+        if (dataReal.pulido) {
+            const elemProd = document.querySelector('[id*="produccion-pulido"]') || document.getElementById('produccion-pulido');
+            if (elemProd) elemProd.textContent = formatNumber(dataReal.pulido.produccion || 0);
+            
+            const elemPNC = document.querySelector('[id*="pnc-pulido"]') || document.getElementById('pnc-pulido');
+            if (elemPNC) elemPNC.textContent = dataReal.pulido.pnc || 0;
+            
+            const elemEf = document.querySelector('[id*="eficiencia-pulido"]') || document.getElementById('eficiencia-pulido');
+            if (elemEf) elemEf.textContent = `${(dataReal.pulido.eficiencia || 0).toFixed(1)}%`;
+        }
+        
+        // 5. ACTUALIZAR ENSAMBLE
+        if (dataReal.ensamble) {
+            const elemProd = document.querySelector('[id*="produccion-ensamble"]') || document.getElementById('produccion-ensamble');
+            if (elemProd) elemProd.textContent = formatNumber(dataReal.ensamble.produccion || 0);
+        }
+        
+        console.log('✅ Dashboard actualizado correctamente');
+        mostrarNotificacion('Dashboard actualizado correctamente', 'success');
         
     } catch (error) {
-        console.error('Error cargando dashboard completo:', error);
-        mostrarNotificacion('Error cargando datos del dashboard', 'error');
+        console.error('❌ Error cargando dashboard:', error);
+        mostrarNotificacion('Error cargando dashboard: ' + error.message, 'error');
     } finally {
         document.body.classList.remove('updating');
     }
 }
+
 
 // Cargar endpoint específico
 async function cargarEndpointDashboard(endpoint) {
