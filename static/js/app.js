@@ -361,6 +361,16 @@ async function cargarDatosIniciales() {
             console.log('Clientes cargados:', clientes.length);
         }
         
+
+        // 🆕 Cargar máquinas válidas
+        const maquinas = await fetchData('/api/obtener_maquinas');
+        if (maquinas) {
+            window.AppState.maquinas = maquinas;
+            actualizarSelectMaquinas(maquinas);
+            console.log('✅ Máquinas cargadas:', maquinas.length);
+        }
+
+
         // Cargar productos para selects
         const productos = await fetchData('/api/obtener_productos');
         if (productos) {
@@ -2466,6 +2476,40 @@ function abrirDetalle(titulo, contenido) {
         document.body.style.overflow = 'hidden';
     }
 }
+
+// ========== FUNCIÓN PARA ACTUALIZAR SELECT DE MÁQUINAS ==========
+
+function actualizarSelectMaquinas(maquinas) {
+    console.log('Actualizando selects de máquina con:', maquinas);
+    
+    const selects = document.querySelectorAll('select[id*="maquina"]');
+    console.log(`Encontrados ${selects.length} selects de máquina`);
+    
+    selects.forEach(select => {
+        const currentValue = select.value;
+        
+        // Limpiar
+        select.innerHTML = '<option value="">-- Selecciona máquina --</option>';
+        
+        // Agregar opciones
+        if (maquinas && Array.isArray(maquinas)) {
+            maquinas.forEach(maquina => {
+                const option = document.createElement('option');
+                option.value = maquina;
+                option.textContent = maquina;
+                select.appendChild(option);
+            });
+        }
+        
+        // Restaurar valor si existía
+        if (currentValue && maquinas.includes(currentValue)) {
+            select.value = currentValue;
+        }
+        
+        console.log(`✅ Select ${select.id} actualizado con ${maquinas.length} máquinas`);
+    });
+}
+
 
 // ===== INICIALIZACIÓN DE LA APLICACIÓN =====
 

@@ -195,7 +195,7 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
         mapeo_almacenes = {
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
-            'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
+            'PRODUCTO ENSAMBLado': 'PRODUCTO ENSAMBLADO',
             'CLIENTE': 'CLIENTE'
         }
         
@@ -356,7 +356,7 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
 def registrar_log_operacion(hoja, fila):
     """Registra una operación en la hoja especificada."""
     try:
-        print(f"📝 Registrando en {hoja}: {fila[:3]}...")  # Solo primeros elementos para log
+        print(f"📝 Registrando en {hoja}: {fila[:5]}...")  # Solo primeros elementos para log
         
         spreadsheet = gc.open_by_key(GSHEET_KEY)
         
@@ -365,15 +365,31 @@ def registrar_log_operacion(hoja, fila):
         except gspread.exceptions.WorksheetNotFound:
             print(f"⚠️  Hoja '{hoja}' no encontrada, creándola...")
             
-            # Crear hoja con encabezados según el tipo
+            # HEADERS EXACTOS PARA INYECCIÓN
             if hoja == Hojas.INYECCION:
                 encabezados = [
-                    "TIMESTAMP", "TRANSACTION_TYPE", "CODIGO", "CANTIDAD", 
-                    "FECHA_INICIO", "FECHA_FIN", "PROCESO", "MAQUINA", 
-                    "RESPONSABLE", "NO_CAVIDADES", "HORA_INICIO", "HORA_FIN",
-                    "CONTADOR_MAQUINA", "ORDEN_PRODUCCION", "OBSERVACIONES",
-                    "PESO_VELA_MAQUINA", "PESO_BUJES", "ID_OPERACION", 
-                    "ACTIVO", "MENSAJE_INVENTARIO"
+                    "ID INYECCION",
+                    "FECHA INICIA",
+                    "FECHA FIN",
+                    "DEPARTAMENTO",
+                    "MAQUINA",
+                    "RESPONSABLE",
+                    "ID CODIGO",
+                    "No. CAVIDADES",
+                    "HORA LLEGADA",
+                    "HORA INICIO",
+                    "HORA TERMINA",
+                    "CONTADOR MAQ.",
+                    "CANT. CONTADOR",
+                    "TOMADOS EN PROCESO",
+                    "PESO TOMADAS EN PROCESO",
+                    "CANTIDAD REAL",
+                    "ALMACEN DESTINO",
+                    "CODIGO ENSAMBLE",
+                    "ORDEN PRODUCCION",
+                    "OBSERVACIONES",
+                    "PESO VELA MAQUINA",
+                    "PESO BUJES"
                 ]
             elif hoja == Hojas.PULIDO:
                 encabezados = [
@@ -388,6 +404,11 @@ def registrar_log_operacion(hoja, fila):
                     "ORDEN_PRODUCCION", "RESPONSABLE", "HORA_INICIO", 
                     "HORA_FIN", "BUJE_ORIGEN", "CONSUMO_TOTAL", 
                     "ALMACEN_ORIGEN", "ALMACEN_DESTINO"
+                ]
+            elif hoja == Hojas.FACTURACION:
+                encabezados = [
+                    "ID FACTURA", "CLIENTE", "FECHA", "DOCUMENTO", 
+                    "CANTIDAD", "TOTAL VENTA", "ID CODIGO"
                 ]
             else:
                 encabezados = [f"Columna_{i+1}" for i in range(len(fila))]
@@ -530,6 +551,39 @@ def registrar_log_facturacion(fila):
         return False
 
 # ====================================================================
+# FUNCIÓN OBTENER MÁQUINAS
+# ====================================================================
+
+def obtener_maquinas_validas():
+    """
+    Retorna lista de máquinas válidas desde Google Sheets.
+    Si no existe la hoja MAQUINAS, retorna máquinas por defecto.
+    """
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet("MAQUINAS")
+        registros = ws.get_all_records()
+        
+        maquinas = [str(r.get("NOMBRE", "")).strip() for r in registros if r.get("NOMBRE")]
+        if maquinas:
+            print(f"✅ Máquinas desde Sheets: {maquinas}")
+            return sorted(list(set(maquinas)))
+    except gspread.exceptions.WorksheetNotFound:
+        print("⚠️ Hoja MAQUINAS no encontrada, usando máquinas por defecto")
+    except Exception as e:
+        print(f"⚠️ Error leyendo MAQUINAS: {e}")
+    
+    # Fallback: máquinas por defecto (extrae de tus registros)
+    maquinas_default = [
+        "MAQUINA No. 1",
+        "MAQUINA No. 2",
+        "MAQUINA No. 3",
+        "INY-03"
+    ]
+    print(f"ℹ️ Usando máquinas por defecto: {maquinas_default}")
+    return maquinas_default
+
+# ====================================================================
 # ENDPOINTS PARA REGISTROS
 # ====================================================================
 
@@ -543,7 +597,7 @@ def verificar_estructura_completa():
         # Lista de todas las hojas esperadas
         todas_hojas = [
             ("INYECCION", Hojas.INYECCION),
-            ("PULIDO", Hojas.PULIDO),  # ¡IMPORTANTE! Antes era PULIDO
+            ("PULIDO", Hojas.PULIDO),
             ("ENSAMBLES", Hojas.ENSAMBLES),
             ("FACTURACION", Hojas.FACTURACION),
             ("PRODUCTOS", Hojas.PRODUCTOS),
@@ -610,6 +664,7 @@ def health_check():
                 "obtener_responsables": "/api/obtener_responsables",
                 "obtener_clientes": "/api/obtener_clientes",
                 "obtener_productos": "/api/obtener_productos",
+                "obtener_maquinas": "/api/obtener_maquinas",
                 "debug_conexion": "/api/debug/conexion"
             }
         }), 200
@@ -620,73 +675,133 @@ def health_check():
             "timestamp": datetime.datetime.now().isoformat()
         }), 500
 
+# ========== ENDPOINT INYECCIÓN - VERSIÓN CORREGIDA ==========
+
 @app.route('/api/inyeccion', methods=['POST'])
-def handle_inyeccion():
-    """Endpoint para registrar operaciones de inyección."""
+def registrar_inyeccion():
+    """
+    Registra INYECCION con headers exactos y descuento automático de PNC.
+    """
     try:
-        data = request.get_json()
+        data = request.json
+        print(f"📥 Datos recibidos en /api/inyeccion: {data}")
+        
+        # 1. VALIDAR DATOS BÁSICOS
         valido, errores, cleaned = validate_form(data, "inyeccion")
         if not valido:
-            return jsonify({"status": "error", "message": errores[0]}), 400
-
-        codigo_sis = obtener_codigo_sistema_real(cleaned['codigo_producto'])
-        num_cavidades = int(cleaned['no_cavidades'] or 1)
+            print(f"❌ Validación fallida: {errores}")
+            return jsonify({"success": False, "errors": errores}), 400
         
-        # CÁLCULO CORREGIDO CON CAVIDADES
-        # cantidad_real es el número de disparos, multiplicamos por cavidades
-        piezas_totales = cleaned['cantidad_real'] * num_cavidades
-        piezas_ok = piezas_totales - cleaned['pnc']
+        # 2. VALIDAR MÁQUINA (debe existir en maestro)
+        maquina_raw = cleaned.get("maquina", "").strip()
+        if not maquina_raw:
+            return jsonify({"success": False, "error": "Máquina es obligatoria"}), 400
         
-        exito, mensaje_inv = registrar_entrada(codigo_sis, piezas_ok, "POR PULIR")
-
-        if exito:
-            id_iny = f"INY-{str(uuid.uuid4())[:5].upper()}"
-            fila_iny = [
-                datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                "ENTRADA_INYECCION",           
-                codigo_sis, 
-                piezas_ok, 
-                cleaned['fecha_inicio'], 
-                cleaned['fecha_fin'], 
-                "Inyección", 
-                cleaned['maquina'], 
-                cleaned['responsable'], 
-                num_cavidades, 
-                cleaned['hora_inicio'], 
-                cleaned['hora_fin'], 
-                cleaned['contador_maquina'], 
-                cleaned['orden_produccion'], 
-                f"PNC: {cleaned['pnc']}", 
-                cleaned['peso_vela_maquina'],  
-                cleaned['peso_bujes'], 
-                id_iny, 
-                "TRUE", 
-                mensaje_inv 
-            ]
-            registrar_log_operacion(Hojas.INYECCION, fila_iny)
-
-            if cleaned['pnc'] > 0:
-                registrar_pnc_detalle(
-                    "inyeccion", 
-                    id_iny, 
-                    codigo_sis, 
-                    cleaned['pnc'], 
-                    cleaned['criterio_pnc'],
-                    cleaned['observaciones']
-                )
-            
-            # El caché ya se invalidó en registrar_entrada
-            
-            return jsonify({
-                "status": "success", 
-                "message": f"Inyección registrada correctamente. Piezas OK: {piezas_ok}, PNC: {cleaned['pnc']}, Cavidades: {num_cavidades}"
-            }), 200
+        # Usar máquina tal cual viene del formulario (validar en frontend)
+        maquina = maquina_raw
         
-        return jsonify({"status": "error", "message": mensaje_inv}), 400
+        # 3. OBTENER CÓDIGO REAL
+        codigo_sistema = obtener_codigo_sistema_real(cleaned["codigo_producto"])
+        print(f"✓ Código sistema obtenido: {codigo_sistema}")
+        
+        # 4. CREAR ID INYECCION ÚNICO
+        id_inyeccion = f"INY-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        # 5. PREPARAR FILA CON HEADERS EXACTOS (en orden exacto)
+        cantidad_total = int(cleaned.get("cantidad_real", 0) or 0)
+        cantidad_pnc = int(cleaned.get("pnc", 0) or 0)
+        cantidad_buena = cantidad_total - cantidad_pnc
+        
+        fila = [
+            id_inyeccion,                              # ID INYECCION
+            cleaned.get("fecha_inicio", ""),           # FECHA INICIA
+            cleaned.get("fecha_fin", ""),              # FECHA FIN
+            "Inyección",                               # DEPARTAMENTO (fijo)
+            maquina,                                   # MAQUINA (validar en frontend)
+            cleaned.get("responsable", ""),            # RESPONSABLE
+            codigo_sistema,                            # ID CODIGO (código sistema real)
+            cleaned.get("no_cavidades", "1"),          # No. CAVIDADES
+            cleaned.get("hora_inicio", "00:00"),       # HORA LLEGADA
+            cleaned.get("hora_inicio", "00:00"),       # HORA INICIO
+            cleaned.get("hora_fin", "00:00"),          # HORA TERMINA
+            cleaned.get("contador_maquina", ""),       # CONTADOR MAQ.
+            cantidad_total,                            # CANT. CONTADOR
+            cantidad_total,                            # TOMADOS EN PROCESO
+            cleaned.get("peso_vela_maquina", ""),      # PESO TOMADAS EN PROCESO
+            cantidad_buena,                            # CANTIDAD REAL (DESCUENTA PNC AQUÍ)
+            "POR PULIR",                               # ALMACEN DESTINO (fijo)
+            "",                                        # CODIGO ENSAMBLE (vacío)
+            cleaned.get("orden_produccion", ""),       # ORDEN PRODUCCION
+            cleaned.get("observaciones", ""),          # OBSERVACIONES
+            cleaned.get("peso_vela_maquina", ""),      # PESO VELA MAQUINA
+            cleaned.get("peso_bujes", "")              # PESO BUJES
+        ]
+        
+        print(f"📝 Fila a registrar ({len(fila)} columnas): {fila[:5]}...")
+        
+        # 6. REGISTRAR EN INYECCION (con headers correctos)
+        exito_log = registrar_log_operacion("INYECCION", fila)
+        if not exito_log:
+            print("❌ Error registrando en INYECCION")
+            return jsonify({"success": False, "error": "Error registrando en INYECCION"}), 500
+        
+        print(f"✅ Registro exitoso en INYECCION: {id_inyeccion}")
+        
+        # 7. ACTUALIZAR STOCK (mover a POR PULIR)
+        if cantidad_buena > 0:
+            try:
+                # Obtener stock actual
+                stock_actual = obtener_stock(codigo_sistema, "POR PULIR")
+                nuevo_stock = stock_actual + cantidad_buena
+                
+                # Actualizar stock en PRODUCTOS
+                ss = gc.open_by_key(GSHEET_KEY)
+                ws = ss.worksheet("PRODUCTOS")
+                headers = ws.row_values(1)
+                
+                try:
+                    col_index = headers.index("POR PULIR") + 1
+                    # Buscar fila del producto
+                    registros = ws.get_all_records()
+                    for idx, r in enumerate(registros):
+                        if str(r.get("CODIGO SISTEMA", "")).strip() == codigo_sistema:
+                            ws.update_cell(idx + 2, col_index, nuevo_stock)
+                            print(f"✅ Stock actualizado: {codigo_sistema} en POR PULIR = {nuevo_stock}")
+                            break
+                except Exception as e:
+                    print(f"⚠️ No se actualizó stock en PRODUCTOS: {e}")
+            except Exception as e:
+                print(f"⚠️ Error en stock: {e}")
+        
+        # 8. REGISTRAR PNC SI EXISTE
+        if cantidad_pnc > 0:
+            registrar_pnc_detalle(
+                tipo_proceso="inyeccion",
+                id_operacion=id_inyeccion,
+                codigo_producto=codigo_sistema,
+                cantidad_pnc=cantidad_pnc,
+                criterio_pnc=cleaned.get("criterio_pnc", "No especificado"),
+                observaciones=f"Descuento automático de PNC en inyección: {cleaned.get('observaciones', '')}"
+            )
+            print(f"✅ PNC registrado: {cantidad_pnc} piezas")
+        
+        # 9. RESPUESTA
+        respuesta = {
+            "success": True,
+            "id_inyeccion": id_inyeccion,
+            "cantidad_total": cantidad_total,
+            "cantidad_pnc": cantidad_pnc,
+            "cantidad_buena": cantidad_buena,
+            "mensaje": f"✅ Inyección registrada: {cantidad_buena} piezas buenas a POR PULIR, {cantidad_pnc} PNC descuentadas"
+        }
+        
+        print(f"📤 Respuesta: {respuesta}")
+        return jsonify(respuesta), 201
+    
     except Exception as e:
-        print(f"Error en inyección: {str(e)}")
+        print(f"❌ ERROR CRÍTICO en /api/inyeccion: {type(e).__name__}: {str(e)}")
         traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/pulido', methods=['POST'])
 def handle_pulido():
@@ -1033,6 +1148,18 @@ def obtener_responsables():
     except Exception as e:
         logger.error(f"❌ ERROR crítico en obtener_responsables: {str(e)}")
         traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/obtener_maquinas', methods=['GET'])
+def obtener_maquinas():
+    """
+    Endpoint que retorna máquinas válidas para dropdown en formularios.
+    """
+    try:
+        maquinas = obtener_maquinas_validas()
+        return jsonify(maquinas), 200
+    except Exception as e:
+        print(f"❌ Error en /api/obtener_maquinas: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/obtener_clientes', methods=['GET'])
@@ -1488,6 +1615,270 @@ def estado_cache():
 # DASHBOARD ANALÍTICO AVANZADO
 # ====================================================================
 
+# ========== FUNCIÓN CALCULAR DASHBOARD REAL ==========
+
+def calcular_dashboard_real():
+    """
+    Calcula métricas reales desde los registros de Google Sheets.
+    Retorna: producción total, ventas, eficiencia, rankings por proceso.
+    """
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        
+        # Período: mes actual
+        hoy = datetime.datetime.now()
+        inicio_mes = datetime.datetime(hoy.year, hoy.month, 1)
+        
+        # ========== INYECCION ==========
+        print("📊 Leyendo datos de INYECCION...")
+        ws_iny = ss.worksheet("INYECCION")
+        registros_iny = ws_iny.get_all_records()
+        
+        produccion_inyeccion = 0
+        pnc_inyeccion = 0
+        ranking_operarios_iny = {}
+        ranking_maquinas = {}
+        
+        for r in registros_iny:
+            try:
+                # Filtrar por mes
+                fecha_str = str(r.get("FECHA INICIA", "")).strip()
+                if fecha_str:
+                    try:
+                        fecha = datetime.datetime.fromisoformat(fecha_str.split())
+                        if fecha < inicio_mes:
+                            continue
+                    except:
+                        pass
+                
+                # Cantidad (es la BUENA, ya descontó PNC)
+                cantidad = int(r.get("CANTIDAD REAL", 0) or 0)
+                produccion_inyeccion += cantidad
+                
+                # PNC si existe
+                pnc = 0
+                try:
+                    pnc = int(r.get("PNC", 0) or 0)
+                except:
+                    pnc = 0
+                pnc_inyeccion += pnc
+                
+                # Ranking por operario
+                operario = str(r.get("RESPONSABLE", "Desconocido")).strip()
+                if not operario or operario == "":
+                    operario = "Sin asignar"
+                if operario not in ranking_operarios_iny:
+                    ranking_operarios_iny[operario] = {"total": 0, "pnc": 0, "eficiencia": 0}
+                ranking_operarios_iny[operario]["total"] += cantidad
+                ranking_operarios_iny[operario]["pnc"] += pnc
+                
+                # Ranking por máquina
+                maquina = str(r.get("MAQUINA", "Desconocida")).strip()
+                if not maquina or maquina == "":
+                    maquina = "Desconocida"
+                if maquina not in ranking_maquinas:
+                    ranking_maquinas[maquina] = {"total": 0, "pnc": 0}
+                ranking_maquinas[maquina]["total"] += cantidad
+                ranking_maquinas[maquina]["pnc"] += pnc
+            
+            except Exception as e:
+                print(f"⚠️ Error procesando registro INYECCION: {e}")
+                continue
+        
+        # Calcular eficiencia INYECCION
+        if produccion_inyeccion > 0:
+            eficiencia_inyeccion = ((produccion_inyeccion - pnc_inyeccion) / (produccion_inyeccion + pnc_inyeccion)) * 100
+        else:
+            eficiencia_inyeccion = 0
+        
+        # Calcular eficiencia por operario
+        for operario in ranking_operarios_iny:
+            total = ranking_operarios_iny[operario]["total"]
+            pnc = ranking_operarios_iny[operario]["pnc"]
+            if (total + pnc) > 0:
+                ranking_operarios_iny[operario]["eficiencia"] = ((total) / (total + pnc)) * 100
+        
+        print(f"✅ INYECCION: {produccion_inyeccion} piezas, {pnc_inyeccion} PNC, {eficiencia_inyeccion:.1f}% eficiencia")
+        
+        # ========== PULIDO ==========
+        print("📊 Leyendo datos de PULIDO...")
+        ws_pul = ss.worksheet("PULIDO")
+        registros_pul = ws_pul.get_all_records()
+        
+        produccion_pulido = 0
+        pnc_pulido = 0
+        ranking_operarios_pul = {}
+        
+        for r in registros_pul:
+            try:
+                cantidad = int(r.get("CANTIDAD RECIBIDA", 0) or 0)
+                produccion_pulido += cantidad
+                
+                pnc = int(r.get("PNC", 0) or 0)
+                pnc_pulido += pnc
+                
+                operario = str(r.get("RESPONSABLE", "Desconocido")).strip()
+                if not operario or operario == "":
+                    operario = "Sin asignar"
+                if operario not in ranking_operarios_pul:
+                    ranking_operarios_pul[operario] = {"total": 0, "pnc": 0, "eficiencia": 0}
+                ranking_operarios_pul[operario]["total"] += cantidad
+                ranking_operarios_pul[operario]["pnc"] += pnc
+            except Exception as e:
+                print(f"⚠️ Error procesando registro PULIDO: {e}")
+                continue
+        
+        if produccion_pulido > 0:
+            eficiencia_pulido = ((produccion_pulido - pnc_pulido) / (produccion_pulido + pnc_pulido)) * 100
+        else:
+            eficiencia_pulido = 0
+        
+        for operario in ranking_operarios_pul:
+            total = ranking_operarios_pul[operario]["total"]
+            pnc = ranking_operarios_pul[operario]["pnc"]
+            if (total + pnc) > 0:
+                ranking_operarios_pul[operario]["eficiencia"] = ((total) / (total + pnc)) * 100
+        
+        print(f"✅ PULIDO: {produccion_pulido} piezas, {pnc_pulido} PNC, {eficiencia_pulido:.1f}% eficiencia")
+        
+        # ========== ENSAMBLE ==========
+        print("📊 Leyendo datos de ENSAMBLES...")
+        try:
+            ws_ens = ss.worksheet("ENSAMBLES")
+            registros_ens = ws_ens.get_all_records()
+            
+            produccion_ensamble = 0
+            ranking_operarios_ens = {}
+            
+            for r in registros_ens:
+                try:
+                    cantidad = int(r.get("CANTIDAD", 0) or 0)
+                    produccion_ensamble += cantidad
+                    
+                    operario = str(r.get("RESPONSABLE", "Desconocido")).strip()
+                    if not operario or operario == "":
+                        operario = "Sin asignar"
+                    if operario not in ranking_operarios_ens:
+                        ranking_operarios_ens[operario] = {"total": 0}
+                    ranking_operarios_ens[operario]["total"] += cantidad
+                except Exception as e:
+                    print(f"⚠️ Error procesando ENSAMBLE: {e}")
+                    continue
+            
+            print(f"✅ ENSAMBLE: {produccion_ensamble} piezas")
+        except:
+            print("⚠️ Hoja ENSAMBLES no encontrada")
+            produccion_ensamble = 0
+            ranking_operarios_ens = {}
+        
+        # ========== FACTURACION ==========
+        print("📊 Leyendo datos de FACTURACION...")
+        try:
+            ws_fac = ss.worksheet("FACTURACION")
+            registros_fac = ws_fac.get_all_records()
+            ventas_totales = 0
+            for r in registros_fac:
+                try:
+                    venta = float(r.get("TOTAL VENTA", 0) or 0)
+                    ventas_totales += venta
+                except:
+                    pass
+            print(f"✅ FACTURACION: ${ventas_totales:,.2f}")
+        except:
+            print("⚠️ Hoja FACTURACION no encontrada")
+            ventas_totales = 0
+        
+        # ========== STOCK CRÍTICO ==========
+        print("📊 Leyendo datos de PRODUCTOS...")
+        try:
+            ws_prod = ss.worksheet("PRODUCTOS")
+            registros_prod = ws_prod.get_all_records()
+            
+            stock_critico = 0
+            for r in registros_prod:
+                try:
+                    por_pulir = int(r.get("POR PULIR", 0) or 0)
+                    p_terminado = int(r.get("P. TERMINADO", 0) or 0)
+                    stock_total = por_pulir + p_terminado
+                    
+                    stock_minimo = int(r.get("STOCK MINIMO", 10) or 10)
+                    if stock_total < stock_minimo:
+                        stock_critico += 1
+                except:
+                    pass
+            
+            print(f"✅ STOCK: {stock_critico} productos críticos")
+        except:
+            print("⚠️ Hoja PRODUCTOS no encontrada")
+            stock_critico = 0
+        
+        # ========== COMPILAR RESPUESTA ==========
+        resultado = {
+            "fecha_actualizado": datetime.datetime.now().isoformat(),
+            "mes": f"{hoy.month}/{hoy.year}",
+            
+            # Tarjetas superiores
+            "produccion_total": produccion_inyeccion + produccion_pulido + produccion_ensamble,
+            "ventas_totales": ventas_totales,
+            "eficiencia_global": (eficiencia_inyeccion + eficiencia_pulido) / 2 if (eficiencia_inyeccion + eficiencia_pulido) > 0 else 0,
+            "stock_critico": stock_critico,
+            
+            # INYECCION
+            "inyeccion": {
+                "produccion": produccion_inyeccion,
+                "pnc": pnc_inyeccion,
+                "eficiencia": eficiencia_inyeccion,
+                "ranking_operarios": dict(sorted(ranking_operarios_iny.items(), 
+                                                 key=lambda x: x["total"], 
+                                                 reverse=True)[:10]),
+                "ranking_maquinas": dict(sorted(ranking_maquinas.items(), 
+                                               key=lambda x: x["total"], 
+                                               reverse=True))
+            },
+            
+            # PULIDO
+            "pulido": {
+                "produccion": produccion_pulido,
+                "pnc": pnc_pulido,
+                "eficiencia": eficiencia_pulido,
+                "ranking_operarios": dict(sorted(ranking_operarios_pul.items(), 
+                                                 key=lambda x: x["total"], 
+                                                 reverse=True)[:10])
+            },
+            
+            # ENSAMBLE
+            "ensamble": {
+                "produccion": produccion_ensamble,
+                "ranking_operarios": dict(sorted(ranking_operarios_ens.items(), 
+                                                 key=lambda x: x["total"], 
+                                                 reverse=True)[:10])
+            }
+        }
+        
+        return resultado
+    
+    except Exception as e:
+        print(f"❌ Error en calcular_dashboard_real: {type(e).__name__}: {str(e)}")
+        traceback.print_exc()
+        return None
+
+
+@app.route('/api/dashboard/real', methods=['GET'])
+def dashboard_real():
+    """
+    Endpoint que retorna dashboard con datos REALES desde Sheets.
+    """
+    try:
+        datos = calcular_dashboard_real()
+        if datos:
+            return jsonify(datos), 200
+        else:
+            return jsonify({"error": "No se pudieron calcular datos"}), 500
+    except Exception as e:
+        print(f"❌ Error en /api/dashboard/real: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/dashboard/avanzado/indicador_inyeccion', methods=['GET'])
 def indicador_inyeccion():
     """Indicador avanzado de inyección con metas."""
@@ -1506,11 +1897,11 @@ def indicador_inyeccion():
         eficiencia_por_dia = {}
         
         for i in inyecciones:
-            if 'FECHA_INICIO' in i and i['FECHA_INICIO']:
+            if 'FECHA INICIA' in i and i['FECHA INICIA']:
                 try:
-                    fecha = datetime.datetime.strptime(str(i['FECHA_INICIO']), "%Y-%m-%d")
+                    fecha = datetime.datetime.strptime(str(i['FECHA INICIA']), "%Y-%m-%d")
                     if fecha.strftime("%Y-%m") == mes_actual:
-                        cantidad = int(i.get('CANTIDAD', 0) or 0)
+                        cantidad = int(i.get('CANTIDAD REAL', 0) or 0)
                         produccion_mes += cantidad
                         
                         obs = i.get('OBSERVACIONES', '')
@@ -1726,12 +2117,12 @@ def produccion_maquina_avanzado():
         dias_operacion = {}
         
         for i in inyecciones:
-            if 'FECHA_INICIO' in i and i['FECHA_INICIO']:
+            if 'FECHA INICIA' in i and i['FECHA INICIA']:
                 try:
-                    fecha = datetime.datetime.strptime(str(i['FECHA_INICIO']), "%Y-%m-%d")
+                    fecha = datetime.datetime.strptime(str(i['FECHA INICIA']), "%Y-%m-%d")
                     if fecha.strftime("%Y-%m") == mes_actual:
                         maquina = i.get('MAQUINA', 'Sin Máquina')
-                        cantidad = int(i.get('CANTIDAD', 0) or 0)
+                        cantidad = int(i.get('CANTIDAD REAL', 0) or 0)
                         dia = fecha.strftime("%Y-%m-%d")
                         
                         if maquina not in maquinas:
@@ -1820,7 +2211,7 @@ def produccion_operario_ranking():
                     
                     # Buscar cantidad
                     cantidad = 0
-                    for campo in ['CANTIDAD', 'CANTIDAD REAL', 'CANTIDAD_INYECCION']:
+                    for campo in ['CANTIDAD REAL', 'CANTIDAD', 'CANTIDAD_INYECCION']:
                         if campo in registro and registro[campo]:
                             try:
                                 valor = str(registro[campo]).strip()
@@ -1842,7 +2233,7 @@ def produccion_operario_ranking():
                     datos_operarios[responsable]['registros'] += 1
                     
                     # Agregar fecha si existe
-                    fecha_campos = ['FECHA_INICIO', 'FECHA', 'FECHA INICIO']
+                    fecha_campos = ['FECHA INICIA', 'FECHA', 'FECHA INICIO']
                     for campo in fecha_campos:
                         if campo in registro and registro[campo]:
                             try:
@@ -2033,19 +2424,19 @@ def ranking_inyeccion():
                 # Buscar cantidad producida
                 cantidad = 0
                 
-                # 1. Buscar en CANTIDAD
-                if 'CANTIDAD' in registro and registro['CANTIDAD']:
+                # 1. Buscar en CANTIDAD REAL
+                if 'CANTIDAD REAL' in registro and registro['CANTIDAD REAL']:
                     try:
-                        valor = str(registro['CANTIDAD']).strip()
+                        valor = str(registro['CANTIDAD REAL']).strip()
                         if valor and valor != '' and valor.lower() != 'none':
                             cantidad = int(float(valor))
                     except:
                         pass
                 
-                # 2. Si no, buscar en CANTIDAD REAL
-                if cantidad == 0 and 'CANTIDAD REAL' in registro and registro['CANTIDAD REAL']:
+                # 2. Si no, buscar en CANTIDAD
+                if cantidad == 0 and 'CANTIDAD' in registro and registro['CANTIDAD']:
                     try:
-                        valor = str(registro['CANTIDAD REAL']).strip()
+                        valor = str(registro['CANTIDAD']).strip()
                         if valor and valor != '':
                             cantidad = int(float(valor))
                     except:
@@ -2097,9 +2488,9 @@ def ranking_inyeccion():
                 operarios_inyeccion[responsable]['registros'] += 1
                 
                 # Agregar fecha si existe
-                if 'FECHA_INICIO' in registro and registro['FECHA_INICIO']:
+                if 'FECHA INICIA' in registro and registro['FECHA INICIA']:
                     try:
-                        fecha_str = str(registro['FECHA_INICIO']).strip()
+                        fecha_str = str(registro['FECHA INICIA']).strip()
                         if fecha_str:
                             # Tomar solo la parte de la fecha (sin hora)
                             if ' ' in fecha_str:
@@ -2350,13 +2741,13 @@ def obtener_detalles_dashboard(tipo):
             total_pnc_mes = 0
             
             for reg in registros:
-                if 'FECHA_INICIO' in reg and reg['FECHA_INICIO']:
+                if 'FECHA INICIA' in reg and reg['FECHA INICIA']:
                     try:
-                        fecha = datetime.datetime.strptime(str(reg['FECHA_INICIO']), "%Y-%m-%d")
+                        fecha = datetime.datetime.strptime(str(reg['FECHA INICIA']), "%Y-%m-%d")
                         if fecha.strftime("%Y-%m") == mes_actual:
                             # Producción diaria
                             fecha_str = fecha.strftime("%Y-%m-%d")
-                            cantidad = int(reg.get('CANTIDAD', 0) or 0)
+                            cantidad = int(reg.get('CANTIDAD REAL', 0) or 0)
                             
                             # Buscar PNC en observaciones
                             pnc_dia = 0
@@ -2504,21 +2895,21 @@ def obtener_movimientos_producto(codigo):
                 if cod_check and (cod_check == codigo_sis or cod_check == codigo_original):
                     estadisticas['INYECCIÓN']['encontrados'] += 1
                     print(f"✅ INYECCIÓN fila {idx+2}: código={cod_check}")
-                    print(f"   Detalles: cantidad_raw={mov.get('cantidad_real', 'N/A')}, tipo={type(mov.get('cantidad_real'))}")
+                    print(f"   Detalles: cantidad_raw={mov.get('CANTIDAD REAL', 'N/A')}, tipo={type(mov.get('CANTIDAD REAL'))}")
                     
                     try:
                         # Obtener valores con conversión segura
-                        fecha = mov.get('fecha_inicio') or mov.get('timestamp') or ''
+                        fecha = mov.get('FECHA INICIA') or mov.get('timestamp') or ''
                         
                         # USAR to_int_seguro PARA CONVERSIÓN SEGURA
-                        cantidad_raw = mov.get('cantidad_real')
+                        cantidad_raw = mov.get('CANTIDAD REAL')
                         cantidad = to_int_seguro(cantidad_raw)
                         
                         pnc_raw = mov.get('PNC')
                         pnc = to_int_seguro(pnc_raw)
                         
-                        responsable = mov.get('responsable') or 'Sin responsable'
-                        maquina = mov.get('maquina') or 'Sin máquina'
+                        responsable = mov.get('RESPONSABLE') or 'Sin responsable'
+                        maquina = mov.get('MAQUINA') or 'Sin máquina'
                         transaction_type = mov.get('transaction_type') or 'INY'
                         
                         movimientos.append({
@@ -2900,19 +3291,6 @@ def debug_columnas_detalle():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # ====================================================================
-# RUTAS PARA SERVIR ARCHIVOS ESTÁTICOS Y TEMPLATE PRINCIPAL
-# ====================================================================
-
-@app.route('/')
-def index():
-    """Página principal con la interfaz web."""
-    return render_template('index.html')
-
-@app.route('/static/<path:path>')
-def serve_static(path):
-    return send_from_directory('static', path)
-
-# ====================================================================
 # ENDPOINTS PARA CAVIDADES
 # ====================================================================
 
@@ -2997,6 +3375,19 @@ def calcular_inyeccion():
         }), 500
 
 # ====================================================================
+# RUTAS PARA SERVIR ARCHIVOS ESTÁTICOS Y TEMPLATE PRINCIPAL
+# ====================================================================
+
+@app.route('/')
+def index():
+    """Página principal con la interfaz web."""
+    return render_template('index.html')
+
+@app.route('/static/<path:path>')
+def serve_static(path):
+    return send_from_directory('static', path)
+
+# ====================================================================
 # INICIO DEL SERVIDOR
 # ====================================================================
 
@@ -3016,9 +3407,11 @@ if __name__ == '__main__':
     print(f"- GET  /api/obtener_responsables - Lista de responsables")
     print(f"- GET  /api/obtener_clientes - Lista de clientes")
     print(f"- GET  /api/obtener_productos - Lista de productos")
+    print(f"- GET  /api/obtener_maquinas - Lista de máquinas")
     print(f"- GET  /api/debug/conexion   - Debug de conexión")
     print(f"- GET  /api/cavidades/config - Configuración de cavidades")
     print(f"- POST /api/inyeccion/calcular - Calcular producción con cavidades")
+    print(f"- POST /api/inyeccion        - Registrar inyección")
     print("=" * 50)
     
     app.run(host=host, port=port, debug=False)  # debug=False en producción

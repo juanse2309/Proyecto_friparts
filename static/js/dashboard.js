@@ -33,7 +33,7 @@ async function inicializarDashboard() {
         inicializarBotonesRanking();
         
         // 3. Cargar datos del dashboard
-        await cargarDashboardCompleto();
+        await cargarDashboardReal();
         
         // 4. Configurar actualización automática
         setInterval(cargarDashboardCompleto, 120000);
