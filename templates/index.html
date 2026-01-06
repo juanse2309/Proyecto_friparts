@@ -570,30 +570,18 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="maquina-inyeccion"><i class="fas fa-cogs"></i> Máquina</label>
-                    <select id="maquina-inyeccion" required>
-                        <option value="">Seleccionar máquina...</option>
-                        <option value="MAQUINA No. 1">MAQUINA No. 1</option>
-                        <option value="MAQUINA No. 2">MAQUINA No. 2</option>
-                        <option value="MAQUINA No. 3">MAQUINA No. 3</option>
-                        <option value="MAQUINA No. 4">MAQUINA No. 4</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
                     <label for="codigo-producto-inyeccion"><i class="fas fa-barcode"></i> Producto</label>
-                    <input 
-                        id="codigo-producto-inyeccion" 
-                        type="text" 
-                        placeholder="Ej: 9304 o FR-9304"
-                        autocomplete="off"
-                        required
-                        style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;"
-                    >
-                    <div id="sugerencias-productos" class="sugerencias-dropdown" style="display:none; border: 1px solid #ccc; max-height: 200px; overflow-y: auto; position: absolute; background: white; z-index: 1000; width: calc(100% - 16px); margin-top: 2px;"></div>
+                    <input type="text" id="codigo-producto-inyeccion" 
+                       class="form-control" 
+                       placeholder="Escribe el código..."
+                       list="productos-inyeccion-list"
+                       required>
+                    <datalist id="productos-inyeccion-list">
+                        <!-- Se llena dinámicamente desde JavaScript -->
+                    </datalist>
+                    <small class="validation-message"></small>
                 </div>
 
-                
                 <!-- NUEVO: CAMPO PARA CAVIDADES -->
                 <div class="form-group">
                     <label for="cavidades-inyeccion"><i class="fas fa-layer-group"></i> No. Cavidades</label>

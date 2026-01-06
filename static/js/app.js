@@ -371,13 +371,37 @@ async function cargarDatosIniciales() {
         }
 
 
-        // Cargar productos para selects
         const productos = await fetchData('/api/obtener_productos');
-        if (productos) {
-            window.AppState.productos = productos;
-            actualizarSelectsProductos(productos);
-            console.log('Lista de productos cargada:', productos.length);
+            if (productos) {
+                window.AppState.productos = productos;
+                actualizarSelectsProductos(productos);
+                console.log(`Lista de productos cargada: ${productos.length}`);
         }
+        
+        // Configurar autocomplete para inyección
+        const datalist = document.getElementById('productos-inyeccion-list') || 
+              (() => {
+                  const list = document.createElement('datalist');
+                  list.id = 'productos-inyeccion-list';
+                  document.body.appendChild(list);
+                  const input = document.getElementById('codigo-producto-inyeccion');
+                  if (input) input.setAttribute('list', 'productos-inyeccion-list');
+                  return list;
+              })();
+                      
+            if (productos && datalist) {
+                datalist.innerHTML = '';
+                productos.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p;
+                    datalist.appendChild(opt);
+            });
+        }
+
+
+        
+        actualizarProductosList(productos);
+
         
         // Cargar criterios PNC para cada formulario
         await Promise.all([
@@ -459,6 +483,37 @@ function actualizarSelectsProductos(productos) {
         }
     });
 }
+
+// ========== ACTUALIZAR DATALIST DE PRODUCTOS ==========
+function actualizarProductosList(productos) {
+    console.log("🔄 Actualizando datalist de productos...");
+    
+    const datalist = document.getElementById('productos-list');
+    if (!datalist) {
+        console.warn("⚠️ Datalist 'productos-list' no encontrado");
+        return;
+    }
+    
+    datalist.innerHTML = ''; // Limpiar
+    
+    if (!productos || productos.length === 0) {
+        console.warn("⚠️ No hay productos para mostrar");
+        return;
+    }
+    
+    productos.forEach(producto => {
+        const option = document.createElement('option');
+        option.value = producto;
+        option.textContent = producto;
+        datalist.appendChild(option);
+    });
+    
+    console.log(`✅ Datalist actualizado con ${productos.length} productos`);
+}
+
+// Llamar cuando carguen los datos iniciales
+// En la función cargarDatosIniciales(), después de cargar productos:
+
 
 async function cargarCriteriosPNC(tipo, selectId) {
     try {
@@ -2318,79 +2373,26 @@ async function registrarFacturacion() {
 // ===== DATOS ESPECÍFICOS DE PÁGINAS =====
 
 async function cargarDatosInyeccion() {
-    console.log('Cargando datos de inyección...');
+    console.log("🔧 Cargando datos de inyección...");
+    
+    // Limpiar campos
+    const form = document.getElementById('form-inyeccion');
+    if (form) form.reset();
+    
+    // Restablecer fecha
+    const hoy = new Date().toISOString().split('T')[0];
+    const fechaInput = document.getElementById('fecha-inyeccion');
+    if (fechaInput) fechaInput.value = hoy;
+    
+    // Mostrar notificación
     mostrarNotificacion('Módulo de inyección cargado', 'info');
     
-    // ========== AUTOCOMPLETE PARA PRODUCTOS ==========
-    const productoInput = document.getElementById('codigo-producto-inyeccion');
-    const sugerenciasContainer = document.getElementById('sugerencias-productos');
-
-    if (productoInput) {
-        productoInput.addEventListener('input', async function(e) {
-            const valor = e.target.value.trim().toUpperCase();
-            
-            console.log('🔍 Buscando productos:', valor);
-            
-            if (valor.length < 1) {
-                if (sugerenciasContainer) sugerenciasContainer.style.display = 'none';
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/productos');
-                const productos = await response.json();
-                
-                console.log('📦 Productos disponibles:', productos.length);
-                
-                // Filtrar: busca que CONTENGA el valor (no que empiece)
-                const filtrados = productos.filter(p => 
-                    p.codigo.toUpperCase().includes(valor) || 
-                    p.nombre.toUpperCase().includes(valor)
-                );
-                
-                console.log('✅ Productos filtrados:', filtrados.length);
-                
-                if (!sugerenciasContainer) {
-                    console.warn('⚠️ No existe elemento sugerencias-productos en HTML');
-                    return;
-                }
-                
-                if (filtrados.length === 0) {
-                    sugerenciasContainer.innerHTML = '<div class="sugerencia-item" style="color:red; padding:10px; cursor:default;">❌ Producto no encontrado</div>';
-                    sugerenciasContainer.style.display = 'block';
-                    return;
-                }
-                
-                sugerenciasContainer.innerHTML = filtrados.map(p => 
-                    `<div class="sugerencia-item" onclick="seleccionarProductoInyeccion('${p.codigo}', '${p.nombre}')" style="padding:10px; cursor:pointer; border-bottom:1px solid #eee; background:white;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='white'">
-                        <strong>${p.codigo}</strong> - ${p.nombre}
-                    </div>`
-                ).join('');
-                sugerenciasContainer.style.display = 'block';
-            } catch (error) {
-                console.error('❌ Error cargando productos:', error);
-                if (sugerenciasContainer) {
-                    sugerenciasContainer.innerHTML = '<div class="sugerencia-item" style="color:red; padding:10px;">Error cargando productos</div>';
-                    sugerenciasContainer.style.display = 'block';
-                }
-            }
-        });
-        
-        // Cerrar sugerencias al hacer clic fuera
-        document.addEventListener('click', function(e) {
-            if (sugerenciasContainer && e.target !== productoInput && !sugerenciasContainer.contains(e.target)) {
-                sugerenciasContainer.style.display = 'none';
-            }
-        });
-        
-        // Cerrar sugerencias con ESC
-        productoInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && sugerenciasContainer) {
-                sugerenciasContainer.style.display = 'none';
-            }
-        });
-    }
+    // Configurar eventos
+    configurarCalculadoraInyeccion();
+    
+    console.log("✅ Datos de inyección cargados");
 }
+
 
 // Función para seleccionar un producto del autocomplete
 function seleccionarProductoInyeccion(codigo, nombre) {
