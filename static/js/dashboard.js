@@ -32,41 +32,29 @@ async function inicializarDashboard() {
         // 2. Inicializar botones de ranking
         inicializarBotonesRanking();
         
-        // 3. Cargar datos del dashboard - VERSIÓN SIMPLE
+        // 3. Cargar datos del dashboard
         try {
-            console.log('📡 Obteniendo datos del dashboard...');
-            const response = await fetch('/api/dashboard/real');
+            console.log("📡 Obteniendo datos del dashboard...");
+            const data = await fetchData('/api/dashboard/real');
             
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+            if (data) {
+                console.log('✅ Datos recibidos:', data);
+                
+                // Actualizar tarjetas principales
+                const elemProduccion = document.getElementById('produccion-total');
+                if (elemProduccion) elemProduccion.textContent = formatNumber(data.produccion_total || 0);
+                
+                const elemVentas = document.getElementById('ventas-totales');
+                if (elemVentas) elemVentas.textContent = `$${formatNumber(data.ventas_totales || 0)}`;
+                
+                const elemEficiencia = document.getElementById('eficiencia-global');
+                if (elemEficiencia) elemEficiencia.textContent = `${(data.eficiencia_global || 0).toFixed(1)}%`;
+                
+                const elemStock = document.getElementById('stock-critico');
+                if (elemStock) elemStock.textContent = data.stock_critico || 0;
+                
+                console.log('✅ Dashboard actualizado correctamente');
             }
-            
-            const data = await response.json();
-            console.log('✅ Datos recibidos:', data);
-            
-            // Actualizar tarjetas principales
-            if (data.produccion_total !== undefined) {
-                const elem = document.getElementById('produccion-total');
-                if (elem) elem.textContent = formatNumber(data.produccion_total) || '0';
-            }
-            
-            if (data.ventas_totales !== undefined) {
-                const elem = document.getElementById('ventas-totales');
-                if (elem) elem.textContent = '$' + formatNumber(data.ventas_totales) || '$0';
-            }
-            
-            if (data.eficiencia_global !== undefined) {
-                const elem = document.getElementById('eficiencia-global');
-                if (elem) elem.textContent = (data.eficiencia_global || 0).toFixed(1) + '%';
-            }
-            
-            if (data.stock_critico !== undefined) {
-                const elem = document.getElementById('stock-critico');
-                if (elem) elem.textContent = data.stock_critico || '0';
-            }
-            
-            console.log('✅ Dashboard actualizado correctamente');
-            
         } catch (dashError) {
             console.warn('⚠️ Error cargando dashboard:', dashError);
             // Continuar sin fallar
@@ -75,28 +63,26 @@ async function inicializarDashboard() {
         // 4. Configurar actualización automática
         setInterval(async () => {
             try {
-                const response = await fetch('/api/dashboard/real');
-                if (response.ok) {
-                    const data = await response.json();
-                    // Actualizar elementos...
+                const data = await fetchData('/api/dashboard/real');
+                if (data) {
+                    // Actualizar elementos
+                    const elemProduccion = document.getElementById('produccion-total');
+                    if (elemProduccion) elemProduccion.textContent = formatNumber(data.produccion_total || 0);
                 }
             } catch (e) {
                 console.warn('Error en actualización automática:', e);
             }
         }, 120000);
         
-        // 5. Mostrar notificación de éxito
-        mostrarNotificacion('Dashboard inicializado correctamente', 'success');
-        
     } catch (error) {
-        console.error('Error inicializando dashboard:', error);
-        mostrarNotificacion('Error al cargar dashboard: ' + error.message, 'error');
+        console.error('Error en inicialización del dashboard:', error);
+        mostrarNotificacion('Error inicializando dashboard', 'error');
     } finally {
+        // Detener animación de carga
         document.body.classList.remove('loading');
-        document.body.classList.add('loaded');
+        console.log('✅ Dashboard inicializado');
     }
 }
-
 
 // Configurar eventos del dashboard
 function configurarEventosDashboard() {
@@ -384,6 +370,7 @@ function actualizarEstadisticasRanking() {
         </div>
     `;
 }
+
 // Cargar dashboard completo - VERSIÓN SIMPLE
 async function cargarDashboardCompleto() {
     try {
@@ -454,8 +441,6 @@ function updateDashboardElement(elementId, valor) {
     }
 }
 
-
-
 // Cargar endpoint específico
 async function cargarEndpointDashboard(endpoint) {
     try {
@@ -498,8 +483,6 @@ async function cargarEndpointDashboard(endpoint) {
 }
 
 // ===== FUNCIONES DE ACTUALIZACIÓN =====
-
-
 
 // Actualizar indicador inyección
 function actualizarIndicadorInyeccion(data) {
@@ -1162,7 +1145,7 @@ function actualizarKPIsGlobales() {
         let ventasTotal = 0;
         
         Object.values(clientes).forEach(cliente => {
-            ventasTotal += cliente.mes_actual || 0;
+            ventasTotal += cliente.mes_actual || 0);
         });
         
         document.getElementById('kpi-ventas').textContent = 
@@ -1359,10 +1342,6 @@ function exportarDashboard() {
 function actualizarDashboardCompleto() {
     mostrarNotificacion('Actualizando dashboard...', 'info');
     cargarDashboardCompleto();
-}
-
-function toggleDetails(seccion) {
-    mostrarNotificacion(`Detalles de ${seccion} - Función en desarrollo`, 'info');
 }
 
 function toggleChartType(tipo) {
