@@ -23,99 +23,8 @@ window.AppState = {
 
 // ===== FUNCIONES DE UTILIDAD =====
 
-function mostrarLoading(mostrar) {
-    const overlay = document.getElementById('loading-overlay');
-    if (overlay) {
-        overlay.style.display = mostrar ? 'flex' : 'none';
-    }
-}
 
-function mostrarNotificacion(mensaje, tipo = 'info') {
-    console.log(`[${tipo.toUpperCase()}] ${mensaje}`);
-    
-    // Crear notificación visual
-    const notificationDiv = document.createElement('div');
-    notificationDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        border-radius: 8px;
-        color: white;
-        font-weight: 500;
-        z-index: 10002;
-        animation: slideInRight 0.3s ease;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        max-width: 400px;
-    `;
-    
-    // Colores según tipo
-    switch(tipo) {
-        case 'success':
-            notificationDiv.style.backgroundColor = '#10b981';
-            break;
-        case 'error':
-            notificationDiv.style.backgroundColor = '#ef4444';
-            break;
-        case 'warning':
-            notificationDiv.style.backgroundColor = '#f59e0b';
-            break;
-        default:
-            notificationDiv.style.backgroundColor = '#6366f1';
-    }
-    
-    notificationDiv.textContent = mensaje;
-    document.body.appendChild(notificationDiv);
-    
-    // Agregar animación CSS si no existe
-    if (!document.querySelector('style#notification-animations')) {
-        const style = document.createElement('style');
-        style.id = 'notification-animations';
-        style.textContent = `
-            @keyframes slideInRight {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            @keyframes fadeOut {
-                from { opacity: 1; }
-                to { opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-    
-    // Remover después de 5 segundos
-    setTimeout(() => {
-        notificationDiv.style.animation = 'fadeOut 0.5s ease';
-        setTimeout(() => {
-            if (notificationDiv.parentNode) {
-                notificationDiv.parentNode.removeChild(notificationDiv);
-            }
-        }, 500);
-    }, 5000);
-}
 
-async function fetchData(url) {
-    try {
-        console.log(`Fetching data from: ${url}`);
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        const data = await response.json();
-        console.log(`Data fetched from ${url}:`, data);
-        return data;
-    } catch (error) {
-        console.error(`Error fetching ${url}:`, error);
-        mostrarNotificacion(`Error al cargar datos: ${error.message}`, 'error');
-        return null;
-    }
-}
-
-function formatNumber(num) {
-    if (num === null || num === undefined || isNaN(num)) return '0';
-    return parseFloat(num).toLocaleString('es-CO');
-}
 
 function getEstadoStock(stockActual, stockMinimo) {
     stockActual = parseFloat(stockActual || 0);
@@ -147,35 +56,7 @@ const PLACEHOLDER_MODAL = 'https://placehold.co/300x200/e9ecef/6b7280?text=Sin+I
 
 // ===== FUNCIONES PARA CAVIDADES =====
 
-function actualizarCalculoProduccion() {
-    const cantidadDisparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
-    const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
-    const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
-    
-    const piezasTotales = cantidadDisparos * cavidades;
-    const piezasBuenas = Math.max(0, piezasTotales - pnc);
-    
-    const produccionCalculada = document.getElementById('produccion-calculada');
-    const formulaCalc = document.getElementById('formula-calc');
-    
-    if (produccionCalculada) {
-        produccionCalculada.textContent = formatNumber(piezasBuenas);
-        produccionCalculada.style.color = piezasBuenas > 0 ? '#10b981' : '#6b7280';
-    }
-    
-    if (formulaCalc) {
-        if (pnc > 0) {
-            formulaCalc.innerHTML = `
-                <span>Disparos (${cantidadDisparos}) × Cavidades (${cavidades}) = ${piezasTotales} piezas</span>
-                <span style="color: #ef4444; margin-left: 5px;">- ${pnc} PNC = ${piezasBuenas} piezas buenas</span>
-            `;
-        } else {
-            formulaCalc.textContent = `Disparos (${cantidadDisparos}) × Cavidades (${cavidades}) = ${piezasTotales} piezas`;
-        }
-    }
-    
-    return { piezasTotales, piezasBuenas, cavidades };
-}
+
 
 function configurarCalculadoraInyeccion() {
     const cantidadInput = document.getElementById('cantidad-inyeccion');
@@ -2075,83 +1956,7 @@ function calcularTotalFacturacion() {
 
 // ===== REGISTROS =====
 
-async function registrarInyeccion() {
-    try {
-        mostrarLoading(true);
-        
-        // RECOPILAR DATOS DEL FORMULARIO
-        const datos = {
-            codigo_producto: document.getElementById('codigo-producto-inyeccion')?.value || '',
-            cantidad_real: document.getElementById('cantidad-inyeccion')?.value || '0',
-            pnc: document.getElementById('pnc-inyeccion')?.value || '0',
-            responsable: document.getElementById('responsable-inyeccion')?.value || '',
-            fecha_inicio: document.getElementById('fecha-inicio-inyeccion')?.value || new Date().toISOString().split('T')[0],
-            fecha_fin: document.getElementById('fecha-fin-inyeccion')?.value || '',
-            hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '00:00',
-            hora_fin: document.getElementById('hora-fin-inyeccion')?.value || '00:00',
-            // MÁQUINA ES OPCIONAL
-            maquina: document.getElementById('maquina-inyeccion')?.value || '',
-            no_cavidades: document.getElementById('cavidades-inyeccion')?.value || '1',
-            contador_maquina: document.getElementById('contador-inyeccion')?.value || '',
-            peso_vela_maquina: document.getElementById('peso-vela-inyeccion')?.value || '',
-            peso_bujes: document.getElementById('peso-bujes-inyeccion')?.value || '',
-            orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
-            observaciones: document.getElementById('observaciones-inyeccion')?.value || '',
-            criterio_pnc: document.getElementById('criterio-pnc-inyeccion')?.value || ''
-        };
-        
-        console.log('📤 Enviando datos de inyección:', datos);
-        
-        // VALIDAR DATOS MÍNIMOS EN FRONTEND
-        if (!datos.codigo_producto) {
-            mostrarNotificacion('❌ Ingresa el código del producto', 'error');
-            mostrarLoading(false);
-            return;
-        }
-        
-        if (!datos.cantidad_real || datos.cantidad_real === '0') {
-            mostrarNotificacion('❌ Ingresa la cantidad producida', 'error');
-            mostrarLoading(false);
-            return;
-        }
-        
-        if (!datos.responsable) {
-            mostrarNotificacion('❌ Selecciona un responsable', 'error');
-            mostrarLoading(false);
-            return;
-        }
-        
-        // ENVIAR AL SERVIDOR
-        const response = await fetch('/api/inyeccion', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(datos)
-        });
-        
-        const resultado = await response.json();
-        
-        if (response.ok && resultado.success) {
-            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
-            // Limpiar formulario
-            document.getElementById('formulario-inyeccion')?.reset();
-            // Recargar datos
-            setTimeout(() => {
-                cargarDatosInyeccion();
-            }, 1000);
-        } else {
-            const errores = resultado.errors ? Object.values(resultado.errors).join(', ') : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`❌ ${errores}`, 'error');
-        }
-        
-    } catch (error) {
-        console.error('❌ Error registrando inyección:', error);
-        mostrarNotificacion(`Error: ${error.message}`, 'error');
-    } finally {
-        mostrarLoading(false);
-    }
-}
+
 
 async function registrarPulido() {
     try {
@@ -2351,27 +2156,6 @@ async function registrarFacturacion() {
 }
 
 // ===== DATOS ESPECÍFICOS DE PÁGINAS =====
-
-async function cargarDatosInyeccion() {
-    console.log("🔧 Cargando datos de inyección...");
-    
-    // Limpiar campos
-    const form = document.getElementById('form-inyeccion');
-    if (form) form.reset();
-    
-    // Restablecer fecha
-    const hoy = new Date().toISOString().split('T')[0];
-    const fechaInput = document.getElementById('fecha-inyeccion');
-    if (fechaInput) fechaInput.value = hoy;
-    
-    // Mostrar notificación
-    mostrarNotificacion('Módulo de inyección cargado', 'info');
-    
-    // Configurar eventos
-    configurarCalculadoraInyeccion();
-    
-    console.log("✅ Datos de inyección cargados");
-}
 
 
 // Función para seleccionar un producto del autocomplete
