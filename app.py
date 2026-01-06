@@ -1755,7 +1755,7 @@ def calcular_dashboard_real():
                 fecha_str = str(r.get("FECHA INICIA", "")).strip()
                 if fecha_str:
                     try:
-                        fecha = datetime.datetime.fromisoformat(fecha_str.split())
+                        fecha = datetime.datetime.fromisoformat(fecha_str.split()[0])
                         if fecha < inicio_mes:
                             continue
                     except:
@@ -1939,10 +1939,10 @@ def calcular_dashboard_real():
                 "pnc": pnc_inyeccion,
                 "eficiencia": eficiencia_inyeccion,
                 "ranking_operarios": dict(sorted(ranking_operarios_iny.items(), 
-                                                 key=lambda x: x["total"], 
+                                                 key=lambda x: x[1]["total"], 
                                                  reverse=True)[:10]),
                 "ranking_maquinas": dict(sorted(ranking_maquinas.items(), 
-                                               key=lambda x: x["total"], 
+                                               key=lambda x: x[1]["total"], 
                                                reverse=True))
             },
             
@@ -1952,7 +1952,7 @@ def calcular_dashboard_real():
                 "pnc": pnc_pulido,
                 "eficiencia": eficiencia_pulido,
                 "ranking_operarios": dict(sorted(ranking_operarios_pul.items(), 
-                                                 key=lambda x: x["total"], 
+                                                 key=lambda x: x[1]["total"], 
                                                  reverse=True)[:10])
             },
             
@@ -1960,7 +1960,7 @@ def calcular_dashboard_real():
             "ensamble": {
                 "produccion": produccion_ensamble,
                 "ranking_operarios": dict(sorted(ranking_operarios_ens.items(), 
-                                                 key=lambda x: x["total"], 
+                                                 key=lambda x: x[1]["total"], 
                                                  reverse=True)[:10])
             }
         }
@@ -1971,7 +1971,6 @@ def calcular_dashboard_real():
         print(f"❌ Error en calcular_dashboard_real: {type(e).__name__}: {str(e)}")
         traceback.print_exc()
         return None
-
 
 @app.route('/api/dashboard/real', methods=['GET'])
 def dashboard_real_simple():
