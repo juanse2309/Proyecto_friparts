@@ -145,6 +145,116 @@ function normalizarImagenProducto(imagenRaw) {
 const PLACEHOLDER_THUMB = 'https://placehold.co/40x40/e9ecef/d1d5db?text=IMG';
 const PLACEHOLDER_MODAL = 'https://placehold.co/300x200/e9ecef/6b7280?text=Sin+Imagen';
 
+// ===== FUNCIONES PARA CAVIDADES =====
+
+function actualizarCalculoProduccion() {
+    const cantidadDisparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
+    const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
+    const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
+    
+    const piezasTotales = cantidadDisparos * cavidades;
+    const piezasBuenas = Math.max(0, piezasTotales - pnc);
+    
+    const produccionCalculada = document.getElementById('produccion-calculada');
+    const formulaCalc = document.getElementById('formula-calc');
+    
+    if (produccionCalculada) {
+        produccionCalculada.textContent = formatNumber(piezasBuenas);
+        produccionCalculada.style.color = piezasBuenas > 0 ? '#10b981' : '#6b7280';
+    }
+    
+    if (formulaCalc) {
+        if (pnc > 0) {
+            formulaCalc.innerHTML = `
+                <span>Disparos (${cantidadDisparos}) × Cavidades (${cavidades}) = ${piezasTotales} piezas</span>
+                <span style="color: #ef4444; margin-left: 5px;">- ${pnc} PNC = ${piezasBuenas} piezas buenas</span>
+            `;
+        } else {
+            formulaCalc.textContent = `Disparos (${cantidadDisparos}) × Cavidades (${cavidades}) = ${piezasTotales} piezas`;
+        }
+    }
+    
+    return { piezasTotales, piezasBuenas, cavidades };
+}
+
+function configurarCalculadoraInyeccion() {
+    const cantidadInput = document.getElementById('cantidad-inyeccion');
+    const cavidadesSelect = document.getElementById('cavidades-inyeccion');
+    const pncInput = document.getElementById('pnc-inyeccion');
+    
+    if (cantidadInput) {
+        cantidadInput.addEventListener('input', actualizarCalculoProduccion);
+    }
+    if (cavidadesSelect) {
+        cavidadesSelect.addEventListener('change', actualizarCalculoProduccion);
+    }
+    if (pncInput) {
+        pncInput.addEventListener('input', actualizarCalculoProduccion);
+    }
+}
+
+async function cargarConfiguracionCavidades() {
+    try {
+        const response = await fetch('/api/cavidades/config');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.config) {
+                return data.config;
+            }
+        }
+    } catch (error) {
+        console.error('Error cargando configuración de cavidades:', error);
+    }
+    
+    // Configuración por defecto
+    return {
+        cavidades_disponibles: [1, 2, 4, 6, 8, 12, 16, 24, 32, 48],
+        cavidades_por_defecto: 4,
+        maquinas_config: {}
+    };
+}
+
+async function actualizarCavidadesPorMaquina(maquina) {
+    const selectCavidades = document.getElementById('cavidades-inyeccion');
+    if (!selectCavidades) return;
+    
+    const config = await cargarConfiguracionCavidades();
+    
+    // Guardar valor actual
+    const currentValue = selectCavidades.value;
+    
+    // Limpiar opciones
+    selectCavidades.innerHTML = '';
+    
+    // Obtener cavidades específicas para la máquina
+    let cavidades = config.cavidades_disponibles;
+    let defaultCavidades = config.cavidades_por_defecto;
+    
+    if (config.maquinas_config[maquina]) {
+        cavidades = config.maquinas_config[maquina].cavidades || cavidades;
+        defaultCavidades = config.maquinas_config[maquina].default || defaultCavidades;
+    }
+    
+    // Agregar opciones
+    cavidades.forEach(num => {
+        const option = document.createElement('option');
+        option.value = num;
+        option.textContent = num === 1 ? '1 Cavidad' : `${num} Cavidades`;
+        if (num === defaultCavidades) {
+            option.selected = true;
+        }
+        selectCavidades.appendChild(option);
+    });
+    
+    // Restaurar valor si existe
+    if (currentValue && cavidades.includes(parseInt(currentValue))) {
+        selectCavidades.value = currentValue;
+    }
+    
+    // Actualizar cálculo
+    actualizarCalculoProduccion();
+}
+
 // ===== GESTIÓN DE NAVEGACIÓN =====
 
 function getPageName(pageId) {
@@ -662,42 +772,77 @@ function actualizarEstadisticasInventario(productos) {
 }
 
 function buscarProductos() {
-  const buscarInput = document.getElementById("buscar-producto");
-  if (!buscarInput || !window.AppState.productosData || window.AppState.productosData.length === 0) {
-    console.warn("No hay datos para buscar");
-    return;
-  }
+    const buscarInput = document.getElementById('buscar-producto');
+    if (!buscarInput || !window.AppState.productosData || window.AppState.productosData.length === 0) {
+        console.warn('No hay datos para buscar');
+        return;
+    }
 
-  const termino = buscarInput.value.toLowerCase().trim();
-  console.log("Buscando:", termino);
+    const termino = buscarInput.value.toLowerCase().trim();
+    console.log('Buscando por término:', termino);
 
-  if (!termino) {
-    // Sin texto: mostrar todos
-    renderizarTablaProductos(window.AppState.productosData);
-    return;
-  }
+    if (!termino) {
+        // Sin texto: mostrar todos
+        renderizarTablaProductos(window.AppState.productosData);
+        return;
+    }
 
-  const productosFiltrados = window.AppState.productosData.filter((p) => {
-    const prod = p.producto || p;
+    // Función para buscar en cualquier campo numérico o de texto
+    const productosFiltrados = window.AppState.productosData.filter((p) => {
+        const prod = p.producto || p;
 
-    const codigoSistema = String(prod.codigo_sistema || "").toLowerCase();
-    const descripcion   = String(prod.descripcion || "").toLowerCase();
-    const oem           = String(prod.oem || "").toLowerCase();
+        // Buscar en todos los campos posibles
+        const camposABuscar = [
+            prod.codigo_sistema,
+            prod.codigo_interno,
+            prod.codigo,
+            prod.codigosistema,
+            prod['CODIGO SISTEMA'],
+            prod.id_codigo,
+            prod.ID_CODIGO,
+            prod.descripcion,
+            prod.nombre,
+            prod.DESCRIPCION,
+            prod.oem,
+            prod.OEM,
+            prod.codigo_alterno,
+            prod.codigo_fabricante,
+            prod.referencia,
+            prod.categoria,
+            prod.marca
+        ].filter(val => val); // Remover valores undefined o null
 
-    // Buscar en código, descripción u OEM
-    return (
-      codigoSistema.includes(termino) ||
-      descripcion.includes(termino) ||
-      oem.includes(termino)
-    );
-  });
+        // Buscar el término en todos los campos
+        return camposABuscar.some(campo => {
+            if (campo) {
+                const valorBusqueda = String(campo).toLowerCase();
+                
+                // Buscar coincidencia exacta o parcial
+                if (valorBusqueda.includes(termino)) {
+                    return true;
+                }
+                
+                // Buscar números que contengan el término (si el término es numérico)
+                if (/^\d+$/.test(termino)) {
+                    // Buscar en cualquier parte del número
+                    if (valorBusqueda.replace(/\D/g, '').includes(termino)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        });
+    });
 
-  console.log("Resultados encontrados:", productosFiltrados.length);
-  renderizarTablaProductos(productosFiltrados);
-
-  if (productosFiltrados.length === 0) {
-    mostrarNotificacion("No se encontraron productos con ese criterio", "info");
-  }
+    console.log('Resultados encontrados:', productosFiltrados.length);
+    
+    if (productosFiltrados.length > 0) {
+        renderizarTablaProductos(productosFiltrados);
+        mostrarNotificacion(`Se encontraron ${productosFiltrados.length} productos`, 'info');
+    } else {
+        renderizarTablaProductos([]);
+        mostrarNotificacion('No se encontraron productos con ese criterio', 'info');
+    }
 }
 
 function filtrarProductos(filtro) {
@@ -1679,7 +1824,21 @@ function configurarFormularios() {
             });
         }
     }
-    
+
+    // Evento para actualizar cavidades según máquina
+        const maquinaSelect = document.getElementById('maquina-inyeccion');
+        if (maquinaSelect) {
+            maquinaSelect.addEventListener('change', function() {
+                if (this.value) {
+                    actualizarCavidadesPorMaquina(this.value);
+                }
+            });
+        }
+        // Configurar calculadora automática
+        configurarCalculadoraInyeccion();
+        actualizarCalculoProduccion(); // Calcular inicial
+    }
+
     // Formulario de Pulido
     const formPulido = document.getElementById('form-pulido');
     if (formPulido) {
@@ -1739,7 +1898,7 @@ function configurarFormularios() {
     }
     
     console.log('Formularios configurados correctamente');
-}
+
 
 async function actualizarFichaProducto(codigo) {
     if (!codigo) {
@@ -1853,32 +2012,59 @@ function calcularTotalFacturacion() {
 
 async function registrarInyeccion() {
     try {
+        const { piezasBuenas, cavidades } = actualizarCalculoProduccion();
+        
         const formData = {
             fecha_inicio: document.getElementById('fecha-inyeccion')?.value,
             responsable: document.getElementById('responsable-inyeccion')?.value,
             codigo_producto: document.getElementById('codigo-producto-inyeccion')?.value,
             maquina: document.getElementById('maquina-inyeccion')?.value,
             cantidad_real: parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0,
+            no_cavidades: cavidades, // ← NUEVO: Agregar cavidades
             pnc: parseInt(document.getElementById('pnc-inyeccion')?.value) || 0,
             criterio_pnc: document.getElementById('criterio-pnc-inyeccion')?.value,
             observaciones: document.getElementById('observaciones-inyeccion')?.value
         };
         
-        console.log('Registrando inyección:', formData);
+        console.log('Registrando inyección con cavidades:', formData);
         
-        // Validaciones básicas
-        if (!formData.fecha_inicio || !formData.responsable || !formData.codigo_producto || !formData.cantidad_real) {
+        // Validaciones mejoradas
+        if (!formData.fecha_inicio || !formData.responsable || !formData.codigo_producto || 
+            !formData.cantidad_real || !formData.no_cavidades) {
             mostrarNotificacion('Complete todos los campos obligatorios', 'warning');
             return;
         }
         
         if (formData.cantidad_real <= 0) {
-            mostrarNotificacion('La cantidad debe ser mayor a 0', 'error');
+            mostrarNotificacion('La cantidad de disparos debe ser mayor a 0', 'error');
             return;
         }
         
-        if (formData.pnc > formData.cantidad_real) {
-            mostrarNotificacion('El PNC no puede ser mayor que la cantidad real', 'error');
+        if (formData.no_cavidades <= 0) {
+            mostrarNotificacion('El número de cavidades debe ser mayor a 0', 'error');
+            return;
+        }
+        
+        const pnc = formData.pnc || 0;
+        const piezasTotales = formData.cantidad_real * formData.no_cavidades;
+        
+        if (pnc > piezasTotales) {
+            mostrarNotificacion(`El PNC no puede ser mayor que la producción total (${piezasTotales} piezas)`, 'error');
+            return;
+        }
+        
+        // Mostrar resumen antes de enviar
+        const confirmacion = `¿Registrar inyección?
+• Producto: ${formData.codigo_producto}
+• Disparos: ${formData.cantidad_real}
+• Cavidades: ${formData.no_cavidades}
+• Producción total: ${piezasTotales} piezas
+• PNC: ${pnc} piezas
+• Piezas buenas: ${piezasBuenas} piezas
+
+¿Desea continuar?`;
+        
+        if (!confirm(confirmacion)) {
             return;
         }
         
@@ -1895,12 +2081,16 @@ async function registrarInyeccion() {
         const result = await response.json();
         
         if (result.status === 'success') {
-            mostrarNotificacion('Inyección registrada exitosamente', 'success');
+            mostrarNotificacion(`✅ Inyección registrada exitosamente: ${piezasBuenas} piezas buenas`, 'success');
+            
+            // Limpiar formulario
             document.getElementById('form-inyeccion')?.reset();
             
-            // Restablecer fecha
+            // Restablecer valores
             const hoy = new Date().toISOString().split('T')[0];
             document.getElementById('fecha-inyeccion').value = hoy;
+            document.getElementById('cavidades-inyeccion').value = '4'; // Valor por defecto
+            actualizarCalculoProduccion(); // Actualizar cálculo
             
             // Ocultar ficha técnica
             const fichaTecnica = document.getElementById('ficha-tecnica');
@@ -1918,7 +2108,6 @@ async function registrarInyeccion() {
         mostrarLoading(false);
     }
 }
-
 async function registrarPulido() {
     try {
         const formData = {
@@ -2156,27 +2345,7 @@ async function cargarDatosReportes() {
     }
 }
 
-function inicializarDashboard() {
-    console.log('Inicializando dashboard...');
-    mostrarNotificacion('Dashboard cargado', 'info');
-    
-    // Configurar eventos del dashboard
-    const btnActualizar = document.getElementById('btn-actualizar-dashboard');
-    if (btnActualizar) {
-        btnActualizar.addEventListener('click', function() {
-            mostrarNotificacion('Actualizando dashboard...', 'info');
-            // Aquí llamarías a la función de actualización del dashboard
-        });
-    }
-    
-    const btnExportar = document.getElementById('btn-exportar-dashboard');
-    if (btnExportar) {
-        btnExportar.addEventListener('click', function() {
-            mostrarNotificacion('Exportando dashboard...', 'info');
-            // Aquí llamarías a la función de exportación del dashboard
-        });
-    }
-}
+
 
 // ===== FUNCIONES DE REPORTES =====
 
@@ -2325,6 +2494,14 @@ function inicializarAplicacion() {
     
     console.log('Aplicación inicializada correctamente');
 }
+
+
+window.initDashboard = function() {
+    if (window.inicializarDashboard) {
+        window.inicializarDashboard();
+    }
+};
+
 
 // ===== INICIALIZAR CUANDO EL DOM ESTÉ LISTO =====
 

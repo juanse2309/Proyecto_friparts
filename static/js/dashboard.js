@@ -26,12 +26,19 @@ async function inicializarDashboard() {
     document.body.classList.add('loading');
     
     try {
+        // 1. Configurar eventos primero
+        configurarEventosDashboard();
+        
+        // 2. Inicializar botones de ranking
+        inicializarBotonesRanking();
+        
+        // 3. Cargar datos del dashboard
         await cargarDashboardCompleto();
         
-        // Actualizar automáticamente cada 2 minutos
+        // 4. Configurar actualización automática
         setInterval(cargarDashboardCompleto, 120000);
         
-        // Mostrar notificación de éxito
+        // 5. Mostrar notificación de éxito
         mostrarNotificacion('Dashboard inicializado correctamente', 'success');
         
     } catch (error) {
@@ -43,6 +50,292 @@ async function inicializarDashboard() {
     }
 }
 
+// Configurar eventos del dashboard
+function configurarEventosDashboard() {
+    console.log('⚙️ Configurando eventos del dashboard...');
+    
+    // Botón de actualizar dashboard
+    const btnActualizar = document.getElementById('btn-actualizar-dashboard');
+    if (btnActualizar) {
+        btnActualizar.addEventListener('click', function() {
+            actualizarDashboardCompleto();
+        });
+    }
+    
+    // Botón de exportar dashboard
+    const btnExportar = document.getElementById('btn-exportar-dashboard');
+    if (btnExportar) {
+        btnExportar.addEventListener('click', function() {
+            exportarDashboard();
+        });
+    }
+    
+    // Selector de período
+    const filtroPeriodo = document.getElementById('filtro-periodo');
+    if (filtroPeriodo) {
+        filtroPeriodo.addEventListener('change', function() {
+            cambiarPeriodoDashboard();
+        });
+    }
+    
+    // Botones de detalles
+    const btnDetalleInyeccion = document.getElementById('btn-detalle-inyeccion');
+    if (btnDetalleInyeccion) {
+        btnDetalleInyeccion.addEventListener('click', function() {
+            toggleDetails('inyeccion');
+        });
+    }
+    
+    const btnDetallePulido = document.getElementById('btn-detalle-pulido');
+    if (btnDetallePulido) {
+        btnDetallePulido.addEventListener('click', function() {
+            toggleDetails('pulido');
+        });
+    }
+    
+    // Botón para cambiar tipo de gráfico de ventas
+    const btnCambiarChartVentas = document.getElementById('btn-cambiar-chart-ventas');
+    if (btnCambiarChartVentas) {
+        btnCambiarChartVentas.addEventListener('click', function() {
+            toggleChartType('ventas');
+        });
+    }
+    
+    console.log('✅ Eventos del dashboard configurados');
+}
+
+// Inicializar botones de ranking mejorados
+function inicializarBotonesRanking() {
+    console.log('🏆 Inicializando botones de ranking mejorados...');
+    
+    const cardHeader = document.querySelector('#dashboard-page .dashboard-card:nth-child(3) .card-header');
+    const cardContent = document.querySelector('#dashboard-page .dashboard-card:nth-child(3) .card-content');
+    
+    if (!cardHeader || !cardContent) {
+        console.warn('No se encontró la sección de ranking');
+        return;
+    }
+    
+    // Verificar si ya existen los botones mejorados
+    if (document.querySelector('.ranking-filters-container')) {
+        console.log('Botones de ranking ya existen');
+        return;
+    }
+    
+    // Crear contenedor de filtros mejorados
+    const filtersContainer = document.createElement('div');
+    filtersContainer.className = 'ranking-filters-container';
+    
+    // Crear fila de botones de tipo de ranking
+    const typeButtons = document.createElement('div');
+    typeButtons.className = 'ranking-type-buttons';
+    
+    typeButtons.innerHTML = `
+        <button class="ranking-filter-btn active" 
+                data-tipo="inyeccion" 
+                onclick="seleccionarTipoRanking('inyeccion')">
+            <i class="fas fa-syringe"></i>
+            Inyección
+        </button>
+        <button class="ranking-filter-btn" 
+                data-tipo="pulido" 
+                onclick="seleccionarTipoRanking('pulido')">
+            <i class="fas fa-sparkles"></i>
+            Pulido
+        </button>
+    `;
+    
+    // Crear selector de período mejorado
+    const periodSelector = document.createElement('div');
+    periodSelector.className = 'ranking-period-selector';
+    
+    periodSelector.innerHTML = `
+        <label for="ranking-period">
+            <i class="fas fa-calendar-alt"></i> Período:
+        </label>
+        <select id="ranking-period" onchange="cambiarRankingPeriodo()">
+            <option value="hoy">Hoy</option>
+            <option value="semana" selected>Esta semana</option>
+            <option value="mes">Este mes</option>
+            <option value="trimestre">Este trimestre</option>
+            <option value="anual">Anual</option>
+        </select>
+    `;
+    
+    // Crear estadísticas de ranking
+    const statsContainer = document.createElement('div');
+    statsContainer.className = 'ranking-stats';
+    statsContainer.id = 'ranking-stats';
+    
+    // Ensamblar todo
+    filtersContainer.appendChild(typeButtons);
+    filtersContainer.appendChild(periodSelector);
+    
+    // Insertar antes del top-indicator
+    const topIndicator = cardContent.querySelector('.top-indicator.highlight');
+    if (topIndicator) {
+        cardContent.insertBefore(filtersContainer, topIndicator);
+        cardContent.insertBefore(statsContainer, cardContent.children[1]);
+    } else {
+        cardContent.insertBefore(filtersContainer, cardContent.firstChild);
+        cardContent.insertBefore(statsContainer, cardContent.children[1]);
+    }
+    
+    console.log('✅ Botones de ranking mejorados inicializados');
+}
+
+// ===== FUNCIONES PARA RANKING (AGREGAR A DASHBOARD.JS) =====
+
+// Función para seleccionar tipo de ranking
+function seleccionarTipoRanking(tipo) {
+    currentRankingType = tipo;
+    cambiarTipoRanking();
+}
+
+// Función para cambiar período de ranking
+function cambiarRankingPeriodo() {
+    const periodoSelect = document.getElementById('ranking-period');
+    const periodo = periodoSelect ? periodoSelect.value : 'semana';
+    const tipo = currentRankingType;
+    
+    console.log(`🔄 Cambiando período de ranking de ${tipo} a: ${periodo}`);
+    
+    mostrarNotificacion(`Actualizando ranking de ${tipo} para: ${periodo}`, 'info');
+    
+    // Simular carga de datos según el período
+    setTimeout(() => {
+        if (tipo === 'inyeccion') {
+            const data = window.AppState.dashboardData.ranking_inyeccion;
+            if (data) {
+                actualizarRankingInyeccion(data);
+                mostrarNotificacion(`Ranking de inyección actualizado (${periodo})`, 'success');
+            }
+        } else {
+            const data = window.AppState.dashboardData.indicador_pulido;
+            if (data) {
+                mostrarRankingPulido(data);
+                mostrarNotificacion(`Ranking de pulido actualizado (${periodo})`, 'success');
+            }
+        }
+        
+        // Actualizar estadísticas
+        actualizarEstadisticasRanking();
+    }, 500);
+}
+
+// Función para exportar ranking
+function exportarRanking() {
+    const tipo = currentRankingType;
+    const periodoSelect = document.getElementById('ranking-period');
+    const periodo = periodoSelect ? periodoSelect.value : 'semana';
+    
+    console.log(`📤 Exportando ranking de ${tipo} (${periodo})`);
+    
+    mostrarNotificacion(`Generando reporte de ranking de ${tipo}...`, 'info');
+    
+    // Simular generación de reporte
+    setTimeout(() => {
+        mostrarNotificacion(`Reporte de ranking ${tipo} exportado exitosamente`, 'success');
+        generarReporteRanking(tipo, periodo);
+    }, 1500);
+}
+
+// Función para generar reporte de ranking
+function generarReporteRanking(tipo, periodo) {
+    let data = null;
+    let titulo = '';
+    
+    if (tipo === 'inyeccion') {
+        data = window.AppState.dashboardData.ranking_inyeccion;
+        titulo = 'Ranking de Inyección';
+    } else {
+        data = window.AppState.dashboardData.indicador_pulido;
+        titulo = 'Ranking de Pulido';
+    }
+    
+    if (!data) {
+        console.warn(`No hay datos para exportar ranking de ${tipo}`);
+        return;
+    }
+    
+    // Crear contenido CSV
+    let csvContent = `${titulo} - ${periodo}\n\n`;
+    csvContent += 'Posición,Operario,Producción Total,Eficiencia,Productividad Diaria\n';
+    
+    if (tipo === 'inyeccion' && data.ranking_total) {
+        let posicion = 1;
+        Object.entries(data.ranking_total).forEach(([operario, datos]) => {
+            csvContent += `${posicion},${operario},${datos.total || 0},${datos.eficiencia || 0}%,${datos.productividad_diaria || 0}\n`;
+            posicion++;
+        });
+    }
+    
+    // Crear y descargar archivo
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `ranking_${tipo}_${periodo}_${new Date().toISOString().slice(0,10)}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    console.log(`✅ Reporte CSV generado: ranking_${tipo}_${periodo}.csv`);
+}
+
+// Función para actualizar estadísticas de ranking
+function actualizarEstadisticasRanking() {
+    const statsContainer = document.getElementById('ranking-stats');
+    if (!statsContainer) return;
+    
+    let data = null;
+    if (currentRankingType === 'inyeccion') {
+        data = window.AppState.dashboardData.ranking_inyeccion;
+    } else {
+        data = window.AppState.dashboardData.indicador_pulido;
+    }
+    
+    if (!data) {
+        statsContainer.innerHTML = '';
+        return;
+    }
+    
+    let totalOperarios = 0;
+    let promedioEficiencia = 0;
+    let totalProduccion = 0;
+    
+    if (currentRankingType === 'inyeccion' && data.ranking_total) {
+        totalOperarios = Object.keys(data.ranking_total).length;
+        const operarios = Object.values(data.ranking_total);
+        promedioEficiencia = operarios.reduce((sum, op) => sum + (op.eficiencia || 0), 0) / totalOperarios;
+        totalProduccion = operarios.reduce((sum, op) => sum + (op.total || 0), 0);
+    } else if (currentRankingType === 'pulido' && data.top_operarios) {
+        totalOperarios = Object.keys(data.top_operarios).length;
+        const operarios = Object.values(data.top_operarios);
+        promedioEficiencia = operarios.reduce((sum, op) => sum + (op.eficiencia || 0), 0) / totalOperarios;
+    }
+    
+    statsContainer.innerHTML = `
+        <div class="ranking-stat-item">
+            <div class="stat-label">Operarios Activos</div>
+            <div class="stat-value">${totalOperarios}</div>
+            <div class="stat-subtext">en ${currentRankingType}</div>
+        </div>
+        <div class="ranking-stat-item">
+            <div class="stat-label">Eficiencia Prom.</div>
+            <div class="stat-value">${promedioEficiencia.toFixed(1)}%</div>
+            <div class="stat-subtext">promedio del área</div>
+        </div>
+        <div class="ranking-stat-item">
+            <div class="stat-label">Total Producción</div>
+            <div class="stat-value">${formatNumber(totalProduccion)}</div>
+            <div class="stat-subtext">unidades totales</div>
+        </div>
+    `;
+}
 // Cargar dashboard completo
 async function cargarDashboardCompleto() {
     try {
@@ -121,6 +414,8 @@ async function cargarEndpointDashboard(endpoint) {
 }
 
 // ===== FUNCIONES DE ACTUALIZACIÓN =====
+
+
 
 // Actualizar indicador inyección
 function actualizarIndicadorInyeccion(data) {
@@ -837,25 +1132,75 @@ function actualizarKPIsGlobales() {
     }
 }
 
-// ===== FUNCIONES DE INTERACTIVIDAD =====
+// ===== FUNCIONES DE INTERACTIVIDAD MEJORADAS =====
 
 function cambiarTipoRanking() {
     const tipo = document.getElementById('filtro-tipo-ranking').value;
     currentRankingType = tipo;
     
+    // Cambiar texto del operario destacado según el tipo
+    const destacadoElement = document.getElementById('operario-destacado');
+    const metricaElement = document.getElementById('operario-metrica');
+    
     if (tipo === 'inyeccion') {
         const data = window.AppState.dashboardData.ranking_inyeccion;
         if (data) {
             actualizarRankingInyeccion(data);
-            mostrarNotificacion('Mostrando ranking de inyección', 'info');
+            destacadoElement.textContent = 'Operario Destacado (Inyección)';
+            mostrarNotificacion('Mostrando ranking de inyección', 'success');
         }
     } else {
         const data = window.AppState.dashboardData.indicador_pulido;
         if (data) {
             mostrarRankingPulido(data);
-            mostrarNotificacion('Mostrando ranking de pulido', 'info');
+            destacadoElement.textContent = 'Operario Destacado (Pulido)';
+            mostrarNotificacion('Mostrando ranking de pulido', 'success');
         }
     }
+    
+    // Actualizar estado de los botones de filtro
+    actualizarEstadoBotonesRanking(tipo);
+}
+
+function actualizarEstadoBotonesRanking(tipoActivo) {
+    const buttons = document.querySelectorAll('.ranking-filter-btn');
+    buttons.forEach(btn => {
+        if (btn.dataset.tipo === tipoActivo) {
+            btn.classList.add('active');
+            btn.style.background = 'linear-gradient(135deg, var(--primary), var(--secondary))';
+            btn.style.color = 'white';
+            btn.style.boxShadow = '0 4px 12px rgba(67, 97, 238, 0.3)';
+        } else {
+            btn.classList.remove('active');
+            btn.style.background = 'white';
+            btn.style.color = 'var(--gray)';
+            btn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.05)';
+        }
+    });
+}
+
+function cambiarRankingPeriodo() {
+    const periodo = document.getElementById('filtro-ranking').value;
+    const tipo = currentRankingType;
+    
+    mostrarNotificacion(`Actualizando ranking de ${tipo} para: ${periodo}`, 'info');
+    
+    // Simular carga de datos según el período
+    setTimeout(() => {
+        if (tipo === 'inyeccion') {
+            const data = window.AppState.dashboardData.ranking_inyeccion;
+            if (data) {
+                actualizarRankingInyeccion(data);
+                mostrarNotificacion(`Ranking de inyección actualizado (${periodo})`, 'success');
+            }
+        } else {
+            const data = window.AppState.dashboardData.indicador_pulido;
+            if (data) {
+                mostrarRankingPulido(data);
+                mostrarNotificacion(`Ranking de pulido actualizado (${periodo})`, 'success');
+            }
+        }
+    }, 500);
 }
 
 function mostrarRankingPulido(data) {

@@ -2695,3 +2695,253 @@ body.loaded {
     background: #dcfce7;
     color: #15803d;
 }
+
+/* ===== ESTILOS ESPECÍFICOS PARA BOTONES DE RANKING ===== */
+
+/* Contenedor de filtros de ranking */
+.ranking-filters-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: #f8fafc;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--gray-light);
+}
+
+/* Fila de botones de tipo de ranking */
+.ranking-type-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.ranking-filter-btn {
+    flex: 1;
+    min-width: 120px;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 50px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: white;
+    color: var(--gray);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.ranking-filter-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    color: var(--primary);
+}
+
+.ranking-filter-btn.active {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    box-shadow: 0 4px 12px rgba(67, 97, 238, 0.3);
+}
+
+.ranking-filter-btn i {
+    font-size: 1.1rem;
+}
+
+.ranking-filter-btn[data-tipo="inyeccion"] i {
+    color: inherit;
+}
+
+.ranking-filter-btn[data-tipo="pulido"] i {
+    color: inherit;
+}
+
+/* Selector de período para ranking */
+.ranking-period-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 15px;
+    background: white;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--gray-light);
+}
+
+.ranking-period-selector label {
+    font-weight: 600;
+    color: var(--dark);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.ranking-period-selector select {
+    flex: 1;
+    padding: 8px 15px;
+    border: 2px solid var(--gray-light);
+    border-radius: 8px;
+    background: white;
+    color: var(--dark);
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    min-width: 150px;
+}
+
+.ranking-period-selector select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+}
+
+/* Estadísticas de ranking */
+.ranking-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.ranking-stat-item {
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+    border-left: 4px solid var(--primary);
+    transition: var(--transition);
+}
+
+.ranking-stat-item:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+.ranking-stat-item:nth-child(2) {
+    border-left-color: var(--success);
+}
+
+.ranking-stat-item:nth-child(3) {
+    border-left-color: var(--warning);
+}
+
+.ranking-stat-item .stat-label {
+    font-size: 0.8rem;
+    color: var(--gray);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 5px;
+}
+
+.ranking-stat-item .stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--dark);
+}
+
+.ranking-stat-item .stat-subtext {
+    font-size: 0.75rem;
+    color: var(--gray);
+    margin-top: 3px;
+}
+
+/* Badges para posición en ranking */
+.ranking-position-badge {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: white;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.ranking-position-1 {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    box-shadow: 0 3px 8px rgba(255, 165, 0, 0.3);
+}
+
+.ranking-position-2 {
+    background: linear-gradient(135deg, #C0C0C0, #A0A0A0);
+    box-shadow: 0 3px 8px rgba(160, 160, 160, 0.3);
+}
+
+.ranking-position-3 {
+    background: linear-gradient(135deg, #CD7F32, #A0522D);
+    box-shadow: 0 3px 8px rgba(205, 127, 50, 0.3);
+}
+
+.ranking-position-other {
+    background: var(--gray-light);
+    color: var(--dark);
+}
+
+/* Animación para cambio de ranking */
+@keyframes fadeInRanking {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ranking-container.animating {
+    animation: fadeInRanking 0.4s ease;
+}
+
+/* Botón de exportar ranking */
+.ranking-export-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-left: auto;
+}
+
+.ranking-export-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    background: linear-gradient(135deg, #059669, #047857);
+}
+
+/* Responsive para botones de ranking */
+@media (max-width: 768px) {
+    .ranking-type-buttons {
+        flex-direction: column;
+    }
+    
+    .ranking-filter-btn {
+        width: 100%;
+    }
+    
+    .ranking-period-selector {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .ranking-period-selector select {
+        width: 100%;
+    }
+    
+    .ranking-stats {
+        grid-template-columns: 1fr;
+    }
+}
