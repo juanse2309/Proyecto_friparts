@@ -2077,102 +2077,82 @@ function calcularTotalFacturacion() {
 
 async function registrarInyeccion() {
     try {
-        const { piezasBuenas, cavidades } = actualizarCalculoProduccion();
-        
-        const formData = {
-            fecha_inicio: document.getElementById('fecha-inyeccion')?.value,
-            responsable: document.getElementById('responsable-inyeccion')?.value,
-            codigo_producto: document.getElementById('codigo-producto-inyeccion')?.value,
-            maquina: document.getElementById('maquina-inyeccion')?.value,
-            cantidad_real: parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0,
-            no_cavidades: cavidades, // ← NUEVO: Agregar cavidades
-            pnc: parseInt(document.getElementById('pnc-inyeccion')?.value) || 0,
-            criterio_pnc: document.getElementById('criterio-pnc-inyeccion')?.value,
-            observaciones: document.getElementById('observaciones-inyeccion')?.value
-        };
-        
-        console.log('Registrando inyección con cavidades:', formData);
-        
-        // Validaciones mejoradas
-        if (!formData.fecha_inicio || !formData.responsable || !formData.codigo_producto || 
-            !formData.cantidad_real || !formData.no_cavidades) {
-            mostrarNotificacion('Complete todos los campos obligatorios', 'warning');
-            return;
-        }
-        
-        if (formData.cantidad_real <= 0) {
-            mostrarNotificacion('La cantidad de disparos debe ser mayor a 0', 'error');
-            return;
-        }
-        
-        if (formData.no_cavidades <= 0) {
-            mostrarNotificacion('El número de cavidades debe ser mayor a 0', 'error');
-            return;
-        }
-        
-        const pnc = formData.pnc || 0;
-        const piezasTotales = formData.cantidad_real * formData.no_cavidades;
-        
-        if (pnc > piezasTotales) {
-            mostrarNotificacion(`El PNC no puede ser mayor que la producción total (${piezasTotales} piezas)`, 'error');
-            return;
-        }
-        
-        // Mostrar resumen antes de enviar
-        const confirmacion = `¿Registrar inyección?
-• Producto: ${formData.codigo_producto}
-• Disparos: ${formData.cantidad_real}
-• Cavidades: ${formData.no_cavidades}
-• Producción total: ${piezasTotales} piezas
-• PNC: ${pnc} piezas
-• Piezas buenas: ${piezasBuenas} piezas
-
-¿Desea continuar?`;
-        
-        if (!confirm(confirmacion)) {
-            return;
-        }
-        
         mostrarLoading(true);
         
+        // RECOPILAR DATOS DEL FORMULARIO
+        const datos = {
+            codigo_producto: document.getElementById('codigo-producto-inyeccion')?.value || '',
+            cantidad_real: document.getElementById('cantidad-inyeccion')?.value || '0',
+            pnc: document.getElementById('pnc-inyeccion')?.value || '0',
+            responsable: document.getElementById('responsable-inyeccion')?.value || '',
+            fecha_inicio: document.getElementById('fecha-inicio-inyeccion')?.value || new Date().toISOString().split('T')[0],
+            fecha_fin: document.getElementById('fecha-fin-inyeccion')?.value || '',
+            hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '00:00',
+            hora_fin: document.getElementById('hora-fin-inyeccion')?.value || '00:00',
+            // MÁQUINA ES OPCIONAL
+            maquina: document.getElementById('maquina-inyeccion')?.value || '',
+            no_cavidades: document.getElementById('cavidades-inyeccion')?.value || '1',
+            contador_maquina: document.getElementById('contador-inyeccion')?.value || '',
+            peso_vela_maquina: document.getElementById('peso-vela-inyeccion')?.value || '',
+            peso_bujes: document.getElementById('peso-bujes-inyeccion')?.value || '',
+            orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
+            observaciones: document.getElementById('observaciones-inyeccion')?.value || '',
+            criterio_pnc: document.getElementById('criterio-pnc-inyeccion')?.value || ''
+        };
+        
+        console.log('📤 Enviando datos de inyección:', datos);
+        
+        // VALIDAR DATOS MÍNIMOS EN FRONTEND
+        if (!datos.codigo_producto) {
+            mostrarNotificacion('❌ Ingresa el código del producto', 'error');
+            mostrarLoading(false);
+            return;
+        }
+        
+        if (!datos.cantidad_real || datos.cantidad_real === '0') {
+            mostrarNotificacion('❌ Ingresa la cantidad producida', 'error');
+            mostrarLoading(false);
+            return;
+        }
+        
+        if (!datos.responsable) {
+            mostrarNotificacion('❌ Selecciona un responsable', 'error');
+            mostrarLoading(false);
+            return;
+        }
+        
+        // ENVIAR AL SERVIDOR
         const response = await fetch('/api/inyeccion', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(formData)
+            body: JSON.stringify(datos)
         });
         
-        const result = await response.json();
+        const resultado = await response.json();
         
-        if (result.status === 'success') {
-            mostrarNotificacion(`✅ Inyección registrada exitosamente: ${piezasBuenas} piezas buenas`, 'success');
-            
+        if (response.ok && resultado.success) {
+            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             // Limpiar formulario
-            document.getElementById('form-inyeccion')?.reset();
-            
-            // Restablecer valores
-            const hoy = new Date().toISOString().split('T')[0];
-            document.getElementById('fecha-inyeccion').value = hoy;
-            document.getElementById('cavidades-inyeccion').value = '4'; // Valor por defecto
-            actualizarCalculoProduccion(); // Actualizar cálculo
-            
-            // Ocultar ficha técnica
-            const fichaTecnica = document.getElementById('ficha-tecnica');
-            if (fichaTecnica) {
-                fichaTecnica.style.display = 'none';
-            }
+            document.getElementById('formulario-inyeccion')?.reset();
+            // Recargar datos
+            setTimeout(() => {
+                cargarDatosInyeccion();
+            }, 1000);
         } else {
-            throw new Error(result.message || 'Error registrando inyección');
+            const errores = resultado.errors ? Object.values(resultado.errors).join(', ') : resultado.error || 'Error desconocido';
+            mostrarNotificacion(`❌ ${errores}`, 'error');
         }
         
     } catch (error) {
-        console.error('Error registrando inyección:', error);
-        mostrarNotificacion('Error: ' + error.message, 'error');
+        console.error('❌ Error registrando inyección:', error);
+        mostrarNotificacion(`Error: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
     }
 }
+
 async function registrarPulido() {
     try {
         const formData = {

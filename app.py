@@ -743,89 +743,92 @@ def actualizar_stock_producto(codigo_sistema: str, cantidad: int):
 @app.route('/api/inyeccion', methods=['POST'])
 def registrar_inyeccion():
     """
-    Registra INYECCION usando ID CODIGO en el registro y CODIGO SISTEMA para stock.
+    Registra INYECCION SIN REQUERIR MAQUINA (campo opcional ahora).
     """
     try:
         data = request.json
         print(f"📥 POST /api/inyeccion: {data}")
         
-        # 1. OBTENER PRODUCTO (acepta 9304 o FR-9304)
-        producto = obtener_producto_por_codigo(data.get("codigo_producto", ""))
-        if not producto:
-            return jsonify({
-                "success": False, 
-                "error": "Producto no encontrado"
-            }), 400
+        # 1. VALIDAR (sin requerir máquina)
+        valido, errores, cleaned = validate_form(data, "inyeccion")
+        if not valido:
+            print(f"❌ Validación: {errores}")
+            return jsonify({"success": False, "errors": errores}), 400
         
-        id_codigo = producto["id_codigo"]          # 9304
-        codigo_sistema = producto["codigo_sistema"]  # FR-9304
+        # 2. CÓDIGO
+        codigo_sistema = obtener_codigo_sistema_real(cleaned["codigo_producto"])
         
-        # 2. VALIDACIÓN Y CÁLCULOS
-        try:
-            cantidad_real = int(data.get("cantidad_real", 0) or 0)
-            pnc = int(data.get("pnc", 0) or 0)
-            cantidad_buena = max(0, cantidad_real - pnc)
-        except ValueError:
-            return jsonify({
-                "success": False, 
-                "error": "Cantidad y PNC deben ser números"
-            }), 400
+        # 3. ID INYECCION  
+        id_inyeccion = f"INY-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
         
-        # 3. PREPARAR FILA PARA INYECCION (usa ID CODIGO)
+        # 4. CALCULAR
+        cantidad_total = int(cleaned.get("cantidad_real", 0) or 0)
+        cantidad_pnc = int(cleaned.get("pnc", 0) or 0)
+        cantidad_buena = max(0, cantidad_total - cantidad_pnc)
+        
+        # 5. PREPARAR FILA (ORDEN EXACTO DE HEADERS)
         fila = [
-            f"INY-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",  # ID INYECCION
-            data.get("fecha_inicio", ""),                               # FECHA INICIA
-            data.get("fecha_fin", ""),                                  # FECHA FIN
-            "Inyección",                                                # DEPARTAMENTO
-            data.get("maquina", ""),                                    # MAQUINA
-            data.get("responsable", ""),                                # RESPONSABLE
-            id_codigo,                                                  # ID CODIGO ← (9304)
-            data.get("no_cavidades", "1"),                              # No. CAVIDADES
-            data.get("hora_inicio", "00:00"),                           # HORA LLEGADA
-            data.get("hora_inicio", "00:00"),                           # HORA INICIO
-            data.get("hora_fin", "00:00"),                              # HORA TERMINA
-            data.get("contador_maquina", ""),                           # CONTADOR MAQ.
-            cantidad_real,                                              # CANT. CONTADOR
-            cantidad_real,                                              # TOMADOS EN PROCESO
-            data.get("peso_vela_maquina", ""),                          # PESO TOMADAS
-            cantidad_buena,                                             # CANTIDAD REAL
-            "POR PULIR",                                                # ALMACEN DESTINO
-            "",                                                         # CODIGO ENSAMBLE
-            data.get("orden_produccion", ""),                           # ORDEN PRODUCCION
-            data.get("observaciones", ""),                              # OBSERVACIONES
-            data.get("peso_vela_maquina", ""),                          # PESO VELA
-            data.get("peso_bujes", "")                                  # PESO BUJES
+            id_inyeccion,                              # ID INYECCION
+            cleaned.get("fecha_inicio", ""),           # FECHA INICIA
+            cleaned.get("fecha_fin", ""),              # FECHA FIN
+            "Inyección",                               # DEPARTAMENTO
+            cleaned.get("maquina", "SIN ASIGNAR"),     # MAQUINA (OPCIONAL)
+            cleaned.get("responsable", ""),            # RESPONSABLE
+            codigo_sistema,                            # ID CODIGO
+            cleaned.get("no_cavidades", "1"),          # No. CAVIDADES
+            cleaned.get("hora_inicio", "00:00"),       # HORA LLEGADA
+            cleaned.get("hora_inicio", "00:00"),       # HORA INICIO
+            cleaned.get("hora_fin", "00:00"),          # HORA TERMINA
+            cleaned.get("contador_maquina", ""),       # CONTADOR MAQ.
+            cantidad_total,                            # CANT. CONTADOR
+            cantidad_total,                            # TOMADOS EN PROCESO
+            cleaned.get("peso_vela_maquina", ""),      # PESO TOMADAS EN PROCESO
+            cantidad_buena,                            # CANTIDAD REAL (aquí descuenta PNC)
+            "POR PULIR",                               # ALMACEN DESTINO
+            "",                                        # CODIGO ENSAMBLE
+            cleaned.get("orden_produccion", ""),       # ORDEN PRODUCCION
+            cleaned.get("observaciones", ""),          # OBSERVACIONES
+            cleaned.get("peso_vela_maquina", ""),      # PESO VELA MAQUINA
+            cleaned.get("peso_bujes", "")              # PESO BUJES
         ]
         
-        # 4. REGISTRAR EN INYECCION
+        # 6. REGISTRAR
         exito = registrar_log_operacion("INYECCION", fila)
         if not exito:
-            return jsonify({
-                "success": False, 
-                "error": "Error al registrar en base de datos"
-            }), 500
+            return jsonify({"success": False, "error": "Error en registro"}), 500
         
-        # 5. ACTUALIZAR STOCK EN PRODUCTOS (usa CODIGO SISTEMA)
+        # 7. ACTUALIZAR STOCK
         if cantidad_buena > 0:
-            actualizar_stock_producto(codigo_sistema, cantidad_buena)
+            try:
+                ss = gc.open_by_key(GSHEET_KEY)
+                ws = ss.worksheet("PRODUCTOS")
+                headers = ws.row_values(1)
+                col_index = headers.index("POR PULIR") + 1
+                registros = ws.get_all_records()
+                for idx, r in enumerate(registros):
+                    if str(r.get("CODIGO SISTEMA", "")).strip() == codigo_sistema:
+                        stock_actual = int(r.get("POR PULIR", 0) or 0)
+                        nuevo_stock = stock_actual + cantidad_buena
+                        ws.update_cell(idx + 2, col_index, nuevo_stock)
+                        print(f"✅ Stock: {codigo_sistema} = {nuevo_stock}")
+                        break
+            except Exception as e:
+                print(f"⚠️ Stock error: {e}")
         
-        # 6. RESPONDER
-        print(f"✅ Inyección registrada: {cantidad_buena} piezas de {producto['descripcion']}")
+        # 8. RESPONDER
         return jsonify({
             "success": True,
-            "id_codigo": id_codigo,
-            "codigo_sistema": codigo_sistema,
+            "id_inyeccion": id_inyeccion,
             "cantidad_buena": cantidad_buena,
-            "mensaje": f"✅ Inyección registrada: {cantidad_buena} piezas de {producto['descripcion']}"
+            "cantidad_pnc": cantidad_pnc,
+            "mensaje": f"✅ Inyección registrada: {cantidad_buena} piezas"
         }), 201
-        
+    
     except Exception as e:
         print(f"❌ ERROR /api/inyeccion: {str(e)}")
         traceback.print_exc()
-        return jsonify({
-            "success": False, 
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 
 @app.route('/api/pulido', methods=['POST'])
