@@ -113,7 +113,7 @@
                     </div>
                 </header>
 
-                <!-- KPIs Grid -->
+                <!-- KPIs Grid - Solo 4 números críticos -->
                 <section class="kpis-section">
                     <div class="kpi-grid">
                         <!-- KPI 1: Producción -->
@@ -183,146 +183,31 @@
                     </div>
                 </section>
 
-                <!-- Main Dashboard Grid -->
-                <section class="dashboard-grid">
-                    <!-- Columna 1 -->
-                    <div class="column">
-                        <!-- Card: Inyección -->
-                        <div class="dashboard-card">
-                            <div class="card-header">
-                                <div class="card-title">
-                                    <i class="fas fa-syringe card-icon"></i>
-                                    <h3>Inyección - Producción Mensual</h3>
-                                </div>
-                                <button class="btn-icon" id="btn-detalle-inyeccion" title="Ver detalles de inyección">
-                                    <i class="fas fa-info-circle"></i>
-                                </button>
-                            </div>
-                            
-                            <div class="card-content">
-                                <div class="stats-grid">
-                                    <div class="stat-item">
-                                        <span class="stat-label">Producción</span>
-                                        <span class="stat-value" id="inyeccion-produccion">0</span>
-                                    </div>
-                                    <div class="stat-item">
-                                        <span class="stat-label">Meta</span>
-                                        <span class="stat-value" id="inyeccion-meta">0</span>
-                                    </div>
-                                    <div class="stat-item">
-                                        <span class="stat-label">PNC</span>
-                                        <span class="stat-value text-danger" id="inyeccion-pnc">0</span>
-                                    </div>
-                                    <div class="stat-item">
-                                        <span class="stat-label">Eficiencia</span>
-                                        <span class="stat-value text-success" id="inyeccion-eficiencia">0%</span>
-                                    </div>
-                                </div>
-                                
-                                <div class="progress-section">
-                                    <div class="progress-info">
-                                        <span>Progreso Mensual</span>
-                                        <span id="inyeccion-porcentaje">0%</span>
-                                    </div>
-                                    <div class="progress-bar-container">
-                                        <div class="progress-bar" id="inyeccion-progress" style="width: 0%"></div>
-                                    </div>
-                                </div>
+                <!-- Sección para Power BI (futuro) -->
+                <section class="powerbi-section" style="margin-top: 30px;">
+                    <div class="dashboard-card full-width">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-chart-pie card-icon"></i>
+                                <h3>Dashboard Avanzado - Power BI</h3>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- Columna 2 -->
-                    <div class="column">
-                        <!-- Card: Pulido -->
-                        <div class="dashboard-card">
-                            <div class="card-header">
-                                <div class="card-title">
-                                    <i class="fas fa-sparkles card-icon"></i>
-                                    <h3>Pulido - Eficiencia</h3>
-                                </div>
-                                <button class="btn-icon" id="btn-detalle-pulido">
-                                    <i class="fas fa-ellipsis-v"></i>
-                                </button>
+                        <div class="card-content" id="powerbi-container" style="min-height: 600px; background: #f8f9fa; display: flex; align-items: center; justify-content: center;">
+                            <div style="text-align: center; color: #6b7280;">
+                                <i class="fas fa-chart-area" style="font-size: 4rem; margin-bottom: 20px; color: #d1d5db;"></i>
+                                <p style="font-size: 1.2rem; font-weight: 600;">Dashboard de Power BI</p>
+                                <p style="font-size: 0.9rem;">Se integrará próximamente</p>
                             </div>
-                            
-                            <div class="card-content">
-                                <div class="stats-grid">
-                                    <div class="stat-item">
-                                        <span class="stat-label">Eficiencia Prom.</span>
-                                        <span class="stat-value text-success" id="pulido-eficiencia">0%</span>
-                                    </div>
-                                    <div class="stat-item">
-                                        <span class="stat-label">PNC %</span>
-                                        <span class="stat-value text-danger" id="pulido-pnc">0%</span>
-                                    </div>
-                                </div>
-                                
-                                <div class="info-box">
-                                    <i class="fas fa-info-circle"></i>
-                                    <small>Eficiencia promedio del área de pulido este mes</small>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card: Ventas por Cliente -->
-                        <div class="dashboard-card">
-                            <div class="card-header">
-                                <div class="card-title">
-                                    <i class="fas fa-users card-icon"></i>
-                                    <h3>Top Clientes</h3>
-                                </div>
-                                <button class="btn-icon" id="btn-cambiar-chart-ventas">
-                                    <i class="fas fa-exchange-alt"></i>
-                                </button>
-                            </div>
-                            
-                            <div class="card-content">
-                                <div class="top-indicator">
-                                    <i class="fas fa-trophy text-warning"></i>
-                                    <span>Cliente Top:</span>
-                                    <strong id="top-cliente">-</strong>
-                                    <span id="tendencia-ventas" class="trend-up">
-                                        <i class="fas fa-arrow-up"></i> 0%
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Columna 3 -->
-                    <div class="column">
-                        <!-- Card: Stock Inteligente -->
-                        <div class="dashboard-card">
-                            <div class="card-header">
-                                <div class="card-title">
-                                    <i class="fas fa-boxes card-icon"></i>
-                                    <h3>Stock Inteligente</h3>
-                                </div>
-                                <div class="status-badge" id="estado-stock-badge">
-                                    <span class="status-optimo">ÓPTIMO</span>
-                                </div>
-                            </div>
-                            
-                            <div class="card-content">
-                                <div class="status-indicator">
-                                    <strong id="estado-stock">Estado: ÓPTIMO</strong>
-                                </div>
-                                
-                                <div class="alert-box" id="recomendacion-stock">
-                                    <i class="fas fa-info-circle"></i>
-                                    <span>Stock en condiciones óptimas.</span>
-                                </div>
-                                
-                                <div class="critical-items" id="lista-stock-critico">
-                                    <h4><i class="fas fa-exclamation-triangle"></i> Productos Críticos</h4>
-                                    <!-- Lista será cargada aquí dinámicamente -->
-                                    <div class="no-critical">
-                                        <i class="fas fa-check-circle text-success"></i>
-                                        <span>No hay productos críticos</span>
-                                    </div>
-                                </div>
-                            </div>
+                            <!-- 
+                            AQUÍ VA EL IFRAME DE POWER BI:
+                            <iframe 
+                                width="100%" 
+                                height="600" 
+                                src="TU_URL_DE_POWERBI" 
+                                frameborder="0" 
+                                allowFullScreen="true">
+                            </iframe>
+                            -->
                         </div>
                     </div>
                 </section>
