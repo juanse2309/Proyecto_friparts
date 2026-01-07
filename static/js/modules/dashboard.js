@@ -1,5 +1,5 @@
 // ============================================
-// dashboard.js - Lógica del Dashboard
+// dashboard.js - Dashboard Simple y Funcional
 // ============================================
 
 /**
@@ -27,98 +27,51 @@ async function inicializarDashboard() {
 }
 
 /**
- * Actualizar UI del Dashboard - Busca por TEXTO, no por ID
+ * Actualizar UI del Dashboard - VERSIÓN FINAL LIMPIA
  */
 function actualizarDashboardUI(data) {
     try {
-        // Buscar todos los h3 (títulos de tarjetas)
+        // Buscar todos los h3 en la página
         const titulos = document.querySelectorAll('h3');
         
         titulos.forEach(titulo => {
-            const texto = titulo.textContent;
-            const contenedor = titulo.closest('section') || titulo.closest('div[class*="card"]') || titulo.parentElement;
+            const texto = titulo.textContent.trim();
             
-            if (!contenedor) return;
+            // Encontrar el primer span/div con número después del h3
+            let elemento = titulo.nextElementSibling;
+            let spanEncontrado = null;
+            let intentos = 0;
             
-            // Obtener el primer span con número después del h3
-            const obtenerPrimerSpan = () => {
-                let elemento = titulo.nextElementSibling;
-                while (elemento) {
-                    const span = elemento.querySelector('span');
-                    if (span && /^\d/.test(span.textContent.trim())) {
-                        return span;
-                    }
-                    elemento = elemento.nextElementSibling;
+            while (elemento && !spanEncontrado && intentos < 5) {
+                const span = elemento.querySelector('span');
+                if (span && /^\d|^\$/.test(span.textContent.trim())) {
+                    spanEncontrado = span;
+                    break;
                 }
-                return null;
-            };
-            
-            // Producción Total
-            if (texto.includes('Producción Total')) {
-                const span = obtenerPrimerSpan();
-                if (span) {
-                    span.textContent = formatNumber(data.produccion_total || 0);
-                    console.log('✅ Producción:', data.produccion_total);
-                }
+                elemento = elemento.nextElementSibling;
+                intentos++;
             }
             
-            // Ventas Totales
-            else if (texto.includes('Ventas Totales')) {
-                const span = obtenerPrimerSpan();
-                if (span) {
-                    span.textContent = `$${formatNumber(data.ventas_totales || 0)}`;
-                    console.log('✅ Ventas:', data.ventas_totales);
-                }
+            // Actualizar según el título
+            if (texto.includes('Producción Total') && spanEncontrado) {
+                spanEncontrado.textContent = formatNumber(data.produccion_total || 0);
+                console.log('✅ Producción:', data.produccion_total);
             }
-            
-            // Eficiencia Global
-            else if (texto.includes('Eficiencia Global')) {
-                const span = obtenerPrimerSpan();
-                if (span) {
-                    span.textContent = `${(data.eficiencia_global || 0).toFixed(1)}%`;
-                    console.log('✅ Eficiencia:', data.eficiencia_global);
-                }
+            else if (texto.includes('Ventas Totales') && spanEncontrado) {
+                spanEncontrado.textContent = `$${formatNumber(data.ventas_totales || 0)}`;
+                console.log('✅ Ventas:', data.ventas_totales);
             }
-            
-            // Stock Crítico
-            else if (texto.includes('Stock Crítico')) {
-                const span = obtenerPrimerSpan();
-                if (span) {
-                    span.textContent = data.stock_critico || 0;
-                    console.log('✅ Stock:', data.stock_critico);
-                }
+            else if (texto.includes('Eficiencia Global') && spanEncontrado) {
+                spanEncontrado.textContent = `${(data.eficiencia_global || 0).toFixed(1)}%`;
+                console.log('✅ Eficiencia:', data.eficiencia_global);
             }
-            
-            // Inyección - Producción
-            else if (texto.includes('Inyección') && data.inyeccion) {
-                const spans = contenedor.querySelectorAll('span');
-                spans.forEach((span, idx) => {
-                    if (span.textContent.includes('0') && span.parentElement.textContent.includes('Producción')) {
-                        span.textContent = formatNumber(data.inyeccion.produccion || 0);
-                    }
-                    if (span.textContent.includes('0') && span.parentElement.textContent.includes('Eficiencia')) {
-                        span.textContent = `${(data.inyeccion.eficiencia || 0).toFixed(1)}%`;
-                    }
-                    if (span.textContent.includes('0') && span.parentElement.textContent.includes('PNC')) {
-                        span.textContent = formatNumber(data.inyeccion.pnc || 0);
-                    }
-                });
-            }
-            
-            // Pulido - Eficiencia
-            else if (texto.includes('Pulido') && !texto.includes('Por Pulir') && data.pulido) {
-                const spans = contenedor.querySelectorAll('span');
-                spans.forEach((span, idx) => {
-                    if (span.textContent.includes('0') && span.parentElement.textContent.includes('Eficiencia')) {
-                        span.textContent = `${(data.pulido.eficiencia || 0).toFixed(1)}%`;
-                    }
-                    if (span.textContent.includes('0') && span.parentElement.textContent.includes('PNC')) {
-                        span.textContent = `${(data.pulido.pnc || 0).toFixed(1)}%`;
-                    }
-                });
+            else if (texto.includes('Stock Crítico') && spanEncontrado) {
+                spanEncontrado.textContent = data.stock_critico || 0;
+                console.log('✅ Stock:', data.stock_critico);
             }
         });
         
+        console.log('✅ Dashboard UI actualizado completamente');
     } catch (error) {
         console.error('Error actualizando UI:', error);
     }

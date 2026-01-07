@@ -228,32 +228,6 @@
                                         <div class="progress-bar" id="inyeccion-progress" style="width: 0%"></div>
                                     </div>
                                 </div>
-                                
-                                <div class="chart-container">
-                                    <canvas id="chartInyeccionCircular"></canvas>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card: Máquinas -->
-                        <div class="dashboard-card">
-                            <div class="card-header">
-                                <div class="card-title">
-                                    <i class="fas fa-cogs card-icon"></i>
-                                    <h3>Producción por Máquina</h3>
-                                </div>
-                            </div>
-                            
-                            <div class="card-content">
-                                <div class="top-indicator">
-                                    <i class="fas fa-crown text-warning"></i>
-                                    <span>Máquina más eficiente:</span>
-                                    <strong id="top-maquina">-</strong>
-                                </div>
-                                
-                                <div class="chart-container">
-                                    <canvas id="chartMaquinasRadar"></canvas>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -284,10 +258,6 @@
                                     </div>
                                 </div>
                                 
-                                <div class="chart-container">
-                                    <canvas id="chartPulidoBarras"></canvas>
-                                </div>
-                                
                                 <div class="info-box">
                                     <i class="fas fa-info-circle"></i>
                                     <small>Eficiencia promedio del área de pulido este mes</small>
@@ -316,58 +286,12 @@
                                         <i class="fas fa-arrow-up"></i> 0%
                                     </span>
                                 </div>
-                                
-                                <div class="chart-container">
-                                    <canvas id="chartVentasClienteInteractivo"></canvas>
-                                </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Columna 3 -->
                     <div class="column">
-                        <!-- Card: Ranking Operarios -->
-                        <div class="dashboard-card">
-                            <div class="card-header">
-                                <div class="card-title">
-                                    <i class="fas fa-medal card-icon"></i>
-                                    <h3>Ranking de Operarios</h3>
-                                </div>
-                                <div class="card-controls">
-                                    <select id="filtro-tipo-ranking" class="mini-select">
-                                        <option value="inyeccion">Inyección</option>
-                                        <option value="pulido">Pulido</option>
-                                    </select>
-                                    <select id="filtro-ranking" class="mini-select">
-                                        <option value="total">Por Producción</option>
-                                        <option value="productividad">Productividad</option>
-                                        <option value="eficiencia">Eficiencia</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div class="card-content">
-                                <div class="top-indicator highlight">
-                                    <i class="fas fa-star text-warning"></i>
-                                    <span>Operario Destacado:</span>
-                                    <strong id="operario-destacado">-</strong>
-                                    <span id="operario-metrica" class="metric-value">0 unidades</span>
-                                </div>
-                                
-                                <div class="ranking-container" id="ranking-operarios">
-                                    <!-- Ranking será cargado aquí dinámicamente -->
-                                    <div class="ranking-placeholder">
-                                        <i class="fas fa-spinner fa-spin"></i>
-                                        <span>Cargando ranking...</span>
-                                    </div>
-                                </div>
-                                
-                                <div class="chart-container-small">
-                                    <canvas id="chartOperariosDonut"></canvas>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- Card: Stock Inteligente -->
                         <div class="dashboard-card">
                             <div class="card-header">
@@ -383,9 +307,6 @@
                             <div class="card-content">
                                 <div class="status-indicator">
                                     <strong id="estado-stock">Estado: ÓPTIMO</strong>
-                                    <div class="risk-chart">
-                                        <canvas id="chartStockRiesgo"></canvas>
-                                    </div>
                                 </div>
                                 
                                 <div class="alert-box" id="recomendacion-stock">
@@ -401,34 +322,6 @@
                                         <span>No hay productos críticos</span>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Timeline Section -->
-                <section class="timeline-section">
-                    <div class="dashboard-card full-width">
-                        <div class="card-header">
-                            <div class="card-title">
-                                <i class="fas fa-chart-area card-icon"></i>
-                                <h3>Timeline de Producción vs Ventas (30 días)</h3>
-                            </div>
-                            <div class="chart-legend">
-                                <div class="legend-item">
-                                    <span class="legend-color production"></span>
-                                    <span>Producción</span>
-                                </div>
-                                <div class="legend-item">
-                                    <span class="legend-color sales"></span>
-                                    <span>Ventas</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="card-content">
-                            <div class="chart-container-large">
-                                <canvas id="chartTimeline"></canvas>
                             </div>
                         </div>
                     </div>
@@ -512,18 +405,17 @@
 
                     <!-- Tabla de productos -->
                     <div class="table-container">
-                                <table>
-                                  <thead>
-                                    <tr>
-                                      <th>Imagen</th>
-                                      <th>Código Sistema</th>
-                                      <th>Descripción</th>
-                                      <th>Por Pulir</th>
-                                      <th>P. Terminado</th>
-                                      <th>Acciones</th>
-                                    </tr>
-                                  </thead>
-                              
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Imagen</th>
+                                    <th>Código Sistema</th>
+                                    <th>Descripción</th>
+                                    <th>Por Pulir</th>
+                                    <th>P. Terminado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
                             <tbody id="tabla-productos-body">
                                 <!-- Los productos se cargarán aquí dinámicamente -->
                             </tbody>
@@ -555,115 +447,115 @@
                 </header>
 
                 <div class="form-container">
-                <form id="form-inyeccion" class="styled-form">
-                    <div class="form-grid">
-                        <div class="form-group">
-                    <label for="fecha-inyeccion"><i class="fas fa-calendar"></i> Fecha</label>
-                    <input type="date" id="fecha-inyeccion" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="responsable-inyeccion"><i class="fas fa-user"></i> Responsable</label>
-                    <select id="responsable-inyeccion" required>
-                        <option value="">Seleccionar responsable...</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="codigo-producto-inyeccion"><i class="fas fa-barcode"></i> Producto</label>
-                    <input type="text" id="codigo-producto-inyeccion" 
-                       class="form-control" 
-                       placeholder="Escribe el código..."
-                       list="productos-inyeccion-list"
-                       required>
-                    <datalist id="productos-inyeccion-list">
-                        <!-- Se llena dinámicamente desde JavaScript -->
-                    </datalist>
-                    <small class="validation-message"></small>
-                </div>
+                    <form id="form-inyeccion" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-inyeccion"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-inyeccion" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="responsable-inyeccion"><i class="fas fa-user"></i> Responsable</label>
+                                <select id="responsable-inyeccion" required>
+                                    <option value="">Seleccionar responsable...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="codigo-producto-inyeccion"><i class="fas fa-barcode"></i> Producto</label>
+                                <input type="text" id="codigo-producto-inyeccion" 
+                                    class="form-control" 
+                                    placeholder="Escribe el código..."
+                                    list="productos-inyeccion-list"
+                                    required>
+                                <datalist id="productos-inyeccion-list">
+                                    <!-- Se llena dinámicamente desde JavaScript -->
+                                </datalist>
+                                <small class="validation-message"></small>
+                            </div>
 
-                <!-- NUEVO: CAMPO PARA CAVIDADES -->
-                <div class="form-group">
-                    <label for="cavidades-inyeccion"><i class="fas fa-layer-group"></i> No. Cavidades</label>
-                    <select id="cavidades-inyeccion" required>
-                        <option value="1">1 Cavidad</option>
-                        <option value="2">2 Cavidades</option>
-                        <option value="4" selected>4 Cavidades</option>
-                        <option value="6">6 Cavidades</option>
-                        <option value="8">8 Cavidades</option>
-                        <option value="12">12 Cavidades</option>
-                        <option value="16">16 Cavidades</option>
-                        <option value="24">24 Cavidades</option>
-                        <option value="32">32 Cavidades</option>
-                        <option value="48">48 Cavidades</option>
-                    </select>
-                    <small class="form-text">Número de cavidades de la máquina</small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="cantidad-inyeccion"><i class="fas fa-hashtag"></i> Cantidad de Disparos</label>
-                    <input type="number" id="cantidad-inyeccion" min="1" required>
-                    <small class="form-text">Número de disparos realizados</small>
-                </div>
-                
-                <!-- Calculadora automática -->
-                <div class="form-group full-width" style="grid-column: span 2;">
-                    <div class="calc-container" style="background: #f3f4f6; padding: 12px; border-radius: 6px; margin-top: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <i class="fas fa-calculator" style="color: #6366f1;"></i>
-                            <div>
-                                <strong>Producción Calculada:</strong>
-                                <span id="produccion-calculada" style="font-weight: bold; color: #10b981; margin-left: 10px;">0</span>
-                                <span> piezas totales</span>
+                            <!-- NUEVO: CAMPO PARA CAVIDADES -->
+                            <div class="form-group">
+                                <label for="cavidades-inyeccion"><i class="fas fa-layer-group"></i> No. Cavidades</label>
+                                <select id="cavidades-inyeccion" required>
+                                    <option value="1">1 Cavidad</option>
+                                    <option value="2">2 Cavidades</option>
+                                    <option value="4" selected>4 Cavidades</option>
+                                    <option value="6">6 Cavidades</option>
+                                    <option value="8">8 Cavidades</option>
+                                    <option value="12">12 Cavidades</option>
+                                    <option value="16">16 Cavidades</option>
+                                    <option value="24">24 Cavidades</option>
+                                    <option value="32">32 Cavidades</option>
+                                    <option value="48">48 Cavidades</option>
+                                </select>
+                                <small class="form-text">Número de cavidades de la máquina</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cantidad-inyeccion"><i class="fas fa-hashtag"></i> Cantidad de Disparos</label>
+                                <input type="number" id="cantidad-inyeccion" min="1" required>
+                                <small class="form-text">Número de disparos realizados</small>
+                            </div>
+                            
+                            <!-- Calculadora automática -->
+                            <div class="form-group full-width" style="grid-column: span 2;">
+                                <div class="calc-container" style="background: #f3f4f6; padding: 12px; border-radius: 6px; margin-top: 5px;">
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <i class="fas fa-calculator" style="color: #6366f1;"></i>
+                                        <div>
+                                            <strong>Producción Calculada:</strong>
+                                            <span id="produccion-calculada" style="font-weight: bold; color: #10b981; margin-left: 10px;">0</span>
+                                            <span> piezas totales</span>
+                                        </div>
+                                    </div>
+                                    <div style="font-size: 0.85rem; color: #6b7280; margin-top: 5px;">
+                                        <span id="formula-calc">Disparos (0) × Cavidades (1) = 0 piezas</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i> PNC</label>
+                                <input type="number" id="pnc-inyeccion" min="0" value="0">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="criterio-pnc-inyeccion"><i class="fas fa-clipboard-check"></i> Criterio PNC</label>
+                                <select id="criterio-pnc-inyeccion">
+                                    <option value="">Seleccionar criterio...</option>
+                                    <option value="Carcaza manchada">Carcaza manchada</option>
+                                    <option value="Carcaza abierta">Carcaza abierta</option>
+                                    <option value="Material defectuoso">Material defectuoso</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group full-width">
+                                <label for="observaciones-inyeccion"><i class="fas fa-sticky-note"></i> Observaciones</label>
+                                <textarea id="observaciones-inyeccion" rows="3"></textarea>
                             </div>
                         </div>
-                        <div style="font-size: 0.85rem; color: #6b7280; margin-top: 5px;">
-                            <span id="formula-calc">Disparos (0) × Cavidades (1) = 0 piezas</span>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Registrar Inyección
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i> Limpiar
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <!-- Información de la ficha técnica -->
+                    <div id="ficha-tecnica" class="ficha-tecnica" style="display: none;">
+                        <h4><i class="fas fa-clipboard-list"></i> Información del Producto</h4>
+                        <div class="ficha-content" id="ficha-content">
+                            <!-- Información dinámica -->
                         </div>
                     </div>
                 </div>
-                
-                <div class="form-group">
-                    <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i> PNC</label>
-                    <input type="number" id="pnc-inyeccion" min="0" value="0">
-                </div>
-                
-                <div class="form-group">
-                    <label for="criterio-pnc-inyeccion"><i class="fas fa-clipboard-check"></i> Criterio PNC</label>
-                    <select id="criterio-pnc-inyeccion">
-                        <option value="">Seleccionar criterio...</option>
-                        <option value="Carcaza manchada">Carcaza manchada</option>
-                        <option value="Carcaza abierta">Carcaza abierta</option>
-                        <option value="Material defectuoso">Material defectuoso</option>
-                        <option value="Otro">Otro</option>
-                    </select>
-                </div>
-                
-                <div class="form-group full-width">
-                    <label for="observaciones-inyeccion"><i class="fas fa-sticky-note"></i> Observaciones</label>
-                    <textarea id="observaciones-inyeccion" rows="3"></textarea>
-                </div>
             </div>
-            
-            <div class="form-actions">
-                <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-save"></i> Registrar Inyección
-                </button>
-                <button type="reset" class="btn btn-secondary">
-                    <i class="fas fa-redo"></i> Limpiar
-                </button>
-            </div>
-        </form>
-        
-        <!-- Información de la ficha técnica -->
-        <div id="ficha-tecnica" class="ficha-tecnica" style="display: none;">
-            <h4><i class="fas fa-clipboard-list"></i> Información del Producto</h4>
-            <div class="ficha-content" id="ficha-content">
-                <!-- Información dinámica -->
-            </div>
-        </div>
-    </div>
-</div>
 
             <!-- Página de Pulido -->
             <div id="pulido-page" class="page">
@@ -1057,8 +949,7 @@
             currentPage: 'dashboard',
             dashboardData: {
                 indicador_inyeccion: { meta: 10000, actual: 0, pnc: 0 },
-                indicador_pulido: { meta: 8000, actual: 0, pnc: 0 },
-                ranking_inyeccion: [],
+                indicador_pulido: { meta: 8000, actual: 0, pnc: 0 },              
                 produccion_maquina_avanzado: [],
                 ventas_cliente_detallado: [],
                 stock_inteligente: { criticos: [], bajo_stock: [] }
@@ -1070,21 +961,19 @@
         };
     </script>
 
-        <!-- Módulos -->
-        <script src="/static/js/modules/config.js"></script>
-        <script src="/static/js/modules/utils.js"></script>
-        <script src="/static/js/modules/dashboard.js"></script>
-        <script src="/static/js/modules/inyeccion.js"></script>
-        <script src="/static/js/modules/pulido.js"></script>
-        <script src="/static/js/modules/ensamble.js"></script>
-        <script src="/static/js/modules/facturacion.js"></script>
-        <script src="/static/js/modules/reportes.js"></script>
-        <script src="/static/js/modules/inventario.js"></script>
-        
-        <!-- App principal -->
-        <script src="/static/js/app.js"></script>
-    </body>
-
+    <!-- Módulos -->
+    <script src="/static/js/modules/config.js"></script>
+    <script src="/static/js/modules/utils.js"></script>
+    <script src="/static/js/modules/dashboard.js"></script>
+    <script src="/static/js/modules/inyeccion.js"></script>
+    <script src="/static/js/modules/pulido.js"></script>
+    <script src="/static/js/modules/ensamble.js"></script>
+    <script src="/static/js/modules/facturacion.js"></script>
+    <script src="/static/js/modules/reportes.js"></script>
+    <script src="/static/js/modules/inventario.js"></script>
+    
+    <!-- App principal -->
+    <script src="/static/js/app.js"></script>
 
     <script>
         // Inicialización cuando el DOM está completamente cargado
@@ -1117,7 +1006,8 @@
             }
         });
     </script>
-        <!-- Modal para detalle de producto -->
+    
+    <!-- Modal para detalle de producto -->
     <div id="modalDetalleProducto" class="modal fade" tabindex="-1">
         <!-- El contenido se genera dinámicamente con JavaScript -->
     </div>
