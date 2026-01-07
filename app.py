@@ -3291,6 +3291,58 @@ def dashboard_real_endpoint():
     datos = calcular_dashboard_robusto()
     return jsonify(datos), 200
 
+@app.route('/api/pnc', methods=['POST'])
+def registrar_pnc():
+    """Registra PNC en la hoja PNC."""
+    try:
+        data = request.json
+        print(f"📥 POST /api/pnc: {data}")
+        
+        # Validar datos
+        if not data.get("codigo_producto"):
+            return jsonify({"success": False, "error": "Código de producto requerido"}), 400
+        
+        if not data.get("cantidad") or int(data.get("cantidad", 0)) <= 0:
+            return jsonify({"success": False, "error": "Cantidad debe ser mayor a 0"}), 400
+        
+        if not data.get("criterio"):
+            return jsonify({"success": False, "error": "Criterio requerido"}), 400
+        
+        # Preparar fila
+        fila = [
+            data.get("fecha", datetime.datetime.now().strftime("%Y-%m-%d")),  # FECHA
+            data.get("id_pnc", f"PNC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"),  # ID PNC
+            data.get("codigo_producto", ""),  # ID CODIGO
+            int(data.get("cantidad", 0)),  # CANTIDAD
+            data.get("criterio", ""),  # CRITERIO
+            data.get("codigo_ensamble", "")  # CODIGO ENSAMBLE
+        ]
+        
+        # Registrar en Google Sheets
+        ss = gc.open_by_key(GSHEET_KEY)
+        
+        try:
+            ws = ss.worksheet("PNC")
+        except:
+            # Si no existe, crearla
+            ws = ss.add_worksheet(title="PNC", rows=1000, cols=6)
+            encabezados = ["FECHA", "ID PNC", "ID CODIGO", "CANTIDAD", "CRITERIO", "CODIGO ENSAMBLE"]
+            ws.append_row(encabezados)
+        
+        ws.append_row(fila)
+        
+        print(f"✅ PNC registrado: {data.get('cantidad')} piezas de {data.get('codigo_producto')}")
+        
+        return jsonify({
+            "success": True,
+            "mensaje": f"✅ PNC registrado: {data.get('cantidad')} piezas"
+        }), 201
+        
+    except Exception as e:
+        print(f"❌ ERROR /api/pnc: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 # ====================================================================
 # RUTAS PARA SERVIR ARCHIVOS ESTÁTICOS Y TEMPLATE PRINCIPAL

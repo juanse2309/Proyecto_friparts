@@ -52,6 +52,13 @@
                     <span>Ensamble</span>
                 </a>
             </li>
+                            <li class="menu-item" data-page="pnc">
+                    <a href="#">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>PNC</span>
+                    </a>
+                </li>
+
             <li class="menu-item" data-page="facturacion">
                 <a href="#">
                     <i class="fas fa-file-invoice-dollar"></i>
@@ -345,7 +352,16 @@
                                     <option value="">Seleccionar responsable...</option>
                                 </select>
                             </div>
-                            
+                            <div class="form-group">
+                            <label for="maquina-inyeccion"><i class="fas fa-cogs"></i> Máquina</label>
+                            <select id="maquina-inyeccion">
+                                <option value="">-- Opcional --</option>
+                                <option value="MAQUINA No. 1">MAQUINA No. 1</option>
+                                <option value="MAQUINA No. 2">MAQUINA No. 2</option>
+                                <option value="MAQUINA No. 3">MAQUINA No. 3</option>
+                                <option value="MAQUINA No. 4">MAQUINA No. 4</option>
+                            </select>
+                        </div>
                             <div class="form-group">
                                 <label for="codigo-producto-inyeccion"><i class="fas fa-barcode"></i> Producto</label>
                                 <input type="text" id="codigo-producto-inyeccion" 
@@ -610,6 +626,75 @@
                     </form>
                 </div>
             </div>
+                        <!-- Página de PNC (Producto No Conforme) -->
+            <div id="pnc-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-exclamation-triangle"></i> Registro de PNC</h1>
+                        <p class="subtitle">Registra productos no conformes</p>
+                    </div>
+                </header>
+            
+                <div class="form-container">
+                    <form id="form-pnc" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-pnc"><i class="fas fa-calendar"></i> Fecha *</label>
+                                <input type="date" id="fecha-pnc" required>
+                            </div>
+                        
+                            <div class="form-group">
+                                <label for="id-pnc"><i class="fas fa-hashtag"></i> ID PNC</label>
+                                <input type="text" id="id-pnc" readonly placeholder="Se genera automáticamente">
+                            </div>
+                        
+                            <div class="form-group">
+                                <label for="codigo-producto-pnc"><i class="fas fa-barcode"></i> ID Código *</label>
+                                <input type="text" 
+                                       id="codigo-producto-pnc" 
+                                       class="form-control" 
+                                       placeholder="Ej: 9304, FR-9304..."
+                                       list="productos-pnc-list"
+                                       required>
+                                <datalist id="productos-pnc-list">
+                                    <!-- Se llena dinámicamente -->
+                                </datalist>
+                            </div>
+                        
+                            <div class="form-group">
+                                <label for="cantidad-pnc"><i class="fas fa-hashtag"></i> Cantidad *</label>
+                                <input type="number" id="cantidad-pnc" min="0" value="0" required>
+                            </div>
+                        
+                            <div class="form-group full-width">
+                                <label for="criterio-pnc"><i class="fas fa-clipboard-check"></i> Criterio *</label>
+                                <div class="criterios-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 8px;">
+                                    <button type="button" class="criterio-btn" data-criterio="Rechupe">Rechupe</button>
+                                    <button type="button" class="criterio-btn" data-criterio="Quemado">Quemado</button>
+                                    <button type="button" class="criterio-btn" data-criterio="Escaso">Escaso</button>
+                                    <button type="button" class="criterio-btn" data-criterio="Manchado - Contaminado">Manchado - Contaminado</button>
+                                </div>
+                                <input type="hidden" id="criterio-pnc-hidden" required>
+                            </div>
+                        
+                            <div class="form-group full-width">
+                                <label for="codigo-ensamble-pnc"><i class="fas fa-box"></i> Código Ensamble</label>
+                                <input type="text" id="codigo-ensamble-pnc" placeholder="Opcional">
+                            </div>
+                        </div>
+                    
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Guardar
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('form-pnc').reset()">
+                                <i class="fas fa-redo"></i> Cancelar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
 
             <!-- Página de Facturación -->
             <div id="facturacion-page" class="page">
@@ -853,6 +938,7 @@
     <script src="/static/js/modules/inyeccion.js"></script>
     <script src="/static/js/modules/pulido.js"></script>
     <script src="/static/js/modules/ensamble.js"></script>
+    <script src="/static/js/modules/pnc.js"></script>
     <script src="/static/js/modules/facturacion.js"></script>
     <script src="/static/js/modules/reportes.js"></script>
     <script src="/static/js/modules/inventario.js"></script>

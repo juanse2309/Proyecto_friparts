@@ -191,6 +191,9 @@ function cargarPagina(pagina) {
         case 'ensamble':
             cargarDatosEnsamble();
             break;
+        case 'pnc':
+            cargarDatosPNC();
+            break;
         case 'facturacion':
             cargarDatosFacturacion();
             break;
@@ -1795,7 +1798,14 @@ function configurarFormularios() {
             });
         }
     }
-    
+    // Formulario de PNC
+        const formPNC = document.getElementById('form-pnc');
+        if (formPNC) {
+            formPNC.addEventListener('submit', function(e) {
+                e.preventDefault();
+                registrarPNC();
+            });
+        }
     // Formulario de Facturación
     const formFacturacion = document.getElementById('form-facturacion');
     if (formFacturacion) {
