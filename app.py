@@ -7,6 +7,7 @@ import traceback
 import time  # Importar time para el cache
 import os
 import json
+import math
 from google.oauth2.service_account import Credentials
 import logging
 
@@ -195,7 +196,7 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
         mapeo_almacenes = {
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
-            'PRODUCTO ENSAMBLado': 'PRODUCTO ENSAMBLADO',
+            'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLado',
             'CLIENTE': 'CLIENTE'
         }
         
@@ -277,29 +278,108 @@ def to_int(valor, default=0):
 # FUNCIONES DE APOYO
 # ====================================================================
 
-def obtener_codigo_sistema_real(valor_buscado):
-    """Busca en PRODUCTOS el 'CODIGO SISTEMA' real."""
+def obtener_codigo_sistema_real(codigo_entrada):
+    """
+    Traduce el código ingresado por el usuario al código real del sistema.
+    Extrae la parte después del guion si existe.
+    
+    Ejemplos:
+    - 'FR-9304' → '9304'
+    - 'INY-1050' → '1050'
+    - '9304' → '9304'
+    - '  FR-9304  ' → '9304'
+    
+    Args:
+        codigo_entrada (str): Código ingresado por el usuario
+        
+    Returns:
+        str: Código normalizado del sistema
+    """
     try:
+        # Verificar si es None o vacío
+        if codigo_entrada is None:
+            return ""
+        
+        # Convertir a string y limpiar espacios
+        codigo_entrada = str(codigo_entrada).strip()
+        
+        # Si está vacío después de limpiar
+        if not codigo_entrada:
+            return ""
+        
+        # Si contiene guion, extraer la parte después del último guion
+        if '-' in codigo_entrada:
+            # Dividir por guiones y tomar la última parte
+            partes = codigo_entrada.split('-')
+            return partes[-1].strip()
+        
+        # Si no contiene guion, devolver tal cual
+        return codigo_entrada
+        
+    except Exception as e:
+        logger.error(f"❌ Error al traducir código '{codigo_entrada}': {str(e)}")
+        # En caso de error, devolver el código original
+        return str(codigo_entrada) if codigo_entrada else ""
+
+def obtener_producto_por_codigo(codigo_entrada: str):
+    """
+    Busca un producto aceptando CODIGO SISTEMA (FR-9304) o ID CODIGO (9304).
+    Devuelve un diccionario con ambos códigos o None si no lo encuentra.
+    """
+    if not codigo_entrada:
+        return None
+    
+    try:
+        entrada_limpia = str(codigo_entrada).strip().upper()
+        
         ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet(Hojas.PRODUCTOS)
+        ws = ss.worksheet("PRODUCTOS")
         registros = ws.get_all_records()
         
-        busqueda = str(valor_buscado).strip().upper()
-        
+        # Búsqueda exacta por CODIGO SISTEMA o ID CODIGO
         for r in registros:
-            id_cod = str(r.get('ID CODIGO', '')).strip().upper()
-            cod_man = str(r.get('CODIGO', '')).strip().upper()
-            cod_sis = str(r.get('CODIGO SISTEMA', '')).strip().upper()
+            codigo_sistema = str(r.get("CODIGO SISTEMA", "")).strip().upper()
+            id_codigo = str(r.get("ID CODIGO", "")).strip().upper()
             
-            if busqueda == id_cod or busqueda == cod_man or busqueda == cod_sis:
-                codigo_sistema = r.get('CODIGO SISTEMA', '')
-                if codigo_sistema:
-                    return str(codigo_sistema).strip()
+            if codigo_sistema == entrada_limpia or id_codigo == entrada_limpia:
+                return {
+                    "id_codigo": str(r.get("ID CODIGO", "")).strip(),
+                    "codigo_sistema": str(r.get("CODIGO SISTEMA", "")).strip(),
+                    "descripcion": str(r.get("DESCRIPCION", "")).strip()
+                }
         
-        return valor_buscado
+        print(f"⚠️ Producto no encontrado: {codigo_entrada}")
+        return None
+        
     except Exception as e:
-        print(f"Error en obtener_codigo_sistema_real: {e}")
-        return valor_buscado
+        print(f"❌ Error buscando producto: {e}")
+        return None
+
+def actualizar_stock_producto(codigo_sistema: str, cantidad: int):
+    """
+    Actualiza el stock en PRODUCTOS. Busca por CODIGO SISTEMA y suma a POR PULIR.
+    """
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet("PRODUCTOS")
+        
+        headers = ws.row_values(1)
+        col_por_pulir = headers.index("POR PULIR") + 1
+        
+        registros = ws.get_all_records()
+        for idx, r in enumerate(registros):
+            if str(r.get("CODIGO SISTEMA", "")).strip() == codigo_sistema:
+                stock_actual = int(r.get("POR PULIR", 0) or 0)
+                nuevo_stock = stock_actual + cantidad
+                ws.update_cell(idx + 2, col_por_pulir, nuevo_stock)
+                print(f"✅ Stock: {codigo_sistema} POR PULIR = {nuevo_stock}")
+                return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"⚠️ Stock error: {e}")
+        return False
 
 def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_pnc, criterio_pnc, observaciones=""):
     """Registra un Producto No Conforme en la hoja correspondiente."""
@@ -676,160 +756,176 @@ def health_check():
         }), 500
 
 # ========== ENDPOINT INYECCIÓN - VERSIÓN CORREGIDA ==========
-# ========== NORMALIZACIÓN Y BÚSQUEDA DE PRODUCTOS ==========
-
-def obtener_producto_por_codigo(codigo_entrada: str):
-    """
-    Busca un producto aceptando CODIGO SISTEMA (FR-9304) o ID CODIGO (9304).
-    Devuelve un diccionario con ambos códigos o None si no lo encuentra.
-    """
-    if not codigo_entrada:
-        return None
-    
-    try:
-        entrada_limpia = str(codigo_entrada).strip().upper()
-        
-        ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet("PRODUCTOS")
-        registros = ws.get_all_records()
-        
-        # Búsqueda exacta por CODIGO SISTEMA o ID CODIGO
-        for r in registros:
-            codigo_sistema = str(r.get("CODIGO SISTEMA", "")).strip().upper()
-            id_codigo = str(r.get("ID CODIGO", "")).strip().upper()
-            
-            if codigo_sistema == entrada_limpia or id_codigo == entrada_limpia:
-                return {
-                    "id_codigo": str(r.get("ID CODIGO", "")).strip(),
-                    "codigo_sistema": str(r.get("CODIGO SISTEMA", "")).strip(),
-                    "descripcion": str(r.get("DESCRIPCION", "")).strip()
-                }
-        
-        print(f"⚠️ Producto no encontrado: {codigo_entrada}")
-        return None
-        
-    except Exception as e:
-        print(f"❌ Error buscando producto: {e}")
-        return None
-
-
-def actualizar_stock_producto(codigo_sistema: str, cantidad: int):
-    """
-    Actualiza el stock en PRODUCTOS. Busca por CODIGO SISTEMA y suma a POR PULIR.
-    """
-    try:
-        ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet("PRODUCTOS")
-        
-        headers = ws.row_values(1)
-        col_por_pulir = headers.index("POR PULIR") + 1
-        
-        registros = ws.get_all_records()
-        for idx, r in enumerate(registros):
-            if str(r.get("CODIGO SISTEMA", "")).strip() == codigo_sistema:
-                stock_actual = int(r.get("POR PULIR", 0) or 0)
-                nuevo_stock = stock_actual + cantidad
-                ws.update_cell(idx + 2, col_por_pulir, nuevo_stock)
-                print(f"✅ Stock: {codigo_sistema} POR PULIR = {nuevo_stock}")
-                return True
-        
-        return False
-        
-    except Exception as e:
-        print(f"⚠️ Stock error: {e}")
-        return False
-
-
 @app.route('/api/inyeccion', methods=['POST'])
 def registrar_inyeccion():
-    """
-    Registra INYECCION SIN REQUERIR MAQUINA (campo opcional ahora).
-    """
+    """Registra un nuevo registro de inyección en Sheets - VERSIÓN COMPLETA CON 22 COLUMNAS"""
     try:
         data = request.json
-        print(f"📥 POST /api/inyeccion: {data}")
+        logger.debug(f"📥 Datos recibidos: {data}")
         
-        # 1. VALIDAR (sin requerir máquina)
-        valido, errores, cleaned = validate_form(data, "inyeccion")
-        if not valido:
-            print(f"❌ Validación: {errores}")
-            return jsonify({"success": False, "errors": errores}), 400
+        # ✅ Extraer datos del JSON (todos los 22 campos)
+        disparos = int(data.get('cantidad_real', 0))
+        cavidades = int(data.get('no_cavidades', 1))
+        pnc = int(data.get('pnc', 0))
+        codigo_producto_entrada = data.get('codigo_producto', '')  # Entrada original
+        responsable = data.get('responsable', '')
+        fecha_inicio = data.get('fecha_inicio', '')
+        fecha_fin = data.get('fecha_fin', '')
+        maquina = data.get('maquina', '')
+        observaciones = data.get('observaciones', '')
+        almacen_destino = data.get('almacen_destino', '')
+        codigo_ensamble = data.get('codigo_ensamble', '')
+        tomados_proceso = int(data.get('tomados_proceso', 0))
+        peso_tomadas = float(data.get('peso_tomadas', 0.0) or 0)
+        peso_vela_maquina = float(data.get('peso_vela_maquina', 0.0) or 0)
+        peso_bujes = float(data.get('peso_bujes', 0.0) or 0)
+        criterio_pnc = data.get('criterio_pnc', '')
+        hora_llegada = data.get('hora_llegada', '')
+        hora_inicio = data.get('hora_inicio', '')
+        hora_termina = data.get('hora_termina', '')
+        orden_produccion = data.get('orden_produccion', '')
         
-        # 2. CÓDIGO
-        codigo_sistema = obtener_codigo_sistema_real(cleaned["codigo_producto"])
+        # 🔁 TRADUCIR CÓDIGO DE PRODUCTO (entrada → sistema)
+        codigo_producto = obtener_codigo_sistema_real(codigo_producto_entrada)
+        logger.info(f"🔁 Código entrada: '{codigo_producto_entrada}' -> Código sistema: '{codigo_producto}'")
         
-        # 3. ID INYECCION  
-        id_inyeccion = f"INY-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Validaciones (usar el código traducido)
+        if not codigo_producto or codigo_producto.strip() == '':
+            return jsonify({'success': False, 'error': 'Código de producto obligatorio'}), 400
         
-        # 4. CALCULAR
-        cantidad_total = int(cleaned.get("cantidad_real", 0) or 0)
-        cantidad_pnc = int(cleaned.get("pnc", 0) or 0)
-        cantidad_buena = max(0, cantidad_total - cantidad_pnc)
+        if disparos <= 0:
+            return jsonify({'success': False, 'error': 'Disparos debe ser mayor a 0'}), 400
         
-        # 5. PREPARAR FILA (ORDEN EXACTO DE HEADERS)
-        fila = [
-            id_inyeccion,                              # ID INYECCION
-            cleaned.get("fecha_inicio", ""),           # FECHA INICIA
-            cleaned.get("fecha_fin", ""),              # FECHA FIN
-            "Inyección",                               # DEPARTAMENTO
-            cleaned.get("maquina", "SIN ASIGNAR"),     # MAQUINA (OPCIONAL)
-            cleaned.get("responsable", ""),            # RESPONSABLE
-            codigo_sistema,                            # ID CODIGO
-            cleaned.get("no_cavidades", "1"),          # No. CAVIDADES
-            cleaned.get("hora_inicio", "00:00"),       # HORA LLEGADA
-            cleaned.get("hora_inicio", "00:00"),       # HORA INICIO
-            cleaned.get("hora_fin", "00:00"),          # HORA TERMINA
-            cleaned.get("contador_maquina", ""),       # CONTADOR MAQ.
-            cantidad_total,                            # CANT. CONTADOR
-            cantidad_total,                            # TOMADOS EN PROCESO
-            cleaned.get("peso_vela_maquina", ""),      # PESO TOMADAS EN PROCESO
-            cantidad_buena,                            # CANTIDAD REAL (aquí descuenta PNC)
-            "POR PULIR",                               # ALMACEN DESTINO
-            "",                                        # CODIGO ENSAMBLE
-            cleaned.get("orden_produccion", ""),       # ORDEN PRODUCCION
-            cleaned.get("observaciones", ""),          # OBSERVACIONES
-            cleaned.get("peso_vela_maquina", ""),      # PESO VELA MAQUINA
-            cleaned.get("peso_bujes", "")              # PESO BUJES
+        if not responsable or responsable.strip() == '':
+            return jsonify({'success': False, 'error': 'Responsable obligatorio'}), 400
+        
+        if not maquina or maquina.strip() == '':
+            return jsonify({'success': False, 'error': 'Máquina obligatoria'}), 400
+        
+        # ✨ CALCULAR PRODUCCIÓN
+        cantidad_total = disparos * cavidades
+        piezas_buenas = max(0, cantidad_total - pnc)
+        
+        logger.info(f"📊 Calculado: {disparos} disparos × {cavidades} cavidades = {cantidad_total} piezas")
+        
+        # Preparar fila para Sheets con exactamente 22 columnas (ORDEN CORRECTO)
+        row = [
+            "",                      # 1  ID INYECCION
+            fecha_inicio,            # 2  FECHA INICIA
+            fecha_fin,               # 3  FECHA FIN
+            "INYECCION",             # 4  DEPARTAMENTO (CORREGIDO: INYECCION en lugar de PRODUCCION)
+            maquina,                 # 5  MAQUINA
+            responsable,             # 6  RESPONSABLE
+            codigo_producto,         # 7  ID CODIGO (aquí va 9304 aunque se haya digitado FR-9304)
+            cavidades,               # 8  No. CAVIDADES
+            hora_llegada,            # 9  HORA LLEGADA
+            hora_inicio,             # 10 HORA INICIO
+            hora_termina,            # 11 HORA TERMINA
+            disparos,                # 12 CONTADOR MAQ.
+            disparos,                # 13 CANT. CONTADOR
+            tomados_proceso,         # 14 TOMADOS EN PROCESO
+            peso_tomadas,            # 15 PESO TOMADAS EN PROCESO
+            cantidad_total,          # 16 CANTIDAD REAL (piezas totales)
+            almacen_destino,         # 17 ALMACEN DESTINO
+            codigo_ensamble,         # 18 CODIGO ENSAMBLE
+            orden_produccion,        # 19 ORDEN PRODUCCION
+            observaciones,           # 20 OBSERVACIONES
+            peso_vela_maquina,       # 21 PESO VELA MAQUINA
+            peso_bujes               # 22 PESO BUJES
         ]
         
-        # 6. REGISTRAR
-        exito = registrar_log_operacion("INYECCION", fila)
-        if not exito:
-            return jsonify({"success": False, "error": "Error en registro"}), 500
+        logger.debug(f"📝 Fila a guardar (22 columnas): {row}")
         
-        # 7. ACTUALIZAR STOCK
-        if cantidad_buena > 0:
-            try:
-                ss = gc.open_by_key(GSHEET_KEY)
-                ws = ss.worksheet("PRODUCTOS")
-                headers = ws.row_values(1)
-                col_index = headers.index("POR PULIR") + 1
-                registros = ws.get_all_records()
-                for idx, r in enumerate(registros):
-                    if str(r.get("CODIGO SISTEMA", "")).strip() == codigo_sistema:
-                        stock_actual = int(r.get("POR PULIR", 0) or 0)
-                        nuevo_stock = stock_actual + cantidad_buena
-                        ws.update_cell(idx + 2, col_index, nuevo_stock)
-                        print(f"✅ Stock: {codigo_sistema} = {nuevo_stock}")
-                        break
-            except Exception as e:
-                print(f"⚠️ Stock error: {e}")
+        # Escribir en Google Sheets
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet(Hojas.INYECCION)
+        ws.append_row(row, value_input_option='USER_ENTERED')
         
-        # 8. RESPONDER
+        logger.info(f"✅ Inyección guardada: {disparos} disparos = {cantidad_total} piezas")
+        
+        # Registrar PNC si existe
+        if pnc > 0:
+            id_inyeccion = f"INY-{str(uuid.uuid4())[:5].upper()}"
+            registrar_pnc_detalle(
+                tipo_proceso="inyeccion",
+                id_operacion=id_inyeccion,
+                codigo_producto=codigo_producto,  # Usar el código normalizado
+                cantidad_pnc=pnc,
+                criterio_pnc=criterio_pnc,
+                observaciones=observaciones
+            )
+        
         return jsonify({
-            "success": True,
-            "id_inyeccion": id_inyeccion,
-            "cantidad_buena": cantidad_buena,
-            "cantidad_pnc": cantidad_pnc,
-            "mensaje": f"✅ Inyección registrada: {cantidad_buena} piezas"
-        }), 201
-    
+            'success': True,
+            'mensaje': 'Inyección guardada correctamente',
+            'disparos': disparos,
+            'cavidades': cavidades,
+            'piezasTotal': cantidad_total,
+            'pnc': pnc,
+            'piezasBuenas': piezas_buenas,
+            'codigoProductoEntrada': codigo_producto_entrada,
+            'codigoProductoSistema': codigo_producto
+        }), 200
+        
     except Exception as e:
-        print(f"❌ ERROR /api/inyeccion: {str(e)}")
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.error(f"❌ Error: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/producto/<codigo>', methods=['GET'])
+def obtener_producto(codigo):
+    """Obtiene información del producto incluyendo código ensamble"""
+    try:
+        logger.debug(f"🔍 Buscando producto: {codigo}")
+        
+        # Normalizar código (quitar FR- si lo tiene)
+        codigo_limpio = codigo.replace('FR-', '').strip()
+        
+        # Usar función existente para buscar producto
+        resultado = buscar_producto_en_inventario(codigo_limpio)
+        
+        if resultado.get('encontrado'):
+            datos = resultado.get('datos', {})
+            codigo_ensamble = str(datos.get('CODIGO ENSAMBLE', '')).strip()
+            codigo_sistema = str(datos.get('CODIGO SISTEMA', '')).strip()
+            
+            logger.info(f"✅ Producto encontrado: {codigo_sistema} -> Ensamble: {codigo_ensamble}")
+            
+            return jsonify({
+                'codigoSistema': codigo_sistema,
+                'codigoEnsamble': codigo_ensamble
+            }), 200
+        else:
+            logger.warning(f"⚠️ Producto no encontrado: {codigo}")
+            return jsonify({'error': 'Producto no encontrado'}), 404
+        
+    except Exception as e:
+        logger.error(f"❌ Error en obtener_producto: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Error del servidor: {str(e)}'}), 500
 
+# ========== NUEVO ENDPOINT PARA OBTENER ENSAMBLE DESDE PRODUCTO ==========
+@app.route('/api/inyeccion/ensamble_desde_producto', methods=['GET'])
+def obtener_ensamble_desde_producto():
+    """Dado un código de producto (9304 o FR-9304), retorna el código ensamble y QTY."""
+    try:
+        codigo_entrada = request.args.get('codigo', '').strip()
+        if not codigo_entrada:
+            return jsonify({'success': False, 'error': 'Código producto requerido'}), 400
+
+        # Normalizar a CODIGO SISTEMA real (ej: FR-9304 -> 9304)
+        codigo_sistema = obtener_codigo_sistema_real(codigo_entrada)
+
+        # Usar la misma lógica que ensamble
+        buje_ensamble, qty_unitaria = obtener_buje_origen_y_qty(codigo_sistema)
+
+        return jsonify({
+            'success': True,
+            'codigo_sistema': codigo_sistema,
+            'codigo_ensamble': buje_ensamble,
+            'qty': qty_unitaria
+        }), 200
+    except Exception as e:
+        logger.error(f"❌ Error en obtener_ensamble_desde_producto: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/pulido', methods=['POST'])
 def handle_pulido():
@@ -1677,7 +1773,6 @@ def estado_cache():
 # DASHBOARD ANALÍTICO AVANZADO
 # ====================================================================
 
-
 @app.route('/api/dashboard/avanzado/indicador_inyeccion', methods=['GET'])
 def indicador_inyeccion():
     """Indicador avanzado de inyección con metas."""
@@ -2519,7 +2614,6 @@ def stock_inteligente():
         return jsonify({'status': 'error', 'message': str(e)}), 500
     
 # ========== DASHBOARD SIMPLE ==========
-
 
 @app.route('/api/dashboard/detalles/<tipo>', methods=['GET'])
 def obtener_detalles_dashboard(tipo):
@@ -3382,6 +3476,7 @@ if __name__ == '__main__':
     print(f"- GET  /api/cavidades/config - Configuración de cavidades")
     print(f"- POST /api/inyeccion/calcular - Calcular producción con cavidades")
     print(f"- POST /api/inyeccion        - Registrar inyección")
+    print(f"- GET  /api/inyeccion/ensamble_desde_producto - Obtener código ensamble desde producto")
     print("=" * 50)
     
     app.run(host=host, port=port, debug=False)  # debug=False en producción

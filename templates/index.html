@@ -52,13 +52,12 @@
                     <span>Ensamble</span>
                 </a>
             </li>
-                            <li class="menu-item" data-page="pnc">
-                    <a href="#">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <span>PNC</span>
-                    </a>
-                </li>
-
+            <li class="menu-item" data-page="pnc">
+                <a href="#">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>PNC</span>
+                </a>
+            </li>
             <li class="menu-item" data-page="facturacion">
                 <a href="#">
                     <i class="fas fa-file-invoice-dollar"></i>
@@ -205,16 +204,6 @@
                                 <p style="font-size: 1.2rem; font-weight: 600;">Dashboard de Power BI</p>
                                 <p style="font-size: 0.9rem;">Se integrará próximamente</p>
                             </div>
-                            <!-- 
-                            AQUÍ VA EL IFRAME DE POWER BI:
-                            <iframe 
-                                width="100%" 
-                                height="600" 
-                                src="TU_URL_DE_POWERBI" 
-                                frameborder="0" 
-                                allowFullScreen="true">
-                            </iframe>
-                            -->
                         </div>
                     </div>
                 </section>
@@ -329,7 +318,7 @@
                 </div>
             </div>
 
-            <!-- Página de Inyección -->
+                        <!-- Página de Inyección (VERSIÓN COMPLETA CON 22 CAMPOS) -->
             <div id="inyeccion-page" class="page">
                 <header class="top-bar">
                     <div class="page-title">
@@ -337,104 +326,158 @@
                         <p class="subtitle">Registra nuevas operaciones de inyección</p>
                     </div>
                 </header>
-
+            
                 <div class="form-container">
+                    <!-- FORMULARIO INYECCIÓN - VERSIÓN COMPLETA (22 CAMPOS) -->
                     <form id="form-inyeccion" class="styled-form">
                         <div class="form-grid">
+                            <!-- Fila 1: Fechas -->
                             <div class="form-group">
-                                <label for="fecha-inyeccion"><i class="fas fa-calendar"></i> Fecha</label>
+                                <label for="fecha-inyeccion"><i class="fas fa-calendar"></i> Fecha Inicio *</label>
                                 <input type="date" id="fecha-inyeccion" required>
                             </div>
                             
                             <div class="form-group">
-                                <label for="responsable-inyeccion"><i class="fas fa-user"></i> Responsable</label>
+                                <label for="fecha-fin-inyeccion"><i class="fas fa-calendar-check"></i> Fecha Fin</label>
+                                <input type="date" id="fecha-fin-inyeccion">
+                            </div>
+                        
+                            <!-- Fila 2: Máquina y Responsable -->
+                            <div class="form-group">
+                                <label for="maquina-inyeccion"><i class="fas fa-cogs"></i> Máquina *</label>
+                                <select id="maquina-inyeccion" required>
+                                    <option value="">-- Seleccionar --</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="responsable-inyeccion"><i class="fas fa-user"></i> Responsable *</label>
                                 <select id="responsable-inyeccion" required>
-                                    <option value="">Seleccionar responsable...</option>
+                                    <option value="">-- Seleccionar --</option>
                                 </select>
                             </div>
+                        
+                            <!-- Fila 3: Códigos -->
                             <div class="form-group">
-                            <label for="maquina-inyeccion"><i class="fas fa-cogs"></i> Máquina</label>
-                            <select id="maquina-inyeccion">
-                                <option value="">-- Opcional --</option>
-                                <option value="MAQUINA No. 1">MAQUINA No. 1</option>
-                                <option value="MAQUINA No. 2">MAQUINA No. 2</option>
-                                <option value="MAQUINA No. 3">MAQUINA No. 3</option>
-                                <option value="MAQUINA No. 4">MAQUINA No. 4</option>
-                            </select>
-                        </div>
-                            <div class="form-group">
-                                <label for="codigo-producto-inyeccion"><i class="fas fa-barcode"></i> Producto</label>
-                                <input type="text" id="codigo-producto-inyeccion" 
-                                    class="form-control" 
-                                    placeholder="Escribe el código..."
-                                    list="productos-inyeccion-list"
-                                    required>
-                                <datalist id="productos-inyeccion-list">
-                                    <!-- Se llena dinámicamente desde JavaScript -->
-                                </datalist>
-                                <small class="validation-message"></small>
-                            </div>
-
-                            <!-- NUEVO: CAMPO PARA CAVIDADES -->
-                            <div class="form-group">
-                                <label for="cavidades-inyeccion"><i class="fas fa-layer-group"></i> No. Cavidades</label>
-                                <select id="cavidades-inyeccion" required>
-                                    <option value="1">1 Cavidad</option>
-                                    <option value="2">2 Cavidades</option>
-                                    <option value="4" selected>4 Cavidades</option>
-                                    <option value="6">6 Cavidades</option>
-                                    <option value="8">8 Cavidades</option>
-                                    <option value="12">12 Cavidades</option>
-                                    <option value="16">16 Cavidades</option>
-                                    <option value="24">24 Cavidades</option>
-                                    <option value="32">32 Cavidades</option>
-                                    <option value="48">48 Cavidades</option>
+                                <label for="codigo-producto-inyeccion"><i class="fas fa-barcode"></i> Código Producto *</label>
+                                <select id="codigo-producto-inyeccion" required>
+                                    <option value="">-- Seleccionar --</option>
                                 </select>
-                                <small class="form-text">Número de cavidades de la máquina</small>
                             </div>
                             
                             <div class="form-group">
-                                <label for="cantidad-inyeccion"><i class="fas fa-hashtag"></i> Cantidad de Disparos</label>
+                                <label for="codigo-ensamble-inyeccion"><i class="fas fa-qrcode"></i> Código Ensamble</label>
+                                <input type="text" id="codigo-ensamble-inyeccion" class="form-control bg-light" readonly>
+                            </div>
+                        
+                            <!-- Fila 4: Cavidades y Disparos -->
+                            <div class="form-group">
+                                <label for="cavidades-inyeccion"><i class="fas fa-layer-group"></i> Cavidades *</label>
+                                <input type="number" id="cavidades-inyeccion" value="1" min="1" required>
+                                <small class="form-text text-muted">Número de cavidades del molde</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cantidad-inyeccion"><i class="fas fa-hashtag"></i> Disparos (Contador Máquina) *</label>
                                 <input type="number" id="cantidad-inyeccion" min="1" required>
-                                <small class="form-text">Número de disparos realizados</small>
+                                <small class="form-text text-muted">Número que marca el contador de la máquina</small>
                             </div>
-                            
-                            <!-- Calculadora automática -->
-                            <div class="form-group full-width" style="grid-column: span 2;">
-                                <div class="calc-container" style="background: #f3f4f6; padding: 12px; border-radius: 6px; margin-top: 5px;">
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <i class="fas fa-calculator" style="color: #6366f1;"></i>
-                                        <div>
-                                            <strong>Producción Calculada:</strong>
-                                            <span id="produccion-calculada" style="font-weight: bold; color: #10b981; margin-left: 10px;">0</span>
-                                            <span> piezas totales</span>
-                                        </div>
-                                    </div>
-                                    <div style="font-size: 0.85rem; color: #6b7280; margin-top: 5px;">
-                                        <span id="formula-calc">Disparos (0) × Cavidades (1) = 0 piezas</span>
-                                    </div>
-                                </div>
+                        
+                            <!-- Fila 5: Horas -->
+                            <div class="form-group">
+                                <label for="hora-llegada-inyeccion"><i class="fas fa-clock"></i> Hora Llegada Operario</label>
+                                <input type="time" id="hora-llegada-inyeccion">
                             </div>
                             
                             <div class="form-group">
-                                <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i> PNC</label>
+                                <label for="hora-inicio-inyeccion"><i class="fas fa-play-circle"></i> Hora Inicio Proceso</label>
+                                <input type="time" id="hora-inicio-inyeccion">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="hora-termina-inyeccion"><i class="fas fa-stop-circle"></i> Hora Termina Proceso</label>
+                                <input type="time" id="hora-termina-inyeccion">
+                            </div>
+                        
+                            <!-- Fila 6: Tomados en Proceso -->
+                            <div class="form-group">
+                                <label for="tomados-proceso-inyeccion"><i class="fas fa-box-open"></i> Tomados en Proceso</label>
+                                <input type="number" id="tomados-proceso-inyeccion" min="0" placeholder="Cantidad de piezas tomadas">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="peso-tomadas-inyeccion"><i class="fas fa-weight-hanging"></i> Peso Tomadas en Proceso (kg)</label>
+                                <input type="number" id="peso-tomadas-inyeccion" step="0.01" min="0" placeholder="Peso en kilogramos">
+                            </div>
+                        
+                            <!-- Fila 7: Pesos -->
+                            <div class="form-group">
+                                <label for="peso-vela-inyeccion"><i class="fas fa-fire"></i> Peso Vela Máquina (kg)</label>
+                                <input type="number" id="peso-vela-inyeccion" step="0.01" min="0">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="peso-bujes-inyeccion"><i class="fas fa-industry"></i> Peso Bujes (kg)</label>
+                                <input type="number" id="peso-bujes-inyeccion" step="0.01" min="0">
+                            </div>
+                        
+                            <!-- Fila 8: PNC -->
+                            <div class="form-group">
+                                <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i> PNC (Defectos)</label>
                                 <input type="number" id="pnc-inyeccion" min="0" value="0">
                             </div>
                             
                             <div class="form-group">
                                 <label for="criterio-pnc-inyeccion"><i class="fas fa-clipboard-check"></i> Criterio PNC</label>
                                 <select id="criterio-pnc-inyeccion">
-                                    <option value="">Seleccionar criterio...</option>
-                                    <option value="Carcaza manchada">Carcaza manchada</option>
-                                    <option value="Carcaza abierta">Carcaza abierta</option>
-                                    <option value="Material defectuoso">Material defectuoso</option>
+                                    <option value="">-- Seleccionar --</option>
+                                    <option value="Rechupe">Rechupe</option>
+                                    <option value="Quemado">Quemado</option>
+                                    <option value="Escaso">Escaso</option>
+                                    <option value="Contaminado">Contaminado</option>
+                                    <option value="Buje de prueba">Buje de prueba</option>
                                     <option value="Otro">Otro</option>
                                 </select>
                             </div>
+                        
+                            <!-- Fila 9: Almacén y Orden -->
+                            <div class="form-group">
+                                <label for="almacen-destino-inyeccion"><i class="fas fa-warehouse"></i> Almacén Destino</label>
+                                <select id="almacen-destino-inyeccion">
+                                    <option value="">-- Seleccionar --</option>
+                                    <option value="POR PULIR">POR PULIR</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                    <option value="CLIENTE">CLIENTE</option>
+                                </select>
+                            </div>
                             
-                            <div class="form-group full-width">
+                            <div class="form-group">
+                                <label for="orden-produccion-inyeccion"><i class="fas fa-file-alt"></i> Orden de Producción</label>
+                                <input type="text" id="orden-produccion-inyeccion" placeholder="OP-XXXX">
+                            </div>
+                        
+                            <!-- Producción Calculada (span 2 columnas) -->
+                            <div class="form-group full-width" style="grid-column: span 2;">
+                                <div class="calc-container" style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin-top: 5px; border-left: 4px solid #3b82f6;">
+                                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                        <i class="fas fa-calculator" style="color: #6366f1; font-size: 1.2rem;"></i>
+                                        <div>
+                                            <strong style="font-size: 1.1rem;">Producción Calculada: </strong>
+                                            <span id="produccion-calculada" style="font-weight: bold; color: #10b981; margin-left: 10px; font-size: 1.2rem;">0</span>
+                                            <span style="font-size: 1rem;"> piezas totales</span>
+                                        </div>
+                                    </div>
+                                    <div style="font-size: 0.9rem; color: #6b7280;">
+                                        <span id="formula-calc">Disparos: 0 × Cavidades: 1 = 0 piezas</span>
+                                    </div>
+                                </div>
+                            </div>
+                        
+                            <!-- Observaciones -->
+                            <div class="form-group full-width" style="grid-column: span 2;">
                                 <label for="observaciones-inyeccion"><i class="fas fa-sticky-note"></i> Observaciones</label>
-                                <textarea id="observaciones-inyeccion" rows="3"></textarea>
+                                <textarea id="observaciones-inyeccion" rows="3" placeholder="Notas adicionales..."></textarea>
                             </div>
                         </div>
                         
@@ -447,6 +490,8 @@
                             </button>
                         </div>
                     </form>
+                </div>
+            </div>
                     
                     <!-- Información de la ficha técnica -->
                     <div id="ficha-tecnica" class="ficha-tecnica" style="display: none;">
@@ -626,7 +671,8 @@
                     </form>
                 </div>
             </div>
-                        <!-- Página de PNC (Producto No Conforme) -->
+
+            <!-- Página de PNC (Producto No Conforme) -->
             <div id="pnc-page" class="page">
                 <header class="top-bar">
                     <div class="page-title">
@@ -694,7 +740,6 @@
                     </form>
                 </div>
             </div>
-
 
             <!-- Página de Facturación -->
             <div id="facturacion-page" class="page">
