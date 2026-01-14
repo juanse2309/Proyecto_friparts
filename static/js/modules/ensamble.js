@@ -1,5 +1,5 @@
 // ============================================
-// ensamble.js - Lógica de Ensamble
+// ensamble.js - Lógica de Ensamble ACTUALIZADO
 // ============================================
 
 /**
@@ -21,6 +21,9 @@ async function cargarDatosEnsamble() {
         if (productos) {
             actualizarSelectEnsamble('codigo-producto-ensamble', productos);
         }
+        
+        // Cargar criterios PNC
+        await cargarCriteriosPNC('ensamble', 'criterio-pnc-ensamble');
         
         console.log('✅ Datos de ensamble cargados');
         mostrarLoading(false);
@@ -53,40 +56,86 @@ function actualizarSelectEnsamble(selectId, datos) {
 }
 
 /**
- * Registrar Ensamble
+ * Registrar Ensamble - VERSIÓN COMPLETA
  */
 async function registrarEnsamble() {
     try {
         mostrarLoading(true);
         
-        const datos = {
-            codigo_producto: document.getElementById('codigo-producto-ensamble')?.value || '',
-            cantidad: document.getElementById('cantidad-ensamble')?.value || '0',
-            pnc: document.getElementById('pnc-ensamble')?.value || '0',
-            responsable: document.getElementById('responsable-ensamble')?.value || '',
-            fecha_inicio: document.getElementById('fecha-inicio-ensamble')?.value || new Date().toISOString().split('T')[0],
-            observaciones: document.getElementById('observaciones-ensamble')?.value || ''
-        };
+        // Obtener todos los campos
+        const fecha = document.getElementById('fecha-ensamble')?.value;
+        const responsable = document.getElementById('responsable-ensamble')?.value;
+        const horaInicio = document.getElementById('hora-inicio-ensamble')?.value;
+        const horaFin = document.getElementById('hora-fin-ensamble')?.value;
+        const codigoProducto = document.getElementById('codigo-producto-ensamble')?.value;
+        const lote = document.getElementById('lote-ensamble')?.value;
+        const ordenProduccion = document.getElementById('orden-produccion-ensamble')?.value;
+        const cantidadRecibida = document.getElementById('cantidad-recibida-ensamble')?.value;
+        const cantidadReal = document.getElementById('cantidad-ensamble')?.value;
+        const pnc = document.getElementById('pnc-ensamble')?.value || '0';
+        const criterioPNC = document.getElementById('criterio-pnc-ensamble')?.value;
+        const observaciones = document.getElementById('observaciones-ensamble')?.value;
         
-        console.log('📤 Datos de ensamble:', datos);
+        // Validaciones
+        if (!fecha?.trim()) {
+            mostrarNotificacion('❌ Selecciona fecha', 'error');
+            mostrarLoading(false);
+            return;
+        }
         
-        if (!datos.codigo_producto?.trim()) {
+        if (!responsable?.trim()) {
+            mostrarNotificacion('❌ Selecciona responsable', 'error');
+            mostrarLoading(false);
+            return;
+        }
+        
+        if (!horaInicio?.trim()) {
+            mostrarNotificacion('❌ Ingresa hora de inicio', 'error');
+            mostrarLoading(false);
+            return;
+        }
+        
+        if (!horaFin?.trim()) {
+            mostrarNotificacion('❌ Ingresa hora de fin', 'error');
+            mostrarLoading(false);
+            return;
+        }
+        
+        if (!codigoProducto?.trim()) {
             mostrarNotificacion('❌ Ingresa código del producto', 'error');
             mostrarLoading(false);
             return;
         }
         
-        if (!datos.cantidad || datos.cantidad === '0') {
-            mostrarNotificacion('❌ Ingresa cantidad', 'error');
+        if (!cantidadRecibida || cantidadRecibida === '0') {
+            mostrarNotificacion('❌ Ingresa cantidad recibida', 'error');
             mostrarLoading(false);
             return;
         }
         
-        if (!datos.responsable?.trim()) {
-            mostrarNotificacion('❌ Selecciona responsable', 'error');
+        if (!cantidadReal || cantidadReal === '0') {
+            mostrarNotificacion('❌ Ingresa cantidad real', 'error');
             mostrarLoading(false);
             return;
         }
+        
+        // Construir objeto de datos
+        const datos = {
+            fecha_inicio: fecha,
+            responsable: responsable,
+            hora_inicio: horaInicio,
+            hora_fin: horaFin,
+            codigo_producto: codigoProducto,
+            lote: lote,
+            orden_produccion: ordenProduccion,
+            cantidad_recibida: parseInt(cantidadRecibida),
+            cantidad_real: parseInt(cantidadReal),
+            pnc: parseInt(pnc),
+            criterio_pnc: criterioPNC,
+            observaciones: observaciones
+        };
+        
+        console.log('📤 Datos de ensamble:', datos);
         
         const response = await fetch('/api/ensamble', {
             method: 'POST',
@@ -98,8 +147,8 @@ async function registrarEnsamble() {
         
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
-            limpiarFormulario('formulario-ensamble');
-            setTimeout(() => location.reload(), 1500);
+            document.getElementById('form-ensamble')?.reset();
+            setTimeout(() => cargarDatosEnsamble(), 1500);
         } else {
             const errores = resultado.errors 
                 ? Object.values(resultado.errors).join(', ') 
@@ -107,9 +156,20 @@ async function registrarEnsamble() {
             mostrarNotificacion(`❌ ${errores}`, 'error');
         }
     } catch (error) {
-        console.error('Error registrando:', error);
+        console.error('❌ Error registrando ensamble:', error);
         mostrarNotificacion(`Error: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
     }
 }
+
+// Asociar form submit
+document.addEventListener('DOMContentLoaded', () => {
+    const formEnsamble = document.getElementById('form-ensamble');
+    if (formEnsamble) {
+        formEnsamble.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await registrarEnsamble();
+        });
+    }
+});

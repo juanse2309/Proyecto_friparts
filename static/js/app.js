@@ -227,9 +227,8 @@ async function cargarDatosIniciales() {
             actualizarSelectClientes(clientes);
             console.log('Clientes cargados:', clientes.length);
         }
-        
 
-        // 🆕 Cargar máquinas válidas
+        // Cargar máquinas
         const maquinas = await fetchData('/api/obtener_maquinas');
         if (maquinas) {
             window.AppState.maquinas = maquinas;
@@ -237,39 +236,37 @@ async function cargarDatosIniciales() {
             console.log('✅ Máquinas cargadas:', maquinas.length);
         }
 
-
+        // Cargar productos
         const productos = await fetchData('/api/obtener_productos');
-            if (productos) {
-                window.AppState.productos = productos;
-                actualizarSelectsProductos(productos);
-                console.log(`Lista de productos cargada: ${productos.length}`);
-        }
-        
-        // Configurar autocomplete para inyección
-        const datalist = document.getElementById('productos-inyeccion-list') || 
-              (() => {
-                  const list = document.createElement('datalist');
-                  list.id = 'productos-inyeccion-list';
-                  document.body.appendChild(list);
-                  const input = document.getElementById('codigo-producto-inyeccion');
-                  if (input) input.setAttribute('list', 'productos-inyeccion-list');
-                  return list;
-              })();
-                      
-            if (productos && datalist) {
+        if (productos && Array.isArray(productos)) {
+            window.AppState.productos = productos;
+            actualizarSelectsProductos(productos);
+            actualizarProductosList(productos);
+            console.log(`✅ Productos cargados: ${productos.length}`);
+            
+            // Configurar datalist para autocomplete
+            const datalist = document.getElementById('productos-inyeccion-list') || 
+                (() => {
+                    const list = document.createElement('datalist');
+                    list.id = 'productos-inyeccion-list';
+                    document.body.appendChild(list);
+                    const input = document.getElementById('codigo-producto-inyeccion');
+                    if (input) input.setAttribute('list', 'productos-inyeccion-list');
+                    return list;
+                })();
+            
+            if (datalist) {
                 datalist.innerHTML = '';
                 productos.forEach(p => {
                     const opt = document.createElement('option');
                     opt.value = p;
                     datalist.appendChild(opt);
-            });
+                });
+            }
+        } else {
+            console.warn('⚠️ No se obtuvieron productos válidos');
         }
 
-
-        
-        actualizarProductosList(productos);
-
-        
         // Cargar criterios PNC para cada formulario
         await Promise.all([
             cargarCriteriosPNC('inyeccion', 'criterio-pnc-inyeccion'),
@@ -278,14 +275,15 @@ async function cargarDatosIniciales() {
         ]);
         
         mostrarLoading(false);
-        console.log('Datos iniciales cargados correctamente');
+        console.log('✅ Datos iniciales cargados correctamente');
         
     } catch (error) {
-        console.error('Error cargando datos iniciales:', error);
+        console.error('❌ Error cargando datos iniciales:', error);
         mostrarNotificacion('Error cargando datos iniciales', 'error');
         mostrarLoading(false);
     }
 }
+
 
 function actualizarSelectsResponsables(responsables) {
     const selects = document.querySelectorAll('select[id*="responsable"]');
@@ -339,8 +337,8 @@ function actualizarSelectsProductos(productos) {
         if (productos && Array.isArray(productos)) {
             productos.forEach(producto => {
                 const option = document.createElement('option');
-                option.value = producto;
-                option.textContent = producto;
+                option.value = String(producto).trim(); // Fuerza conversión a string
+                option.textContent = String(producto).trim();
                 select.appendChild(option);
             });
         }
@@ -370,8 +368,8 @@ function actualizarProductosList(productos) {
     
     productos.forEach(producto => {
         const option = document.createElement('option');
-        option.value = producto;
-        option.textContent = producto;
+        option.value = String(producto).trim(); // Fuerza conversión a string
+        option.textContent = String(producto).trim();
         datalist.appendChild(option);
     });
     
