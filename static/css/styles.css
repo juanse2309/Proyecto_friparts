@@ -2982,3 +2982,464 @@ body.loaded {
     gap: 10px;
     margin-top: 8px;
 }
+.tabs-container { display: flex; gap: 10px; margin-bottom: 20px; }
+.tab-btn {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-weight: 600;
+    color: #6b7280;
+}
+.tab-btn.active {
+    color: #2563eb; /* Tu color primario */
+    border-bottom-color: #2563eb;
+}
+/* Para la página de mezcla */
+#mezcla-page .form-container {
+    margin-top: 20px;
+}
+
+#mezcla-page .kpis-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+}
+
+/* Para la página de historial */
+#historial-page .tabs-container {
+    display: flex;
+    gap: 5px;
+    background: #f5f5f5;
+    padding: 8px;
+    border-radius: 8px;
+}
+
+#historial-page .tab-btn {
+    padding: 8px 16px;
+    border: none;
+    background: white;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+#historial-page .tab-btn.active {
+    background: var(--color-primary);
+    color: white;
+    font-weight: 600;
+}
+
+#historial-page .filtros-section {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: flex-end;
+}
+.producto-img {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 6px;
+    background-color: #f3f4f6;
+    border: 1px solid #e5e7eb;
+}
+/* ============================================
+   ESTILOS PARA HISTORIAL GLOBAL - VERSIÓN MEJORADA
+   ============================================ */
+
+/* Contenedor principal */
+#historial-container {
+    min-height: 300px;
+}
+
+/* Tabla con scroll */
+.table-responsive {
+    max-height: 600px;
+    overflow-y: auto;
+    border-radius: 8px;
+}
+
+/* Header estilo morado degradado */
+.table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.table thead th {
+    color: white !important;
+    font-weight: 600 !important;
+    padding: 14px 12px !important;
+    border: none !important;
+    font-size: 0.875rem;
+    letter-spacing: 0.3px;
+}
+
+.table thead th i {
+    margin-right: 6px;
+    opacity: 0.9;
+}
+
+/* Filas de la tabla */
+.table tbody tr {
+    transition: all 0.2s ease;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.table tbody tr:hover {
+    background-color: rgba(99, 102, 241, 0.08);
+    transform: translateX(2px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.table tbody td {
+    padding: 12px !important;
+    vertical-align: middle;
+}
+
+/* Badges personalizados con colores morados */
+.badge {
+    font-weight: 600;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+    border-radius: 6px;
+}
+
+.badge.bg-primary {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+    color: white;
+    box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+}
+
+.badge.bg-success {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    color: white;
+}
+
+.badge.bg-warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+    color: white;
+}
+
+.badge.bg-danger {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+    color: white;
+}
+
+.badge.bg-info {
+    background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%) !important;
+    color: white;
+}
+
+.badge.bg-secondary {
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%) !important;
+    color: white;
+}
+
+/* Estado vacío */
+.empty-state {
+    padding: 3rem 0;
+}
+
+.empty-state i {
+    opacity: 0.3;
+    color: #6366f1;
+}
+
+/* ============================================
+   PAGINACIÓN MEJORADA ESTILO MORADO
+   ============================================ */
+#pagination-container {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: linear-gradient(to right, #f8f9fa, #ffffff);
+    border-radius: 8px;
+    border-top: 2px solid #e5e7eb;
+}
+
+.pagination {
+    margin-bottom: 0;
+    gap: 4px;
+}
+
+.pagination .page-item {
+    margin: 0 2px;
+}
+
+.pagination .page-link {
+    color: #6366f1;
+    border: 1px solid #e5e7eb;
+    padding: 0.5rem 0.85rem;
+    transition: all 0.2s ease;
+    border-radius: 6px !important;
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+.pagination .page-link:hover:not(.disabled) {
+    background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+    border-color: #6366f1;
+    color: #4f46e5;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.2);
+}
+
+.pagination .page-item.active .page-link {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+    border-color: #6366f1 !important;
+    color: white !important;
+    font-weight: 600;
+    box-shadow: 0 4px 8px rgba(99, 102, 241, 0.4);
+    transform: scale(1.05);
+}
+
+.pagination .page-item.disabled .page-link {
+    color: #9ca3af;
+    cursor: not-allowed;
+    background-color: #f9fafb;
+    border-color: #e5e7eb;
+}
+
+.pagination .page-link i {
+    font-size: 0.75rem;
+}
+
+/* Header de tabla con búsqueda */
+.table-header {
+    background: linear-gradient(to right, #faf5ff, #f5f3ff);
+    padding: 1.25rem;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid #e9d5ff;
+    margin-bottom: 0;
+}
+
+.table-header h5 {
+    margin-bottom: 0.25rem;
+    color: #6366f1;
+    font-weight: 700;
+}
+
+.table-header h5 i {
+    margin-right: 8px;
+}
+
+.table-header small {
+    color: #8b5cf6;
+    font-weight: 500;
+}
+
+.table-header .input-group {
+    max-width: 320px;
+}
+
+.table-header .input-group-text {
+    background-color: white;
+    border-right: none;
+    border-color: #d1d5db;
+    color: #6366f1;
+}
+
+.table-header input {
+    border-left: none;
+    border-color: #d1d5db;
+}
+
+.table-header input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    outline: none;
+}
+
+/* Textos pequeños más legibles */
+.table small {
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+
+/* Tabla alternada suave */
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(99, 102, 241, 0.02);
+}
+
+/* Scroll personalizado morado */
+.table-responsive::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: #f3f4f6;
+    border-radius: 5px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    border-radius: 5px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+}
+
+/* Mejora de filtros en historial */
+.filtros-container .form-control:focus,
+.filtros-container .form-select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    outline: none;
+}
+
+/* Botón de filtrar mejorado */
+.filtros-container .btn-primary {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    border: none;
+    font-weight: 600;
+    padding: 0.5rem 1.5rem;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+    transition: all 0.3s ease;
+}
+
+.filtros-container .btn-primary:hover {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(99, 102, 241, 0.4);
+}
+
+.filtros-container .btn-primary:active {
+    transform: translateY(0);
+}
+
+/* Responsive mejoras */
+@media (max-width: 768px) {
+    .table-header {
+        padding: 1rem;
+    }
+    
+    .table-header .row {
+        gap: 0.75rem;
+    }
+    
+    .table-header .input-group {
+        max-width: 100%;
+    }
+    
+    .table-responsive {
+        max-height: 450px;
+    }
+    
+    .pagination .page-link {
+        padding: 0.35rem 0.6rem;
+        font-size: 0.8rem;
+    }
+    
+    #pagination-container {
+        padding: 0.75rem;
+    }
+}
+
+/* Animación de carga */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.table tbody tr {
+    animation: fadeIn 0.3s ease;
+}
+
+/* Badge de cantidad con fondo morado claro */
+.badge.bg-info.text-dark {
+    background: linear-gradient(135deg, #ddd6fe 0%, #c7d2fe 100%) !important;
+    color: #5b21b6 !important;
+    font-weight: 700;
+}
+/* Corrección de lista de paginación */
+#pagination-container ul {
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+#pagination-container li {
+    list-style: none !important;
+    display: inline-block !important;
+}
+
+/* Asegurar que los estilos de Bootstrap se apliquen */
+#pagination-container .pagination {
+    display: flex !important;
+    list-style: none !important;
+    padding-left: 0 !important;
+}
+
+#pagination-container .page-item {
+    list-style: none !important;
+    display: list-item !important;
+}
+
+/* Números de página más destacados */
+.pagination .page-item:not(.disabled) .page-link {
+    cursor: pointer !important;
+}
+
+.pagination .page-link:focus {
+    box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.25) !important;
+    outline: none !important;
+}
+
+/* Botones anterior/siguiente más visibles */
+.pagination .page-link:has(i) {
+    font-weight: 600;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+/* ============================================
+   NOTIFICACIONES TOAST
+   ============================================ */
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+}
+
+#notifications-container {
+    pointer-events: none;
+}
+
+#notifications-container .notification {
+    pointer-events: all;
+}
+
+.notification button:hover {
+    opacity: 1 !important;
+    transform: scale(1.1);
+}

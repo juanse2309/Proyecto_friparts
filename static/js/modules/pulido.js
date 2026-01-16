@@ -165,13 +165,40 @@ async function registrarPulido() {
     }
 }
 
-// Asociar form submit
-document.addEventListener('DOMContentLoaded', () => {
-    const formPulido = document.getElementById('form-pulido');
-    if (formPulido) {
-        formPulido.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await registrarPulido();
-        });
+/**
+ * Inicializar módulo de Pulido
+ */
+function initPulido() {
+    console.log('🔧 Inicializando módulo de Pulido...');
+    
+    // Cargar datos
+    cargarDatosPulido();
+    
+    // Calcular cantidad real automáticamente
+    const cantidadRecibidaInput = document.getElementById('cantidad-recibida-pulido');
+    const pncInput = document.getElementById('pnc-pulido');
+    const cantidadRealInput = document.getElementById('cantidad-pulido');
+    
+    function calcularCantidadReal() {
+        const recibida = parseInt(cantidadRecibidaInput?.value) || 0;
+        const pnc = parseInt(pncInput?.value) || 0;
+        const cantidadReal = Math.max(0, recibida - pnc);
+        
+        if (cantidadRealInput) {
+            cantidadRealInput.value = cantidadReal;
+        }
     }
-});
+    
+    if (cantidadRecibidaInput) {
+        cantidadRecibidaInput.addEventListener('input', calcularCantidadReal);
+    }
+    
+    if (pncInput) {
+        pncInput.addEventListener('input', calcularCantidadReal);
+    }
+    
+    console.log('✅ Módulo de Pulido inicializado');
+}
+
+// Exportar función global
+window.initPulido = initPulido;

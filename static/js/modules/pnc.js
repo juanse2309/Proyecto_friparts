@@ -145,3 +145,17 @@ async function registrarPNC() {
         mostrarLoading(false);
     }
 }
+/**
+ * Inicializar módulo de PNC
+ */
+function initPNC() {
+    console.log('🔧 Inicializando módulo de PNC...');
+    
+    // Cargar datos
+    cargarDatosPNC();
+    
+    console.log('✅ Módulo de PNC inicializado');
+}
+
+// Exportar función global
+window.initPNC = initPNC;

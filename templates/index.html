@@ -64,6 +64,18 @@
                     <span>Facturación</span>
                 </a>
             </li>
+            <!-- Nuevos módulos en el Sidebar -->
+            <li class="menu-item" data-page="mezcla">
+                <a href="#">
+                    <i class="fas fa-vial"></i> <span>Mezcla Material</span>
+                </a>
+            </li>
+            <li class="menu-item" data-page="historial">
+                <a href="#">
+                    <i class="fas fa-history"></i> <span>Historial Global</span>
+                </a>
+            </li>
+
             <li class="menu-item" data-page="reportes">
                 <a href="#">
                     <i class="fas fa-chart-bar"></i>
@@ -294,7 +306,7 @@
                                     <th>Descripción</th>
                                     <th>Por Pulir</th>
                                     <th>P. Terminado</th>
-                                    <th>Acciones</th>
+                                
                                 </tr>
                             </thead>
                             <tbody id="tabla-productos-body">
@@ -304,17 +316,17 @@
                     </div>
 
                     <!-- Detalle de producto (se muestra al hacer clic) -->
-                    <div id="detalle-producto" class="detalle-producto" style="display: none;">
-                        <div class="detalle-header">
-                            <h3>Detalle del Producto</h3>
-                            <button class="btn-icon" id="btn-cerrar-detalle">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                        <div class="detalle-content" id="detalle-content">
+                    <!-- <div id="detalle-producto" class="detalle-producto" style="display: none;"> -->
+                        <!-- <div class="detalle-header"> -->
+                            <!-- <h3>Detalle del Producto</h3> -->
+                            <!-- <button class="btn-icon" id="btn-cerrar-detalle"> -->
+                                <!-- <i class="fas fa-times"></i> -->
+                            <!-- </button> -->
+                        <!-- </div> -->
+                        <!-- <div class="detalle-content" id="detalle-content"> -->
                             <!-- Contenido dinámico -->
-                        </div>
-                    </div>
+                        <!-- </div> -->
+                    <!-- </div> -->
                 </div>
             </div>
                                                
@@ -931,6 +943,146 @@
                 </div>
             </div>
         </div>
+            <!-- ========================================== -->
+    <!-- PÁGINA DE MEZCLA DE MATERIAL (NUEVO) -->
+    <!-- Página de Control de Mezcla -->
+    <div id="mezcla-page" class="page">
+        <header class="top-bar">
+            <div class="page-title">
+                <h1><i class="fas fa-vial"></i> Control de Mezcla</h1>
+                <p class="subtitle">Registro de preparación de materia prima</p>
+            </div>
+        </header>
+
+        <div class="form-container">
+            <form id="form-mezcla" class="styled-form">
+                <div class="form-grid">
+                    <!-- Responsable -->
+                    <div class="form-group">
+                        <label for="responsable-mezcla"><i class="fas fa-user"></i> Responsable</label>
+                        <select id="responsable-mezcla" required>
+                            <option value="">Seleccionar...</option>
+                            <!-- Se llenará con JS -->
+                        </select>
+                    </div>
+
+                    <!-- Máquina Destino -->
+                    <div class="form-group">
+                        <label for="maquina-mezcla"><i class="fas fa-cogs"></i> Para Máquina</label>
+                        <select id="maquina-mezcla" required>
+                            <option value="">Seleccionar...</option>
+                            <!-- Se llenará con JS -->
+                        </select>
+                    </div>
+
+                    <!-- Material Vírgen -->
+                    <div class="form-group">
+                        <label for="virgen-mezcla"><i class="fas fa-cube"></i> Material Vírgen (Kg)</label>
+                        <input type="number" id="virgen-mezcla" step="0.01" min="0" placeholder="Ej: 25.0" required>
+                    </div>
+
+                    <!-- Material Molido/Recuperado -->
+                    <div class="form-group">
+                        <label for="molido-mezcla"><i class="fas fa-recycle"></i> Material Molido (Kg)</label>
+                        <input type="number" id="molido-mezcla" step="0.01" min="0" value="0" required>
+                    </div>
+
+                    <!-- Pigmento -->
+                    <div class="form-group">
+                        <label for="pigmento-mezcla"><i class="fas fa-paint-brush"></i> Pigmento (Gramos)</label>
+                        <input type="number" id="pigmento-mezcla" step="1" min="0" value="0">
+                    </div>
+
+                    <!-- Feedback visual de la mezcla -->
+                    <div class="form-group" style="display: flex; align-items: center; justify-content: center; background: #f8f9fa; border-radius: 8px;">
+                        <div id="info-proporcion" class="text-center">
+                            <small class="text-muted">Ingresa pesos para ver proporciones</small>
+                        </div>
+                    </div>
+
+                    <!-- Observaciones -->
+                    <div class="form-group full-width">
+                        <label for="observaciones-mezcla"><i class="fas fa-sticky-note"></i> Observaciones</label>
+                        <textarea id="observaciones-mezcla" rows="2" placeholder="Ej: Lote de materia prima 12345..."></textarea>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Registrar Mezcla
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+        <!-- ========================================== -->
+            <!-- Página de Historial Global -->
+    <div id="historial-page" class="page">
+        <header class="top-bar">
+            <div class="page-title">
+                <h1><i class="fas fa-history"></i> Historial de Movimientos</h1>
+                <p class="subtitle">Auditoría completa de Inyección, Pulido, Ventas y PNC</p>
+            </div>
+            <div class="top-controls">
+                <button class="btn btn-secondary" id="btn-exportar-historial">
+                    <i class="fas fa-file-excel"></i> Exportar
+                </button>
+            </div>
+        </header>
+    
+        <!-- Barra de Filtros -->
+        <div class="filtros-container" style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+            <div class="form-group mb-0" style="min-width: 150px;">
+                <label class="small text-muted mb-1">Desde</label>
+                <input type="date" id="fechaDesde" class="form-control form-control-sm">
+            </div>
+            <div class="form-group mb-0" style="min-width: 150px;">
+                <label class="small text-muted mb-1">Hasta</label>
+                <input type="date" id="fechaHasta" class="form-control form-control-sm">
+            </div>
+            <div class="form-group mb-0" style="min-width: 180px;">
+                <label class="small text-muted mb-1">Tipo de Proceso</label>
+                <select id="tipoProceso" class="form-select form-select-sm" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">Todos los Movimientos</option>
+                    <option value="INYECCION">Inyección</option>
+                    <option value="PULIDO">Pulido</option>
+                    <option value="ENSAMBLE">Ensamble</option>
+                    <option value="PNC">PNC</option>
+                    <option value="VENTA">Ventas</option>
+                    <option value="FACTURACION">Facturación</option>
+                </select>
+            </div>
+            <button onclick="filtrarHistorial()" class="btn btn-primary btn-sm" style="height: 38px;">
+                <i class="fas fa-filter"></i> Filtrar
+            </button>
+        </div>
+    
+        <!-- Contenedor principal con tabla y paginación -->
+        <div class="bg-white rounded shadow-sm">
+            <!-- Tabla de Resultados con scroll -->
+            <div class="table-responsive">
+                <div id="historial-container">
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-filter fa-3x mb-3"></i>
+                        <p>Selecciona un rango de fechas y haz clic en Filtrar</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 🔴 PAGINACIÓN FUERA DEL TABLE-RESPONSIVE -->
+            <div id="pagination-container"></div>
+        </div>
+    </div>
+
+        
+        <div class="text-end mt-2 text-muted small">
+            Mostrando <span id="total-registros-historial">0</span> registros recientes.
+        </div>
+    </div>
+
+
     </main>
 
     <!-- Modal para nuevo producto -->
@@ -968,7 +1120,7 @@
         <div class="loading-text">Cargando...</div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Scripts (ORDEN SAGRADO) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- Estado Global Inicializado -->
@@ -989,9 +1141,11 @@
         };
     </script>
 
-    <!-- Módulos -->
+    <!-- Módulos Base (Utilidades primero) -->
     <script src="/static/js/modules/config.js"></script>
     <script src="/static/js/modules/utils.js"></script>
+
+    <!-- Módulos de Negocio Existentes -->
     <script src="/static/js/modules/dashboard.js"></script>
     <script src="/static/js/modules/inyeccion.js"></script>
     <script src="/static/js/modules/pulido.js"></script>
@@ -1001,7 +1155,11 @@
     <script src="/static/js/modules/reportes.js"></script>
     <script src="/static/js/modules/inventario.js"></script>
     
-    <!-- App principal -->
+    <!-- LOS NUEVOS MÓDULOS (ANTES de app.js) -->
+    <script src="/static/js/modules/mezcla.js"></script>
+    <script src="/static/js/modules/historial.js"></script>
+    
+    <!-- App principal (AL FINAL) -->
     <script src="/static/js/app.js"></script>
 
     <script>
@@ -1042,8 +1200,8 @@
     </datalist>
 
     <!-- Modal para detalle de producto -->
-    <div id="modalDetalleProducto" class="modal fade" tabindex="-1">
+    <!-- <div id="modalDetalleProducto" class="modal fade" tabindex="-1"> -->
         <!-- El contenido se genera dinámicamente con JavaScript -->
-    </div>
+    <!-- </div> -->
 </body>
 </html>

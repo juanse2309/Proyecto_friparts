@@ -163,13 +163,40 @@ async function registrarEnsamble() {
     }
 }
 
-// Asociar form submit
-document.addEventListener('DOMContentLoaded', () => {
-    const formEnsamble = document.getElementById('form-ensamble');
-    if (formEnsamble) {
-        formEnsamble.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await registrarEnsamble();
-        });
+/**
+ * Inicializar módulo de Ensamble
+ */
+function initEnsamble() {
+    console.log('🔧 Inicializando módulo de Ensamble...');
+    
+    // Cargar datos
+    cargarDatosEnsamble();
+    
+    // Auto-calcular cantidad real (Cantidad Recibida - PNC)
+    const cantidadRecibidaInput = document.getElementById('cantidad-recibida-ensamble');
+    const pncInput = document.getElementById('pnc-ensamble');
+    const cantidadRealInput = document.getElementById('cantidad-ensamble');
+    
+    function calcularCantidadReal() {
+        const recibida = parseInt(cantidadRecibidaInput?.value) || 0;
+        const pnc = parseInt(pncInput?.value) || 0;
+        const cantidadReal = Math.max(0, recibida - pnc);
+        
+        if (cantidadRealInput) {
+            cantidadRealInput.value = cantidadReal;
+        }
     }
-});
+    
+    if (cantidadRecibidaInput) {
+        cantidadRecibidaInput.addEventListener('input', calcularCantidadReal);
+    }
+    
+    if (pncInput) {
+        pncInput.addEventListener('input', calcularCantidadReal);
+    }
+    
+    console.log('✅ Módulo de Ensamble inicializado');
+}
+
+// Exportar función global
+window.initEnsamble = initEnsamble;

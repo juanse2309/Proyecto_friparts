@@ -11,6 +11,7 @@ import math
 from google.oauth2.service_account import Credentials
 import logging
 
+
 # Configurar logging detallado
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -1049,10 +1050,11 @@ def handle_pulido():
             logger.warning(f"⚠️ Errores de validación: {errors}")
             return jsonify({'success': False, 'error': ', '.join(errors)}), 400
         
-        # Obtener código del sistema - USAR TAL CUAL (ej: FR-9304)
-        # NO extraer, la columna CODIGO SISTEMA ya tiene el formato completo
-        codigo_sis = str(data.get('codigo_producto', '')).strip()
-        logger.info(f"✅ Código del sistema: {codigo_sis}")
+                # ✅ NORMALIZAR el código (quitar FR-, INY-, etc.)
+        codigo_entrada = str(data.get('codigoproducto', '')).strip()
+        codigo_sis = obtener_codigo_sistema_real(codigo_entrada)
+        logger.info(f"📦 Código entrada: {codigo_entrada} → Sistema: {codigo_sis}")
+
         
         # Mover inventario de "POR PULIR" a "P. TERMINADO"
         cantidad_real = int(data.get('cantidad_real', 0))
@@ -1139,8 +1141,10 @@ def handle_ensamble():
         data = request.get_json()
         logger.info(f"📥 Datos recibidos en /api/ensamble: {data}")
         
-        # Validar campos requeridos
-        required_fields = ['fecha_inicio', 'responsable', 'hora_inicio', 'hora_fin',
+        # ========================================
+        # VALIDAR CAMPOS REQUERIDOS
+        # ========================================
+        required_fields = ['fecha_inicio', 'responsable', 'hora_inicio', 'hora_fin', 
                           'codigo_producto', 'cantidad_recibida', 'cantidad_real']
         
         errors = []
@@ -1150,86 +1154,148 @@ def handle_ensamble():
         
         if errors:
             logger.warning(f"⚠️ Errores de validación: {errors}")
-            return jsonify({'success': False, 'error': ', '.join(errors)}), 400
+            return jsonify({"success": False, "error": ", ".join(errors)}), 400
         
-        # Obtener código del sistema - USAR TAL CUAL (ej: FR-9304)
-        # NO extraer, la columna CODIGO SISTEMA ya tiene el formato completo
-        codigo_sis = str(data.get('codigo_producto', '')).strip()
-        logger.info(f"✅ Código del sistema: {codigo_sis}")
+        # ========================================
+        # OBTENER Y NORMALIZAR CÓDIGO
+        # ========================================
+        codigo_entrada = str(data.get('codigo_producto', '')).strip()
+        codigo_sis = obtener_codigo_sistema_real(codigo_entrada)
         
-        # Obtener información de buje origen
-        buje_origen, qty_unitaria = obtener_buje_origen_y_qty(codigo_sis)
-        logger.info(f"🔧 Buje origen: {buje_origen}, QTY unitaria: {qty_unitaria}")
+        logger.info(f"📦 Código entrada: '{codigo_entrada}' → Sistema: '{codigo_sis}'")
         
-        # Calcular cantidades
+        if not codigo_sis:
+            return jsonify({"success": False, "error": "Código de producto requerido"}), 400
+        
+        # ========================================
+        # OBTENER INFORMACIÓN DE BUJE ORIGEN
+        # ========================================
+        buje_origen_id, qty_unitaria = obtener_buje_origen_y_qty(codigo_sis)
+        logger.info(f"🔧 Buje ID: {buje_origen_id}, QTY unitaria: {qty_unitaria}")
+        
+        # ========================================
+        # BUSCAR CODIGO SISTEMA DEL BUJE
+        # ========================================
+        try:
+            ss_temp = gc.open_by_key(GSHEET_KEY)
+            ws_temp = ss_temp.worksheet(Hojas.PRODUCTOS)
+            registros_temp = ws_temp.get_all_records()
+            
+            buje_codigo_sistema = None
+            for r in registros_temp:
+                id_codigo = str(r.get('ID CODIGO', '')).strip()
+                codigo_sistema_temp = str(r.get('CODIGO SISTEMA', '')).strip()
+                
+                if id_codigo == buje_origen_id:
+                    buje_codigo_sistema = codigo_sistema_temp
+                    logger.info(f"✅ Buje encontrado: ID={id_codigo} → CODIGO SISTEMA={codigo_sistema_temp}")
+                    break
+            
+            if not buje_codigo_sistema:
+                buje_codigo_sistema = buje_origen_id
+                logger.warning(f"⚠️ No se encontró CODIGO SISTEMA para buje {buje_origen_id}, usando ID")
+                
+        except Exception as e:
+            logger.error(f"❌ Error buscando código sistema del buje: {e}")
+            buje_codigo_sistema = buje_origen_id
+        
+        # ========================================
+        # BUSCAR CODIGO SISTEMA DEL PRODUCTO ENSAMBLADO
+        # ========================================
+        producto_codigo_sistema = codigo_entrada  # Usar el código original con FR-
+        
+        try:
+            for r in registros_temp:
+                id_codigo = str(r.get('ID CODIGO', '')).strip()
+                codigo_sistema_temp = str(r.get('CODIGO SISTEMA', '')).strip()
+                
+                if id_codigo == codigo_sis:
+                    producto_codigo_sistema = codigo_sistema_temp
+                    logger.info(f"✅ Producto encontrado: ID={codigo_sis} → CODIGO SISTEMA={codigo_sistema_temp}")
+                    break
+        except:
+            pass
+        
+        # ========================================
+        # CALCULAR CANTIDADES
+        # ========================================
         cantidad_recibida = int(data.get('cantidad_recibida', 0))
         pnc = int(data.get('pnc', 0))
         cantidad_real = int(data.get('cantidad_real', 0))
         
-        # Si no especifica cantidad_recibida, calcularla
         if cantidad_recibida == 0:
             cantidad_recibida = cantidad_real + pnc
         
-        if cantidad_recibida != (cantidad_real + pnc):
-            logger.warning(f"⚠️ Inconsistencia: recibida({cantidad_recibida}) ≠ real({cantidad_real}) + pnc({pnc})")
-        
+        # Calcular consumo de bujes
         total_consumo = cantidad_real * qty_unitaria
+        
         logger.info(f"📊 Cantidades: recibida={cantidad_recibida}, real={cantidad_real}, pnc={pnc}, consumo={total_consumo}")
+        logger.info(f"📦 Stock - Descontará de: {buje_codigo_sistema}, Agregará a: {producto_codigo_sistema}")
         
-        # Mover inventario (salida de buje, entrada de producto ensamblado)
-        exito_resta, msj_resta = registrar_salida(buje_origen, total_consumo, "P. TERMINADO")
+        # ========================================
+        # MOVER INVENTARIO
+        # ========================================
+        # Salida de buje
+        exito_resta, msj_resta = registrar_salida(buje_codigo_sistema, total_consumo, "P. TERMINADO")
         if not exito_resta:
-            logger.error(f"❌ Stock insuficiente de {buje_origen}: {msj_resta}")
-            return jsonify({'success': False, 'error': f'Stock insuficiente: {buje_origen}'}), 400
+            logger.error(f"❌ {msj_resta}")
+            return jsonify({"success": False, "error": msj_resta}), 400
         
-        logger.info(f"✅ Salida de {buje_origen}: {total_consumo} unidades")
+        logger.info(f"✅ Salida: {buje_codigo_sistema} (-{total_consumo})")
         
         # Entrada del producto ensamblado
-        exito_suma, msj_suma = registrar_entrada(codigo_sis, cantidad_real, "PRODUCTO ENSAMBLADO")
+        exito_suma, msj_suma = registrar_entrada(producto_codigo_sistema, cantidad_real, "PRODUCTO ENSAMBLADO")
         if not exito_suma:
-            logger.error(f"❌ Error registrando entrada: {msj_suma}")
-            return jsonify({'success': False, 'error': msj_suma}), 400
+            # Revertir
+            registrar_entrada(buje_codigo_sistema, total_consumo, "P. TERMINADO")
+            logger.error(f"❌ {msj_suma}")
+            return jsonify({"success": False, "error": msj_suma}), 400
         
-        logger.info(f"✅ Entrada de {codigo_sis}: {cantidad_real} unidades")
+        logger.info(f"✅ Entrada: {producto_codigo_sistema} (+{cantidad_real})")
         
-        # Crear registro en hoja ENSAMBLES
-        id_ensamble = f"ENS-{str(uuid.uuid4())[:5].upper()}"
+        # ========================================
+        # CREAR REGISTRO EN HOJA ENSAMBLES
+        # ========================================
+        id_ensamble = f"ENS-{str(uuid.uuid4())[:8].upper()}"
         
+        # ✅ ORDEN CORRECTO SEGÚN TUS ENCABEZADOS
         fila_ensamble = [
-            id_ensamble,
-            data.get('fecha_inicio', ''),
-            "Ensamble",
-            data.get('responsable', ''),
-            data.get('hora_inicio', ''),
-            data.get('hora_fin', ''),
-            codigo_sis,
-            data.get('lote', ''),
-            data.get('orden_produccion', ''),
-            cantidad_recibida,
-            pnc,
-            cantidad_real,
-            data.get('observaciones', ''),
-            "PRODUCTO ENSAMBLADO",
-            buje_origen
+            data.get('fecha_inicio', ''),              # 1. FECHA
+            id_ensamble,                                # 2. ID ENSAMBLE
+            codigo_sis,                                 # 3. ID CODIGO (sin FR-)
+            cantidad_real,                              # 4. CANTIDAD
+            data.get('orden_produccion', ''),          # 5. OP NUMERO
+            data.get('responsable', ''),               # 6. RESPONSABLE
+            data.get('hora_inicio', ''),               # 7. HORA INICIO
+            data.get('hora_fin', ''),                  # 8. HORA FIN
+            buje_origen_id,                            # 9. BUJE ENSAMBLE (ID sin FR-)
+            qty_unitaria,                              # 10. QTY
+            'P. TERMINADO',                            # 11. ALMACEN PARA DESCARGAR
+            'PRODUCTO ENSAMBLADO'                      # 12. ALMACEN DESTINO
         ]
         
-        logger.debug(f"📝 Fila ensamble (15 columnas): {fila_ensamble}")
+        logger.debug(f"📋 Fila ensamble (12 columnas): {fila_ensamble}")
         
         # Guardar en Google Sheets
         try:
             ss = gc.open_by_key(GSHEET_KEY)
             ws = ss.worksheet(Hojas.ENSAMBLES)
             ws.append_row(fila_ensamble, value_input_option='USER_ENTERED')
-            logger.info(f"✅ Registro guardado en hoja ENSAMBLES")
+            logger.info(f"✅ Registro guardado en ENSAMBLES")
         except Exception as e:
-            logger.error(f"❌ Error guardando en Sheets: {str(e)}")
-            return jsonify({'success': False, 'error': f'Error guardando en Sheets: {str(e)}'}), 500
+            logger.error(f"❌ Error guardando: {str(e)}")
+            # Revertir movimientos de stock
+            registrar_salida(producto_codigo_sistema, cantidad_real, "PRODUCTO ENSAMBLADO")
+            registrar_entrada(buje_codigo_sistema, total_consumo, "P. TERMINADO")
+            return jsonify({"success": False, "error": f"Error guardando: {str(e)}"}), 500
         
-        # Registrar PNC si existe
+        # ========================================
+        # REGISTRAR PNC SI EXISTE
+        # ========================================
         if pnc > 0:
-            logger.info(f"📌 Registrando PNC: {pnc} piezas")
+            logger.info(f"📝 Registrando PNC: {pnc} piezas")
             exito_pnc = registrar_pnc_detalle(
-                tipo_proceso="ensamble",
+                tipo_proceso='ensamble',
                 id_operacion=id_ensamble,
                 codigo_producto=codigo_sis,
                 cantidad_pnc=pnc,
@@ -1237,27 +1303,31 @@ def handle_ensamble():
                 observaciones=data.get('observaciones', '')
             )
             if not exito_pnc:
-                logger.warning(f"⚠️ PNC no se registró correctamente")
+                logger.warning(f"⚠️ PNC no registrado")
         
-        # Respuesta exitosa
-        mensaje = f'Ensamble registrado: {cantidad_real} piezas de {codigo_sis}'
+        # ========================================
+        # RESPUESTA EXITOSA
+        # ========================================
+        mensaje = f"✅ Ensamble registrado: {cantidad_real} piezas de {codigo_sis}"
         if pnc > 0:
-            mensaje += f' (con {pnc} PNC)'
+            mensaje += f" (con {pnc} PNC)"
         
         return jsonify({
-            'success': True,
-            'mensaje': mensaje,
-            'id_ensamble': id_ensamble,
-            'cantidad_real': cantidad_real,
-            'pnc': pnc,
-            'buje_consumido': buje_origen,
-            'total_consumo': total_consumo
+            "success": True,
+            "mensaje": mensaje,
+            "id_ensamble": id_ensamble,
+            "cantidad_real": cantidad_real,
+            "pnc": pnc,
+            "buje_consumido": buje_codigo_sistema,
+            "total_consumo": total_consumo
         }), 200
         
     except Exception as e:
         logger.error(f"❌ Error en /api/ensamble: {type(e).__name__}: {str(e)}")
         traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
     
 @app.route('/api/facturacion', methods=['POST'])
 def handle_facturacion():
@@ -1366,6 +1436,319 @@ def handle_facturacion():
             "status": "error", 
             "message": f"Error interno: {str(e)}"
         }), 500
+
+# ---------------------------------------------------------
+# MÓDULO DE MEZCLA DE MATERIAL
+# ---------------------------------------------------------
+
+# 1. Agrega esto en tu configuración de Hojas (al inicio de app.py si usas un Enum o Diccionario)
+# Asegúrate que coincida con el nombre de la pestaña que creaste.
+# Hojas.MEZCLA = "MEZCLA" 
+
+@app.route('/api/mezcla/guardar', methods=['POST'])
+def registrar_mezcla():
+    """Registra una nueva preparación de mezcla de material."""
+    try:
+        data = request.get_json()
+        
+        # Validaciones de Backend (Seguridad y Consistencia)
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No se recibieron datos'}), 400
+            
+        required_fields = ['responsable', 'maquina', 'virgen', 'molido']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'status': 'error', 'message': f'Falta el campo: {field}'}), 400
+
+        # Conexión a Sheet
+        ss = gc.open_by_key(GSHEET_KEY)
+        # Asegúrate de definir Hojas.MEZCLA o usar el string directo "MEZCLA"
+        ws = ss.worksheet("MEZCLA") 
+        
+        # Generar Lote Interno Automático (Ej: M-20260115-HHMM)
+        ahora = datetime.datetime.now()
+        lote_interno = f"M-{ahora.strftime('%Y%m%d-%H%M')}"
+        
+        # Preparar fila
+        fila = [
+            ahora.strftime('%Y-%m-%d'),      # FECHA
+            ahora.strftime('%H:%M:%S'),      # HORA
+            data['responsable'],             # RESPONSABLE
+            data['maquina'],                 # MAQUINA (Para qué máquina es)
+            float(data['virgen']),           # VIRGEN KG
+            float(data['molido']),           # MOLIDO KG
+            float(data.get('pigmento', 0)),  # PIGMENTO GR
+            lote_interno,                    # LOTE GENERADO
+            data.get('observaciones', '')    # OBSERVACIONES
+        ]
+        
+        ws.append_row(fila)
+        
+        return jsonify({
+            'status': 'success', 
+            'message': 'Mezcla registrada correctamente',
+            'lote': lote_interno
+        }), 201
+
+    except Exception as e:
+        print(f"ERROR al registrar mezcla: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ---------------------------------------------------------
+# MÓDULO DE HISTORIAL GLOBAL (VERSIÓN CORREGIDA)
+# ---------------------------------------------------------
+
+@app.route('/api/historial-global', methods=['GET'])
+def obtener_historial_global():
+    """
+    Obtiene historial consolidado de todos los procesos.
+    Soporta filtros por fecha y tipo de proceso.
+    """
+    try:
+        desde = request.args.get('desde', '')
+        hasta = request.args.get('hasta', '')
+        tipo = request.args.get('tipo', '')
+        
+        logger.info(f"📊 Historial solicitado: desde={desde}, hasta={hasta}, tipo={tipo}")
+        
+        ss = gc.open_by_key(GSHEET_KEY)
+        movimientos = []
+        
+        # Importar datetime
+        from datetime import datetime
+        
+        # Función para parsear fechas en múltiples formatos
+        def parsear_fecha_flexible(fecha_str):
+            """Intenta parsear fecha en múltiples formatos"""
+            if not fecha_str:
+                return None
+            
+            fecha_str = str(fecha_str).strip()
+            
+            # Limpiar espacios y caracteres T
+            if ' ' in fecha_str:
+                fecha_str = fecha_str.split(' ')[0]
+            if 'T' in fecha_str:
+                fecha_str = fecha_str.split('T')[0]
+            
+            # Formatos comunes
+            formatos = [
+                '%d/%m/%Y',      # 05/02/2024
+                '%d/%m/%y',      # 05/02/24
+                '%Y-%m-%d',      # 2024-02-05
+                '%m/%d/%Y',      # 02/05/2024
+                '%Y/%m/%d',      # 2024/02/05
+                '%d-%m-%Y',      # 05-02-2024
+            ]
+            
+            for formato in formatos:
+                try:
+                    return datetime.strptime(fecha_str, formato)
+                except:
+                    continue
+            
+            # Parseo manual para D/M/YYYY (sin ceros)
+            try:
+                if '/' in fecha_str:
+                    partes = fecha_str.split('/')
+                    if len(partes) == 3:
+                        dia = int(partes[0])
+                        mes = int(partes[1])
+                        año = int(partes[2])
+                        return datetime(año, mes, dia)
+            except Exception as e:
+                logger.debug(f"Error parseo manual: {e}")
+            
+            return None
+        
+        # Parsear fechas del filtro
+        fecha_desde = parsear_fecha_flexible(desde) if desde else None
+        fecha_hasta = parsear_fecha_flexible(hasta) if hasta else None
+        
+        logger.info(f"📅 Fechas parseadas: desde={fecha_desde}, hasta={fecha_hasta}")
+        
+        # Debug si no se pudieron parsear
+        if desde and not fecha_desde:
+            logger.warning(f"⚠️ No se pudo parsear fecha DESDE: '{desde}'")
+        if hasta and not fecha_hasta:
+            logger.warning(f"⚠️ No se pudo parsear fecha HASTA: '{hasta}'")
+        
+        # ========================================
+        # 1. INYECCIÓN
+        # ========================================
+        if not tipo or tipo == 'INYECCION':
+            try:
+                ws_iny = ss.worksheet(Hojas.INYECCION)
+                registros_iny = ws_iny.get_all_records()
+                logger.info(f"📦 INYECCIÓN: {len(registros_iny)} registros totales")
+                
+                procesados = 0
+                saltados = 0
+                
+                for idx, reg in enumerate(registros_iny):
+                    fecha_str = str(reg.get('FECHA INICIA', reg.get('FECHA', '')))
+                    
+                    if not fecha_str or fecha_str == '' or fecha_str == 'None':
+                        saltados += 1
+                        continue
+                    
+                    # Debug las primeras 3 fechas
+                    if procesados < 3:
+                        logger.info(f"🔍 Registro {idx+1}: fecha_raw='{fecha_str}'")
+                    
+                    fecha_reg = parsear_fecha_flexible(fecha_str)
+                    
+                    if procesados < 3:
+                        logger.info(f"   ➜ Parseado: {fecha_reg}")
+                    
+                    if not fecha_reg:
+                        saltados += 1
+                        continue
+                    
+                    # Filtrar por rango
+                    if fecha_desde and fecha_reg < fecha_desde:
+                        continue
+                    if fecha_hasta and fecha_reg > fecha_hasta:
+                        continue
+                    
+                    procesados += 1
+                    movimientos.append({
+                        'fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'tipo': 'INYECCION',
+                        'producto': str(reg.get('ID CODIGO', '')),
+                        'cantidad': to_int_seguro(reg.get('CANTIDAD REAL', 0)),
+                        'responsable': str(reg.get('RESPONSABLE', '')),
+                        'detalle': str(reg.get('OBSERVACIONES', ''))
+                    })
+                
+                logger.info(f"✅ INYECCIÓN: {procesados} procesados, {saltados} saltados de {len(registros_iny)} totales")
+                
+            except Exception as e:
+                logger.error(f"❌ Error en INYECCIÓN: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # ========================================
+        # 2. PULIDO
+        # ========================================
+        if not tipo or tipo == 'PULIDO':
+            try:
+                ws_pul = ss.worksheet(Hojas.PULIDO)
+                registros_pul = ws_pul.get_all_records()
+                logger.info(f"✨ PULIDO: {len(registros_pul)} registros totales")
+                
+                procesados = 0
+                saltados = 0
+                
+                for reg in registros_pul:
+                    fecha_str = str(reg.get('FECHA', ''))
+                    
+                    if not fecha_str or fecha_str == '' or fecha_str == 'None':
+                        saltados += 1
+                        continue
+                    
+                    fecha_reg = parsear_fecha_flexible(fecha_str)
+                    if not fecha_reg:
+                        saltados += 1
+                        continue
+                    
+                    if fecha_desde and fecha_reg < fecha_desde:
+                        continue
+                    if fecha_hasta and fecha_reg > fecha_hasta:
+                        continue
+                    
+                    procesados += 1
+                    movimientos.append({
+                        'fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'tipo': 'PULIDO',
+                        'producto': str(reg.get('CODIGO', '')),
+                        'cantidad': to_int_seguro(reg.get('CANTIDAD REAL', 0)),
+                        'responsable': str(reg.get('RESPONSABLE', '')),
+                        'detalle': str(reg.get('OBSERVACIONES', ''))
+                    })
+                
+                logger.info(f"✅ PULIDO: {procesados} procesados, {saltados} saltados de {len(registros_pul)} totales")
+                
+            except Exception as e:
+                logger.error(f"❌ Error en PULIDO: {e}")
+        
+        # ========================================
+        # 3. FACTURACIÓN / VENTAS
+        # ========================================
+        if not tipo or tipo in ['VENTA', 'FACTURACION']:
+            try:
+                ws_fac = ss.worksheet(Hojas.FACTURACION)
+                registros_fac = ws_fac.get_all_records()
+                logger.info(f"💰 FACTURACIÓN: {len(registros_fac)} registros totales")
+                
+                procesados = 0
+                saltados = 0
+                
+                for reg in registros_fac:
+                    fecha_str = str(reg.get('FECHA', ''))
+                    
+                    if not fecha_str or fecha_str == '' or fecha_str == 'None':
+                        saltados += 1
+                        continue
+                    
+                    fecha_reg = parsear_fecha_flexible(fecha_str)
+                    if not fecha_reg:
+                        saltados += 1
+                        continue
+                    
+                    if fecha_desde and fecha_reg < fecha_desde:
+                        continue
+                    if fecha_hasta and fecha_reg > fecha_hasta:
+                        continue
+                    
+                    procesados += 1
+                    movimientos.append({
+                        'fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'tipo': 'VENTA',
+                        'producto': str(reg.get('ID CODIGO', '')),
+                        'cantidad': to_int_seguro(reg.get('CANTIDAD', 0)),
+                        'responsable': str(reg.get('CLIENTE', '')),
+                        'detalle': f"Factura: {reg.get('ID FACTURA', '')}"
+                    })
+                
+                logger.info(f"✅ FACTURACIÓN: {procesados} procesados, {saltados} saltados de {len(registros_fac)} totales")
+                
+            except Exception as e:
+                logger.error(f"❌ Error en FACTURACIÓN: {e}")
+        
+        # ========================================
+        # ORDENAR Y RETORNAR
+        # ========================================
+        try:
+            movimientos.sort(key=lambda x: datetime.strptime(x['fecha'], '%d/%m/%Y'), reverse=True)
+        except Exception as e:
+            logger.warning(f"⚠️ Error ordenando: {e}")
+        
+        logger.info(f"✅ Historial consolidado: {len(movimientos)} registros finales")
+        
+        return jsonify({
+            'success': True,
+            'data': movimientos,
+            'total': len(movimientos),
+            'filtros': {
+                'desde': desde,
+                'hasta': hasta,
+                'tipo': tipo or 'TODOS'
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error crítico en historial global: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'data': []
+        }), 500
+
+
+
 
 # ====================================================================
 # ENDPOINTS DE CONSULTA
@@ -1588,7 +1971,7 @@ def listar_productos():
                 stock_term = int(r.get('P. TERMINADO', 0) or 0)
                 stock_total = stock_por_pulir + stock_term
                 
-                productos.append({
+            productos.append({
                     'codigo_sistema': codigo,
                     'descripcion': r.get('DESCRIPCION', ''),
                     'stock_por_pulir': stock_por_pulir,
@@ -1596,9 +1979,12 @@ def listar_productos():
                     'stock_total': stock_total,
                     'precio': r.get('PRECIO', 0),
                     'stock_minimo': int(r.get('STOCK MINIMO', 10) or 10),
-                    'estado': 'AGOTADO' if stock_total == 0 else ('BAJO' if stock_total < 10 else 'OK')
+                    'estado': 'AGOTADO' if stock_total <= 0 else ('BAJO' if stock_total < 10 else 'OK'),
+
+                    # ✅ NUEVA LÍNEA CLAVE:
+                    'imagen': r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or '',
                 })
-        
+
         # Guardar en cache
         PRODUCTOS_CACHE["data"] = productos
         PRODUCTOS_CACHE["timestamp"] = ahora
@@ -3648,57 +4034,81 @@ def dashboard_real_endpoint():
     datos = calcular_dashboard_robusto()
     return jsonify(datos), 200
 
+
 @app.route('/api/pnc', methods=['POST'])
 def registrar_pnc():
     """Registra PNC en la hoja PNC."""
     try:
         data = request.json
-        print(f"📥 POST /api/pnc: {data}")
+        logger.info(f"📥 POST /api/pnc: {data}")
+        
+        # Obtener código del producto
+        codigo_entrada = str(data.get('codigo_producto', '')).strip()
+        
+        # ✅ NORMALIZAR el código (quitar FR-, INY-, etc.)
+        codigo_producto = obtener_codigo_sistema_real(codigo_entrada)
+        
+        logger.info(f"📦 Código entrada: '{codigo_entrada}' → Sistema: '{codigo_producto}'")
         
         # Validar datos
-        if not data.get("codigo_producto"):
+        if not codigo_producto:
             return jsonify({"success": False, "error": "Código de producto requerido"}), 400
         
-        if not data.get("cantidad") or int(data.get("cantidad", 0)) <= 0:
+        cantidad = int(data.get("cantidad", 0))
+        if cantidad <= 0:
             return jsonify({"success": False, "error": "Cantidad debe ser mayor a 0"}), 400
         
-        if not data.get("criterio"):
+        criterio = str(data.get("criterio", "")).strip()
+        if not criterio:
             return jsonify({"success": False, "error": "Criterio requerido"}), 400
         
-        # Preparar fila
+        # Preparar fila con código normalizado
+        fecha = data.get("fecha", datetime.datetime.now().strftime("%Y-%m-%d"))
+        id_pnc = data.get("id_pnc", f"PNC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
+        codigo_ensamble = str(data.get("codigo_ensamble", "")).strip()
+        
         fila = [
-            data.get("fecha", datetime.datetime.now().strftime("%Y-%m-%d")),  # FECHA
-            data.get("id_pnc", f"PNC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"),  # ID PNC
-            data.get("codigo_producto", ""),  # ID CODIGO
-            int(data.get("cantidad", 0)),  # CANTIDAD
-            data.get("criterio", ""),  # CRITERIO
-            data.get("codigo_ensamble", "")  # CODIGO ENSAMBLE
+            fecha,              # FECHA
+            id_pnc,            # ID PNC
+            codigo_producto,   # ID CODIGO (normalizado sin FR-)
+            cantidad,          # CANTIDAD
+            criterio,          # CRITERIO
+            codigo_ensamble    # CODIGO ENSAMBLE
         ]
+        
+        logger.debug(f"📋 Fila a guardar: {fila}")
         
         # Registrar en Google Sheets
         ss = gc.open_by_key(GSHEET_KEY)
         
         try:
             ws = ss.worksheet("PNC")
-        except:
+            logger.info("✅ Hoja PNC encontrada")
+        except gspread.exceptions.WorksheetNotFound:
             # Si no existe, crearla
+            logger.warning("⚠️ Hoja PNC no encontrada, creándola...")
             ws = ss.add_worksheet(title="PNC", rows=1000, cols=6)
             encabezados = ["FECHA", "ID PNC", "ID CODIGO", "CANTIDAD", "CRITERIO", "CODIGO ENSAMBLE"]
             ws.append_row(encabezados)
+            logger.info("✅ Hoja PNC creada con encabezados")
         
-        ws.append_row(fila)
+        ws.append_row(fila, value_input_option='USER_ENTERED')
         
-        print(f"✅ PNC registrado: {data.get('cantidad')} piezas de {data.get('codigo_producto')}")
+        logger.info(f"✅ PNC registrado: {cantidad} piezas de {codigo_producto} (entrada: {codigo_entrada})")
         
         return jsonify({
             "success": True,
-            "mensaje": f"✅ PNC registrado: {data.get('cantidad')} piezas"
+            "mensaje": f"✅ PNC registrado: {cantidad} piezas de {codigo_producto}",
+            "id_pnc": id_pnc,
+            "codigo_entrada": codigo_entrada,
+            "codigo_guardado": codigo_producto
         }), 201
         
     except Exception as e:
-        print(f"❌ ERROR /api/pnc: {str(e)}")
+        logger.error(f"❌ ERROR /api/pnc: {str(e)}")
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 
 # ====================================================================

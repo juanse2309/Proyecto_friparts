@@ -328,6 +328,8 @@ if (typeof module !== 'undefined' && module.exports) {
         actualizarCalculoProduccion
     };
 }
+// Exportar función global
+window.initInyeccion = initInyeccion;
 
 // Inicializar cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', function() {
