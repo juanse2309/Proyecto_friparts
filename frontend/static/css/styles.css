@@ -193,6 +193,9 @@ body.loaded {
     /* Mobile First: Full width */
     padding: 1.5rem;
     min-height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
     background: #f5f7fa;
     transition: var(--transition);
 }
