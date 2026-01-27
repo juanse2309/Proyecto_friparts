@@ -346,3 +346,4 @@ window.ModuloInventario = {
     cambiarPagina: cambiarPagina
 };
 
+
