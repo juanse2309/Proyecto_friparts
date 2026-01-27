@@ -106,7 +106,16 @@
         </div>
     </nav> <!-- Main Content -->
     <main class="main-content" id="main-content"> <!-- Contenido dinámico -->
-        <div id="page-content"> <!-- Dashboard -->
+        <div id="page-content">
+            <!-- Botón Volver Global para Móviles -->
+            <div class="mobile-back-container" id="back-button-container"
+                style="padding: 10px 20px; background: white; border-bottom: 1px solid #eee; z-index: 1000;">
+                <button class="btn-back-mobile" onclick="window.volverAlDashboard()">
+                    <i class="fas fa-arrow-left"></i><span>Volver</span>
+                </button>
+            </div>
+
+            <!-- Dashboard -->
             <div id="dashboard-page" class="page active">
                 <header class="top-bar">
                     <button class="btn-icon d-lg-none" id="toggle-sidebar-dashboard">
@@ -738,6 +747,7 @@
                                     Vender</label>
                                 <input type="text" id="producto-facturacion" list="fac-productos-list"
                                     placeholder="Buscar producto..." required>
+                                <datalist id="fac-productos-list"></datalist>
                             </div>
                             <div class="form-group">
                                 <label for="cantidad-facturacion"><i class="fas fa-sort-amount-up"></i> Cantidad</label>
@@ -1225,72 +1235,62 @@
     <!-- MODAL DEFECTOS ENSAMBLE -->
     <!-- ============================== -->
     <div id="modalDefectosEnsamble" class="modal fade" tabindex="-1">
+        <!-- ... (contenido igual al anterior) ... -->
+    </div>
+
+    <!-- ============================== -->
+    <!-- MODAL DEFECTOS PULIDO -->
+    <!-- ============================== -->
+    <div id="modalDefectosPulido" class="modal fade" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content" style="border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.15);">
-
-                <!-- HEADER -->
                 <div class="modal-header"
-                    style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border-radius: 16px 16px 0 0; padding: 20px 24px;">
+                    style="background: linear-gradient(135deg, #f72585 0%, #b5179e 100%); color: white; border-radius: 16px 16px 0 0; padding: 20px 24px;">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <i class="fas fa-exclamation-triangle" style="font-size: 24px;"></i>
                         <h5 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">REGISTRAR DEFECTOS
-                            - ENSAMBLE</h5>
+                            - PULIDO</h5>
                     </div>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-
-                <!-- BODY -->
                 <div class="modal-body" style="padding: 24px;">
-
-                    <!-- NUEVO DEFECTO -->
                     <div style="margin-bottom: 20px;">
                         <label
                             style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: block;">NUEVO
                             DEFECTO</label>
-
                         <div style="display: flex; gap: 10px; align-items: center;">
-                            <!-- Select de criterio -->
-                            <select id="modal-criterio-ensamble"
+                            <select id="modal-criterio-pulido"
                                 style="flex: 2; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; color: #334155; height: 40px;">
                                 <option value="">-- Seleccionar defecto --</option>
+                                <option value="RECHUPE">Rechupe</option>
+                                <option value="QUEMADO">Quemado</option>
+                                <option value="ESCASO">Escaso</option>
+                                <option value="CONTAMINADO">Contaminado</option>
+                                <option value="MANCHADO">Manchado</option>
+                                <option value="REVENTADO">Reventado</option>
+                                <option value="POROSIDAD">Porosidad</option>
+                                <option value="OTROS">Otros</option>
                             </select>
-
-                            <!-- Input de cantidad -->
-                            <input type="number" id="modal-cantidad-ensamble" min="1" placeholder="Cantidad"
+                            <input type="number" id="modal-cantidad-pulido" min="1" placeholder="Cantidad"
                                 style="flex: 1; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; text-align: center; font-size: 14px; color: #334155; height: 40px;">
-
-                            <!-- Botón agregar -->
-                            <button onclick="agregarDefectoEnsamble()"
-                                style="width: 40px; height: 40px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; transition: all 0.2s;">
-                                +
-                            </button>
+                            <button onclick="agregarDefectoPulido()"
+                                style="width: 40px; height: 40px; background: linear-gradient(135deg, #f72585 0%, #b5179e 100%); color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer;">+</button>
                         </div>
                     </div>
-
-                    <!-- LISTA DE DEFECTOS -->
                     <div style="margin-bottom: 20px;">
                         <label
-                            style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: block;">
-                            TOTAL PIEZAS MALAS: <span id="modal-total-ensamble"
-                                style="color: #ef4444; font-weight: 700;">0</span>
-                        </label>
-
-                        <ul id="modal-lista-defectos-ensamble" class="list-group"
-                            style="max-height: 200px; overflow-y: auto; border-radius: 8px;">
-                            <!-- Los defectos se agregan dinámicamente aquí -->
-                        </ul>
+                            style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: block;">TOTAL
+                            PIEZAS MALAS (PNC): <span id="modal-total-pulido"
+                                style="color: #ef4444; font-weight: 700;">0</span></label>
+                        <ul id="modal-lista-defectos-pulido" class="list-group"
+                            style="max-height: 200px; overflow-y: auto; border-radius: 8px;"></ul>
                     </div>
-
                 </div>
-
-                <!-- FOOTER -->
                 <div class="modal-footer" style="border-top: 1px solid #e2e8f0; padding: 16px 24px;">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
-                        style="border-radius: 8px; padding: 8px 20px;">Cancelar</button>
-                    <button type="button" class="btn btn-primary" onclick="aplicarDefectosEnsamble()"
-                        style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none; border-radius: 8px; padding: 8px 20px; font-weight: 600;">APLICAR</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="aplicarDefectosPulido()"
+                        style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none;">APLICAR</button>
                 </div>
-
             </div>
         </div>
     </div>
