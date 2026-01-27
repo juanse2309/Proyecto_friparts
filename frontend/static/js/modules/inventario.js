@@ -1,8 +1,8 @@
-// ============================================
-// inventario.js - Lógica de Inventario con Paginación
+﻿// ============================================
+// inventario.js - LÃ³gica de Inventario con PaginaciÃ³n
 // ============================================
 
-// Estado de paginación
+// Estado de paginaciÃ³n
 let paginaActual = 1;
 const productosPorPagina = 50;
 
@@ -11,7 +11,7 @@ const productosPorPagina = 50;
  */
 async function cargarProductos() {
     try {
-        console.log('📦 Cargando productos...');
+        console.log('ðŸ“¦ Cargando productos...');
         mostrarLoading(true);
 
         const response = await fetch('/api/productos/listar');
@@ -31,10 +31,10 @@ async function cargarProductos() {
 
         if (listaFinal.length > 0) {
             window.AppState.productosData = listaFinal;
-            paginaActual = 1; // Resetear a página 1
+            paginaActual = 1; // Resetear a pÃ¡gina 1
             renderizarTablaProductos(listaFinal);
             actualizarEstadisticasInventario(listaFinal);
-            console.log('✅ Productos cargados:', listaFinal.length);
+            console.log('âœ… Productos cargados:', listaFinal.length);
         } else {
             mostrarNotificacion('No hay productos para mostrar', 'warning');
         }
@@ -48,12 +48,12 @@ async function cargarProductos() {
 }
 
 /**
- * Renderizar tabla de productos con paginación
+ * Renderizar tabla de productos con paginaciÃ³n
  */
 function renderizarTablaProductos(productos, resetearPagina = false) {
     const tbody = document.getElementById('tabla-productos-body');
     if (!tbody) {
-        console.error('No se encontró tabla-productos-body');
+        console.error('No se encontrÃ³ tabla-productos-body');
         return;
     }
 
@@ -64,10 +64,10 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
         return;
     }
 
-    // Resetear página si es necesario (por filtros)
+    // Resetear pÃ¡gina si es necesario (por filtros)
     if (resetearPagina) paginaActual = 1;
 
-    // Calcular índices de paginación
+    // Calcular Ã­ndices de paginaciÃ³n
     const totalProductos = productos.length;
     const totalPaginas = Math.ceil(totalProductos / productosPorPagina);
     const inicio = (paginaActual - 1) * productosPorPagina;
@@ -81,14 +81,14 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid #f0f0f0';
 
-        // Obtener semáforo
+        // Obtener semÃ¡foro
         const semaforoColor = p.semaforo?.color || 'gray';
         const semaforoEstado = p.semaforo?.estado || 'NORMAL';
 
         // Imagen del producto (thumbnail)
         const imagenUrl = p.imagen || '';
         const imagenHtml = imagenUrl
-            ? `<img src="${imagenUrl}" alt="${p.codigo}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer;" onclick="window.open('${imagenUrl}', '_blank')" title="Click para ampliar">`
+            ? `<img src="${imagenUrl}" alt="${p.codigo}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22%3E%3Crect fill=%22%23667eea%22 width=%2240%22 height=%2240%22 rx=%224%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-size=%2220%22 fill=%22white%22%3E📷%3C/text%3E%3C/svg%3E';this.onclick=null;this.onerror=null;" onclick="window.open('${imagenUrl}', '_blank')" title="Click para ampliar">`
             : '<div style="width: 40px; height: 40px; background: #f0f0f0; border-radius: 4px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-image" style="color: #ccc;"></i></div>';
 
         tr.innerHTML = `
@@ -112,14 +112,14 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
     tbody.innerHTML = '';
     tbody.appendChild(fragment);
 
-    // Renderizar controles de paginación
+    // Renderizar controles de paginaciÃ³n
     renderizarPaginacion(totalProductos, totalPaginas, productos);
 
-    console.log(`✅ Página ${paginaActual}/${totalPaginas}: Mostrando ${productosPagina.length} de ${totalProductos} productos`);
+    console.log(`âœ… PÃ¡gina ${paginaActual}/${totalPaginas}: Mostrando ${productosPagina.length} de ${totalProductos} productos`);
 }
 
 /**
- * Renderizar controles de paginación
+ * Renderizar controles de paginaciÃ³n
  */
 function renderizarPaginacion(totalProductos, totalPaginas, productos) {
     const paginationDiv = document.getElementById('pagination-container');
@@ -141,7 +141,7 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
             <div style="display: flex; gap: 5px;">
     `;
 
-    // Botón anterior
+    // BotÃ³n anterior
     html += `
         <button 
             onclick="window.ModuloInventario.cambiarPagina(${paginaActual - 1})" 
@@ -152,7 +152,7 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
         </button>
     `;
 
-    // Números de página (máximo 7 botones)
+    // NÃºmeros de pÃ¡gina (mÃ¡ximo 7 botones)
     const maxBotones = 7;
     let inicioPaginas = Math.max(1, paginaActual - Math.floor(maxBotones / 2));
     let finPaginas = Math.min(totalPaginas, inicioPaginas + maxBotones - 1);
@@ -183,7 +183,7 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
         html += `<button onclick="window.ModuloInventario.cambiarPagina(${totalPaginas})" style="padding: 8px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">${totalPaginas}</button>`;
     }
 
-    // Botón siguiente
+    // BotÃ³n siguiente
     html += `
         <button 
             onclick="window.ModuloInventario.cambiarPagina(${paginaActual + 1})" 
@@ -199,7 +199,7 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
 }
 
 /**
- * Cambiar página
+ * Cambiar pÃ¡gina
  */
 function cambiarPagina(nuevaPagina) {
     const productosActuales = window.AppState.productosFiltrados || window.AppState.productosData || [];
@@ -216,7 +216,7 @@ function cambiarPagina(nuevaPagina) {
 }
 
 /**
- * Obtener color de semáforo
+ * Obtener color de semÃ¡foro
  */
 function getSemaforoColor(color) {
     const colores = {
@@ -230,14 +230,14 @@ function getSemaforoColor(color) {
 }
 
 /**
- * Actualizar estadísticas de inventario
+ * Actualizar estadÃ­sticas de inventario
  */
 function actualizarEstadisticasInventario(productos) {
     if (!productos || productos.length === 0) return;
 
     const totalProductos = productos.length;
 
-    // Contar productos por estado de semáforo
+    // Contar productos por estado de semÃ¡foro
     const stockOK = productos.filter(p => p.semaforo?.color === 'green').length;
     const bajoStock = productos.filter(p => p.semaforo?.color === 'yellow').length;
     const agotados = productos.filter(p => p.semaforo?.estado === 'AGOTADO').length;
@@ -253,17 +253,17 @@ function actualizarEstadisticasInventario(productos) {
     if (el_bajoStock) el_bajoStock.textContent = bajoStock;
     if (el_agotados) el_agotados.textContent = agotados;
 
-    console.log(`📊 Estadísticas: Total=${totalProductos}, OK=${stockOK}, Bajo=${bajoStock}, Agotados=${agotados}`);
+    console.log(`ðŸ“Š EstadÃ­sticas: Total=${totalProductos}, OK=${stockOK}, Bajo=${bajoStock}, Agotados=${agotados}`);
 }
 
 /**
- * Inicializar módulo de inventario
+ * Inicializar mÃ³dulo de inventario
  */
 function inicializarInventario() {
-    console.log('🔧 Inicializando módulo de Inventario...');
+    console.log('ðŸ”§ Inicializando mÃ³dulo de Inventario...');
     configurarEventosInventario();
     cargarProductos();
-    console.log('✅ Módulo de Inventario inicializado');
+    console.log('âœ… MÃ³dulo de Inventario inicializado');
 }
 
 /**
@@ -283,17 +283,17 @@ function configurarEventosInventario() {
             );
             window.AppState.productosFiltrados = filtrados;
             renderizarTablaProductos(filtrados, true);
-            console.log(`🔍 Búsqueda: "${query}" → ${filtrados.length} resultados`);
+            console.log(`ðŸ” BÃºsqueda: "${query}" â†’ ${filtrados.length} resultados`);
         });
     }
 
-    // Botones de filtro por estado de semáforo
+    // Botones de filtro por estado de semÃ¡foro
     const botonesFiltro = document.querySelectorAll('#filtros-inventario button');
     botonesFiltro.forEach((btn, index) => {
         btn.addEventListener('click', () => {
             // Quitar 'active' de todos los botones
             botonesFiltro.forEach(b => b.classList.remove('active'));
-            // Marcar este botón como activo
+            // Marcar este botÃ³n como activo
             btn.classList.add('active');
 
             if (!window.AppState.productosData) return;
@@ -301,10 +301,10 @@ function configurarEventosInventario() {
             let productosFiltrados = [];
             const textoBtn = btn.textContent.trim().toLowerCase();
 
-            // Filtrar según el botón clicado
+            // Filtrar segÃºn el botÃ³n clicado
             if (textoBtn.includes('todos')) {
                 productosFiltrados = window.AppState.productosData;
-            } else if (textoBtn.includes('críticos')) {
+            } else if (textoBtn.includes('crÃ­ticos')) {
                 productosFiltrados = window.AppState.productosData.filter(p =>
                     p.semaforo?.color === 'red'
                 );
@@ -324,24 +324,25 @@ function configurarEventosInventario() {
 
             window.AppState.productosFiltrados = productosFiltrados;
             renderizarTablaProductos(productosFiltrados, true);
-            console.log(`🔘 Filtro: "${textoBtn}" → ${productosFiltrados.length} productos`);
+            console.log(`ðŸ”˜ Filtro: "${textoBtn}" â†’ ${productosFiltrados.length} productos`);
         });
     });
 
-    // Botón actualizar
+    // BotÃ³n actualizar
     const btnActualizar = document.getElementById('btn-actualizar-productos');
     if (btnActualizar) {
         btnActualizar.addEventListener('click', () => {
-            console.log('🔄 Recargando productos...');
+            console.log('ðŸ”„ Recargando productos...');
             cargarProductos();
         });
     }
 }
 
 // ============================================
-// EXPORTAR MÓDULO
+// EXPORTAR MÃ“DULO
 // ============================================
 window.ModuloInventario = {
     inicializar: inicializarInventario,
     cambiarPagina: cambiarPagina
 };
+
