@@ -162,10 +162,51 @@ function configurarEventosInventario() {
         });
     }
 
+    // Botones de filtro por estado de semáforo
+    const botonesFiltro = document.querySelectorAll('#filtros-inventario button');
+    botonesFiltro.forEach((btn, index) => {
+        btn.addEventListener('click', () => {
+            // Quitar 'active' de todos los botones
+            botonesFiltro.forEach(b => b.classList.remove('active'));
+            // Marcar este botón como activo
+            btn.classList.add('active');
+
+            if (!window.AppState.productosData) return;
+
+            let productosFiltrados = [];
+            const textoBtn = btn.textContent.trim().toLowerCase();
+
+            // Filtrar según el botón clicado
+            if (textoBtn.includes('todos')) {
+                productosFiltrados = window.AppState.productosData;
+            } else if (textoBtn.includes('críticos')) {
+                productosFiltrados = window.AppState.productosData.filter(p =>
+                    p.semaforo?.color === 'red'
+                );
+            } else if (textoBtn.includes('por pedir') || textoBtn.includes('pedir')) {
+                productosFiltrados = window.AppState.productosData.filter(p =>
+                    p.semaforo?.color === 'yellow'
+                );
+            } else if (textoBtn.includes('stock ok')) {
+                productosFiltrados = window.AppState.productosData.filter(p =>
+                    p.semaforo?.color === 'green'
+                );
+            } else if (textoBtn.includes('agotados')) {
+                productosFiltrados = window.AppState.productosData.filter(p =>
+                    p.semaforo?.estado === 'AGOTADO' || p.semaforo?.color === 'dark'
+                );
+            }
+
+            renderizarTablaProductos(productosFiltrados);
+            console.log(`🔘 Filtro: "${textoBtn}" → ${productosFiltrados.length} productos`);
+        });
+    });
+
     // Botón actualizar
     const btnActualizar = document.getElementById('btn-actualizar-productos');
     if (btnActualizar) {
         btnActualizar.addEventListener('click', () => {
+            console.log('🔄 Recargando productos...');
             cargarProductos();
         });
     }
