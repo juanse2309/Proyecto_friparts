@@ -39,20 +39,27 @@ function actualizarSelectPulido(selectId, datos) {
         console.warn(`⚠️ Select no encontrado: ${selectId}`);
         return;
     }
-
+    
     const currentValue = select.value;
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
-
+    
     if (datos && Array.isArray(datos)) {
         datos.forEach(item => {
             const option = document.createElement('option');
-            option.value = item;
-            option.textContent = item;
+            
+            if (typeof item === 'object' && item !== null) {
+                option.value = item.codigo || item.PRODUCTO || item.descripcion || '';
+                option.textContent = `${item.codigo || ''} - ${item.descripcion || item.PRODUCTO || ''}`;
+            } else {
+                option.value = item;
+                option.textContent = item;
+            }
+            
             select.appendChild(option);
         });
         console.log(`✅ ${datos.length} opciones agregadas a ${selectId}`);
     }
-
+    
     if (currentValue) select.value = currentValue;
 }
 
@@ -132,3 +139,4 @@ function initPulido() {
 // ============================================
 window.initPulido = initPulido;
 window.ModuloPulido = { inicializar: initPulido };
+

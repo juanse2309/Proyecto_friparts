@@ -43,7 +43,7 @@ async function cargarProductos() {
 }
 
 /**
- * Renderizar tabla de productos
+ * Renderizar tabla de productos con optimización para 900 items
  */
 function renderizarTablaProductos(productos) {
     const tbody = document.getElementById('tabla-productos-body');
@@ -53,19 +53,55 @@ function renderizarTablaProductos(productos) {
     }
 
     if (!productos || productos.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay productos</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No hay productos</td></tr>';
         return;
     }
 
-    tbody.innerHTML = productos.map(p => `
-        <tr>
+    // Usar DocumentFragment para renderizado eficiente
+    const fragment = document.createDocumentFragment();
+
+    productos.forEach(p => {
+        const tr = document.createElement('tr');
+
+        // Obtener semáforo color
+        const semaforoColor = p.semaforo?.color || 'gray';
+        const semaforoEstado = p.semaforo?.estado || 'NORMAL';
+
+        tr.innerHTML = `
             <td>${p.codigo || '-'}</td>
-            <td>${p.nombre || '-'}</td>
-            <td>${formatNumber(p.stock || 0)}</td>
-            <td>${p.estado || '-'}</td>
-            <td>${p.precio || '$0'}</td>
-        </tr>
-    `).join('');
+            <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${p.descripcion || '-'}</td>
+            <td style="text-align: right;">${formatNumber(p.stock_por_pulir || 0)}</td>
+            <td style="text-align: right;">${formatNumber(p.stock_terminado || 0)}</td>
+            <td style="text-align: right; font-weight: bold;">${formatNumber(p.existencias_totales || 0)}</td>
+            <td style="text-align: center;">
+                <span class="semaforo-badge" style="background: ${getSemaforoColor(semaforoColor)}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">
+                    ${semaforoEstado}
+                </span>
+            </td>
+        `;
+
+        fragment.appendChild(tr);
+    });
+
+    // Limpiar y agregar todo de una vez
+    tbody.innerHTML = '';
+    tbody.appendChild(fragment);
+
+    console.log(`✅ Tabla renderizada con ${productos.length} productos`);
+}
+
+/**
+ * Obtener color de semáforo
+ */
+function getSemaforoColor(color) {
+    const colores = {
+        'green': '#28a745',
+        'yellow': '#ffc107',
+        'red': '#dc3545',
+        'dark': '#6c757d',
+        'gray': '#6c757d'
+    };
+    return colores[color] || '#6c757d';
 }
 
 /**
@@ -76,17 +112,27 @@ function actualizarEstadisticasInventario(productos) {
     if (!statsDiv) return;
 
     const totalProductos = productos.length;
-    const stockTotal = productos.reduce((sum, p) => sum + (parseFloat(p.stock) || 0), 0);
+    const stockPorPulir = productos.reduce((sum, p) => sum + (parseFloat(p.stock_por_pulir) || 0), 0);
+    const stockTerminado = productos.reduce((sum, p) => sum + (parseFloat(p.stock_terminado) || 0), 0);
+    const stockTotal = productos.reduce((sum, p) => sum + (parseFloat(p.existencias_totales) || 0), 0);
 
     statsDiv.innerHTML = `
-        <div style="display: flex; gap: 20px; margin-bottom: 20px;">
-            <div style="flex: 1; padding: 15px; background: #f0f0f0; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0;">Total Productos</h4>
-                <p style="margin: 0; font-size: 24px; font-weight: bold;">${totalProductos}</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+            <div style="padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h4 style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">Total Productos</h4>
+                <p style="margin: 0; font-size: 28px; font-weight: bold;">${totalProductos}</p>
             </div>
-            <div style="flex: 1; padding: 15px; background: #f0f0f0; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0;">Stock Total</h4>
-                <p style="margin: 0; font-size: 24px; font-weight: bold;">${formatNumber(stockTotal)}</p>
+            <div style="padding: 15px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h4 style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">Por Pulir</h4>
+                <p style="margin: 0; font-size: 28px; font-weight: bold;">${formatNumber(stockPorPulir)}</p>
+            </div>
+            <div style="padding: 15px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h4 style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">Terminado</h4>
+                <p style="margin: 0; font-size: 28px; font-weight: bold;">${formatNumber(stockTerminado)}</p>
+            </div>
+            <div style="padding: 15px; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h4 style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">Stock Total</h4>
+                <p style="margin: 0; font-size: 28px; font-weight: bold;">${formatNumber(stockTotal)}</p>
             </div>
         </div>
     `;
@@ -96,16 +142,28 @@ function actualizarEstadisticasInventario(productos) {
  * Inicializar módulo de inventario
  */
 function inicializarInventario() {
+    console.log('🔧 Inicializando módulo de Inventario...');
     configurarEventosInventario();
     cargarProductos();
+    console.log('✅ Módulo de Inventario inicializado');
 }
 
 /**
  * Configurar eventos de inventario
  */
 function configurarEventosInventario() {
-    console.log('Configurando eventos de inventario...');
-    // Aquí irían event listeners si hay filtros, búsqueda, etc
+    // Buscar y filtrar productos
+    const searchInput = document.getElementById('buscar-producto-inventario');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtrados = window.AppState.productosData.filter(p =>
+                (p.codigo || '').toLowerCase().includes(query) ||
+                (p.descripcion || '').toLowerCase().includes(query)
+            );
+            renderizarTablaProductos(filtrados);
+        });
+    }
 }
 
 // ============================================

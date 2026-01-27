@@ -41,7 +41,10 @@ async function cargarDatosInyeccion() {
  */
 function actualizarSelectInyeccion(selectId, datos) {
     const select = document.getElementById(selectId);
-    if (!select) return;
+    if (!select) {
+        console.warn(`⚠️ Select no encontrado: ${selectId}`);
+        return;
+    }
     
     const currentValue = select.value;
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
@@ -49,10 +52,20 @@ function actualizarSelectInyeccion(selectId, datos) {
     if (datos && Array.isArray(datos)) {
         datos.forEach(item => {
             const option = document.createElement('option');
-            option.value = item;
-            option.textContent = item;
+            
+            // Si el item es un objeto (producto), usar codigo y descripcion
+            if (typeof item === 'object' && item !== null) {
+                option.value = item.codigo || item.PRODUCTO || item.descripcion || '';
+                option.textContent = `${item.codigo || ''} - ${item.descripcion || item.PRODUCTO || ''}`;
+            } else {
+                // String simple (responsable, máquina)
+                option.value = item;
+                option.textContent = item;
+            }
+            
             select.appendChild(option);
         });
+        console.log(`✅ ${datos.length} opciones agregadas a ${selectId}`);
     }
     
     if (currentValue) select.value = currentValue;
@@ -339,4 +352,5 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 // Exportar mÃ³dulos
 window.ModuloInyeccion = { inicializar: initInyeccion };
+
 
