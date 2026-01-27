@@ -9,13 +9,13 @@ async function cargarDatosEnsamble() {
     try {
         console.log('📦 Cargando datos de ensamble...');
         mostrarLoading(true);
-        
+
         // Cargar responsables
         const responsables = await fetchData('/api/obtener_responsables');
         if (responsables && Array.isArray(responsables)) {
             actualizarSelectEnsamble('responsable-ensamble', responsables);
         }
-        
+
         // Usar productos del cache compartido para el BUJE COMPONENTE
         if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
             console.log('✅ Usando productos del cache compartido en Ensamble (Bujes)');
@@ -24,7 +24,7 @@ async function cargarDatosEnsamble() {
         } else {
             console.warn('⚠️ No hay productos en cache compartido para Ensamble');
         }
-        
+
         console.log('✅ Datos de ensamble cargados');
         mostrarLoading(false);
     } catch (error) {
@@ -39,10 +39,10 @@ async function cargarDatosEnsamble() {
 function actualizarSelectEnsamble(selectId, datos) {
     const select = document.getElementById(selectId);
     if (!select) return;
-    
+
     const currentValue = select.value;
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
-    
+
     if (datos && Array.isArray(datos)) {
         datos.forEach(item => {
             const option = document.createElement('option');
@@ -57,7 +57,7 @@ function actualizarSelectEnsamble(selectId, datos) {
             select.appendChild(option);
         });
     }
-    
+
     if (currentValue) select.value = currentValue;
 }
 
@@ -67,7 +67,7 @@ function actualizarSelectEnsamble(selectId, datos) {
 async function registrarEnsamble() {
     try {
         mostrarLoading(true);
-        
+
         const datos = {
             fecha: document.getElementById('fecha-ensamble')?.value || '',
             responsable: document.getElementById('responsable-ensamble')?.value || '',
@@ -83,21 +83,21 @@ async function registrarEnsamble() {
             pnc: document.getElementById('pnc-ensamble')?.value || '0',
             observaciones: document.getElementById('observaciones-ensamble')?.value || ''
         };
-        
+
         if (!datos.codigo_producto) {
             mostrarNotificacion('⚠️ Selecciona un buje componente válido que genere un ensamble', 'error');
             mostrarLoading(false);
             return;
         }
-        
+
         const response = await fetch('/api/ensamble', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
         });
-        
+
         const resultado = await response.json();
-        
+
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             document.getElementById('form-ensamble')?.reset();
@@ -128,12 +128,19 @@ async function actualizarMapeoEnsamble() {
         console.log('🔍 Buscando ensamble para:', bujeCode);
         // Usar el endpoint existente que ya hace este trabajo
         const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${bujeCode}`);
-        
+
         if (data && data.success) {
-            document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
-            document.getElementById('ens-qty-bujes').value = data.qty || '1';
             console.log('✅ Mapeo encontrado:', data);
-            
+
+            const inputEnsamble = document.getElementById('ens-id-codigo');
+            const inputQty = document.getElementById('ens-qty-bujes');
+
+            if (inputEnsamble) inputEnsamble.value = data.codigo_ensamble || '';
+            if (inputQty) {
+                inputQty.value = data.qty || '1';
+                console.log('📊 Actualizando QTY a:', inputQty.value);
+            }
+
             // Actualizar cálculos
             actualizarCalculoEnsamble();
         } else {
@@ -153,15 +160,15 @@ function actualizarCalculoEnsamble() {
     const cantidad = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
     const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
     const qtyPerEnsamble = parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1;
-    
+
     const ensamblesBuenos = Math.max(0, cantidad - pnc);
     const bujesConsumidos = cantidad * qtyPerEnsamble;
-    
+
     // UI Elements
     const displaySalida = document.getElementById('produccion-calculada-ensamble');
     const formulaCalc = document.getElementById('formula-calc-ensamble');
     const piezasBuenasDisplay = document.getElementById('piezas-buenas-ensamble');
-    
+
     if (displaySalida) displaySalida.textContent = formatNumber(ensamblesBuenos);
     if (formulaCalc) {
         formulaCalc.textContent = `Ensambles: ${formatNumber(cantidad)} - PNC: ${formatNumber(pnc)} = ${formatNumber(ensamblesBuenos)} finales`;
@@ -177,15 +184,15 @@ function actualizarCalculoEnsamble() {
 function initEnsamble() {
     console.log('🔧 Inicializando módulo de Ensamble (Refactorizado)...');
     cargarDatosEnsamble();
-    
+
     // Listeners para el mapeo automático
     document.getElementById('ens-buje-componente')?.addEventListener('change', actualizarMapeoEnsamble);
-    
+
     // Listeners para el cálculo en tiempo real
     document.getElementById('cantidad-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
     document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
     document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);
-    
+
     console.log('✅ Módulo de Ensamble inicializado');
 }
 

@@ -102,6 +102,18 @@ body.loaded {
     flex: 1;
     list-style: none;
     padding-top: 20px;
+    overflow-y: auto;
+    margin-right: -10px;
+    padding-right: 10px;
+}
+
+.sidebar-menu::-webkit-scrollbar {
+    width: 5px;
+}
+
+.sidebar-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
 }
 
 .menu-item {
@@ -139,7 +151,8 @@ body.loaded {
 }
 
 .sidebar-footer {
-    padding-top: 20px;
+    padding-top: 15px;
+    margin-top: auto;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
