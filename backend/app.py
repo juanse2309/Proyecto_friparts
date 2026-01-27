@@ -284,10 +284,11 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
         
         ws.update_cell(fila_num, col_index, nuevo_stock)
         
-        # INVALIDAR CACH
+        # INVALIDAR CACHE
         invalidar_cache_productos()
         
-        mensaje = f'Stock actualizado: {codigo_sistema} en {almacen} = {nuevo_stock}'
+        mensaje = f'✅ Stock actualizado en Sheets: {codigo_sistema} [{almacen}] {stock_actual} -> {nuevo_stock}'
+        logger.info(mensaje)
         print(mensaje)
         return True, mensaje
         
@@ -416,11 +417,13 @@ def obtener_codigo_sistema_real(codigo_entrada):
         if not codigo_entrada:
             return ""
         
-        # Si contiene guion, extraer la parte despues del ultimo guion
         if '-' in codigo_entrada:
-            # Dividir por guiones y tomar la ultima parte
             partes = codigo_entrada.split('-')
-            return partes[-1].strip()
+            # Solo quitar prefijo si es FR o INY (prefijos comunes de etiquetas)
+            # de lo contrario, mantener el codigo con su guion (ej. DE-1000)
+            if partes[0].upper() in ['FR', 'INY']:
+                return partes[-1].strip()
+            return codigo_entrada
         
         # Si no contiene guion, devolver tal cual
         return codigo_entrada
