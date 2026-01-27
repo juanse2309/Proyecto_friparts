@@ -23,12 +23,19 @@ async function cargarDatosCompartidos() {
     try {
         console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
 
-        // 1. Cargar productos
-        console.log('  - Solicitando productos...');
-        const resProd = await fetch('/api/productos/listar_v2');
+        // Cargar todos los datos en paralelo para mejor rendimiento
+        const [resProd, resResp, resMaq, resCli] = await Promise.all([
+            fetch('/api/productos/listar'),  // Endpoint correcto (no listar_v2)
+            fetch('/api/obtener_responsables'),
+            fetch('/api/obtener_maquinas'),
+            fetch('/api/obtener_clientes')
+        ]);
+
+        // 1. Procesar productos
         console.log('  - Respuesta productos:', resProd.status);
         if (!resProd.ok) throw new Error(`Error HTTP productos: ${resProd.status}`);
-        const productosRaw = await resProd.json();
+        const productosData = await resProd.json();
+        const productosRaw = productosData.items || productosData;
 
         window.AppState.sharedData.productos = productosRaw.map(p => ({
             id_codigo: p.id_codigo || 0,
@@ -38,30 +45,24 @@ async function cargarDatosCompartidos() {
             stock_por_pulir: p.stock_por_pulir || 0,
             stock_terminado: p.stock_terminado || 0,
             stock_total: p.existencias_totales || 0,
-            semaforo: p.semaforo || 'rojo',
+            semaforo: p.semaforo || { color: 'gray', estado: '', mensaje: '' },
             metricas: p.metricas || { min: 0, max: 0, reorden: 0 }
         }));
         console.log('  ✅ Productos cargados:', window.AppState.sharedData.productos.length);
 
-        // 2. Cargar responsables
-        console.log('  - Solicitando responsables...');
-        const resResp = await fetch('/api/obtener_responsables');
+        // 2. Procesar responsables
         if (resResp.ok) {
             window.AppState.sharedData.responsables = await resResp.json();
             console.log('  ✅ Responsables cargados:', window.AppState.sharedData.responsables.length);
         }
 
-        // 3. Cargar máquinas
-        console.log('  - Solicitando máquinas...');
-        const resMaq = await fetch('/api/obtener_maquinas');
+        // 3. Procesar máquinas
         if (resMaq.ok) {
             window.AppState.sharedData.maquinas = await resMaq.json();
             console.log('  ✅ Máquinas cargadas:', window.AppState.sharedData.maquinas.length);
         }
 
-        // 4. Cargar clientes
-        console.log('  - Solicitando clientes...');
-        const resCli = await fetch('/api/obtener_clientes');
+        // 4. Procesar clientes
         if (resCli.ok) {
             window.AppState.sharedData.clientes = await resCli.json();
             console.log('  ✅ Clientes cargados:', window.AppState.sharedData.clientes.length);
