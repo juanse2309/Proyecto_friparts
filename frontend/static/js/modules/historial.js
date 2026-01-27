@@ -1,1 +1,2 @@
-﻿window.ModuloHistorial = { inicializar: inicializarHistorial };
+﻿window.Modulohistorial = { inicializar: initHistorial };
+

@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // inyeccion.js - L??gica de Inyecci??n (VERSI??N CORREGIDA)
 // ============================================
 
@@ -337,5 +337,6 @@ document.addEventListener('DOMContentLoaded', function() {
         initInyeccion();
     }
 });
-// Exportar módulos
-window.ModuloInyeccion = { inicializar: inicializarInyeccion };
+// Exportar mÃ³dulos
+window.ModuloInyeccion = { inicializar: initInyeccion };
+

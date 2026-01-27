@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // ensamble.js - L??gica de Ensamble
 // ============================================
 
@@ -113,4 +113,5 @@ async function registrarEnsamble() {
         mostrarLoading(false);
     }
 }
-window.ModuloEnsamble = { inicializar: inicializarEnsamble };
+window.Moduloensamble = { inicializar: initEnsamble };
+

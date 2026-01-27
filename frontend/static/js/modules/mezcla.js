@@ -1,1 +1,2 @@
-﻿window.ModuloMezcla = { inicializar: inicializarMezcla };
+﻿window.Modulomezcla = { inicializar: initMezcla };
+

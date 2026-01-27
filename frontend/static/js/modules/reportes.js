@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // reportes.js - L??gica de Reportes
 // ============================================
 
@@ -75,4 +75,5 @@ function exportarReporte() {
     mostrarNotificacion('??? Descargando reporte...', 'info');
     // Aqu?? ir??a la l??gica real de descarga
 }
-window.ModuloReportes = { inicializar: inicializarReportes };
+window.Moduloreportes = { inicializar: initReportes };
+

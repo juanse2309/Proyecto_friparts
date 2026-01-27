@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // pulido.js - L??gica de Pulido
 // ============================================
 
@@ -113,4 +113,5 @@ async function registrarPulido() {
         mostrarLoading(false);
     }
 }
-window.ModuloPulido = { inicializar: inicializarPulido };
+window.ModuloPulido = { inicializar: initPulido };
+

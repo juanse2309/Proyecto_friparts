@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // facturacion.js - L??gica de Facturaci??n
 // ============================================
 
@@ -113,4 +113,5 @@ async function registrarFacturacion() {
         mostrarLoading(false);
     }
 }
-window.ModuloFacturacion = { inicializar: inicializarFacturacion };
+window.Modulofacturacion = { inicializar: initFacturacion };
+

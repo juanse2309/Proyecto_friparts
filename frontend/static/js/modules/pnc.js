@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // pnc.js - L??gica de PNC (Producto No Conforme)
 // ============================================
 
@@ -145,4 +145,5 @@ async function registrarPNC() {
         mostrarLoading(false);
     }
 }
-window.ModuloPNC = { inicializar: inicializarPNC };
+window.Modulopnc = { inicializar: initPNC };
+
