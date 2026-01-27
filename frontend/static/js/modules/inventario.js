@@ -83,7 +83,7 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
         // Obtener semÃ¡foro
         const semaforoColor = p.semaforo?.color || 'gray';
-        const semaforoEstado = p.semaforo?.estado || 'NORMAL';
+        const semaforoEstado = p.semaforo?.estado || '';
 
         // Imagen del producto (thumbnail)
         const imagenUrl = p.imagen || '';

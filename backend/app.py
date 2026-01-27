@@ -296,35 +296,30 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
 def calcular_metricas_semaforo(stock_total, p_min, p_reorden, p_max):
     """
     LOGICA DE NEGOCIO UNIFICADA: Centraliza las reglas de colores del inventario.
-    
-    Si Jonathan decide cambiar los niveles de alerta (ej: que Agotado sea menor a 5),
-    solo se cambia aquí y afectará AUTOMATICAMENTE a Dashboard e Inventario.
+    Usa colores: green, yellow, red, dark (NO success/danger/warning)
+    Estados: STOCK OK, POR PEDIR, CRÍTICO, AGOTADO
     """
     tiene_config = (p_max is not None and p_max > 0 and p_max != 999999)
     
-    estado = "NORMAL"
-    color = "success"
-    mensaje = "Saludable"
-
     if stock_total <= 0:
         estado = "AGOTADO"
         color = "dark"
         mensaje = "Sin Stock"
-    elif stock_total <= (p_min or 0):
-        estado = "CRITICO"
-        color = "danger"
-        mensaje = f"Bajo Minimo ({p_min})"
     elif stock_total <= (p_reorden or 0):
-        estado = "REORDENAR"
-        color = "warning"
-        mensaje = f"Punto Reorden ({p_reorden})"
-    elif tiene_config and stock_total > p_max:
-        estado = "SOBRESTOCK"
-        color = "info"
-        mensaje = f"Exceso (+{stock_total - p_max})"
+        estado = "CRÍTICO"
+        color = "red"
+        mensaje = f"Bajo Punto Reorden ({p_reorden})"
+    elif stock_total < (p_min or 0):
+        estado = "POR PEDIR"
+        color = "yellow"
+        mensaje = f"Bajo Mínimo ({p_min})"
+    else:
+        estado = "STOCK OK"
+        color = "green"
+        mensaje = "Stock Saludable"
 
     if not tiene_config and stock_total > 0:
-        mensaje = "Sin limites"
+        mensaje = ""
         
     return {
         "estado": estado,
@@ -4631,3 +4626,4 @@ if __name__ == '__main__':
         debug=True,
         use_reloader=True
     )
+
