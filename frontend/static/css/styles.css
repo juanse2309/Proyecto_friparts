@@ -3721,3 +3721,75 @@ body.loaded {
     border-color: #4f46e5;
     box-shadow: 0 0 0 0.2rem rgba(79, 70, 229, 0.25);
 }
+
+/* ===== TABLAS RESPONSIVAS MÓVIL ===== */
+.table-container {
+    width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    background: white;
+    box-shadow: var(--shadow);
+}
+
+.table-inventario,
+.table {
+    width: 100%;
+    min-width: 800px;
+    /* Asegura que no se amontone en pantallas pequeñas */
+    border-collapse: collapse;
+}
+
+.table-inventario th,
+.table-inventario td {
+    white-space: nowrap;
+    /* Evita que el texto se rompa en varias líneas */
+    padding: 12px 15px;
+    text-align: left;
+}
+
+/* Columnas críticas: Código y Stock Total más visibles */
+.table-inventario th:nth-child(2),
+.table-inventario td:nth-child(2),
+.table-inventario th:nth-child(6),
+.table-inventario td:nth-child(6) {
+    font-weight: 700;
+    color: var(--dark);
+    background-color: rgba(79, 70, 229, 0.03);
+}
+
+/* Botón de navegación móvil (Header) */
+.mobile-back-container {
+    display: none;
+    align-items: center;
+    margin-right: 15px;
+}
+
+@media (max-width: 991px) {
+    .mobile-back-container.active {
+        display: flex;
+    }
+
+    .table-container {
+        max-height: 60vh;
+    }
+}
+
+.btn-back-mobile {
+    background: #4f46e5;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-back-mobile:active {
+    transform: scale(0.95);
+}
