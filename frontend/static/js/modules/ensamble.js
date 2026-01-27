@@ -1,5 +1,5 @@
 ﻿// ============================================
-// ensamble.js - L??gica de Ensamble
+// ensamble.js - Lógica de Ensamble
 // ============================================
 
 /**
@@ -7,7 +7,7 @@
  */
 async function cargarDatosEnsamble() {
     try {
-        console.log('???? Cargando datos de ensamble...');
+        console.log('📦 Cargando datos de ensamble...');
         mostrarLoading(true);
         
         // Cargar responsables
@@ -22,7 +22,7 @@ async function cargarDatosEnsamble() {
             actualizarSelectEnsamble('codigo-producto-ensamble', productos);
         }
         
-        console.log('??? Datos de ensamble cargados');
+        console.log('✅ Datos de ensamble cargados');
         mostrarLoading(false);
     } catch (error) {
         console.error('Error cargando datos:', error);
@@ -68,22 +68,22 @@ async function registrarEnsamble() {
             observaciones: document.getElementById('observaciones-ensamble')?.value || ''
         };
         
-        console.log('???? Datos de ensamble:', datos);
+        console.log('📦 Datos de ensamble:', datos);
         
         if (!datos.codigo_producto?.trim()) {
-            mostrarNotificacion('??? Ingresa c??digo del producto', 'error');
+            mostrarNotificacion('✅ Ingresa código del producto', 'error');
             mostrarLoading(false);
             return;
         }
         
         if (!datos.cantidad || datos.cantidad === '0') {
-            mostrarNotificacion('??? Ingresa cantidad', 'error');
+            mostrarNotificacion('✅ Ingresa cantidad', 'error');
             mostrarLoading(false);
             return;
         }
         
         if (!datos.responsable?.trim()) {
-            mostrarNotificacion('??? Selecciona responsable', 'error');
+            mostrarNotificacion('✅ Selecciona responsable', 'error');
             mostrarLoading(false);
             return;
         }
@@ -97,14 +97,14 @@ async function registrarEnsamble() {
         const resultado = await response.json();
         
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`??? ${resultado.mensaje}`, 'success');
+            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             limpiarFormulario('formulario-ensamble');
             setTimeout(() => location.reload(), 1500);
         } else {
             const errores = resultado.errors 
                 ? Object.values(resultado.errors).join(', ') 
                 : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`??? ${errores}`, 'error');
+            mostrarNotificacion(`✅ ${errores}`, 'error');
         }
     } catch (error) {
         console.error('Error registrando:', error);
@@ -128,4 +128,5 @@ function initEnsamble() {
 // ============================================
 window.initEnsamble = initEnsamble;
 window.ModuloEnsamble = { inicializar: initEnsamble };
+
 
