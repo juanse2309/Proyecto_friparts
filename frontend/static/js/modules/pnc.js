@@ -1,5 +1,5 @@
 ﻿// ============================================
-// pnc.js - L??gica de PNC (Producto No Conforme)
+// pnc.js - Lógica de PNC (Producto No Conforme)
 // ============================================
 
 /**
@@ -7,10 +7,10 @@
  */
 async function cargarDatosPNC() {
     try {
-        console.log('?????? Cargando datos de PNC...');
+        console.log('📦 Cargando datos de PNC...');
         mostrarLoading(true);
         
-        // Generar ID autom??tico
+        // Generar ID automático
         const timestamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 14);
         const idPNC = `PNC-${timestamp}`;
         const inputId = document.getElementById('id-pnc');
@@ -42,7 +42,7 @@ async function cargarDatosPNC() {
         // Configurar botones de criterio
         configurarCriteriosPNC();
         
-        console.log('??? Datos de PNC cargados');
+        console.log('✅ Datos de PNC cargados');
         mostrarLoading(false);
     } catch (error) {
         console.error('Error cargando datos:', error);
@@ -92,23 +92,23 @@ async function registrarPNC() {
             codigo_ensamble: document.getElementById('codigo-ensamble-pnc')?.value || ''
         };
         
-        console.log('???? Datos de PNC:', datos);
+        console.log('�� Datos de PNC:', datos);
         
         // Validaciones
         if (!datos.codigo_producto?.trim()) {
-            mostrarNotificacion('??? Ingresa c??digo del producto', 'error');
+            mostrarNotificacion('✅ Ingresa código del producto', 'error');
             mostrarLoading(false);
             return;
         }
         
         if (!datos.cantidad || datos.cantidad === '0') {
-            mostrarNotificacion('??? Ingresa cantidad de PNC', 'error');
+            mostrarNotificacion('✅ Ingresa cantidad de PNC', 'error');
             mostrarLoading(false);
             return;
         }
         
         if (!datos.criterio?.trim()) {
-            mostrarNotificacion('??? Selecciona un criterio', 'error');
+            mostrarNotificacion('✅ Selecciona un criterio', 'error');
             mostrarLoading(false);
             return;
         }
@@ -123,7 +123,7 @@ async function registrarPNC() {
         const resultado = await response.json();
         
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`??? ${resultado.mensaje}`, 'success');
+            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             
             // Limpiar formulario
             document.getElementById('form-pnc')?.reset();
@@ -136,7 +136,7 @@ async function registrarPNC() {
             const errores = resultado.errors 
                 ? Object.values(resultado.errors).join(', ') 
                 : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`??? ${errores}`, 'error');
+            mostrarNotificacion(`✅ ${errores}`, 'error');
         }
     } catch (error) {
         console.error('Error registrando:', error);
@@ -162,3 +162,4 @@ function initPnc() {
 // ============================================
 window.initPnc = initPnc;
 window.ModuloPNC = { inicializar: initPnc };
+
