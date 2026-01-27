@@ -49,4 +49,4 @@ Este proyecto es una aplicación web full-stack diseñada para gestionar la prod
 La aplicación está configurada para desplegarse automáticamente al hacer push a la rama `main`. Asegúrate de configurar las **Environment Variables** en el panel de Render usando los valores de tu `.env`.
 
 ---
-*Desarrollado con ❤️ por Jonathan y Juan Sebastian.*
+*Desarrollado con ❤️ por Juan Sebastian.*
