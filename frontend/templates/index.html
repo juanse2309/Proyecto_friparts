@@ -1,0 +1,1211 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏭 Sistema de Producción - FriTech</title> <!-- CSS -->
+    <link rel="stylesheet" href="static/css/styles.css?v=1.0.1">
+    <link rel="stylesheet" href="static/css/dashboard.css?v=1.0.1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Bootstrap para modales -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Estilos mínimos necesarios */
+        .modal-custom {
+            display: none;
+            position: fixed;
+            z-index: 1060;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content-custom {
+            background: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 800px;
+        }
+
+        #detalle-producto {
+            position: fixed;
+            top: 0;
+            right: -500px;
+            width: 500px;
+            height: 100vh;
+            background: white;
+            transition: right 0.3s ease;
+            z-index: 1050;
+        }
+
+        #detalle-producto.active {
+            right: 0;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 9999;
+        }
+    </style>
+</head>
+
+<body> <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Cargando...</div>
+    </div> <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div class="company-logo"> <i class="fas fa-industry"></i>
+                <div>
+                    <h2>FriTech</h2>
+                    <p>Sistema de Producción</p>
+                </div>
+            </div>
+        </div>
+        <ul class="sidebar-menu"> <!-- Menú items - mantener igual -->
+            <li class="menu-item active" data-page="dashboard"> <a href="#"><i
+                        class="fas fa-chart-line"></i><span>Dashboard</span></a> </li>
+            <li class="menu-item" data-page="inventario"> <a href="#"><i class="fas fa-boxes"></i><span>Productos y
+                        Existencias</span></a> </li>
+            <li class="menu-item" data-page="inyeccion"> <a href="#"><i
+                        class="fas fa-cogs"></i><span>Inyección</span></a> </li>
+            <li class="menu-item" data-page="pulido"> <a href="#"><i class="fas fa-cut"></i><span>Pulido</span></a>
+            </li>
+            <li class="menu-item" data-page="ensamble"> <a href="#"><i
+                        class="fas fa-puzzle-piece"></i><span>Ensamble</span></a> </li>
+            <li class="menu-item" data-page="pnc"> <a href="#"><i
+                        class="fas fa-exclamation-triangle"></i><span>PNC</span></a> </li>
+            <li class="menu-item" data-page="facturacion"> <a href="#"><i
+                        class="fas fa-file-invoice-dollar"></i><span>Facturación</span></a> </li>
+            <li class="menu-item" data-page="mezcla"> <a href="#"><i class="fas fa-vial"></i><span>Mezcla
+                        Material</span></a> </li>
+            <li class="menu-item" data-page="historial"> <a href="#"><i class="fas fa-history"></i><span>Historial
+                        Global</span></a> </li>
+            <li class="menu-item" data-page="reportes"> <a href="#"><i
+                        class="fas fa-chart-bar"></i><span>Reportes</span></a> </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="user-avatar"><i class="fas fa-user"></i></div>
+                <div class="user-details"> <span class="user-name">Administrador</span> <span
+                        class="user-role">Supervisor</span> </div>
+            </div>
+            <div class="current-date" id="fecha-actual"></div>
+        </div>
+    </nav> <!-- Main Content -->
+    <main class="main-content" id="main-content"> <!-- Contenido dinámico -->
+        <div id="page-content"> <!-- Dashboard -->
+            <div id="dashboard-page" class="page active">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-dashboard">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-line"></i> Dashboard Analítico</h1>
+                        <p class="subtitle">Monitoreo en tiempo real de producción y ventas</p>
+                    </div>
+                    <div class="top-controls">
+                        <div class="period-selector"> <select id="filtro-periodo" class="styled-select">
+                                <option value="hoy">Hoy</option>
+                                <option value="semana" selected>Esta Semana</option>
+                                <option value="mes">Este Mes</option>
+                                <option value="trimestre">Este Trimestre</option>
+                            </select> </div> <button class="btn btn-primary" id="btn-actualizar-dashboard"> <i
+                                class="fas fa-sync-alt"></i> Actualizar </button>
+                    </div>
+                </header> <!-- KPIs Grid -->
+                <section class="kpis-section">
+                    <div class="kpi-grid">
+                        <div class="kpi-card kpi-primary">
+                            <div class="kpi-icon"><i class="fas fa-industry"></i></div>
+                            <div class="kpi-content">
+                                <h3>Producción Total</h3>
+                                <div class="kpi-value" id="kpi-produccion">0</div>
+                                <div class="kpi-trend"> <span id="kpi-produccion-tendencia" class="trend-up"><i
+                                            class="fas fa-arrow-up"></i> 0%</span> <span class="kpi-subtext">vs mes
+                                        anterior</span> </div>
+                            </div>
+                        </div> <!-- Más KPIs... -->
+                    </div>
+                </section>
+            </div> <!-- Inventario -->
+            <div id="inventario-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-inventario">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-boxes"></i> Productos y Existencias</h1>
+                        <p class="subtitle">Gestión completa de inventario y stock</p>
+                    </div>
+                    <div class="top-controls"> <button class="btn btn-primary" id="btn-actualizar-productos"> <i
+                                class="fas fa-sync-alt"></i> Actualizar </button> <button class="btn btn-success"
+                            id="btn-nuevo-producto"> <i class="fas fa-plus"></i> Nuevo Producto </button> </div>
+                </header>
+                <div class="inventario-container"> <!-- Búsqueda -->
+                    <div class="filtros-section">
+                        <div class="search-box"> <i class="fas fa-search"></i> <input type="text" id="buscar-producto"
+                                placeholder="Buscar por código, descripción o OEM..."> </div>
+                    </div> <!-- Estadísticas -->
+                    <div class="stats-inventario">
+                        <div class="stat-card"><i class="fas fa-box"></i>
+                            <div>
+                                <h3 id="total-productos">0</h3>
+                                <p>Productos Totales</p>
+                            </div>
+                        </div>
+                        <div class="stat-card"><i class="fas fa-check-circle"></i>
+                            <div>
+                                <h3 id="productos-stock-ok">0</h3>
+                                <p>Con Stock OK</p>
+                            </div>
+                        </div>
+                        <div class="stat-card"><i class="fas fa-exclamation-triangle"></i>
+                            <div>
+                                <h3 id="productos-bajo-stock">0</h3>
+                                <p>Bajo Stock</p>
+                            </div>
+                        </div>
+                        <div class="stat-card"><i class="fas fa-times-circle"></i>
+                            <div>
+                                <h3 id="productos-agotados">0</h3>
+                                <p>Agotados</p>
+                            </div>
+                        </div>
+                    </div> <!-- Botones de filtro -->
+                    <div class="d-flex gap-2 mb-4" id="filtros-inventario"> <button type="button"
+                            class="btn btn-primary rounded-pill px-3 active">Todos</button> <button type="button"
+                            class="btn btn-light border rounded-pill px-3"> <i
+                                class="fas fa-exclamation-triangle text-danger"></i> Críticos </button> <button
+                            type="button" class="btn btn-light border rounded-pill px-3"> <i
+                                class="fas fa-shopping-cart text-warning"></i> Por Pedir </button> <button type="button"
+                            class="btn btn-light border rounded-pill px-3"> <i
+                                class="fas fa-check-circle text-success"></i> Stock OK </button> <button type="button"
+                            class="btn btn-light border rounded-pill px-3"> <i
+                                class="fas fa-times-circle text-dark"></i> Agotados </button> </div>
+                    <!-- Tabla de productos -->
+                    <div class="table-container">
+                        <table class="table-inventario">
+                            <thead>
+                                <tr>
+                                    <th style="width: 35%;">PRODUCTO</th>
+                                    <th style="width: 10%;">POR PULIR</th>
+                                    <th style="width: 10%;">P. TERMINADO</th>
+                                    <th style="width: 20%;">STOCK TOTAL</th>
+                                    <th style="width: 15%;">ACCIONES</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-productos-body"> <!-- Los productos se cargarán aquí dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="pagination-container" class="mt-3"></div>
+                </div>
+            </div> <!-- Inyección -->
+            <div id="inyeccion-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-cogs"></i> Registro de Inyección</h1>
+                        <p class="subtitle">Registra operaciones de inyección</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-inyeccion" class="styled-form">
+                        <div class="form-grid"> <!-- Fila 1 -->
+                            <div class="form-group"> <label for="fecha-inyeccion"><i class="fas fa-calendar"></i>
+                                    Fecha</label> <input type="date" id="fecha-inyeccion" required> </div>
+                            <div class="form-group"> <label for="responsable-inyeccion"><i class="fas fa-user"></i>
+                                    Responsable</label> <select id="responsable-inyeccion" required></select> </div>
+                            <!-- Fila 2 -->
+                            <div class="form-group"> <label for="maquina-inyeccion"><i class="fas fa-cogs"></i>
+                                    Máquina</label> <select id="maquina-inyeccion" required></select> </div>
+                            <div class="form-group"> <label for="hora-llegada-inyeccion"><i class="fas fa-clock"></i>
+                                    Hora Llegada</label> <input type="time" id="hora-llegada-inyeccion"> </div>
+                            <!-- Fila 3 -->
+                            <div class="form-group"> <label for="hora-inicio-inyeccion"><i
+                                        class="fas fa-play-circle"></i> Hora Inicio</label> <input type="time"
+                                    id="hora-inicio-inyeccion" required> </div>
+                            <div class="form-group"> <label for="hora-termina-inyeccion"><i
+                                        class="fas fa-stop-circle"></i> Hora Termina</label> <input type="time"
+                                    id="hora-termina-inyeccion" required> </div> <!-- Fila 4 -->
+                            <div class="form-group"> <label for="codigo-producto-inyeccion"><i
+                                        class="fas fa-barcode"></i> Producto</label> <input type="text"
+                                    id="codigo-producto-inyeccion" list="productos-list"
+                                    placeholder="Buscar producto..." required> </div>
+                            <div class="form-group"> <label for="cavidades-inyeccion"><i class="fas fa-cube"></i> No.
+                                    Cavidades</label> <input type="number" id="cavidades-inyeccion" min="1" value="1"
+                                    required> </div> <!-- Fila 5 -->
+                            <div class="form-group"> <label for="cantidad-inyeccion"><i class="fas fa-bolt"></i>
+                                    Disparos</label> <input type="number" id="cantidad-inyeccion" min="1" required>
+                            </div>
+                            <div class="form-group"> <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i>
+                                    PNC</label>
+                                <div style="display: flex; gap: 5px;"> <input type="number" id="pnc-inyeccion" value="0"
+                                        readonly
+                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
+                                        onclick="abrirModalDefectos('pnc-inyeccion')"> <button type="button"
+                                        onclick="abrirModalDefectos('pnc-inyeccion')"
+                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                        <i class="fas fa-list-ul"></i> </button> </div>
+                            </div> <!-- Fila 6 -->
+                            <div class="form-group"> <label for="almacen-destino-inyeccion"><i
+                                        class="fas fa-warehouse"></i> Almacén Destino</label> <select
+                                    id="almacen-destino-inyeccion" required>
+                                    <option value="">Seleccionar destino...</option>
+                                    <option value="POR PULIR">POR PULIR</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                </select> </div>
+                            <div class="form-group"> <label for="codigo-ensamble-inyeccion"><i class="fas fa-link"></i>
+                                    Código Ensamble</label> <input type="text" id="codigo-ensamble-inyeccion"
+                                    placeholder="Si aplica"> </div> <!-- Fila 7 -->
+                            <div class="form-group"> <label for="orden-produccion-inyeccion"><i
+                                        class="fas fa-list-ol"></i> Orden Producción</label> <input type="text"
+                                    id="orden-produccion-inyeccion" placeholder="Número de orden"> </div>
+                            <div class="form-group"> <label for="peso-vela-inyeccion"><i
+                                        class="fas fa-weight-hanging"></i> Peso Vela Máquina (kg)</label> <input
+                                    type="number" id="peso-vela-inyeccion" step="0.01" min="0" value="0"> </div>
+                            <!-- Fila 8 -->
+                            <div class="form-group"> <label for="peso-bujes-inyeccion"><i
+                                        class="fas fa-weight-hanging"></i> Peso Bujes (kg)</label> <input type="number"
+                                    id="peso-bujes-inyeccion" step="0.01" min="0" value="0"> </div>
+                            <div class="form-group full-width"> <label for="observaciones-inyeccion"><i
+                                        class="fas fa-sticky-note"></i> Observaciones</label> <textarea
+                                    id="observaciones-inyeccion" rows="3"
+                                    placeholder="Notas adicionales del proceso..."></textarea> </div>
+                            <!-- Producción Calculada -->
+                            <div class="form-group full-width"
+                                style="background: var(--color-secondary); padding: 12px; border-radius: 6px;"> <label
+                                    style="color: var(--color-text); font-weight: 600;"><i class="fas fa-chart-bar"></i>
+                                    Producción Calculada</label>
+                                <div id="produccion-calculada"
+                                    style="font-size: 18px; font-weight: bold; color: var(--color-primary); margin-top: 8px;">
+                                    0</div>
+                                <div id="formula-calc"
+                                    style="font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5;">
+                                    Disparos: 0 × Cavidades: 1 = 0 piezas</div>
+                            </div>
+                        </div>
+                        <div class="form-actions"> <button type="submit" class="btn btn-primary"><i
+                                    class="fas fa-save"></i> Registrar Inyección</button> <button type="reset"
+                                class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button> </div>
+                    </form>
+                </div>
+            </div> <!-- Pulido -->
+            <div id="pulido-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-sparkles"></i> Registro de Pulido</h1>
+                        <p class="subtitle">Registra operaciones de pulido y acabado</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-pulido" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 1: Fecha -->
+                            <div class="form-group">
+                                <label for="fecha-pulido"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-pulido" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="responsable-pulido"><i class="fas fa-user"></i> Responsable</label>
+                                <select id="responsable-pulido" required></select>
+                            </div>
+
+                            <!-- Fila 2: Horas -->
+                            <div class="form-group">
+                                <label for="hora-inicio-pulido"><i class="fas fa-play-circle"></i> Hora Inicio</label>
+                                <input type="time" id="hora-inicio-pulido" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="hora-fin-pulido"><i class="fas fa-stop-circle"></i> Hora Fin</label>
+                                <input type="time" id="hora-fin-pulido" required>
+                            </div>
+
+                            <!-- Fila 3: Producto y Lote -->
+                            <div class="form-group">
+                                <label for="codigo-producto-pulido"><i class="fas fa-barcode"></i> Código
+                                    Producto</label>
+                                <input type="text" id="codigo-producto-pulido" list="productos-list"
+                                    placeholder="Buscar producto..." required>
+                            </div>
+                            <div class="form-group">
+                                <label for="lote-pulido"><i class="fas fa-box"></i> Lote</label>
+                                <input type="text" id="lote-pulido" placeholder="LOTE-001">
+                            </div>
+
+                            <!-- Fila 4: Orden y Cantidad Recibida -->
+                            <div class="form-group">
+                                <label for="orden-produccion-pulido"><i class="fas fa-list-ol"></i> Orden
+                                    Producción</label>
+                                <input type="text" id="orden-produccion-pulido" placeholder="OP-2026-001">
+                            </div>
+                            <div class="form-group">
+                                <label for="entrada-pulido"><i class="fas fa-sign-in-alt"></i> Cantidad Recibida</label>
+                                <input type="number" id="entrada-pulido" min="0" required>
+                            </div>
+
+                            <!-- Fila 5: Bujes Buenos y PNC -->
+                            <div class="form-group">
+                                <label for="bujes-buenos-pulido"><i class="fas fa-check-circle"></i> Bujes
+                                    Buenos</label>
+                                <input type="number" id="bujes-buenos-pulido" min="0" value="0">
+                            </div>
+                            <div class="form-group">
+                                <label for="pnc-pulido"><i class="fas fa-times-circle"></i> PNC</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <input type="number" id="pnc-pulido" value="0" readonly
+                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
+                                        onclick="ModuloPulido.abrirModalDefectos()">
+                                    <button type="button" onclick="ModuloPulido.abrirModalDefectos()"
+                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                        <i class="fas fa-list-ul"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Fila 6: Observaciones -->
+                            <div class="form-group full-width">
+                                <label for="observaciones-pulido"><i class="fas fa-sticky-note"></i>
+                                    Observaciones</label>
+                                <textarea id="observaciones-pulido" rows="3"
+                                    placeholder="Notas adicionales del proceso..."></textarea>
+                            </div>
+
+                            <!-- Cantidad Real Calculada -->
+                            <div class="form-group full-width"
+                                style="background: var(--color-secondary); padding: 12px; border-radius: 6px;">
+                                <label style="color: var(--color-text); font-weight: 600;"><i
+                                        class="fas fa-chart-bar"></i> Cantidad Real (Calculada)</label>
+                                <div id="salida-calculada"
+                                    style="font-size: 18px; font-weight: bold; color: var(--color-primary); margin-top: 8px;">
+                                    0</div>
+                                <div id="formula-calc-pulido"
+                                    style="font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5;">
+                                    Recibida: 0 - PNC: 0 = 0 piezas pulidas</div>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
+                                Pulido</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- Ensamble -->
+            <div id="ensamble-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-puzzle-piece"></i> Registro de Ensamble</h1>
+                        <p class="subtitle">Registra operaciones de ensamble de productos</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-ensamble" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 1: Fecha y Responsable -->
+                            <div class="form-group">
+                                <label for="fecha-ensamble"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-ensamble" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="responsable-ensamble"><i class="fas fa-user"></i> Responsable</label>
+                                <select id="responsable-ensamble" required></select>
+                            </div>
+
+                            <!-- Fila 2: Horas -->
+                            <div class="form-group">
+                                <label for="hora-inicio-ensamble"><i class="fas fa-play-circle"></i> Hora Inicio</label>
+                                <input type="time" id="hora-inicio-ensamble" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="hora-fin-ensamble"><i class="fas fa-stop-circle"></i> Hora Fin</label>
+                                <input type="time" id="hora-fin-ensamble" required>
+                            </div>
+
+                            <!-- Fila 3: Código Ensamble y Buje Componente (CORREGIDO) -->
+                            <div class="form-group">
+                                <label for="ens-id-codigo"><i class="fas fa-box"></i> Código Ensamble (Producto
+                                    Final)</label>
+                                <select id="ens-id-codigo" required>
+                                    <option value="">-- Seleccionar Producto --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="ens-buje-componente"><i class="fas fa-cube"></i> Buje Componente</label>
+                                <input type="text" id="ens-buje-componente" placeholder="Auto-completado" readonly
+                                    style="background-color: #f0f9ff; cursor: not-allowed;">
+                            </div>
+
+                            <!-- Fila 4: QTY y Cantidad -->
+                            <div class="form-group">
+                                <label for="qty-ensamble"><i class="fas fa-calculator"></i> QTY (Bujes por
+                                    Ensamble)</label>
+                                <input type="number" id="ens-qty-bujes" min="1" value="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="cantidad-ensamble"><i class="fas fa-hashtag"></i> Cantidad a
+                                    Ensamblar</label>
+                                <input type="number" id="cantidad-ensamble" min="1" required>
+                            </div>
+
+                            <!-- Fila 5: Almacenes -->
+                            <div class="form-group">
+                                <label for="almacen-origen-ensamble"><i class="fas fa-warehouse"></i> Almacén Origen
+                                    (Bujes)</label>
+                                <select id="almacen-origen-ensamble" required>
+                                    <option value="">Seleccionar...</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="almacen-destino-ensamble"><i class="fas fa-shipping-fast"></i> Almacén
+                                    Destino (Ensambles)</label>
+                                <select id="almacen-destino-ensamble" required>
+                                    <option value="">Seleccionar...</option>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                </select>
+                            </div>
+
+                            <!-- Fila 6: OP y PNC -->
+                            <div class="form-group">
+                                <label for="op-ensamble"><i class="fas fa-list-ol"></i> Orden Producción</label>
+                                <input type="text" id="op-ensamble" placeholder="OP-2026-001">
+                            </div>
+                            <div class="form-group">
+                                <label for="pnc-ensamble"><i class="fas fa-times-circle"></i> PNC</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <input type="number" id="pnc-ensamble" value="0" readonly
+                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
+                                        onclick="abrirModalDefectos('pnc-ensamble')">
+                                    <button type="button" onclick="abrirModalDefectos('pnc-ensamble')"
+                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                        <i class="fas fa-list-ul"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Fila 7: Observaciones -->
+                            <div class="form-group full-width">
+                                <label for="observaciones-ensamble"><i class="fas fa-sticky-note"></i>
+                                    Observaciones</label>
+                                <textarea id="observaciones-ensamble" rows="3"
+                                    placeholder="Notas adicionales..."></textarea>
+                            </div>
+
+                            <!-- Resumen Calculado -->
+                            <div class="form-group full-width"
+                                style="background: var(--color-secondary); padding: 12px; border-radius: 6px;">
+                                <label style="color: var(--color-text); font-weight: 600;"><i
+                                        class="fas fa-chart-bar"></i> Resumen de Producción</label>
+                                <div id="resumen-ensamble"
+                                    style="font-size: 14px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.8;">
+                                    <div><strong>Bujes necesarios:</strong> <span id="bujes-necesarios">0</span></div>
+                                    <div><strong>Ensambles a producir:</strong> <span id="ensambles-producir">0</span>
+                                    </div>
+                                    <div><strong>Ensambles buenos:</strong> <span id="ensambles-buenos"
+                                            style="color: #10b981; font-weight: bold;">0</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
+                                Ensamble</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- PNC -->
+            <div id="pnc-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-exclamation-triangle"></i> Control de PNC Global</h1>
+                        <p class="subtitle">Registro y análisis de productos no conformes</p>
+                    </div>
+                    <div class="top-controls">
+                        <button class="btn btn-secondary" id="btn-exportar-pnc">
+                            <i class="fas fa-file-download"></i> Exportar CSV
+                        </button>
+                    </div>
+                </header>
+
+                <div class="form-container">
+                    <form id="form-manual-pnc" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 1: Fecha y Producto -->
+                            <div class="form-group">
+                                <label for="pnc-manual-fecha"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="pnc-manual-fecha" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pnc-manual-producto"><i class="fas fa-barcode"></i> Producto (ID o
+                                    FR-)</label>
+                                <input type="text" id="pnc-manual-producto" list="pnc-productos-list"
+                                    placeholder="Ej: 9304 o FR-9304" required>
+                            </div>
+
+                            <!-- Fila 2: Cantidad y Criterio -->
+                            <div class="form-group">
+                                <label for="pnc-manual-cantidad"><i class="fas fa-hashtag"></i> Cantidad</label>
+                                <input type="number" id="pnc-manual-cantidad" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pnc-manual-criterio"><i class="fas fa-exclamation-circle"></i> Criterio /
+                                    Defecto</label>
+                                <select id="pnc-manual-criterio" required>
+                                    <option value="">Selecciona...</option>
+                                    <option value="RECHUPE">Rechupe</option>
+                                    <option value="QUEMADO">Quemado</option>
+                                    <option value="ESCASO">Escaso</option>
+                                    <option value="CONTAMINADO">Contaminado</option>
+                                    <option value="MANCHADO">Manchado</option>
+                                    <option value="REVENTADO">Reventado</option>
+                                    <option value="OTROS">Otros</option>
+                                </select>
+                            </div>
+
+                            <!-- Fila 3: Notas/Ensamble (Ancho completo) -->
+                            <div class="form-group full-width">
+                                <label for="pnc-manual-ensamble"><i class="fas fa-sticky-note"></i> Código Ensamble /
+                                    Notas (Opcional)</label>
+                                <input type="text" id="pnc-manual-ensamble"
+                                    placeholder="ID de operación o notas adicionales">
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"
+                                style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border: none;">
+                                <i class="fas fa-save"></i> Guardar Registro PNC
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i> Limpiar Formulario
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="mt-4 p-4 rounded-4 bg-white shadow-sm border-start border-danger border-5">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="flex-shrink-0 bg-danger-subtle p-3 rounded-circle text-danger">
+                            <i class="fas fa-history fa-2x"></i>
+                        </div>
+                        <div>
+                            <h5 class="mb-1 fw-bold">Seguimiento de Registros</h5>
+                            <p class="mb-0 text-muted">Todos los registros guardados aquí aparecerán automáticamente en
+                                el <strong>Historial Global</strong> para su auditoría y exportación.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Detalle PNC -->
+            <div id="modal-detalle-pnc" class="modal-custom">
+                <div class="modal-content-custom">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h4 class="mb-0">Detalle de No Conformidad</h4>
+                        <button class="btn-close close"></button>
+                    </div>
+                    <div id="detalle-pnc-contenido">
+                        <!-- Se llena vía JS -->
+                    </div>
+                    <div class="text-end mt-4">
+                        <button class="btn btn-secondary close">Cerrar</button>
+                    </div>
+                </div>
+            </div> <!-- Facturación -->
+            <div id="facturacion-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-file-invoice-dollar"></i> Facturación</h1>
+                        <p class="subtitle">Registra ventas y facturación</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-facturacion" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-facturacion"><i class="fas fa-calendar"></i> Fecha Venta</label>
+                                <input type="date" id="fecha-facturacion" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="cliente-facturacion"><i class="fas fa-user-tie"></i> Cliente</label>
+                                <select id="cliente-facturacion" required>
+                                    <option value="">Cargando clientes...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="producto-facturacion"><i class="fas fa-box-open"></i> Producto a
+                                    Vender</label>
+                                <input type="text" id="producto-facturacion" list="fac-productos-list"
+                                    placeholder="Buscar producto..." required>
+                            </div>
+                            <div class="form-group">
+                                <label for="cantidad-facturacion"><i class="fas fa-sort-amount-up"></i> Cantidad</label>
+                                <input type="number" id="cantidad-facturacion" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="precio-facturacion"><i class="fas fa-dollar-sign"></i> Precio
+                                    Unitario</label>
+                                <input type="number" id="precio-facturacion" step="0.01" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="orden-compra-facturacion"><i class="fas fa-file-contract"></i> Orden Compra
+                                    (Opcional)</label>
+                                <input type="text" id="orden-compra-facturacion" placeholder="OC-1234">
+                            </div>
+
+                            <div class="form-group full-width"
+                                style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: 700; color: #166534;">TOTAL VENTA</span>
+                                    <span id="total-facturacion"
+                                        style="font-size: 24px; font-weight: 800; color: #15803d;">$ 0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-success"><i class="fas fa-check-circle"></i> Registrar
+                                Venta</button>
+                            <button type="reset" class="btn btn-light"><i class="fas fa-undo"></i> Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- Reportes -->
+            <div id="reportes-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-bar"></i> Centro de Reportes y Análisis</h1>
+                        <p class="subtitle">Métricas de rendimiento, producción y ventas consolidadas</p>
+                    </div>
+                </header>
+
+                <div class="reportes-container">
+                    <!-- Dashboard de Métricas Rápidas -->
+                    <div class="metrics-grid mb-5"
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+                        <div class="metric-card"
+                            style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-left: 5px solid #6366f1;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted small fw-bold text-uppercase">Producción Mes</span>
+                                    <h2 id="rep-prod-mes" class="mb-0 mt-1">0</h2>
+                                </div>
+                                <i class="fas fa-industry fa-2x" style="color: #6366f1; opacity: 0.2;"></i>
+                            </div>
+                        </div>
+                        <div class="metric-card"
+                            style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-left: 5px solid #10b981;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted small fw-bold text-uppercase">Ventas Mes</span>
+                                    <h2 id="rep-ventas-mes" class="mb-0 mt-1">$ 0</h2>
+                                </div>
+                                <i class="fas fa-dollar-sign fa-2x" style="color: #10b981; opacity: 0.2;"></i>
+                            </div>
+                        </div>
+                        <div class="metric-card"
+                            style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-left: 5px solid #ef4444;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted small fw-bold text-uppercase">Tasa PNC</span>
+                                    <h2 id="rep-pnc-tasa" class="mb-0 mt-1">0%</h2>
+                                </div>
+                                <i class="fas fa-exclamation-circle fa-2x" style="color: #ef4444; opacity: 0.2;"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Generador de Reportes -->
+                    <div class="card p-4 border-0 shadow-sm rounded-4 mb-4">
+                        <h4 class="mb-3"><i class="fas fa-file-export text-primary me-2"></i>Generar Reporte Detallado
+                        </h4>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold">Tipo de Reporte</label>
+                                <select id="tipo-reporte" class="form-select">
+                                    <option value="produccion">Producción por Producto</option>
+                                    <option value="ventas">Ventas y Clientes</option>
+                                    <option value="pnc">Análisis de Defectos (PNC)</option>
+                                    <option value="mezcla">Consumo de Material</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold">Rango de Fechas</label>
+                                <select id="rango-reporte" class="form-select">
+                                    <option value="hoy">Hoy</option>
+                                    <option value="semana">Últimos 7 días</option>
+                                    <option value="mes" selected>Este Mes</option>
+                                    <option value="total">Año Completo</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold">Producto (Opcional)</label>
+                                <select id="producto-reporte" class="form-select">
+                                    <option value="">Todos los productos</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button id="btn-generar-reporte" class="btn btn-primary w-100">
+                                    <i class="fas fa-sync"></i> Generar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Resultados de Reporte -->
+                    <div id="resultado-reporte" class="bg-white p-4 rounded-4 shadow-sm min-vh-50">
+                        <div class="text-center py-5 text-muted">
+                            <i class="fas fa-chart-pie fa-4x mb-3" style="opacity: 0.1;"></i>
+                            <p>Asistente de Reportes Juan Sebastian: Selecciona los criterios y haz clic en Generar para
+                                visualizar datos.</p>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- Mezcla -->
+            <div id="mezcla-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-vial"></i> Control de Mezcla</h1>
+                        <p class="subtitle">Registro de preparación de materia prima</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-mezcla" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-mezcla"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-mezcla" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="responsable-mezcla"><i class="fas fa-user-shield"></i> Responsable</label>
+                                <select id="responsable-mezcla" required>
+                                    <option value="">Seleccionar...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="maquina-mezcla"><i class="fas fa-cogs"></i> Máquina / Proceso</label>
+                                <select id="maquina-mezcla" required>
+                                    <option value="">Seleccionar...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="virgen-mezcla"><i class="fas fa-fill"></i> Kg Virgen</label>
+                                <input type="number" id="virgen-mezcla" step="0.01" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="molido-mezcla"><i class="fas fa-recycle"></i> Kg Molido (Recuperado)</label>
+                                <input type="number" id="molido-mezcla" step="0.01" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pigmento-mezcla"><i class="fas fa-palette"></i> Pigmento (gr)</label>
+                                <input type="number" id="pigmento-mezcla" step="1" min="0" value="0">
+                            </div>
+
+                            <div id="info-proporcion" class="form-group full-width"
+                                style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 8px;">
+                                <!-- Se llena vía JS -->
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="observaciones-mezcla"><i class="fas fa-comment"></i> Observaciones</label>
+                                <textarea id="observaciones-mezcla" rows="2"
+                                    placeholder="Detalles de la mezcla..."></textarea>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Guardar
+                                Mezcla</button>
+                            <button type="reset" class="btn btn-secondary">Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- Historial -->
+            <div id="historial-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-history"></i> Historial de Movimientos</h1>
+                        <p class="subtitle">Auditoría completa de Inyección, Pulido, Ensamble y Ventas</p>
+                    </div>
+                    <div class="top-controls">
+                        <button class="btn btn-secondary" id="btn-exportar-historial">
+                            <i class="fas fa-file-excel"></i> Exportar
+                        </button>
+                    </div>
+                </header>
+
+                <div class="filtros-container"
+                    style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">Desde</label>
+                            <input type="date" id="fechaDesde" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">Hasta</label>
+                            <input type="date" id="fechaHasta" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">Proceso</label>
+                            <select id="tipoProceso" class="form-select">
+                                <option value="">Todos los Movimientos</option>
+                                <option value="INYECCION">Inyección</option>
+                                <option value="PULIDO">Pulido</option>
+                                <option value="ENSAMBLE">Ensamble</option>
+                                <option value="PNC">PNC (Defectos)</option>
+                                <option value="VENTA">Ventas / Facturación</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button onclick="filtrarHistorial()" class="btn btn-primary w-100" style="height: 38px;">
+                                <i class="fas fa-filter"></i> Aplicar Filtros
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-4 shadow-sm overflow-hidden">
+                    <div id="historial-container">
+                        <div class="text-center py-5 text-muted">
+                            <i class="fas fa-search fa-3x mb-3" style="opacity: 0.2;"></i>
+                            <p>Selecciona un rango de fechas y haz clic en Filtrar para ver resultados</p>
+                        </div>
+                    </div>
+                    <div id="pagination-container" class="p-3 border-top bg-light"></div>
+                </div>
+
+                <div class="text-end mt-2 text-muted small px-2">
+                    Total registros: <span id="total-registros-historial" class="fw-bold">0</span>. Juan Sebastian.
+                </div>
+            </div>
+        </div>
+    </main> <!-- Modal para nuevo producto -->
+    <div id="modal-nuevo-producto" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header"
+                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                <h3><i class="fas fa-plus"></i> Nuevo Producto</h3> <button class="btn-icon"
+                    id="btn-cerrar-modal-producto"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-nuevo-producto">
+                    <p>Funcionalidad en desarrollo...</p>
+                </form>
+            </div>
+            <div class="modal-footer"> <button class="btn btn-secondary"
+                    id="btn-cancelar-modal-producto">Cancelar</button> <button class="btn btn-primary"
+                    id="btn-guardar-producto">Guardar Producto</button> </div>
+        </div>
+    </div> <!-- Modal para defectos (compartido) -->
+    <div class="modal fade" id="modalDefectos" tabindex="-1" aria-hidden="true" style="z-index: 9999;">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 550px;">
+            <div class="modal-content"
+                style="border-radius: 12px; border: none; box-shadow: 0 20px 60px rgba(0,0,0,0.4);">
+                <div class="modal-header"
+                    style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                    <h5 class="modal-title"
+                        style="margin: 0; font-size: 15px; font-weight: bold; letter-spacing: 0.5px; display: flex; align-items: center;">
+                        <i class="fas fa-exclamation-triangle" style="margin-right: 12px; color: #fbbf24;"></i>
+                        REGISTRAR DEFECTOS
+                    </h5> <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="background-color: #f8fafc; padding: 24px;"> <!-- Caja de ingreso -->
+                    <div
+                        style="background: white; padding: 16px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.03); margin-bottom: 20px; border: 1px solid #e2e8f0;">
+                        <label
+                            style="display: block; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 8px; letter-spacing: 0.5px;">Nuevo
+                            Defecto</label>
+                        <div style="display: flex; gap: 10px;"> <select id="modal-criterio"
+                                style="flex: 3; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; color: #334155; height: 40px;">
+                                <option value="">Seleccione tipo...</option>
+                                <option value="Rechupe">Rechupe</option>
+                                <option value="Quemado">Quemado</option>
+                                <option value="Escaso">Escaso</option>
+                                <option value="Contaminado">Contaminado</option>
+                                <option value="Buje de prueba">Buje de prueba</option>
+                                <option value="Rayado">Rayado</option>
+                                <option value="Mal pulido">Mal pulido</option>
+                                <option value="Quebrado">Quebrado</option>
+                                <option value="Fuera de especificación">Fuera de especificación</option>
+                                <option value="Dimensión incorrecta">Dimensión incorrecta</option>
+                                <option value="Otro">Otro</option>
+                            </select> <input type="number" id="modal-cantidad" placeholder="0" min="1"
+                                style="flex: 1; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; text-align: center; font-size: 14px; color: #334155; height: 40px;">
+                            <button type="button" onclick="window.agregarDefectoModal()"
+                                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 500; cursor: pointer;">
+                                <i class="fas fa-plus"></i> </button>
+                        </div>
+                    </div> <!-- Lista -->
+                    <div
+                        style="background: white; border-radius: 10px; border: 1px solid #e2e8f0; min-height: 140px; max-height: 250px; overflow-y: auto;">
+                        <ul id="modal-lista-defectos" class="list-group"
+                            style="min-height: 140px; display: flex; flex-direction: column;"> <!-- Estado vacío -->
+                            <div
+                                style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; padding: 20px;">
+                                <div
+                                    style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                                    <i class="fas fa-clipboard-list" style="font-size: 20px; color: #cbd5e1;"></i>
+                                </div> <small style="font-size: 13px; font-weight: 500;">No hay defectos
+                                    registrados</small>
+                            </div>
+                        </ul>
+                    </div> <!-- Total -->
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
+                        <span style="font-weight: 700; color: #475569; font-size: 12px; letter-spacing: 1px;">TOTAL
+                            PIEZAS MALAS</span> <span id="modal-total"
+                            style="font-size: 24px; font-weight: 800; color: #ef4444;">0</span>
+                    </div>
+                </div>
+                <div class="modal-footer"
+                    style="background: #f8fafc; padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px;">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                        style="padding: 10px 20px; border-radius: 8px;">Cancelar</button> <button type="button"
+                        onclick="window.aplicarDefectos()" data-bs-dismiss="modal"
+                        style="padding: 10px 28px; border: none; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: white; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">
+                        APLICAR </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts (NUEVO ORDEN CORRECTO) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Core scripts NUEVOS (agregar ANTES de los módulos) -->
+    <script src="/static/js/core/api-client.js"></script>
+    <script src="/static/js/core/defectos-manager.js"></script>
+    <script src="/static/js/core/select-utils.js"></script>
+    <!-- New Helpers -->
+    <script src="/static/js/core/form-helpers.js"></script>
+    <script src="/static/js/core/validation-helpers.js"></script>
+    <script src="/static/js/core/data-reload-helpers.js"></script>
+    <!-- UTILITIES (compartidas) -->
+    <script src="/static/js/modules/utils.js"></script> <!-- Modules (los que ya tienes) -->
+    <!-- ... resto de módulos ... --> <!-- 1. UTILS primero (funciones compartidas) -->
+    <!-- 2. APP PRINCIPAL (antes de los módulos) -->
+    <script src="/static/js/app.js"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
+    <script src="/static/js/modules/dashboard.js"></script>
+    <script src="/static/js/modules/inventario.js?v=20260121113116"></script>
+    <script src="/static/js/modules/inyeccion.js"></script>
+    <script src="/static/js/modules/pulido.js"></script>
+    <script src="/static/js/modules/ensamble.js?v=20260123143354"></script>
+    <script src="/static/js/modules/pnc.js"></script>
+    <script src="/static/js/modules/facturacion.js"></script>
+    <script src="/static/js/modules/reportes.js"></script>
+    <script src="/static/js/modules/mezcla.js"></script>
+    <script src="/static/js/modules/historial.js"></script>
+    <!-- Script mínimo para inicialización -->
+    <script>
+        // Variables globales para el modal de defectos
+        window.listaDefectosTemp = [];
+        window.inputIdDestino = 'pnc';
+
+        // Función para abrir modal de defectos
+        window.abrirModalDefectos = function (targetId) {
+            window.inputIdDestino = targetId || 'pnc';
+
+            var modalEl = document.getElementById('modalDefectos');
+            if (!modalEl) return alert("Error: Modal no encontrado");
+
+            // Limpiar modal
+            window.listaDefectosTemp = [];
+            document.getElementById('modal-criterio').value = '';
+            document.getElementById('modal-cantidad').value = '';
+            renderizarListaDefectosGlobal();
+
+            if (typeof bootstrap !== 'undefined') {
+                var modal = new bootstrap.Modal(modalEl);
+                modal.show();
+            } else {
+                modalEl.style.display = 'block';
+            }
+        };
+
+        // Función para agregar defecto al modal
+        window.agregarDefectoModal = function () {
+            const criterio = document.getElementById('modal-criterio').value;
+            const cantidad = parseInt(document.getElementById('modal-cantidad').value);
+
+            if (!criterio || !cantidad || cantidad <= 0) {
+                alert('Selecciona un tipo de defecto y cantidad válida');
+                return;
+            }
+
+            window.listaDefectosTemp.push({ criterio, cantidad });
+
+            // Limpiar inputs
+            document.getElementById('modal-criterio').value = '';
+            document.getElementById('modal-cantidad').value = '';
+
+            renderizarListaDefectosGlobal();
+        };
+
+        // Función para renderizar lista de defectos
+        function renderizarListaDefectosGlobal() {
+            const lista = document.getElementById('modal-lista-defectos');
+            const total = document.getElementById('modal-total');
+
+            if (!lista || !total) return;
+
+            let totalDefectos = 0;
+
+            if (window.listaDefectosTemp.length === 0) {
+                lista.innerHTML = `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; padding: 20px;">
+                        <div style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                            <i class="fas fa-clipboard-list" style="font-size: 20px; color: #cbd5e1;"></i>
+                        </div>
+                        <small style="font-size: 13px; font-weight: 500;">No hay defectos registrados</small>
+                    </div>
+                `;
+            } else {
+                lista.innerHTML = window.listaDefectosTemp.map((d, i) => {
+                    totalDefectos += d.cantidad;
+                    return `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f1f5f9;">
+                            <div>
+                                <span style="font-weight: 600; color: #334155; font-size: 13px;">${d.criterio}</span>
+                                <span style="color: #94a3b8; font-size: 12px; margin-left: 8px;">× ${d.cantidad}</span>
+                            </div>
+                            <button onclick="eliminarDefectoGlobal(${i})" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            total.textContent = totalDefectos;
+        }
+
+        // Función para eliminar defecto
+        window.eliminarDefectoGlobal = function (index) {
+            window.listaDefectosTemp.splice(index, 1);
+            renderizarListaDefectosGlobal();
+        };
+
+        // Función para aplicar defectos
+        window.aplicarDefectos = function () {
+            const totalDefectos = window.listaDefectosTemp.reduce((sum, d) => sum + d.cantidad, 0);
+            const inputPNC = document.getElementById(window.inputIdDestino);
+
+            if (inputPNC) {
+                inputPNC.value = totalDefectos;
+
+                // Disparar evento de cambio para actualizar cálculos
+                const event = new Event('input', { bubbles: true });
+                inputPNC.dispatchEvent(event);
+            }
+
+            // Evento disparado
+        };
+
+        // Inicializar fecha en sidebar
+        document.addEventListener('DOMContentLoaded', function () {
+            const fechaElement = document.getElementById('fecha-actual');
+            if (fechaElement) {
+                const hoy = new Date();
+                fechaElement.textContent = hoy.toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+        });
+    </script>
+
+    <!-- ============================== -->
+    <!-- MODAL DEFECTOS ENSAMBLE -->
+    <!-- ============================== -->
+    <div id="modalDefectosEnsamble" class="modal fade" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content" style="border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.15);">
+
+                <!-- HEADER -->
+                <div class="modal-header"
+                    style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border-radius: 16px 16px 0 0; padding: 20px 24px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 24px;"></i>
+                        <h5 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">REGISTRAR DEFECTOS
+                            - ENSAMBLE</h5>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <!-- BODY -->
+                <div class="modal-body" style="padding: 24px;">
+
+                    <!-- NUEVO DEFECTO -->
+                    <div style="margin-bottom: 20px;">
+                        <label
+                            style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: block;">NUEVO
+                            DEFECTO</label>
+
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <!-- Select de criterio -->
+                            <select id="modal-criterio-ensamble"
+                                style="flex: 2; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; color: #334155; height: 40px;">
+                                <option value="">-- Seleccionar defecto --</option>
+                            </select>
+
+                            <!-- Input de cantidad -->
+                            <input type="number" id="modal-cantidad-ensamble" min="1" placeholder="Cantidad"
+                                style="flex: 1; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; text-align: center; font-size: 14px; color: #334155; height: 40px;">
+
+                            <!-- Botón agregar -->
+                            <button onclick="agregarDefectoEnsamble()"
+                                style="width: 40px; height: 40px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; transition: all 0.2s;">
+                                +
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- LISTA DE DEFECTOS -->
+                    <div style="margin-bottom: 20px;">
+                        <label
+                            style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: block;">
+                            TOTAL PIEZAS MALAS: <span id="modal-total-ensamble"
+                                style="color: #ef4444; font-weight: 700;">0</span>
+                        </label>
+
+                        <ul id="modal-lista-defectos-ensamble" class="list-group"
+                            style="max-height: 200px; overflow-y: auto; border-radius: 8px;">
+                            <!-- Los defectos se agregan dinámicamente aquí -->
+                        </ul>
+                    </div>
+
+                </div>
+
+                <!-- FOOTER -->
+                <div class="modal-footer" style="border-top: 1px solid #e2e8f0; padding: 16px 24px;">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                        style="border-radius: 8px; padding: 8px 20px;">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="aplicarDefectosEnsamble()"
+                        style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none; border-radius: 8px; padding: 8px 20px; font-weight: 600;">APLICAR</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

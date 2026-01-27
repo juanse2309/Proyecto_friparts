@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+
+# Google Credentials
+credentials_apps.json
+
+# IDEs
+.vscode/
+.idea/
+.cursor/
+.antigravity/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Logs/DB
+*.log
+*.sqlite
+*.db
+backend/__pycache__/
+frontend/node_modules/

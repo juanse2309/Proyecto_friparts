@@ -1,0 +1,129 @@
+﻿
+/* Lazy loading placeholder */
+.producto-imagen {
+    transition: opacity 0.3s ease-in-out;
+}
+
+.producto-imagen[loading='lazy']:not([src]) {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.producto-imagen:not([src]) {
+    opacity: 0;
+}
+
+.producto-imagen[src] {
+    opacity: 1;
+}
+
+/* ============================================
+   ESTILOS DE PAGINACIÓN
+   ============================================ */
+
+.paginacion-wrapper {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.paginacion-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.paginacion-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.paginacion-info select {
+    width: auto;
+    min-width: 150px;
+}
+
+.paginacion-info span {
+    color: #6c757d;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.paginacion-controles {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.paginacion-numeros {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.btn-page {
+    min-width: 36px;
+    height: 36px;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid #dee2e6;
+    background: #fff;
+    color: #495057;
+    transition: all 0.2s;
+}
+
+.btn-page:hover:not(.active) {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.btn-page.active {
+    background: #0d6efd;
+    color: #fff;
+    border-color: #0d6efd;
+    font-weight: 600;
+    cursor: default;
+}
+
+.puntos {
+    padding: 0 0.5rem;
+    color: #6c757d;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .paginacion-container {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .paginacion-info {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .paginacion-info select {
+        width: 100%;
+    }
+    
+    .paginacion-controles {
+        justify-content: center;
+    }
+    
+    .btn-page {
+        min-width: 32px;
+        height: 32px;
+        font-size: 0.875rem;
+        padding: 0.25rem 0.5rem;
+    }
+}

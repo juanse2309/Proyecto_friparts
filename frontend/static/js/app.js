@@ -1,0 +1,172 @@
+﻿// Global Error Handler for random execution errors
+window.onerror = function (msg, url, lineNo, columnNo, error) {
+    console.error('🚨 Global Error:', { msg, url, lineNo, columnNo, error });
+    // Optional: Send to backend logging endpoint
+    return false;
+};
+
+window.addEventListener('unhandledrejection', event => {
+    console.error('🚨 Unhandled Promise Rejection:', event.reason);
+});
+
+window.AppState = {
+    paginaActual: 'dashboard',
+    sharedData: {
+        responsables: [],
+        clientes: [],
+        productos: [],
+        maquinas: []
+    }
+};
+
+async function cargarDatosCompartidos() {
+    try {
+        console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
+
+        // 1. Cargar productos
+        console.log('  - Solicitando productos...');
+        const resProd = await fetch('/api/productos/listar_v2');
+        console.log('  - Respuesta productos:', resProd.status);
+        if (!resProd.ok) throw new Error(`Error HTTP productos: ${resProd.status}`);
+        const productosRaw = await resProd.json();
+
+        window.AppState.sharedData.productos = productosRaw.map(p => ({
+            id_codigo: p.id_codigo || 0,
+            codigo_sistema: p.codigo || '',
+            descripcion: p.descripcion || '',
+            imagen: p.imagen || '',
+            stock_por_pulir: p.stock_por_pulir || 0,
+            stock_terminado: p.stock_terminado || 0,
+            stock_total: p.existencias_totales || 0,
+            semaforo: p.semaforo || 'rojo',
+            metricas: p.metricas || { min: 0, max: 0, reorden: 0 }
+        }));
+        console.log('  ✅ Productos cargados:', window.AppState.sharedData.productos.length);
+
+        // 2. Cargar responsables
+        console.log('  - Solicitando responsables...');
+        const resResp = await fetch('/api/obtener_responsables');
+        if (resResp.ok) {
+            window.AppState.sharedData.responsables = await resResp.json();
+            console.log('  ✅ Responsables cargados:', window.AppState.sharedData.responsables.length);
+        }
+
+        // 3. Cargar máquinas
+        console.log('  - Solicitando máquinas...');
+        const resMaq = await fetch('/api/obtener_maquinas');
+        if (resMaq.ok) {
+            window.AppState.sharedData.maquinas = await resMaq.json();
+            console.log('  ✅ Máquinas cargadas:', window.AppState.sharedData.maquinas.length);
+        }
+
+        // 4. Cargar clientes
+        console.log('  - Solicitando clientes...');
+        const resCli = await fetch('/api/obtener_clientes');
+        if (resCli.ok) {
+            window.AppState.sharedData.clientes = await resCli.json();
+            console.log('  ✅ Clientes cargados:', window.AppState.sharedData.clientes.length);
+        }
+
+    } catch (error) {
+        console.error('❌ CRITICAL ERROR en cargarDatosCompartidos:', error);
+        alert('Error conectando con el servidor. Revisa la consola (F12) y asegura que el backend esté corriendo.');
+    }
+}
+
+function cargarPagina(nombrePagina) {
+    console.log('📄 Cargando página:', nombrePagina);
+
+    // Ocultar todas las páginas
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const pagina = document.getElementById(`${nombrePagina}-page`);
+    if (pagina) {
+        pagina.classList.add('active');
+        console.log('✅ Página visible:', nombrePagina);
+    } else {
+        console.error('❌ Página no encontrada:', `${nombrePagina}-page`);
+    }
+
+    // Actualizar menu items activos
+    document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));
+    const menuItem = document.querySelector(`.menu-item[data-page="${nombrePagina}"]`);
+    if (menuItem) {
+        menuItem.classList.add('active');
+    }
+
+    inicializarModulo(nombrePagina);
+    window.AppState.paginaActual = nombrePagina;
+}
+
+function inicializarModulo(nombrePagina) {
+    const modulos = {
+        'dashboard': window.ModuloDashboard,
+        'inventario': window.ModuloInventario,
+        'productos': window.ModuloProductos,
+        'inyeccion': window.ModuloInyeccion,
+        'pulido': window.ModuloPulido,
+        'ensamble': window.ModuloEnsamble,
+        'pnc': window.ModuloPNC,
+        'facturacion': window.ModuloFacturacion,
+        'reportes': window.ModuloReportes,
+        'mezcla': window.ModuloMezcla,
+        'historial': window.ModuloHistorial
+    };
+
+    const modulo = modulos[nombrePagina];
+    if (modulo?.inicializar) {
+        console.log('🔧 Inicializando módulo:', nombrePagina);
+        modulo.inicializar();
+    } else {
+        console.warn('⚠️  Módulo no encontrado:', nombrePagina);
+    }
+}
+
+function configurarNavegacion() {
+    // CORRECCIÓN: Escuchar clicks en .menu-item en lugar de .nav-link
+    document.querySelectorAll('.menu-item').forEach(menuItem => {
+        menuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            const pagina = menuItem.getAttribute('data-page');
+            console.log('🖱️  Click en menú:', pagina);
+            cargarPagina(pagina);
+
+            // Cerrar sidebar en móvil al hacer click en un item
+            if (window.innerWidth < 992) {
+                document.querySelector('.sidebar')?.classList.remove('active');
+            }
+        });
+    });
+
+    // Configurar botones de toggle para el sidebar (hamburguesa)
+    document.addEventListener('click', (e) => {
+        const toggleBtn = e.target.closest('[id^="toggle-sidebar"]');
+        if (toggleBtn) {
+            console.log('🍔 Toggle sidebar pulsado');
+            document.querySelector('.sidebar')?.classList.toggle('active');
+        }
+    });
+
+    console.log('✅ Navegación configurada -', document.querySelectorAll('.menu-item').length, 'items');
+}
+
+async function inicializarAplicacion() {
+    console.log('🚀 Aplicación inicializando...');
+    try {
+        configurarNavegacion();
+        await cargarDatosCompartidos();
+
+        // Si ya estamos en una página que requiere datos, re-inicializarla
+        if (window.AppState.paginaActual) {
+            inicializarModulo(window.AppState.paginaActual);
+        } else {
+            cargarPagina('dashboard');
+        }
+
+        console.log('✅ Aplicación inicializada correctamente');
+    } catch (error) {
+        console.error('❌ Error fatal:', error);
+        alert('Error iniciando aplicación. Ver consola.');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', inicializarAplicacion);

@@ -1,7 +1,7 @@
-Flask==2.3.3
-Flask-CORS==4.0.0
-gspread==5.11.0
-google-auth==2.22.0
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.1.1
-gunicorn==21.2.0
+flask
+flask-cors
+gspread
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+python-dotenv
