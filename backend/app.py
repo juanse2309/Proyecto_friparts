@@ -2383,15 +2383,16 @@ def listar_productos():
                 stock_term = int(r.get('P. TERMINADO', 0) or 0)
                 stock_total = stock_por_pulir + stock_term
                 stock_minimo = int(r.get('STOCK MINIMO', 10) or 10)
+                punto_reorden = int(r.get('PUNTO REORDEN', 0) or 0) or int(stock_minimo * 0.75)  # Fallback si no hay punto reorden
                 
-                # Calcular semáforo basado en stock_minimo
+                # Calcular semáforo basado en punto_reorden y stock_minimo del sheet
                 if stock_total <= 0:
                     semaforo_color = 'dark'
                     semaforo_estado = 'AGOTADO'
-                elif stock_total < stock_minimo:
+                elif stock_total <= punto_reorden:
                     semaforo_color = 'red'
                     semaforo_estado = 'CRÍTICO'
-                elif stock_total < (stock_minimo * 2):
+                elif stock_total < stock_minimo:
                     semaforo_color = 'yellow'
                     semaforo_estado = 'POR PEDIR'
                 else:
@@ -2406,12 +2407,18 @@ def listar_productos():
                     'existencias_totales': stock_total,  # Cambiar a 'existencias_totales'
                     'precio': r.get('PRECIO', 0),
                     'stock_minimo': stock_minimo,
+                    'punto_reorden': punto_reorden,
                     'imagen': r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or '',
                     'semaforo': {
                         'color': semaforo_color,
                         'estado': semaforo_estado,
                         'configurado': True,
-                        'mensaje': f'Mínimo: {stock_minimo}' if stock_total < stock_minimo else ''
+                        'mensaje': f'Reorden: {punto_reorden} | Mínimo: {stock_minimo}' if stock_total < stock_minimo else ''
+                    },
+                    'metricas': {
+                        'min': stock_minimo,
+                        'reorden': punto_reorden,
+                        'max': int(r.get('STOCK MAXIMO', 0) or 0)
                     }
                 })
 
