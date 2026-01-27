@@ -1,5 +1,5 @@
 ﻿// ============================================
-// ensamble.js - Lógica de Ensamble
+// ensamble.js - Lógica de Ensamble (Refactorizada)
 // ============================================
 
 /**
@@ -16,10 +16,11 @@ async function cargarDatosEnsamble() {
             actualizarSelectEnsamble('responsable-ensamble', responsables);
         }
         
-        // Usar productos del cache compartido
+        // Usar productos del cache compartido para el BUJE COMPONENTE
         if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
-            console.log('✅ Usando productos del cache compartido en Ensamble');
-            actualizarSelectEnsamble('ens-id-codigo', window.AppState.sharedData.productos);
+            console.log('✅ Usando productos del cache compartido en Ensamble (Bujes)');
+            // Poblamos el select de BUJE COMPONENTE (ens-buje-componente)
+            actualizarSelectEnsamble('ens-buje-componente', window.AppState.sharedData.productos);
         } else {
             console.warn('⚠️ No hay productos en cache compartido para Ensamble');
         }
@@ -46,7 +47,8 @@ function actualizarSelectEnsamble(selectId, datos) {
         datos.forEach(item => {
             const option = document.createElement('option');
             if (typeof item === 'object') {
-                option.value = item.codigo_sistema || item.codigo || item.nombre || item.id || '';
+                // Para el buje componente, usamos el codigo de sistema o codigo base
+                option.value = item.codigo_sistema || item.codigo || '';
                 option.textContent = item.descripcion ? `${item.codigo_sistema || item.codigo} - ${item.descripcion}` : (item.nombre || item.id);
             } else {
                 option.value = item;
@@ -71,7 +73,8 @@ async function registrarEnsamble() {
             responsable: document.getElementById('responsable-ensamble')?.value || '',
             hora_inicio: document.getElementById('hora-inicio-ensamble')?.value || '',
             hora_fin: document.getElementById('hora-fin-ensamble')?.value || '',
-            codigo_producto: document.getElementById('ens-id-codigo')?.value || '',
+            codigo_producto: document.getElementById('ens-id-codigo')?.value || '', // Es el producto final
+            buje_componente: document.getElementById('ens-buje-componente')?.value || '', // El buje base
             qty_per_ensamble: document.getElementById('ens-qty-bujes')?.value || '1',
             cantidad: document.getElementById('cantidad-ensamble')?.value || '0',
             almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || '',
@@ -82,7 +85,7 @@ async function registrarEnsamble() {
         };
         
         if (!datos.codigo_producto) {
-            mostrarNotificacion('⚠️ Selecciona un producto', 'error');
+            mostrarNotificacion('⚠️ Selecciona un buje componente válido que genere un ensamble', 'error');
             mostrarLoading(false);
             return;
         }
@@ -111,12 +114,45 @@ async function registrarEnsamble() {
 }
 
 /**
+ * Buscar mapeo de ensamble cuando cambia el buje componente
+ */
+async function actualizarMapeoEnsamble() {
+    const bujeCode = document.getElementById('ens-buje-componente')?.value;
+    if (!bujeCode) {
+        document.getElementById('ens-id-codigo').value = '';
+        document.getElementById('ens-qty-bujes').value = '1';
+        return;
+    }
+
+    try {
+        console.log('🔍 Buscando ensamble para:', bujeCode);
+        // Usar el endpoint existente que ya hace este trabajo
+        const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${bujeCode}`);
+        
+        if (data && data.success) {
+            document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
+            document.getElementById('ens-qty-bujes').value = data.qty || '1';
+            console.log('✅ Mapeo encontrado:', data);
+            
+            // Actualizar cálculos
+            actualizarCalculoEnsamble();
+        } else {
+            console.warn('⚠️ No se encontró mapeo para este buje');
+            document.getElementById('ens-id-codigo').value = 'NO DEFINIDO';
+            document.getElementById('ens-qty-bujes').value = '1';
+        }
+    } catch (error) {
+        console.error('Error buscando mapeo:', error);
+    }
+}
+
+/**
  * Actualizar cálculo de ensamble en tiempo real
  */
 function actualizarCalculoEnsamble() {
     const cantidad = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
     const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
-    const qtyPerEnsamble = parseInt(document.getElementById('ens-qty-bujes')?.value) || 1;
+    const qtyPerEnsamble = parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1;
     
     const ensamblesBuenos = Math.max(0, cantidad - pnc);
     const bujesConsumidos = cantidad * qtyPerEnsamble;
@@ -139,10 +175,13 @@ function actualizarCalculoEnsamble() {
  * Inicializar módulo
  */
 function initEnsamble() {
-    console.log('🔧 Inicializando módulo de Ensamble...');
+    console.log('🔧 Inicializando módulo de Ensamble (Refactorizado)...');
     cargarDatosEnsamble();
     
-    // Listeners
+    // Listeners para el mapeo automático
+    document.getElementById('ens-buje-componente')?.addEventListener('change', actualizarMapeoEnsamble);
+    
+    // Listeners para el cálculo en tiempo real
     document.getElementById('cantidad-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
     document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
     document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);

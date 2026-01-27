@@ -9,22 +9,22 @@ async function cargarDatosPNC() {
     try {
         console.log('📦 Cargando datos de PNC...');
         mostrarLoading(true);
-        
+
         // Generar ID automático
         const timestamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 14);
         const idPNC = `PNC-${timestamp}`;
         const inputId = document.getElementById('id-pnc');
         if (inputId) inputId.value = idPNC;
-        
+
         // Fecha actual
         const hoy = new Date().toISOString().split('T')[0];
         const fechaInput = document.getElementById('fecha-pnc');
         if (fechaInput) fechaInput.value = hoy;
-        
+
         // Usar productos del cache compartido
         if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
             console.log('✅ Usando productos del cache compartido en PNC');
-            const datalist = document.getElementById('productos-pnc-list');
+            const datalist = document.getElementById('pnc-productos-list');
             if (datalist) {
                 datalist.innerHTML = '';
                 window.AppState.sharedData.productos.forEach(p => {
@@ -37,10 +37,10 @@ async function cargarDatosPNC() {
         } else {
             console.warn('⚠️ No hay productos en cache compartido para PNC');
         }
-        
+
         // Configurar botones de criterio
         configurarCriteriosPNC();
-        
+
         console.log('✅ Datos de PNC cargados');
         mostrarLoading(false);
     } catch (error) {
@@ -55,9 +55,9 @@ async function cargarDatosPNC() {
 function configurarCriteriosPNC() {
     const botones = document.querySelectorAll('.criterio-btn');
     const inputHidden = document.getElementById('criterio-pnc-hidden');
-    
+
     botones.forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             botones.forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             const criterio = this.dataset.criterio;
@@ -73,7 +73,7 @@ function configurarCriteriosPNC() {
 async function registrarPNC() {
     try {
         mostrarLoading(true);
-        
+
         const datos = {
             fecha: document.getElementById('fecha-pnc')?.value || '',
             id_pnc: document.getElementById('id-pnc')?.value || '',
@@ -82,21 +82,21 @@ async function registrarPNC() {
             criterio: document.getElementById('criterio-pnc-hidden')?.value || '',
             codigo_ensamble: document.getElementById('codigo-ensamble-pnc')?.value || ''
         };
-        
+
         if (!datos.codigo_producto?.trim()) {
             mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
             mostrarLoading(false);
             return;
         }
-        
+
         const response = await fetch('/api/pnc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
         });
-        
+
         const resultado = await response.json();
-        
+
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             document.getElementById('form-pnc')?.reset();

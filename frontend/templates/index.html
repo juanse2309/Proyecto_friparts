@@ -491,18 +491,18 @@
                                 <input type="time" id="hora-fin-ensamble" required>
                             </div>
 
-                            <!-- Fila 3: Código Ensamble y Buje Componente (CORREGIDO) -->
+                            <!-- Fila 3: Buje Componente y Código Ensamble (REFACCIONADO) -->
                             <div class="form-group">
-                                <label for="ens-id-codigo"><i class="fas fa-box"></i> Código Ensamble (Producto
-                                    Final)</label>
-                                <select id="ens-id-codigo" required>
-                                    <option value="">-- Seleccionar Producto --</option>
+                                <label for="ens-buje-componente"><i class="fas fa-cube"></i> Buje Componente</label>
+                                <select id="ens-buje-componente" required>
+                                    <option value="">-- Seleccionar Buje --</option>
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="ens-buje-componente"><i class="fas fa-cube"></i> Buje Componente</label>
-                                <input type="text" id="ens-buje-componente" placeholder="Auto-completado" readonly
-                                    style="background-color: #f0f9ff; cursor: not-allowed;">
+                                <label for="ens-id-codigo"><i class="fas fa-box"></i> Código Ensamble (Producto
+                                    Final)</label>
+                                <input type="text" id="ens-id-codigo" placeholder="Auto-completado" readonly
+                                    style="background-color: #f0f9ff; cursor: not-allowed; font-weight: bold; color: var(--primary);">
                             </div>
 
                             <!-- Fila 4: QTY y Cantidad -->
@@ -640,6 +640,7 @@
                                     FR-)</label>
                                 <input type="text" id="pnc-manual-producto" list="pnc-productos-list"
                                     placeholder="Ej: 9304 o FR-9304" required>
+                                <datalist id="pnc-productos-list"></datalist>
                             </div>
 
                             <!-- Fila 2: Cantidad y Criterio -->
@@ -1085,20 +1086,20 @@
     </datalist>
 
     <!-- UTILITIES (compartidas) -->
-    <script src="/static/js/modules/utils.js?v=1769547548"></script> <!-- Modules (los que ya tienes) -->
+    <script src="/static/js/modules/utils.js?v=1769548135"></script> <!-- Modules (los que ya tienes) -->
     <!-- ... resto de módulos ... --> <!-- 1. UTILS primero (funciones compartidas) -->
     <!-- 2. APP PRINCIPAL (antes de los módulos) -->
-    <script src="/static/js/app.js?v=1769547548"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
-    <script src="/static/js/modules/dashboard.js?v=1769547548"></script>
-    <script src="/static/js/modules/inventario.js?v=1769547548"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1769547548"></script>
-    <script src="/static/js/modules/pulido.js?v=1769547548"></script>
-    <script src="/static/js/modules/ensamble.js?v=1769547548"></script>
-    <script src="/static/js/modules/pnc.js?v=1769547548"></script>
-    <script src="/static/js/modules/facturacion.js?v=1769547548"></script>
-    <script src="/static/js/modules/reportes.js?v=1769547548"></script>
-    <script src="/static/js/modules/mezcla.js?v=1769547548"></script>
-    <script src="/static/js/modules/historial.js?v=1769547548"></script>
+    <script src="/static/js/app.js?v=1769548135"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
+    <script src="/static/js/modules/dashboard.js?v=1769548135"></script>
+    <script src="/static/js/modules/inventario.js?v=1769548135"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1769548135"></script>
+    <script src="/static/js/modules/pulido.js?v=1769548135"></script>
+    <script src="/static/js/modules/ensamble.js?v=1769548135"></script>
+    <script src="/static/js/modules/pnc.js?v=1769548135"></script>
+    <script src="/static/js/modules/facturacion.js?v=1769548135"></script>
+    <script src="/static/js/modules/reportes.js?v=1769548135"></script>
+    <script src="/static/js/modules/mezcla.js?v=1769548135"></script>
+    <script src="/static/js/modules/historial.js?v=1769548135"></script>
     <!-- Script mínimo para inicialización -->
     <script>
         // Variables globales para el modal de defectos
