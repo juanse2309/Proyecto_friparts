@@ -186,8 +186,8 @@
                         </div>
                     </div> <!-- Botones de filtro -->
                     <div class="d-flex gap-2 mb-4" id="filtros-inventario"> <button type="button"
-                            class="btn btn-primary rounded-pill px-3 active">Todos</button> <button
-                            type="button" class="btn btn-light border rounded-pill px-3"> <i
+                            class="btn btn-primary rounded-pill px-3 active">Todos</button> <button type="button"
+                            class="btn btn-light border rounded-pill px-3"> <i
                                 class="fas fa-shopping-cart text-warning"></i> Por Pedir </button> <button type="button"
                             class="btn btn-light border rounded-pill px-3"> <i
                                 class="fas fa-check-circle text-success"></i> Stock OK </button> <button type="button"
@@ -285,17 +285,43 @@
                                         class="fas fa-sticky-note"></i> Observaciones</label> <textarea
                                     id="observaciones-inyeccion" rows="3"
                                     placeholder="Notas adicionales del proceso..."></textarea> </div>
-                            <!-- Producción Calculada -->
-                            <div class="form-group full-width"
-                                style="background: var(--color-secondary); padding: 12px; border-radius: 6px;"> <label
-                                    style="color: var(--color-text); font-weight: 600;"><i class="fas fa-chart-bar"></i>
-                                    Producción Calculada</label>
-                                <div id="produccion-calculada"
-                                    style="font-size: 18px; font-weight: bold; color: var(--color-primary); margin-top: 8px;">
-                                    0</div>
-                                <div id="formula-calc"
-                                    style="font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5;">
-                                    Disparos: 0 × Cavidades: 1 = 0 piezas</div>
+                            <!-- PRODUCCIÓN CALCULADA (Destacada) -->
+                            <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                       padding: 20px; 
+                                       border-radius: 12px;
+                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                                       margin: 20px 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                                    <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
+                                    <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
+                                        📊 Producción Calculada
+                                    </label>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.15); 
+                                            padding: 15px; 
+                                            border-radius: 8px;
+                                            backdrop-filter: blur(10px);">
+                                    <div id="produccion-calculada" style="font-size: 48px; 
+                                               font-weight: bold; 
+                                               color: white; 
+                                               text-align: center;
+                                               text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
+                                        0
+                                    </div>
+                                    <div id="formula-calc" style="font-size: 14px; 
+                                               color: rgba(255,255,255,0.9); 
+                                               text-align: center;
+                                               margin-top: 8px;">
+                                        Disparos: 0 × Cavidades: 1 = 0 piezas
+                                    </div>
+                                    <div id="piezas-buenas" style="font-size: 16px; 
+                                               color: #4ade80; 
+                                               text-align: center;
+                                               margin-top: 8px;
+                                               font-weight: 600;">
+                                        Total: 0 - PNC: 0 = 0 piezas buenas
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="form-actions"> <button type="submit" class="btn btn-primary"><i
@@ -997,21 +1023,26 @@
     <script src="/static/js/core/form-helpers.js"></script>
     <script src="/static/js/core/validation-helpers.js"></script>
     <script src="/static/js/core/data-reload-helpers.js"></script>
+    <!-- Datalist para autocompletar productos -->
+    <datalist id="productos-list">
+        <!-- Se llena dinámicamente desde JavaScript -->
+    </datalist>
+
     <!-- UTILITIES (compartidas) -->
-    <script src="/static/js/modules/utils.js?v=1769544449"></script> <!-- Modules (los que ya tienes) -->
+    <script src="/static/js/modules/utils.js?v=1769545938"></script> <!-- Modules (los que ya tienes) -->
     <!-- ... resto de módulos ... --> <!-- 1. UTILS primero (funciones compartidas) -->
     <!-- 2. APP PRINCIPAL (antes de los módulos) -->
-    <script src="/static/js/app.js?v=1769544449"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
-    <script src="/static/js/modules/dashboard.js?v=1769544449"></script>
-    <script src="/static/js/modules/inventario.js?v=1769544449"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1769544449"></script>
-    <script src="/static/js/modules/pulido.js?v=1769544449"></script>
-    <script src="/static/js/modules/ensamble.js?v=1769544449"></script>
-    <script src="/static/js/modules/pnc.js?v=1769544449"></script>
-    <script src="/static/js/modules/facturacion.js?v=1769544449"></script>
-    <script src="/static/js/modules/reportes.js?v=1769544449"></script>
-    <script src="/static/js/modules/mezcla.js?v=1769544449"></script>
-    <script src="/static/js/modules/historial.js?v=1769544449"></script>
+    <script src="/static/js/app.js?v=1769545938"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
+    <script src="/static/js/modules/dashboard.js?v=1769545938"></script>
+    <script src="/static/js/modules/inventario.js?v=1769545938"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1769545938"></script>
+    <script src="/static/js/modules/pulido.js?v=1769545938"></script>
+    <script src="/static/js/modules/ensamble.js?v=1769545938"></script>
+    <script src="/static/js/modules/pnc.js?v=1769545938"></script>
+    <script src="/static/js/modules/facturacion.js?v=1769545938"></script>
+    <script src="/static/js/modules/reportes.js?v=1769545938"></script>
+    <script src="/static/js/modules/mezcla.js?v=1769545938"></script>
+    <script src="/static/js/modules/historial.js?v=1769545938"></script>
     <!-- Script mínimo para inicialización -->
     <script>
         // Variables globales para el modal de defectos
