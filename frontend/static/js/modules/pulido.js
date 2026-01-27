@@ -2,6 +2,8 @@
 // pulido.js - Lógica de Pulido
 // ============================================
 
+let defectosPulido = [];
+
 /**
  * Cargar datos de Pulido
  */
@@ -16,11 +18,12 @@ async function cargarDatosPulido() {
             actualizarSelectPulido('responsable-pulido', responsables);
         }
 
-        // Usar productos del cache compartido (ya cargados en app.js)
+        // Usar productos del cache compartido
         if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
             console.log('✅ Usando productos del cache compartido en Pulido');
             const datalist = document.getElementById('productos-list');
-            if (datalist && datalist.children.length === 0) {
+            if (datalist) {
+                datalist.innerHTML = '';
                 window.AppState.sharedData.productos.forEach(p => {
                     const option = document.createElement('option');
                     option.value = p.codigo_sistema || p.codigo;
@@ -54,8 +57,9 @@ function actualizarSelectPulido(selectId, datos) {
         datos.forEach(item => {
             const option = document.createElement('option');
             if (typeof item === 'object') {
-                option.value = item.nombre || item.id || item;
-                option.textContent = item.nombre || item.id || item;
+                const val = item.nombre || item.id || item.codigo || '';
+                option.value = val;
+                option.textContent = val;
             } else {
                 option.value = item;
                 option.textContent = item;
@@ -88,8 +92,6 @@ async function registrarPulido() {
             observaciones: document.getElementById('observaciones-pulido')?.value || ''
         };
         
-        console.log('📦 Datos de pulido:', datos);
-        
         if (!datos.codigo_producto?.trim()) {
             mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
             mostrarLoading(false);
@@ -107,6 +109,8 @@ async function registrarPulido() {
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             document.getElementById('form-pulido')?.reset();
+            defectosPulido = [];
+            actualizarListaDefectosPulido();
             setTimeout(() => location.reload(), 1500);
         } else {
             mostrarNotificacion(`❌ ${resultado.error || 'Error'}`, 'error');
@@ -120,14 +124,13 @@ async function registrarPulido() {
 }
 
 /**
- * Actualizar cálculo de pulido en tiempo real
+ * Cálculo en tiempo real
  */
 function actualizarCalculoPulido() {
     const entrada = parseInt(document.getElementById('entrada-pulido')?.value) || 0;
     const pnc = parseInt(document.getElementById('pnc-pulido')?.value) || 0;
     const totalReal = Math.max(0, entrada - pnc);
     
-    // UI Elements
     const displaySalida = document.getElementById('salida-calculada');
     const formulaCalc = document.getElementById('formula-calc-pulido');
     const piezasBuenasDisplay = document.getElementById('piezas-buenas-pulido');
@@ -139,13 +142,76 @@ function actualizarCalculoPulido() {
     if (piezasBuenasDisplay) {
         piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalReal)} piezas buenas`;
     }
+    
+    // Actualizar también el campo de bujes buenos
+    const inputBuenos = document.getElementById('bujes-buenos-pulido');
+    if (inputBuenos) inputBuenos.value = totalReal;
 }
 
 /**
- * Abrir modal de defectos (Placeholder)
+ * Lógica del Modal de Defectos (PNC)
  */
 function abrirModalDefectos() {
-    console.log('Modal de defectos próximamente...');
+    const modal = new bootstrap.Modal(document.getElementById('modalDefectosPulido'));
+    modal.show();
+}
+
+function agregarDefectoPulido() {
+    const criterio = document.getElementById('modal-criterio-pulido').value;
+    const cantidad = parseInt(document.getElementById('modal-cantidad-pulido').value) || 0;
+    
+    if (!criterio || cantidad <= 0) {
+        mostrarNotificacion('⚠️ Seleccione defecto y cantidad', 'warning');
+        return;
+    }
+    
+    defectosPulido.push({ criterio, cantidad });
+    document.getElementById('modal-cantidad-pulido').value = '';
+    actualizarListaDefectosPulido();
+}
+
+function eliminarDefectoPulido(index) {
+    defectosPulido.splice(index, 1);
+    actualizarListaDefectosPulido();
+}
+
+function actualizarListaDefectosPulido() {
+    const lista = document.getElementById('modal-lista-defectos-pulido');
+    const totalSpan = document.getElementById('modal-total-pulido');
+    if (!lista || !totalSpan) return;
+    
+    lista.innerHTML = '';
+    let total = 0;
+    
+    defectosPulido.forEach((d, index) => {
+        total += d.cantidad;
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex justify-content-between align-items-center';
+        li.innerHTML = `
+            <span><strong>${d.criterio}</strong>: ${d.cantidad}</span>
+            <button onclick="eliminarDefectoPulido(${index})" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+        `;
+        lista.appendChild(li);
+    });
+    
+    totalSpan.textContent = total;
+}
+
+function aplicarDefectosPulido() {
+    let total = 0;
+    defectosPulido.forEach(d => total += d.cantidad);
+    
+    const inputPNC = document.getElementById('pnc-pulido');
+    if (inputPNC) {
+        inputPNC.value = total;
+        // Disparar evento input para recalcular piezas buenas
+        inputPNC.dispatchEvent(new Event('input'));
+    }
+    
+    const modal = bootstrap.Modal.getInstance(document.getElementById('modalDefectosPulido'));
+    if (modal) modal.hide();
+    
+    mostrarNotificacion(`✅ ${total} piezas PNC aplicadas`, 'success');
 }
 
 /**
@@ -155,7 +221,6 @@ function initPulido() {
     console.log('🔧 Inicializando módulo de Pulido...');
     cargarDatosPulido();
     
-    // Listeners
     document.getElementById('entrada-pulido')?.addEventListener('input', actualizarCalculoPulido);
     document.getElementById('pnc-pulido')?.addEventListener('input', actualizarCalculoPulido);
     
@@ -164,4 +229,15 @@ function initPulido() {
 
 // Exportar
 window.initPulido = initPulido;
-window.ModuloPulido = { inicializar: initPulido, abrirModalDefectos };
+window.ModuloPulido = { 
+    inicializar: initPulido, 
+    abrirModalDefectos,
+    agregarDefectoPulido, 
+    eliminarDefectoPulido, 
+    aplicarDefectosPulido 
+};
+
+// Hacer funciones globales para onclick
+window.agregarDefectoPulido = agregarDefectoPulido;
+window.eliminarDefectoPulido = eliminarDefectoPulido;
+window.aplicarDefectosPulido = aplicarDefectosPulido;

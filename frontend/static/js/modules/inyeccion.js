@@ -1,9 +1,9 @@
 ﻿// ============================================
-// inyeccion.js - L??gica de Inyecci??n (VERSI??N CORREGIDA)
+// inyeccion.js - Lógica de Inyección (VERSIÓN CORREGIDA)
 // ============================================
 
 /**
- * Cargar datos de inyecci??n
+ * Cargar datos de inyección
  */
 async function cargarDatosInyeccion() {
     try {
@@ -34,7 +34,7 @@ async function cargarDatosInyeccion() {
             console.warn('⚠️ No hay productos en cache compartido');
         }
 
-        // Cargar m??quinas
+        // Cargar máquinas
         const maquinas = await fetchData('/api/obtener_maquinas');
         if (maquinas) {
             actualizarSelectInyeccion('maquina-inyeccion', maquinas);
@@ -49,7 +49,7 @@ async function cargarDatosInyeccion() {
 }
 
 /**
- * Actualizar select en inyecci??n
+ * Actualizar select en inyección
  */
 function actualizarSelectInyeccion(selectId, datos) {
     const select = document.getElementById(selectId);
@@ -84,7 +84,7 @@ function actualizarSelectInyeccion(selectId, datos) {
 }
 
 /**
- * REGISTRAR INYECCI??N - FUNCI??N PRINCIPAL COMPLETA (22 CAMPOS)
+ * REGISTRAR INYECCIÓN - FUNCIÓN PRINCIPAL COMPLETA (22 CAMPOS)
  */
 async function registrarInyeccion() {
     try {

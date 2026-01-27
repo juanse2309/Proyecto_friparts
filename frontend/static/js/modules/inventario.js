@@ -253,17 +253,17 @@ function actualizarEstadisticasInventario(productos) {
     if (el_bajoStock) el_bajoStock.textContent = bajoStock;
     if (el_agotados) el_agotados.textContent = agotados;
 
-    console.log(`ðŸ“Š EstadÃ­sticas: Total=${totalProductos}, OK=${stockOK}, Bajo=${bajoStock}, Agotados=${agotados}`);
+    console.log(`📊 Estadísticas: Total=${totalProductos}, OK=${stockOK}, Bajo=${bajoStock}, Agotados=${agotados}`);
 }
 
 /**
- * Inicializar mÃ³dulo de inventario
+ * Inicializar módulo de inventario
  */
 function inicializarInventario() {
-    console.log('ðŸ”§ Inicializando mÃ³dulo de Inventario...');
+    console.log('🔧 Inicializando módulo de Inventario...');
     configurarEventosInventario();
     cargarProductos();
-    console.log('âœ… MÃ³dulo de Inventario inicializado');
+    console.log('✅ Módulo de Inventario inicializado');
 }
 
 /**
