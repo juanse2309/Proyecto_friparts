@@ -12,14 +12,16 @@ async function cargarDatosFacturacion() {
         
         // Cargar clientes
         const clientes = await fetchData('/api/obtener_clientes');
-        if (clientes) {
+        if (clientes && Array.isArray(clientes)) {
             actualizarSelectFacturacion('cliente-facturacion', clientes);
         }
         
-        // Cargar productos
-        const productos = await fetchData('/api/obtener_productos');
-        if (productos) {
-            actualizarSelectFacturacion('codigo-producto-facturacion', productos);
+        // Usar productos del cache compartido
+        if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
+            console.log('✅ Usando productos del cache compartido en Facturación');
+            actualizarSelectFacturacion('codigo-producto-facturacion', window.AppState.sharedData.productos);
+        } else {
+            console.warn('⚠️ No hay productos en cache compartido para Facturación');
         }
         
         console.log('✅ Datos de Facturación cargados');
@@ -43,8 +45,13 @@ function actualizarSelectFacturacion(selectId, datos) {
     if (datos && Array.isArray(datos)) {
         datos.forEach(item => {
             const option = document.createElement('option');
-            option.value = item;
-            option.textContent = item;
+            if (typeof item === 'object') {
+                option.value = item.codigo_sistema || item.codigo || item.id || item.nombre || '';
+                option.textContent = item.descripcion ? `${item.codigo_sistema || item.codigo} - ${item.descripcion}` : (item.nombre || item.id);
+            } else {
+                option.value = item;
+                option.textContent = item;
+            }
             select.appendChild(option);
         });
     }
@@ -68,22 +75,8 @@ async function registrarFacturacion() {
             observaciones: document.getElementById('observaciones-facturacion')?.value || ''
         };
         
-        console.log('📦 Datos de Facturación:', datos);
-        
-        if (!datos.cliente?.trim()) {
-            mostrarNotificacion('✅ Selecciona un cliente', 'error');
-            mostrarLoading(false);
-            return;
-        }
-        
-        if (!datos.codigo_producto?.trim()) {
-            mostrarNotificacion('✅ Ingresa código del producto', 'error');
-            mostrarLoading(false);
-            return;
-        }
-        
-        if (!datos.cantidad_vendida || datos.cantidad_vendida === '0') {
-            mostrarNotificacion('✅ Ingresa cantidad vendida', 'error');
+        if (!datos.cliente) {
+            mostrarNotificacion('⚠️ Selecciona un cliente', 'error');
             mostrarLoading(false);
             return;
         }
@@ -98,16 +91,13 @@ async function registrarFacturacion() {
         
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
-            limpiarFormulario('formulario-facturacion');
+            document.getElementById('formulario-facturacion')?.reset();
             setTimeout(() => location.reload(), 1500);
         } else {
-            const errores = resultado.errors 
-                ? Object.values(resultado.errors).join(', ') 
-                : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`✅ ${errores}`, 'error');
+            mostrarNotificacion(`❌ ${resultado.error || 'Error'}`, 'error');
         }
     } catch (error) {
-        console.error('Error registrando:', error);
+        console.error('Error register:', error);
         mostrarNotificacion(`Error: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
@@ -115,19 +105,14 @@ async function registrarFacturacion() {
 }
 
 /**
- * Inicializar módulo de facturacion
+ * Inicializar módulo
  */
 function initFacturacion() {
-    console.log('🔧 Inicializando módulo de facturacion...');
-    if (typeof cargarDatosFacturacion === 'function') {
-        cargarDatosFacturacion();
-    }
-    console.log('✅ Módulo de facturacion inicializado');
+    console.log('🔧 Inicializando módulo de Facturación...');
+    cargarDatosFacturacion();
+    console.log('✅ Módulo de Facturación inicializado');
 }
 
-// ============================================
-// EXPORTAR MÓDULO
-// ============================================
+// Exportar
 window.initFacturacion = initFacturacion;
 window.ModuloFacturacion = { inicializar: initFacturacion };
-

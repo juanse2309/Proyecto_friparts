@@ -410,17 +410,46 @@
                                     placeholder="Notas adicionales del proceso..."></textarea>
                             </div>
 
-                            <!-- Cantidad Real Calculada -->
-                            <div class="form-group full-width"
-                                style="background: var(--color-secondary); padding: 12px; border-radius: 6px;">
-                                <label style="color: var(--color-text); font-weight: 600;"><i
-                                        class="fas fa-chart-bar"></i> Cantidad Real (Calculada)</label>
-                                <div id="salida-calculada"
-                                    style="font-size: 18px; font-weight: bold; color: var(--color-primary); margin-top: 8px;">
-                                    0</div>
-                                <div id="formula-calc-pulido"
-                                    style="font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5;">
-                                    Recibida: 0 - PNC: 0 = 0 piezas pulidas</div>
+                            <!-- PRODUCCIÓN CALCULADA (Destacada) -->
+                            <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                       padding: 20px; 
+                                       border-radius: 12px;
+                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                                       margin: 20px 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                                    <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
+                                    <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
+                                        📊 Cantidad Real (Calculada)
+                                    </label>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.15); 
+                                            padding: 15px; 
+                                            border-radius: 8px;
+                                            backdrop-filter: blur(10px);">
+                                    <div id="salida-calculada" style="font-size: 48px; 
+                                               font-weight: bold; 
+                                               color: #10b981; 
+                                               text-align: center;
+                                               text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                                               line-height: 1;">
+                                        0
+                                    </div>
+                                    <div id="formula-calc-pulido" style="color: rgba(255,255,255,0.9); 
+                                               text-align: center; 
+                                               margin-top: 10px;
+                                               font-size: 14px;">
+                                        Recibida: 0 - PNC: 0 = 0 piezas pulidas
+                                    </div>
+                                    <div id="piezas-buenas-pulido" style="color: #4ade80; 
+                                               text-align: center; 
+                                               margin-top: 5px;
+                                               font-weight: 600;
+                                               font-size: 14px;
+                                               border-top: 1px solid rgba(255,255,255,0.1);
+                                               padding-top: 5px;">
+                                        Total: 0 piezas buenas
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -534,18 +563,45 @@
                                     placeholder="Notas adicionales..."></textarea>
                             </div>
 
-                            <!-- Resumen Calculado -->
-                            <div class="form-group full-width"
-                                style="background: var(--color-secondary); padding: 12px; border-radius: 6px;">
-                                <label style="color: var(--color-text); font-weight: 600;"><i
-                                        class="fas fa-chart-bar"></i> Resumen de Producción</label>
-                                <div id="resumen-ensamble"
-                                    style="font-size: 14px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.8;">
-                                    <div><strong>Bujes necesarios:</strong> <span id="bujes-necesarios">0</span></div>
-                                    <div><strong>Ensambles a producir:</strong> <span id="ensambles-producir">0</span>
+                            <!-- PRODUCCIÓN CALCULADA (Destacada) -->
+                            <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                       padding: 20px; 
+                                       border-radius: 12px;
+                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                                       margin: 20px 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                                    <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
+                                    <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
+                                        📊 Resumen de Producción
+                                    </label>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.15); 
+                                            padding: 15px; 
+                                            border-radius: 8px;
+                                            backdrop-filter: blur(10px);">
+                                    <div id="produccion-calculada-ensamble" style="font-size: 48px; 
+                                               font-weight: bold; 
+                                               color: #10b981; 
+                                               text-align: center;
+                                               text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                                               line-height: 1;">
+                                        0
                                     </div>
-                                    <div><strong>Ensambles buenos:</strong> <span id="ensambles-buenos"
-                                            style="color: #10b981; font-weight: bold;">0</span></div>
+                                    <div id="formula-calc-ensamble" style="color: rgba(255,255,255,0.9); 
+                                               text-align: center; 
+                                               margin-top: 10px;
+                                               font-size: 14px;">
+                                        Ensambles: 0 - PNC: 0 = 0 finales
+                                    </div>
+                                    <div id="piezas-buenas-ensamble" style="color: #4ade80; 
+                                               text-align: center; 
+                                               margin-top: 5px;
+                                               font-weight: 600;
+                                               font-size: 14px;
+                                               border-top: 1px solid rgba(255,255,255,0.1);
+                                               padding-top: 5px;">
+                                        Bujes consumidos: 0
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1029,20 +1085,20 @@
     </datalist>
 
     <!-- UTILITIES (compartidas) -->
-    <script src="/static/js/modules/utils.js?v=1769546875"></script> <!-- Modules (los que ya tienes) -->
+    <script src="/static/js/modules/utils.js?v=1769547548"></script> <!-- Modules (los que ya tienes) -->
     <!-- ... resto de módulos ... --> <!-- 1. UTILS primero (funciones compartidas) -->
     <!-- 2. APP PRINCIPAL (antes de los módulos) -->
-    <script src="/static/js/app.js?v=1769546875"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
-    <script src="/static/js/modules/dashboard.js?v=1769546875"></script>
-    <script src="/static/js/modules/inventario.js?v=1769546875"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1769546875"></script>
-    <script src="/static/js/modules/pulido.js?v=1769546875"></script>
-    <script src="/static/js/modules/ensamble.js?v=1769546875"></script>
-    <script src="/static/js/modules/pnc.js?v=1769546875"></script>
-    <script src="/static/js/modules/facturacion.js?v=1769546875"></script>
-    <script src="/static/js/modules/reportes.js?v=1769546875"></script>
-    <script src="/static/js/modules/mezcla.js?v=1769546875"></script>
-    <script src="/static/js/modules/historial.js?v=1769546875"></script>
+    <script src="/static/js/app.js?v=1769547548"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
+    <script src="/static/js/modules/dashboard.js?v=1769547548"></script>
+    <script src="/static/js/modules/inventario.js?v=1769547548"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1769547548"></script>
+    <script src="/static/js/modules/pulido.js?v=1769547548"></script>
+    <script src="/static/js/modules/ensamble.js?v=1769547548"></script>
+    <script src="/static/js/modules/pnc.js?v=1769547548"></script>
+    <script src="/static/js/modules/facturacion.js?v=1769547548"></script>
+    <script src="/static/js/modules/reportes.js?v=1769547548"></script>
+    <script src="/static/js/modules/mezcla.js?v=1769547548"></script>
+    <script src="/static/js/modules/historial.js?v=1769547548"></script>
     <!-- Script mínimo para inicialización -->
     <script>
         // Variables globales para el modal de defectos

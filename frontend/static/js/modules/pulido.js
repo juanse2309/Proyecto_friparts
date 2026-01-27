@@ -16,10 +16,20 @@ async function cargarDatosPulido() {
             actualizarSelectPulido('responsable-pulido', responsables);
         }
 
-        // Cargar productos
-        const productos = await fetchData('/api/obtener_productos');
-        if (productos && Array.isArray(productos)) {
-            actualizarSelectPulido('codigo-producto-pulido', productos);
+        // Usar productos del cache compartido (ya cargados en app.js)
+        if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
+            console.log('✅ Usando productos del cache compartido en Pulido');
+            const datalist = document.getElementById('productos-list');
+            if (datalist && datalist.children.length === 0) {
+                window.AppState.sharedData.productos.forEach(p => {
+                    const option = document.createElement('option');
+                    option.value = p.codigo_sistema || p.codigo;
+                    option.textContent = `${p.codigo_sistema || p.codigo} - ${p.descripcion}`;
+                    datalist.appendChild(option);
+                });
+            }
+        } else {
+            console.warn('⚠️ No hay productos en cache compartido para Pulido');
         }
 
         console.log('✅ Datos de pulido cargados');
@@ -35,10 +45,7 @@ async function cargarDatosPulido() {
  */
 function actualizarSelectPulido(selectId, datos) {
     const select = document.getElementById(selectId);
-    if (!select) {
-        console.warn(`⚠️ Select no encontrado: ${selectId}`);
-        return;
-    }
+    if (!select) return;
     
     const currentValue = select.value;
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
@@ -46,18 +53,15 @@ function actualizarSelectPulido(selectId, datos) {
     if (datos && Array.isArray(datos)) {
         datos.forEach(item => {
             const option = document.createElement('option');
-            
-            if (typeof item === 'object' && item !== null) {
-                option.value = item.codigo || item.PRODUCTO || item.descripcion || '';
-                option.textContent = `${item.codigo || ''} - ${item.descripcion || item.PRODUCTO || ''}`;
+            if (typeof item === 'object') {
+                option.value = item.nombre || item.id || item;
+                option.textContent = item.nombre || item.id || item;
             } else {
                 option.value = item;
                 option.textContent = item;
             }
-            
             select.appendChild(option);
         });
-        console.log(`✅ ${datos.length} opciones agregadas a ${selectId}`);
     }
     
     if (currentValue) select.value = currentValue;
@@ -69,56 +73,46 @@ function actualizarSelectPulido(selectId, datos) {
 async function registrarPulido() {
     try {
         mostrarLoading(true);
-
+        
         const datos = {
-            codigo_producto: document.getElementById('codigo-producto-pulido')?.value || '',
-            cantidad_recibida: document.getElementById('cantidad-pulido')?.value || '0',
-            pnc: document.getElementById('pnc-pulido')?.value || '0',
+            fecha: document.getElementById('fecha-pulido')?.value || '',
             responsable: document.getElementById('responsable-pulido')?.value || '',
-            fecha_inicio: document.getElementById('fecha-inicio-pulido')?.value || new Date().toISOString().split('T')[0],
+            hora_inicio: document.getElementById('hora-inicio-pulido')?.value || '',
+            hora_fin: document.getElementById('hora-fin-pulido')?.value || '',
+            codigo_producto: document.getElementById('codigo-producto-pulido')?.value || '',
+            lote: document.getElementById('lote-pulido')?.value || '',
+            orden_produccion: document.getElementById('orden-produccion-pulido')?.value || '',
+            entrada: document.getElementById('entrada-pulido')?.value || '0',
+            bujes_buenos: document.getElementById('bujes-buenos-pulido')?.value || '0',
+            pnc: document.getElementById('pnc-pulido')?.value || '0',
             observaciones: document.getElementById('observaciones-pulido')?.value || ''
         };
-
-        console.log('📊 Datos de pulido:', datos);
-
+        
+        console.log('📦 Datos de pulido:', datos);
+        
         if (!datos.codigo_producto?.trim()) {
             mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
             mostrarLoading(false);
             return;
         }
-
-        if (!datos.cantidad_recibida || datos.cantidad_recibida === '0') {
-            mostrarNotificacion('⚠️ Ingresa cantidad recibida', 'error');
-            mostrarLoading(false);
-            return;
-        }
-
-        if (!datos.responsable?.trim()) {
-            mostrarNotificacion('⚠️ Selecciona responsable', 'error');
-            mostrarLoading(false);
-            return;
-        }
-
+        
         const response = await fetch('/api/pulido', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
         });
-
+        
         const resultado = await response.json();
-
+        
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
-            limpiarFormulario('formulario-pulido');
+            document.getElementById('form-pulido')?.reset();
             setTimeout(() => location.reload(), 1500);
         } else {
-            const errores = resultado.errors
-                ? Object.values(resultado.errors).join(', ')
-                : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`❌ ${errores}`, 'error');
+            mostrarNotificacion(`❌ ${resultado.error || 'Error'}`, 'error');
         }
     } catch (error) {
-        console.error('Error registrando:', error);
+        console.error('Error:', error);
         mostrarNotificacion(`Error: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
@@ -126,18 +120,48 @@ async function registrarPulido() {
 }
 
 /**
- * Inicializar módulo de Pulido
+ * Actualizar cálculo de pulido en tiempo real
+ */
+function actualizarCalculoPulido() {
+    const entrada = parseInt(document.getElementById('entrada-pulido')?.value) || 0;
+    const pnc = parseInt(document.getElementById('pnc-pulido')?.value) || 0;
+    const totalReal = Math.max(0, entrada - pnc);
+    
+    // UI Elements
+    const displaySalida = document.getElementById('salida-calculada');
+    const formulaCalc = document.getElementById('formula-calc-pulido');
+    const piezasBuenasDisplay = document.getElementById('piezas-buenas-pulido');
+    
+    if (displaySalida) displaySalida.textContent = formatNumber(totalReal);
+    if (formulaCalc) {
+        formulaCalc.textContent = `Recibida: ${formatNumber(entrada)} - PNC: ${formatNumber(pnc)} = ${formatNumber(totalReal)} piezas pulidas`;
+    }
+    if (piezasBuenasDisplay) {
+        piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalReal)} piezas buenas`;
+    }
+}
+
+/**
+ * Abrir modal de defectos (Placeholder)
+ */
+function abrirModalDefectos() {
+    console.log('Modal de defectos próximamente...');
+}
+
+/**
+ * Inicializar módulo
  */
 function initPulido() {
     console.log('🔧 Inicializando módulo de Pulido...');
     cargarDatosPulido();
+    
+    // Listeners
+    document.getElementById('entrada-pulido')?.addEventListener('input', actualizarCalculoPulido);
+    document.getElementById('pnc-pulido')?.addEventListener('input', actualizarCalculoPulido);
+    
     console.log('✅ Módulo de Pulido inicializado');
 }
 
-// ============================================
-// EXPORTAR MÓDULO
-// ============================================
+// Exportar
 window.initPulido = initPulido;
-window.ModuloPulido = { inicializar: initPulido };
-
-
+window.ModuloPulido = { inicializar: initPulido, abrirModalDefectos };

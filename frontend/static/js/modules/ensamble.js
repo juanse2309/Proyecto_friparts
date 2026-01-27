@@ -12,14 +12,16 @@ async function cargarDatosEnsamble() {
         
         // Cargar responsables
         const responsables = await fetchData('/api/obtener_responsables');
-        if (responsables) {
+        if (responsables && Array.isArray(responsables)) {
             actualizarSelectEnsamble('responsable-ensamble', responsables);
         }
         
-        // Cargar productos
-        const productos = await fetchData('/api/obtener_productos');
-        if (productos) {
-            actualizarSelectEnsamble('codigo-producto-ensamble', productos);
+        // Usar productos del cache compartido
+        if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
+            console.log('✅ Usando productos del cache compartido en Ensamble');
+            actualizarSelectEnsamble('ens-id-codigo', window.AppState.sharedData.productos);
+        } else {
+            console.warn('⚠️ No hay productos en cache compartido para Ensamble');
         }
         
         console.log('✅ Datos de ensamble cargados');
@@ -43,8 +45,13 @@ function actualizarSelectEnsamble(selectId, datos) {
     if (datos && Array.isArray(datos)) {
         datos.forEach(item => {
             const option = document.createElement('option');
-            option.value = item;
-            option.textContent = item;
+            if (typeof item === 'object') {
+                option.value = item.codigo_sistema || item.codigo || item.nombre || item.id || '';
+                option.textContent = item.descripcion ? `${item.codigo_sistema || item.codigo} - ${item.descripcion}` : (item.nombre || item.id);
+            } else {
+                option.value = item;
+                option.textContent = item;
+            }
             select.appendChild(option);
         });
     }
@@ -60,30 +67,22 @@ async function registrarEnsamble() {
         mostrarLoading(true);
         
         const datos = {
-            codigo_producto: document.getElementById('codigo-producto-ensamble')?.value || '',
-            cantidad: document.getElementById('cantidad-ensamble')?.value || '0',
-            pnc: document.getElementById('pnc-ensamble')?.value || '0',
+            fecha: document.getElementById('fecha-ensamble')?.value || '',
             responsable: document.getElementById('responsable-ensamble')?.value || '',
-            fecha_inicio: document.getElementById('fecha-inicio-ensamble')?.value || new Date().toISOString().split('T')[0],
+            hora_inicio: document.getElementById('hora-inicio-ensamble')?.value || '',
+            hora_fin: document.getElementById('hora-fin-ensamble')?.value || '',
+            codigo_producto: document.getElementById('ens-id-codigo')?.value || '',
+            qty_per_ensamble: document.getElementById('ens-qty-bujes')?.value || '1',
+            cantidad: document.getElementById('cantidad-ensamble')?.value || '0',
+            almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || '',
+            almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || '',
+            op: document.getElementById('op-ensamble')?.value || '',
+            pnc: document.getElementById('pnc-ensamble')?.value || '0',
             observaciones: document.getElementById('observaciones-ensamble')?.value || ''
         };
         
-        console.log('📦 Datos de ensamble:', datos);
-        
-        if (!datos.codigo_producto?.trim()) {
-            mostrarNotificacion('✅ Ingresa código del producto', 'error');
-            mostrarLoading(false);
-            return;
-        }
-        
-        if (!datos.cantidad || datos.cantidad === '0') {
-            mostrarNotificacion('✅ Ingresa cantidad', 'error');
-            mostrarLoading(false);
-            return;
-        }
-        
-        if (!datos.responsable?.trim()) {
-            mostrarNotificacion('✅ Selecciona responsable', 'error');
+        if (!datos.codigo_producto) {
+            mostrarNotificacion('⚠️ Selecciona un producto', 'error');
             mostrarLoading(false);
             return;
         }
@@ -98,16 +97,13 @@ async function registrarEnsamble() {
         
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
-            limpiarFormulario('formulario-ensamble');
+            document.getElementById('form-ensamble')?.reset();
             setTimeout(() => location.reload(), 1500);
         } else {
-            const errores = resultado.errors 
-                ? Object.values(resultado.errors).join(', ') 
-                : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`✅ ${errores}`, 'error');
+            mostrarNotificacion(`❌ ${resultado.error || 'Error'}`, 'error');
         }
     } catch (error) {
-        console.error('Error registrando:', error);
+        console.error('Error:', error);
         mostrarNotificacion(`Error: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
@@ -115,18 +111,45 @@ async function registrarEnsamble() {
 }
 
 /**
- * Inicializar módulo de Ensamble
+ * Actualizar cálculo de ensamble en tiempo real
+ */
+function actualizarCalculoEnsamble() {
+    const cantidad = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
+    const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
+    const qtyPerEnsamble = parseInt(document.getElementById('ens-qty-bujes')?.value) || 1;
+    
+    const ensamblesBuenos = Math.max(0, cantidad - pnc);
+    const bujesConsumidos = cantidad * qtyPerEnsamble;
+    
+    // UI Elements
+    const displaySalida = document.getElementById('produccion-calculada-ensamble');
+    const formulaCalc = document.getElementById('formula-calc-ensamble');
+    const piezasBuenasDisplay = document.getElementById('piezas-buenas-ensamble');
+    
+    if (displaySalida) displaySalida.textContent = formatNumber(ensamblesBuenos);
+    if (formulaCalc) {
+        formulaCalc.textContent = `Ensambles: ${formatNumber(cantidad)} - PNC: ${formatNumber(pnc)} = ${formatNumber(ensamblesBuenos)} finales`;
+    }
+    if (piezasBuenasDisplay) {
+        piezasBuenasDisplay.textContent = `Bujes consumidos: ${formatNumber(bujesConsumidos)}`;
+    }
+}
+
+/**
+ * Inicializar módulo
  */
 function initEnsamble() {
     console.log('🔧 Inicializando módulo de Ensamble...');
     cargarDatosEnsamble();
+    
+    // Listeners
+    document.getElementById('cantidad-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
+    document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
+    document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);
+    
     console.log('✅ Módulo de Ensamble inicializado');
 }
 
-// ============================================
-// EXPORTAR MÓDULO
-// ============================================
+// Exportar
 window.initEnsamble = initEnsamble;
 window.ModuloEnsamble = { inicializar: initEnsamble };
-
-
