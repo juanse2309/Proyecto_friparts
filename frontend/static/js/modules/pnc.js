@@ -145,3 +145,4 @@ async function registrarPNC() {
         mostrarLoading(false);
     }
 }
+window.ModuloPNC = { inicializar: inicializarPNC };

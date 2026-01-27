@@ -7,18 +7,18 @@
  */
 async function inicializarDashboard() {
     try {
-        console.log('???? Inicializando dashboard...');
+        console.log('📊 Inicializando dashboard...');
         mostrarLoading(true);
-        
+
         // Obtener datos del dashboard
         const dataReal = await fetchData('/api/dashboard/real');
-        
+
         if (dataReal) {
-            console.log('??? Dashboard datos reales:', dataReal);
+            console.log('✅ Dashboard datos reales:', dataReal);
             actualizarDashboardUI(dataReal);
-            console.log('??? Dashboard actualizado');
+            console.log('✅ Dashboard actualizado');
         }
-        
+
         mostrarLoading(false);
     } catch (error) {
         console.error('Error inicializando dashboard:', error);
@@ -27,21 +27,21 @@ async function inicializarDashboard() {
 }
 
 /**
- * Actualizar UI del Dashboard - VERSI??N FINAL LIMPIA
+ * Actualizar UI del Dashboard - VERSIÓN FINAL LIMPIA
  */
 function actualizarDashboardUI(data) {
     try {
-        // Buscar todos los h3 en la p??gina
+        // Buscar todos los h3 en la página
         const titulos = document.querySelectorAll('h3');
-        
+
         titulos.forEach(titulo => {
             const texto = titulo.textContent.trim();
-            
-            // Encontrar el primer span/div con n??mero despu??s del h3
+
+            // Encontrar el primer span/div con número después del h3
             let elemento = titulo.nextElementSibling;
             let spanEncontrado = null;
             let intentos = 0;
-            
+
             while (elemento && !spanEncontrado && intentos < 5) {
                 const span = elemento.querySelector('span');
                 if (span && /^\d|^\$/.test(span.textContent.trim())) {
@@ -51,28 +51,35 @@ function actualizarDashboardUI(data) {
                 elemento = elemento.nextElementSibling;
                 intentos++;
             }
-            
-            // Actualizar seg??n el t??tulo
-            if (texto.includes('Producci??n Total') && spanEncontrado) {
+
+            // Actualizar según el título
+            if (texto.includes('Producción Total') && spanEncontrado) {
                 spanEncontrado.textContent = formatNumber(data.produccion_total || 0);
-                console.log('??? Producci??n:', data.produccion_total);
+                console.log('✅ Producción:', data.produccion_total);
             }
             else if (texto.includes('Ventas Totales') && spanEncontrado) {
                 spanEncontrado.textContent = `$${formatNumber(data.ventas_totales || 0)}`;
-                console.log('??? Ventas:', data.ventas_totales);
+                console.log('✅ Ventas:', data.ventas_totales);
             }
             else if (texto.includes('Eficiencia Global') && spanEncontrado) {
                 spanEncontrado.textContent = `${(data.eficiencia_global || 0).toFixed(1)}%`;
-                console.log('??? Eficiencia:', data.eficiencia_global);
+                console.log('✅ Eficiencia:', data.eficiencia_global);
             }
-            else if (texto.includes('Stock Cr??tico') && spanEncontrado) {
+            else if (texto.includes('Stock Crítico') && spanEncontrado) {
                 spanEncontrado.textContent = data.stock_critico || 0;
-                console.log('??? Stock:', data.stock_critico);
+                console.log('✅ Stock:', data.stock_critico);
             }
         });
-        
-        console.log('??? Dashboard UI actualizado completamente');
+
+        console.log('✅ Dashboard UI actualizado completamente');
     } catch (error) {
         console.error('Error actualizando UI:', error);
     }
 }
+
+// ============================================
+// EXPORTAR MÓDULO
+// ============================================
+window.ModuloDashboard = {
+    inicializar: inicializarDashboard
+};

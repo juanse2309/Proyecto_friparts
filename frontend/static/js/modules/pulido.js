@@ -113,3 +113,4 @@ async function registrarPulido() {
         mostrarLoading(false);
     }
 }
+window.ModuloPulido = { inicializar: inicializarPulido };

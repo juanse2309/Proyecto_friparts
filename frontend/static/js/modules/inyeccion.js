@@ -337,3 +337,5 @@ document.addEventListener('DOMContentLoaded', function() {
         initInyeccion();
     }
 });
+// Exportar módulos
+window.ModuloInyeccion = { inicializar: inicializarInyeccion };

@@ -113,3 +113,4 @@ async function registrarEnsamble() {
         mostrarLoading(false);
     }
 }
+window.ModuloEnsamble = { inicializar: inicializarEnsamble };

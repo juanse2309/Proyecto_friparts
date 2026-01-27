@@ -1,5 +1,5 @@
 // ============================================
-// inventario.js - L??gica de Inventario
+// inventario.js - Lógica de Inventario
 // ============================================
 
 /**
@@ -7,33 +7,33 @@
  */
 async function cargarProductos() {
     try {
-        console.log('???? Cargando productos...');
+        console.log('📦 Cargando productos...');
         mostrarLoading(true);
-        
+
         const response = await fetch('/api/productos/listar');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        
+
         const data = await response.json();
         console.log('Datos recibidos:', data);
-        
+
         let listaFinal = [];
         if (data.items && Array.isArray(data.items)) {
             listaFinal = data.items;
         } else if (Array.isArray(data)) {
             listaFinal = data;
         }
-        
+
         if (listaFinal.length > 0) {
             window.AppState.productosData = listaFinal;
             renderizarTablaProductos(listaFinal);
             actualizarEstadisticasInventario(listaFinal);
-            console.log('??? Productos cargados:', listaFinal.length);
+            console.log('✅ Productos cargados:', listaFinal.length);
         } else {
             mostrarNotificacion('No hay productos para mostrar', 'warning');
         }
-        
+
         mostrarLoading(false);
     } catch (error) {
         console.error('Error cargando productos:', error);
@@ -48,15 +48,15 @@ async function cargarProductos() {
 function renderizarTablaProductos(productos) {
     const tbody = document.getElementById('tabla-productos-body');
     if (!tbody) {
-        console.error('No se encontr?? tabla-productos-body');
+        console.error('No se encontró tabla-productos-body');
         return;
     }
-    
+
     if (!productos || productos.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No hay productos</td></tr>';
         return;
     }
-    
+
     tbody.innerHTML = productos.map(p => `
         <tr>
             <td>${p.codigo || '-'}</td>
@@ -69,15 +69,15 @@ function renderizarTablaProductos(productos) {
 }
 
 /**
- * Actualizar estad??sticas de inventario
+ * Actualizar estadísticas de inventario
  */
 function actualizarEstadisticasInventario(productos) {
     const statsDiv = document.getElementById('estadisticas-inventario');
     if (!statsDiv) return;
-    
+
     const totalProductos = productos.length;
     const stockTotal = productos.reduce((sum, p) => sum + (parseFloat(p.stock) || 0), 0);
-    
+
     statsDiv.innerHTML = `
         <div style="display: flex; gap: 20px; margin-bottom: 20px;">
             <div style="flex: 1; padding: 15px; background: #f0f0f0; border-radius: 8px;">
@@ -93,9 +93,24 @@ function actualizarEstadisticasInventario(productos) {
 }
 
 /**
+ * Inicializar módulo de inventario
+ */
+function inicializarInventario() {
+    configurarEventosInventario();
+    cargarProductos();
+}
+
+/**
  * Configurar eventos de inventario
  */
 function configurarEventosInventario() {
     console.log('Configurando eventos de inventario...');
-    // Aqu?? ir??an event listeners si hay filtros, b??squeda, etc
+    // Aquí irían event listeners si hay filtros, búsqueda, etc
 }
+
+// ============================================
+// EXPORTAR MÓDULO
+// ============================================
+window.ModuloInventario = {
+    inicializar: inicializarInventario
+};

@@ -113,3 +113,4 @@ async function registrarFacturacion() {
         mostrarLoading(false);
     }
 }
+window.ModuloFacturacion = { inicializar: inicializarFacturacion };
