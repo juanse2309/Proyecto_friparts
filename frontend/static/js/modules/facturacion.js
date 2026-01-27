@@ -1,153 +1,115 @@
-// facturacion.js - MÓDULO DE FACTURACIÓN
-// ===========================================
+// ============================================
+// facturacion.js - L??gica de Facturaci??n
+// ============================================
 
-const ModuloFacturacion = (() => {
-    // Variable privada para evitar envíos dobles
-    let isSubmitting = false;
-
-    /**
-     * Inicializa el módulo, configura eventos y carga datos.
-     */
-    function inicializar() {
-
-        cargarSelectores();
-        configurarEventos();
-        establecerFechaActual();
-
-
-    }
-
-    /**
-     * Carga clientes y productos desde AppState.sharedData.
-     */
-    function cargarSelectores() {
-        const { clientes } = window.AppState.sharedData || {};
-
-        // Poblar Clientes
-        const selectCliente = document.getElementById('cliente-facturacion');
-        if (selectCliente && clientes) {
-            selectCliente.innerHTML = '<option value="">-- Seleccionar Cliente --</option>';
-            clientes.forEach(c => {
-                const option = document.createElement('option');
-                option.value = c;
-                option.textContent = c;
-                selectCliente.appendChild(option);
-            });
+/**
+ * Cargar datos de Facturaci??n
+ */
+async function cargarDatosFacturacion() {
+    try {
+        console.log('???? Cargando datos de facturaci??n...');
+        mostrarLoading(true);
+        
+        // Cargar clientes
+        const clientes = await fetchData('/api/obtener_clientes');
+        if (clientes) {
+            actualizarSelectFacturacion('cliente-facturacion', clientes);
         }
-
-        // Configurar datalist de productos (Nuevo sistema con búsqueda)
-        FormHelpers.configurarDatalistProductos('producto-facturacion', 'fac-productos-list');
-    }
-
-    /**
-     * Configura listeners de eventos del formulario.
-     */
-    function configurarEventos() {
-        const form = document.getElementById('form-facturacion');
-        if (form) {
-            form.removeEventListener('submit', registrarVenta);
-            form.addEventListener('submit', registrarVenta);
+        
+        // Cargar productos
+        const productos = await fetchData('/api/obtener_productos');
+        if (productos) {
+            actualizarSelectFacturacion('codigo-producto-facturacion', productos);
         }
-
-        // Suscribirse a cambios en cantidad y precio para el Total
-        const cantInput = document.getElementById('cantidad-facturacion');
-        const precioInput = document.getElementById('precio-facturacion');
-
-        if (cantInput && precioInput) {
-            [cantInput, precioInput].forEach(input => {
-                input.addEventListener('input', actualizarTotal);
-            });
-        }
+        
+        console.log('??? Datos de facturaci??n cargados');
+        mostrarLoading(false);
+    } catch (error) {
+        console.error('Error cargando datos:', error);
+        mostrarLoading(false);
     }
+}
 
-    /**
-     * Calcula y muestra el total en tiempo real.
-     */
-    function actualizarTotal() {
-        const cant = parseInt(document.getElementById('cantidad-facturacion').value) || 0;
-        const precio = parseFloat(document.getElementById('precio-facturacion').value) || 0;
-        const total = cant * precio;
-
-        const totalSpan = document.getElementById('total-facturacion');
-        if (totalSpan) {
-            totalSpan.textContent = `$ ${total.toLocaleString('es-CO', { minimumFractionDigits: 2 })}`;
-        }
+/**
+ * Actualizar select en Facturaci??n
+ */
+function actualizarSelectFacturacion(selectId, datos) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">-- Seleccionar --</option>';
+    
+    if (datos && Array.isArray(datos)) {
+        datos.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item;
+            option.textContent = item;
+            select.appendChild(option);
+        });
     }
+    
+    if (currentValue) select.value = currentValue;
+}
 
-    /**
-     * Establece la fecha de hoy por defecto.
-     */
-    function establecerFechaActual() {
-        const input = document.getElementById('fecha-facturacion');
-        if (input && !input.value) {
-            input.value = new Date().toISOString().split('T')[0];
-        }
-    }
-
-    /**
-     * Envía los datos al backend para registro en Sheets.
-     */
-    async function registrarVenta(e) {
-        if (e) e.preventDefault();
-        if (isSubmitting) return;
-
-        const data = {
-            fecha_inicio: document.getElementById('fecha-facturacion').value,
-            cliente: document.getElementById('cliente-facturacion').value,
-            codigo_producto: document.getElementById('producto-facturacion').value,
-            cantidad_vendida: document.getElementById('cantidad-facturacion').value,
-            precio_unitario: document.getElementById('precio-facturacion').value,
-            orden_compra: document.getElementById('orden-compra-facturacion').value,
-            total_venta: (parseInt(document.getElementById('cantidad-facturacion').value) || 0) *
-                (parseFloat(document.getElementById('precio-facturacion').value) || 0)
+/**
+ * Registrar Facturaci??n
+ */
+async function registrarFacturacion() {
+    try {
+        mostrarLoading(true);
+        
+        const datos = {
+            cliente: document.getElementById('cliente-facturacion')?.value || '',
+            codigo_producto: document.getElementById('codigo-producto-facturacion')?.value || '',
+            cantidad_vendida: document.getElementById('cantidad-facturacion')?.value || '0',
+            total_venta: document.getElementById('total-facturacion')?.value || '0',
+            fecha_inicio: document.getElementById('fecha-facturacion')?.value || new Date().toISOString().split('T')[0],
+            observaciones: document.getElementById('observaciones-facturacion')?.value || ''
         };
-
-        // Validación extra Jonathan
-        if (!data.cliente || !data.codigo_producto || !data.cantidad_vendida) {
-            mostrarNotificacion('Por favor completa los campos obligatorios', 'warning');
+        
+        console.log('???? Datos de facturaci??n:', datos);
+        
+        if (!datos.cliente?.trim()) {
+            mostrarNotificacion('??? Selecciona un cliente', 'error');
+            mostrarLoading(false);
             return;
         }
-
-        try {
-            isSubmitting = true;
-            mostrarLoading(true);
-
-            const res = await fetch('/api/facturacion', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-
-            const result = await res.json();
-
-            if (res.ok && (result.status === 'success' || result.success)) {
-                mostrarNotificacion(result.message || 'Venta registrada con éxito', 'success');
-                document.getElementById('form-facturacion').reset();
-                actualizarTotal();
-                establecerFechaActual();
-
-                // Invalidad cache global de productos si fue exitoso
-                if (window.invalidarCacheProductos) window.invalidarCacheProductos();
-            } else {
-                throw new Error(result.message || result.error || 'Error al registrar');
-            }
-
-        } catch (error) {
-            console.error('🚨 Error en Facturación:', error);
-            mostrarNotificacion(error.message, 'error');
-        } finally {
-            isSubmitting = false;
+        
+        if (!datos.codigo_producto?.trim()) {
+            mostrarNotificacion('??? Ingresa c??digo del producto', 'error');
             mostrarLoading(false);
+            return;
         }
+        
+        if (!datos.cantidad_vendida || datos.cantidad_vendida === '0') {
+            mostrarNotificacion('??? Ingresa cantidad vendida', 'error');
+            mostrarLoading(false);
+            return;
+        }
+        
+        const response = await fetch('/api/facturacion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(datos)
+        });
+        
+        const resultado = await response.json();
+        
+        if (response.ok && resultado.success) {
+            mostrarNotificacion(`??? ${resultado.mensaje}`, 'success');
+            limpiarFormulario('formulario-facturacion');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            const errores = resultado.errors 
+                ? Object.values(resultado.errors).join(', ') 
+                : resultado.error || 'Error desconocido';
+            mostrarNotificacion(`??? ${errores}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error registrando:', error);
+        mostrarNotificacion(`Error: ${error.message}`, 'error');
+    } finally {
+        mostrarLoading(false);
     }
-
-    // Exportar interfaz Jonathan
-    return {
-        inicializar,
-        recargarSelectores: cargarSelectores // Por si AppState cambia
-    };
-})();
-
-// Asignar al scope global
-window.ModuloFacturacion = ModuloFacturacion;
-window.registrarFacturacion = ModuloFacturacion.inicializar; // Alias compatible
+}

@@ -1,5 +1,5 @@
 // ============================================
-// config.js - Configuración global
+// config.js - Configuraci??n global
 // ============================================
 
 // Estado global
