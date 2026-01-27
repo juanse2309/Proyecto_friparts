@@ -171,14 +171,18 @@ def buscar_producto_en_inventario(codigo_sistema):
         registros = ws.get_all_records()
         
         for idx, r in enumerate(registros):
-            if str(r.get('CODIGO SISTEMA', '')).strip() == codigo_sistema:
+            val_hoja = str(r.get('CODIGO SISTEMA', '')).strip()
+            # Comparacion robusta: permite "9304" match "FR-9304" y viceversa
+            if val_hoja == codigo_sistema or \
+               val_hoja.replace('FR-', '') == codigo_sistema.replace('FR-', '') or \
+               val_hoja == f"FR-{codigo_sistema}":
                 return {
                     'fila': idx + 2,
                     'datos': r,
                     'encontrado': True
                 }
         
-        return {'encontrado': False, 'error': f'Producto {codigo_sistema} no encontrado'}
+        return {'encontrado': False, 'error': f'Producto "{codigo_sistema}" no encontrado en la hoja PRODUCTOS'}
     except Exception as e:
         return {'encontrado': False, 'error': str(e)}
 
@@ -4601,6 +4605,96 @@ def buscar_alternativas(interno):
 # ====================================================================
 # La ruta index '/' ya fue definida al inicio
 
+
+# ====================================================================
+# MÓDULOS NUEVOS: MEZCLA, HISTORIAL Y REPORTES
+# ====================================================================
+
+@app.route('/api/mezcla', methods=['POST'])
+def handle_mezcla():
+    """Registra una nueva mezcla de material."""
+    try:
+        data = request.get_json()
+        logger.info(f" >>> Datos mezcla: {data}")
+        
+        # Guardar en Sheets (Hoja: MEZCLA)
+        sheet = get_spreadsheet().worksheet("MEZCLA MATERIAL")
+        
+        fila = [
+            str(uuid.uuid4())[:8].upper(),
+            data.get('fecha', ''),
+            data.get('responsable', ''),
+            data.get('maquina', ''),
+            float(data.get('virgen', 0)),
+            float(data.get('molido', 0)),
+            float(data.get('pigmento', 0)),
+            data.get('observaciones', '')
+        ]
+        
+        sheet.append_row(fila)
+        return jsonify({'success': True, 'mensaje': 'Mezcla registrada correctamente'}), 200
+    except Exception as e:
+        logger.error(f" Error en /api/mezcla: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/historial', methods=['GET'])
+def handle_historial():
+    """Obtiene historial unificado de movimientos."""
+    try:
+        proceso = request.args.get('proceso', '').upper()
+        fecha_desde = request.args.get('desde', '')
+        fecha_hasta = request.args.get('hasta', '')
+        
+        # Por ahora, implementamos una búsqueda básica en INYECCION y PULIDO
+        # (En una fase pro, esto debería buscar en todas las hojas)
+        sh = get_spreadsheet()
+        registros = []
+        
+        # Ejemplo: Buscar en Inyección
+        if not proceso or proceso == 'INYECCION':
+            ws = sh.worksheet("INYECCION")
+            vals = ws.get_all_records()
+            for r in vals[-50:]: # Últimos 50
+                r['proceso_tipo'] = 'INYECCION'
+                registros.append(r)
+                
+        # Ejemplo: Buscar en Pulido
+        if not proceso or proceso == 'PULIDO':
+            ws = sh.worksheet("PULIDO")
+            vals = ws.get_all_records()
+            for r in vals[-50:]:
+                r['proceso_tipo'] = 'PULIDO'
+                registros.append(r)
+
+        # Ordenar por fecha (descendente)
+        registros.sort(key=lambda x: str(x.get('FECHA', '')), reverse=True)
+        
+        return jsonify({'success': True, 'data': registros[:100]}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/estadisticas', methods=['GET'])
+def handle_estadisticas():
+    """Obtiene métricas para el Dashboard y Reportes."""
+    try:
+        sh = get_spreadsheet()
+        
+        # 1. Producción Total (Inyección + Ensamble)
+        # 2. Ventas Totales (Facturación)
+        # 3. PNC Semanal
+        
+        # Por ahora retornamos datos dummy para que la UI no rompa, 
+        # mientras calculamos los reales en el siguiente paso.
+        return jsonify({
+            'success': True,
+            'produccion_total': 12500,
+            'ventas_totales': 45000,
+            'eficiencia_global': 94.5,
+            'stock_critico': 5,
+            'pnc_tasa': 2.3
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 @app.route('/static/<path:path>')
 def serve_static(path):
     return send_from_directory('static', path)
@@ -4626,4 +4720,5 @@ if __name__ == '__main__':
         debug=True,
         use_reloader=True
     )
+
 
