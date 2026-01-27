@@ -1,13 +1,13 @@
 ﻿// ============================================
-// facturacion.js - L??gica de Facturaci??n
+// facturacion.js - Lógica de Facturación
 // ============================================
 
 /**
- * Cargar datos de Facturaci??n
+ * Cargar datos de Facturación
  */
 async function cargarDatosFacturacion() {
     try {
-        console.log('???? Cargando datos de facturaci??n...');
+        console.log('📦 Cargando datos de Facturación...');
         mostrarLoading(true);
         
         // Cargar clientes
@@ -22,7 +22,7 @@ async function cargarDatosFacturacion() {
             actualizarSelectFacturacion('codigo-producto-facturacion', productos);
         }
         
-        console.log('??? Datos de facturaci??n cargados');
+        console.log('✅ Datos de Facturación cargados');
         mostrarLoading(false);
     } catch (error) {
         console.error('Error cargando datos:', error);
@@ -31,7 +31,7 @@ async function cargarDatosFacturacion() {
 }
 
 /**
- * Actualizar select en Facturaci??n
+ * Actualizar select en Facturación
  */
 function actualizarSelectFacturacion(selectId, datos) {
     const select = document.getElementById(selectId);
@@ -53,7 +53,7 @@ function actualizarSelectFacturacion(selectId, datos) {
 }
 
 /**
- * Registrar Facturaci??n
+ * Registrar Facturación
  */
 async function registrarFacturacion() {
     try {
@@ -68,22 +68,22 @@ async function registrarFacturacion() {
             observaciones: document.getElementById('observaciones-facturacion')?.value || ''
         };
         
-        console.log('???? Datos de facturaci??n:', datos);
+        console.log('📦 Datos de Facturación:', datos);
         
         if (!datos.cliente?.trim()) {
-            mostrarNotificacion('??? Selecciona un cliente', 'error');
+            mostrarNotificacion('✅ Selecciona un cliente', 'error');
             mostrarLoading(false);
             return;
         }
         
         if (!datos.codigo_producto?.trim()) {
-            mostrarNotificacion('??? Ingresa c??digo del producto', 'error');
+            mostrarNotificacion('✅ Ingresa código del producto', 'error');
             mostrarLoading(false);
             return;
         }
         
         if (!datos.cantidad_vendida || datos.cantidad_vendida === '0') {
-            mostrarNotificacion('??? Ingresa cantidad vendida', 'error');
+            mostrarNotificacion('✅ Ingresa cantidad vendida', 'error');
             mostrarLoading(false);
             return;
         }
@@ -97,14 +97,14 @@ async function registrarFacturacion() {
         const resultado = await response.json();
         
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`??? ${resultado.mensaje}`, 'success');
+            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             limpiarFormulario('formulario-facturacion');
             setTimeout(() => location.reload(), 1500);
         } else {
             const errores = resultado.errors 
                 ? Object.values(resultado.errors).join(', ') 
                 : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`??? ${errores}`, 'error');
+            mostrarNotificacion(`✅ ${errores}`, 'error');
         }
     } catch (error) {
         console.error('Error registrando:', error);
@@ -130,3 +130,4 @@ function initFacturacion() {
 // ============================================
 window.initFacturacion = initFacturacion;
 window.ModuloFacturacion = { inicializar: initFacturacion };
+
