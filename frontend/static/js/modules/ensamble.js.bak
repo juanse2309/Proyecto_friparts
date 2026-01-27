@@ -113,18 +113,6 @@ async function registrarEnsamble() {
         mostrarLoading(false);
     }
 }
+window.Moduloensamble = { inicializar: initEnsamble };
 
-/**
- * Inicializar módulo de Ensamble
- */
-function initEnsamble() {
-    console.log('🔧 Inicializando módulo de Ensamble...');
-    cargarDatosEnsamble();
-    console.log('✅ Módulo de Ensamble inicializado');
-}
 
-// ============================================
-// EXPORTAR MÓDULO
-// ============================================
-window.initEnsamble = initEnsamble;
-window.ModuloEnsamble = { inicializar: initEnsamble };

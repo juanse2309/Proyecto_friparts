@@ -113,5 +113,20 @@ async function registrarFacturacion() {
         mostrarLoading(false);
     }
 }
-window.Modulofacturacion = { inicializar: initFacturacion };
 
+/**
+ * Inicializar módulo de facturacion
+ */
+function initFacturacion() {
+    console.log('🔧 Inicializando módulo de facturacion...');
+    if (typeof cargarDatosFacturacion === 'function') {
+        cargarDatosFacturacion();
+    }
+    console.log('✅ Módulo de facturacion inicializado');
+}
+
+// ============================================
+// EXPORTAR MÓDULO
+// ============================================
+window.initFacturacion = initFacturacion;
+window.ModuloFacturacion = { inicializar: initFacturacion };

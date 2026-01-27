@@ -1,5 +1,5 @@
 ﻿// ============================================
-// pulido.js - L??gica de Pulido
+// pulido.js - Lógica de Pulido
 // ============================================
 
 /**
@@ -7,22 +7,22 @@
  */
 async function cargarDatosPulido() {
     try {
-        console.log('???? Cargando datos de pulido...');
+        console.log('🔄 Cargando datos de pulido...');
         mostrarLoading(true);
-        
+
         // Cargar responsables
         const responsables = await fetchData('/api/obtener_responsables');
-        if (responsables) {
+        if (responsables && Array.isArray(responsables)) {
             actualizarSelectPulido('responsable-pulido', responsables);
         }
-        
+
         // Cargar productos
         const productos = await fetchData('/api/obtener_productos');
-        if (productos) {
+        if (productos && Array.isArray(productos)) {
             actualizarSelectPulido('codigo-producto-pulido', productos);
         }
-        
-        console.log('??? Datos de pulido cargados');
+
+        console.log('✅ Datos de pulido cargados');
         mostrarLoading(false);
     } catch (error) {
         console.error('Error cargando datos:', error);
@@ -35,11 +35,14 @@ async function cargarDatosPulido() {
  */
 function actualizarSelectPulido(selectId, datos) {
     const select = document.getElementById(selectId);
-    if (!select) return;
-    
+    if (!select) {
+        console.warn(`⚠️ Select no encontrado: ${selectId}`);
+        return;
+    }
+
     const currentValue = select.value;
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
-    
+
     if (datos && Array.isArray(datos)) {
         datos.forEach(item => {
             const option = document.createElement('option');
@@ -47,8 +50,9 @@ function actualizarSelectPulido(selectId, datos) {
             option.textContent = item;
             select.appendChild(option);
         });
+        console.log(`✅ ${datos.length} opciones agregadas a ${selectId}`);
     }
-    
+
     if (currentValue) select.value = currentValue;
 }
 
@@ -58,7 +62,7 @@ function actualizarSelectPulido(selectId, datos) {
 async function registrarPulido() {
     try {
         mostrarLoading(true);
-        
+
         const datos = {
             codigo_producto: document.getElementById('codigo-producto-pulido')?.value || '',
             cantidad_recibida: document.getElementById('cantidad-pulido')?.value || '0',
@@ -67,44 +71,44 @@ async function registrarPulido() {
             fecha_inicio: document.getElementById('fecha-inicio-pulido')?.value || new Date().toISOString().split('T')[0],
             observaciones: document.getElementById('observaciones-pulido')?.value || ''
         };
-        
-        console.log('???? Datos de pulido:', datos);
-        
+
+        console.log('📊 Datos de pulido:', datos);
+
         if (!datos.codigo_producto?.trim()) {
-            mostrarNotificacion('??? Ingresa c??digo del producto', 'error');
+            mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
             mostrarLoading(false);
             return;
         }
-        
+
         if (!datos.cantidad_recibida || datos.cantidad_recibida === '0') {
-            mostrarNotificacion('??? Ingresa cantidad recibida', 'error');
+            mostrarNotificacion('⚠️ Ingresa cantidad recibida', 'error');
             mostrarLoading(false);
             return;
         }
-        
+
         if (!datos.responsable?.trim()) {
-            mostrarNotificacion('??? Selecciona responsable', 'error');
+            mostrarNotificacion('⚠️ Selecciona responsable', 'error');
             mostrarLoading(false);
             return;
         }
-        
+
         const response = await fetch('/api/pulido', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
         });
-        
+
         const resultado = await response.json();
-        
+
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`??? ${resultado.mensaje}`, 'success');
+            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
             limpiarFormulario('formulario-pulido');
             setTimeout(() => location.reload(), 1500);
         } else {
-            const errores = resultado.errors 
-                ? Object.values(resultado.errors).join(', ') 
+            const errores = resultado.errors
+                ? Object.values(resultado.errors).join(', ')
                 : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`??? ${errores}`, 'error');
+            mostrarNotificacion(`❌ ${errores}`, 'error');
         }
     } catch (error) {
         console.error('Error registrando:', error);
@@ -113,5 +117,18 @@ async function registrarPulido() {
         mostrarLoading(false);
     }
 }
-window.ModuloPulido = { inicializar: initPulido };
 
+/**
+ * Inicializar módulo de Pulido
+ */
+function initPulido() {
+    console.log('🔧 Inicializando módulo de Pulido...');
+    cargarDatosPulido();
+    console.log('✅ Módulo de Pulido inicializado');
+}
+
+// ============================================
+// EXPORTAR MÓDULO
+// ============================================
+window.initPulido = initPulido;
+window.ModuloPulido = { inicializar: initPulido };

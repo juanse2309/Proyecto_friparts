@@ -75,5 +75,20 @@ function exportarReporte() {
     mostrarNotificacion('??? Descargando reporte...', 'info');
     // Aqu?? ir??a la l??gica real de descarga
 }
-window.Moduloreportes = { inicializar: initReportes };
 
+/**
+ * Inicializar módulo de reportes
+ */
+function initReportes() {
+    console.log('🔧 Inicializando módulo de reportes...');
+    if (typeof cargarReportes === 'function') {
+        cargarReportes();
+    }
+    console.log('✅ Módulo de reportes inicializado');
+}
+
+// ============================================
+// EXPORTAR MÓDULO
+// ============================================
+window.initReportes = initReportes;
+window.ModuloReportes = { inicializar: initReportes };

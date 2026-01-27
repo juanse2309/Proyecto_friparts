@@ -145,5 +145,20 @@ async function registrarPNC() {
         mostrarLoading(false);
     }
 }
-window.Modulopnc = { inicializar: initPNC };
 
+/**
+ * Inicializar módulo de pnc
+ */
+function initPnc() {
+    console.log('🔧 Inicializando módulo de pnc...');
+    if (typeof cargarDatosPNC === 'function') {
+        cargarDatosPNC();
+    }
+    console.log('✅ Módulo de pnc inicializado');
+}
+
+// ============================================
+// EXPORTAR MÓDULO
+// ============================================
+window.initPnc = initPnc;
+window.ModuloPNC = { inicializar: initPnc };
