@@ -2382,32 +2382,51 @@ def listar_productos():
                 stock_por_pulir = int(r.get('POR PULIR', 0) or 0)
                 stock_term = int(r.get('P. TERMINADO', 0) or 0)
                 stock_total = stock_por_pulir + stock_term
+                stock_minimo = int(r.get('STOCK MINIMO', 10) or 10)
+                
+                # Calcular semáforo basado en stock_minimo
+                if stock_total <= 0:
+                    semaforo_color = 'dark'
+                    semaforo_estado = 'AGOTADO'
+                elif stock_total < stock_minimo:
+                    semaforo_color = 'red'
+                    semaforo_estado = 'CRÍTICO'
+                elif stock_total < (stock_minimo * 2):
+                    semaforo_color = 'yellow'
+                    semaforo_estado = 'POR PEDIR'
+                else:
+                    semaforo_color = 'green'
+                    semaforo_estado = 'STOCK OK'
                 
             productos.append({
-                    'codigo_sistema': codigo,
+                    'codigo': codigo,  # Cambiar a 'codigo' para coincidir con frontend
                     'descripcion': r.get('DESCRIPCION', ''),
                     'stock_por_pulir': stock_por_pulir,
                     'stock_terminado': stock_term,
-                    'stock_total': stock_total,
+                    'existencias_totales': stock_total,  # Cambiar a 'existencias_totales'
                     'precio': r.get('PRECIO', 0),
-                    'stock_minimo': int(r.get('STOCK MINIMO', 10) or 10),
-                    'estado': 'AGOTADO' if stock_total <= 0 else ('BAJO' if stock_total < 10 else 'OK'),
-
-                    #  NUEVA LNEA CLAVE:
+                    'stock_minimo': stock_minimo,
                     'imagen': r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or '',
+                    'semaforo': {
+                        'color': semaforo_color,
+                        'estado': semaforo_estado,
+                        'configurado': True,
+                        'mensaje': f'Mínimo: {stock_minimo}' if stock_total < stock_minimo else ''
+                    }
                 })
 
         # Guardar en cache
-        PRODUCTOS_CACHE["data"] = productos
+        resultado = {'items': productos}
+        PRODUCTOS_CACHE["data"] = resultado
         PRODUCTOS_CACHE["timestamp"] = ahora
         
-        print(f" {len(productos)} productos cargados")
-        return jsonify(productos), 200
+        print(f" ✅ {len(productos)} productos cargados")
+        return jsonify(resultado), 200
 
     except Exception as e:
-        print(f" Error listar productos: {e}")
-        # Retornar lista vacia en lugar de 500
-        return jsonify([]), 200
+        print(f" ❌ Error listar productos: {e}")
+        traceback.print_exc()
+        return jsonify({'items': []}), 200
 
 @app.route('/api/productos/detalle/<codigo_sistema>', methods=['GET'])
 def detalle_producto(codigo_sistema):
