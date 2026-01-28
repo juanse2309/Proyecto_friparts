@@ -882,22 +882,39 @@ def registrar_inyeccion():
         logger.debug(f" Datos recibidos: {data}")
         
         # ========================================
-        # EXTRAER DATOS DEL JSON (22 CAMPOS)
+        # VALIDACIONES STRICT (Blindaje Power BI) Juan Sebastian
         # ========================================
-        disparos = int(data.get('cantidad_real', 0))
-        cavidades = int(data.get('no_cavidades', 1))
-        pnc = int(data.get('pnc', 0))
-        codigo_producto_entrada = data.get('codigo_producto', '')
-        responsable = data.get('responsable', '')
+        codigo_producto_entrada = str(data.get('codigo_producto', '')).strip()
+        if not codigo_producto_entrada:
+             return jsonify({'success': False, 'error': 'El código de producto es OBLIGATORIO para Power BI'}), 400
+        
+        responsable = str(data.get('responsable', '')).strip()
+        if not responsable:
+             return jsonify({'success': False, 'error': 'El responsable es OBLIGATORIO para Power BI'}), 400
+
+        # ========================================
+        # CONVERSION SEGURA (Blindaje Power BI)
+        # ========================================
+        try:
+            # Usar float interactivo para limpiar strings como "10.0"
+            disparos = int(float(data.get('cantidad_real', 0) or 0)) 
+            cavidades = int(float(data.get('no_cavidades', 1) or 1)) # Default 1 to avoid ZeroDiv
+            pnc = int(float(data.get('pnc', 0) or 0))
+            tomados_proceso = int(float(data.get('tomados_proceso', 0) or 0))
+            
+            # Floats
+            peso_tomadas = float(data.get('peso_tomadas', 0) or 0)
+            peso_vela_maquina = float(data.get('peso_vela_maquina', 0) or 0)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': f'Error de formato en números: {str(e)}'}), 400
+
+        # Resto de campos
         fecha_inicio = data.get('fecha_inicio', '')
         fecha_fin = data.get('fecha_fin', '')
         maquina = data.get('maquina', '')
         observaciones = data.get('observaciones', '')
         almacen_destino = data.get('almacen_destino', '')
         codigo_ensamble = data.get('codigo_ensamble', '')
-        tomados_proceso = int(data.get('tomados_proceso', 0))
-        peso_tomadas = float(data.get('peso_tomadas', 0.0) or 0)
-        peso_vela_maquina = float(data.get('peso_vela_maquina', 0.0) or 0)
         peso_bujes = float(data.get('peso_bujes', 0.0) or 0)
         criterio_pnc = data.get('criterio_pnc', '')
         hora_llegada = data.get('hora_llegada', '')
@@ -1111,11 +1128,22 @@ def handle_pulido():
         logger.info(f" Datos recibidos en /api/pulido: {data}")
         
         # ========================================
-        # VALIDAR CAMPOS REQUERIDOS
+        # VALIDAR CAMPOS REQUERIDOS (Blindaje Power BI)
         # ========================================
-        required_fields = ['fecha_inicio', 'responsable', 'hora_inicio', 'hora_fin', 
-                          'codigo_producto', 'cantidad_recibida', 'cantidad_real']
-        
+        responsable = str(data.get('responsable', '')).strip()
+        if not responsable:
+            return error_response("El responsable es OBLIGATORIO para Power BI")
+
+        # Conversión segura a ENTEROS
+        try:
+            # Usar float interactivo para limpiar strings
+            cantidad_real = int(float(data.get('cantidad_real', 0) or 0)) 
+            cantidad_recibida = int(float(data.get('cantidad_recibida', 0) or 0))
+            pnc = int(float(data.get('pnc', 0) or 0))
+        except ValueError as e:
+            return jsonify({'success': False, 'error': f'Error de formato en números: {str(e)}'}), 400
+
+        required_fields = ['fecha_inicio', 'hora_inicio', 'hora_fin', 'codigo_producto']
         errors = validate_required_fields(data, required_fields)
         if errors:
             return error_response(", ".join(errors))
@@ -1246,11 +1274,24 @@ def handle_ensamble():
         logger.info(f" Datos recibidos en /api/ensamble: {data}")
         
         # ========================================
-        # VALIDAR CAMPOS REQUERIDOS (SIN LOTE)
+        # VALIDACIONES STRICT (Blindaje Power BI)
         # ========================================
-        required_fields = ['fecha_inicio', 'responsable', 'hora_inicio', 'hora_fin', 
-                          'codigo_producto', 'cantidad_recibida', 'cantidad_real']
-        
+        responsable = str(data.get('responsable', '')).strip()
+        if not responsable:
+            return error_response("El responsable es OBLIGATORIO para Power BI")
+
+        # Conversión segura a ENTEROS
+        try:
+            # Usar float interactivo para limpiar strings
+            cantidad_real = int(float(data.get('cantidad_real', 0) or 0)) 
+            cantidad_recibida = int(float(data.get('cantidad_recibida', 0) or 0))
+            pnc = int(float(data.get('pnc', 0) or 0))
+            # Qty unitaria puede ser float
+            qty_unitaria_input = float(data.get('qty_unitaria', 0) or 0)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': f'Error de formato en números: {str(e)}'}), 400
+
+        required_fields = ['fecha_inicio', 'hora_inicio', 'hora_fin', 'codigo_producto']
         errors = validate_required_fields(data, required_fields)
         if errors:
             return error_response(", ".join(errors))
@@ -2301,9 +2342,10 @@ def listar_productos():
         
         productos = []
         for r in registros:
+            # Prioridad ID CODIGO segun solicitud Juan Sebastian
             codigo = str(
-                r.get('CODIGO SISTEMA', '') or 
                 r.get('ID CODIGO', '') or
+                r.get('CODIGO SISTEMA', '') or 
                 r.get('CODIGO', '') or
                 r.get("REFERENCIA", '') 
                 or ""
@@ -2315,16 +2357,17 @@ def listar_productos():
                 stock_term = int(r.get('P. TERMINADO', 0) or 0)
                 stock_total = stock_por_pulir + stock_term
                 stock_minimo = int(r.get('STOCK MINIMO', 10) or 10)
-                punto_reorden = int(r.get('PUNTO REORDEN', 0) or 0) or int(stock_minimo * 0.75)  # Fallback si no hay punto reorden
+                punto_reorden = int(r.get('PUNTO REORDEN', 0) or 0) or int(stock_minimo * 0.75)
                 
-                # Calcular semáforo basado en punto_reorden y stock_minimo del sheet
+                # Calcular semáforo (Lógica Saneada Juan Sebastian)
+                # Rojo: Agotado (<= 0)
+                # Amarillo: Por Pedir (<= Reorden y > 0)
+                # Verde: Stock OK (> Reorden)
+                
                 if stock_total <= 0:
-                    semaforo_color = 'dark'
+                    semaforo_color = 'red'
                     semaforo_estado = 'AGOTADO'
                 elif stock_total <= punto_reorden:
-                    semaforo_color = 'red'
-                    semaforo_estado = 'CRÍTICO'
-                elif stock_total < stock_minimo:
                     semaforo_color = 'yellow'
                     semaforo_estado = 'POR PEDIR'
                 else:

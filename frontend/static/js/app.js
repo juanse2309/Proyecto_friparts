@@ -11,7 +11,7 @@ window.addEventListener('unhandledrejection', event => {
 
 window.AppState = {
     paginaActual: 'dashboard',
-    POWER_BI_URL: 'https://app.powerbi.com/view?r=PLACEHOLDER', // Juan Sebastian: Cambiar enlace aquí
+    POWER_BI_URL: 'https://app.powerbi.com/view?r=eyJrIjoiZTBlYzc0MmUtNmVmZS00NDVjLWIwNTctMDY4NDA5MjEwNjk2IiwidCI6ImMwNmZiNTU5LTFiNjgtNGI4NC1hMTRmLTQ3ZDBkODM3YTVhYiIsImMiOjR9',
     sharedData: {
         responsables: [],
         clientes: [],
@@ -19,6 +19,10 @@ window.AppState = {
         maquinas: []
     }
 };
+
+// ... (existing code)
+
+
 
 async function cargarDatosCompartidos() {
     try {

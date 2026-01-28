@@ -241,10 +241,11 @@ function actualizarEstadisticasInventario(productos) {
 
     const totalProductos = productos.length;
 
-    // Contar productos por estado de semÃ¡foro
+    // Contar productos por estado de semáforo (Saneado Juan Sebastian)
     const stockOK = productos.filter(p => p.semaforo?.color === 'green').length;
-    const bajoStock = productos.filter(p => p.semaforo?.color === 'yellow').length;
-    const agotados = productos.filter(p => p.semaforo?.estado === 'AGOTADO').length;
+    const porPedir = productos.filter(p => p.semaforo?.color === 'yellow').length; // Antes bajoStock
+    // Agotados: Incluye 'red' (Critico) y 'dark' (Agotado <= 0)
+    const agotados = productos.filter(p => p.semaforo?.color === 'red' || p.semaforo?.color === 'dark' || p.semaforo?.estado === 'AGOTADO').length;
 
     // Actualizar elementos del HTML
     const el_total = document.getElementById('total-productos');
@@ -254,10 +255,17 @@ function actualizarEstadisticasInventario(productos) {
 
     if (el_total) el_total.textContent = totalProductos;
     if (el_stockOk) el_stockOk.textContent = stockOK;
-    if (el_bajoStock) el_bajoStock.textContent = bajoStock;
+
+    if (el_bajoStock) {
+        el_bajoStock.textContent = porPedir;
+        // Actualizar etiqueta si es necesario
+        const label = el_bajoStock.nextElementSibling;
+        if (label) label.textContent = 'Por Pedir';
+    }
+
     if (el_agotados) el_agotados.textContent = agotados;
 
-    console.log(`📊 Estadísticas: Total=${totalProductos}, OK=${stockOK}, Bajo=${bajoStock}, Agotados=${agotados}`);
+    console.log(`📊 Estadísticas: Total=${totalProductos}, OK=${stockOK}, PorPedir=${porPedir}, Agotados=${agotados}`);
 }
 
 /**
@@ -306,23 +314,19 @@ function configurarEventosInventario() {
             const textoBtn = btn.textContent.trim().toLowerCase();
 
             // Filtrar segÃºn el botÃ³n clicado
+            // Filtrar SEGÚN SEMÁFORO (CORREGIDO Juan Sebastian)
             if (textoBtn.includes('todos')) {
                 productosFiltrados = window.AppState.productosData;
-            } else if (textoBtn.includes('crÃ­ticos')) {
-                productosFiltrados = window.AppState.productosData.filter(p =>
-                    p.semaforo?.color === 'red'
-                );
             } else if (textoBtn.includes('por pedir') || textoBtn.includes('pedir')) {
-                productosFiltrados = window.AppState.productosData.filter(p =>
-                    p.semaforo?.color === 'yellow'
-                );
+                // AMARILLO: Stock <= Reorden y > 0
+                productosFiltrados = window.AppState.productosData.filter(p => p.semaforo?.color === 'yellow');
             } else if (textoBtn.includes('stock ok')) {
-                productosFiltrados = window.AppState.productosData.filter(p =>
-                    p.semaforo?.color === 'green'
-                );
+                // VERDE: Stock > Reorden
+                productosFiltrados = window.AppState.productosData.filter(p => p.semaforo?.color === 'green');
             } else if (textoBtn.includes('agotados')) {
+                // ROJO: Stock <= 0
                 productosFiltrados = window.AppState.productosData.filter(p =>
-                    p.semaforo?.estado === 'AGOTADO' || p.semaforo?.color === 'dark'
+                    p.semaforo?.estado === 'AGOTADO' || p.semaforo?.color === 'red' || p.semaforo?.color === 'dark'
                 );
             }
 

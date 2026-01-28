@@ -199,16 +199,16 @@ function actualizarCalculoProduccion() {
     const cantidadTotal = disparos * cavidades;
     const piezasBuenas = Math.max(0, cantidadTotal - pnc);
 
-    // Mostrar TOTAL de piezas (numero grande)
+    // Mostrar TOTAL de piezas (numero grande) - CORRECCION: Mostrar Piezas Buenas
     const produccionCalculada = document.getElementById('produccion-calculada');
     if (produccionCalculada) {
-        produccionCalculada.textContent = formatNumber(cantidadTotal);
+        produccionCalculada.textContent = formatNumber(piezasBuenas);
     }
 
-    // Mostrar formula
+    // Mostrar formula detallada
     const formulaCalc = document.getElementById('formula-calc');
     if (formulaCalc) {
-        formulaCalc.textContent = `Disparos: ${formatNumber(disparos)} x Cavidades: ${formatNumber(cavidades)} = ${formatNumber(cantidadTotal)} piezas`;
+        formulaCalc.textContent = `Total: ${formatNumber(cantidadTotal)} (Disp: ${formatNumber(disparos)} x Cav: ${formatNumber(cavidades)}) - PNC: ${formatNumber(pnc)}`;
     }
 
     // Mostrar piezas buenas (linea verde)
