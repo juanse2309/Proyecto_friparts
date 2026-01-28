@@ -75,17 +75,22 @@ async function cargarDatosCompartidos() {
     }
 }
 
-function cargarPagina(nombrePagina) {
+/**
+ * Cargar una página específica
+ */
+function cargarPagina(nombrePagina, pushToHistory = true) {
     console.log('📄 Cargando página:', nombrePagina);
 
     // Ocultar todas las páginas
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
     const pagina = document.getElementById(`${nombrePagina}-page`);
     if (pagina) {
         pagina.classList.add('active');
         console.log('✅ Página visible:', nombrePagina);
     } else {
         console.error('❌ Página no encontrada:', `${nombrePagina}-page`);
+        return;
     }
 
     // Actualizar menu items activos
@@ -93,6 +98,11 @@ function cargarPagina(nombrePagina) {
     const menuItem = document.querySelector(`.menu-item[data-page="${nombrePagina}"]`);
     if (menuItem) {
         menuItem.classList.add('active');
+    }
+
+    // Gestionar historial para el botón atrás de móviles Juan Sebastian
+    if (pushToHistory) {
+        history.pushState({ page: nombrePagina }, '', `#${nombrePagina}`);
     }
 
     inicializarModulo(nombrePagina);
@@ -108,6 +118,15 @@ function cargarPagina(nombrePagina) {
         }
     }
 }
+
+// Escuchar el botón atrás del navegador Juan Sebastian
+window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.page) {
+        cargarPagina(event.state.page, false);
+    } else {
+        cargarPagina('dashboard', false);
+    }
+});
 
 /**
  * Función global para volver al dashboard
@@ -187,9 +206,10 @@ async function inicializarAplicacion() {
         configurarNavegacion();
         await cargarDatosCompartidos();
 
-        // Si ya estamos en una página que requiere datos, re-inicializarla
-        if (window.AppState.paginaActual) {
-            inicializarModulo(window.AppState.paginaActual);
+        // 5. Cargar página inicial (Dashboard o Hash) Juan Sebastian
+        const hashPage = window.location.hash.replace('#', '');
+        if (hashPage && document.getElementById(`${hashPage}-page`)) {
+            cargarPagina(hashPage);
         } else {
             cargarPagina('dashboard');
         }
