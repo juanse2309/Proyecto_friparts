@@ -990,13 +990,13 @@ def registrar_inyeccion():
             return jsonify({'success': False, 'error': f'Error guardando: {str(e)}'}), 500
         
         # ========================================
-        #  ACTUALIZAR STOCK EN PRODUCTOS
+        #  ACTUALIZAR STOCK EN PRODUCTOS (Solo piezas BUENAS Juan Sebastian)
         # ========================================
         if almacen_destino:
             exito_stock, msg_stock = registrar_entrada(
-                codigo_sistema_completo,  # Usar CODIGO SISTEMA completo (FR-9304)
-                cantidad_total,            # Cantidad total producida
-                almacen_destino           # POR PULIR, P. TERMINADO, etc.
+                codigo_sistema_completo,
+                piezas_buenas,            # Solo piezas buenas
+                almacen_destino
             )
             
             if exito_stock:
@@ -1139,46 +1139,29 @@ def handle_pulido():
             logger.warning(f" No se encontro CODIGO SISTEMA, usando entrada: {codigo_entrada}")
         
         # ========================================
-        # MOVER INVENTARIO (DESCONTAR TOTAL PROCESADO)
+        # ACTUALIZAR INVENTARIO (Lógica simplificada Juan Sebastian)
         # ========================================
         cantidad_real = int(data.get('cantidad_real', 0))
         pnc = int(data.get('pnc', 0))
-        cantidad_total = cantidad_real + pnc  # Total procesado (buenas + malas)
+        cantidad_total = int(data.get('cantidad_recibida', 0)) or (cantidad_real + pnc)
 
-        logger.info(f" Procesamiento: Recibidas={cantidad_total}, Buenas={cantidad_real}, PNC={pnc}")
+        logger.info(f" Procesamiento Pulido: Recibidas={cantidad_total}, Buenas={cantidad_real}, PNC={pnc}")
 
-        # Paso 1: Descontar TODO lo procesado de POR PULIR
-        exito, mensaje = mover_inventario_entre_etapas(
-            codigo_sistema_completo,
-            cantidad_total,  # Descontar TOTAL (buenas + malas)
-            "POR PULIR",
-            "P. TERMINADO"
-        )
+        # 1. Salida de POR PULIR (Descontamos todo lo que entró a proceso)
+        exito_resta, msj_resta = registrar_salida(codigo_sistema_completo, cantidad_total, "POR PULIR")
+        if not exito_resta:
+            logger.error(f" Error restando stock POR PULIR: {msj_resta}")
+            return jsonify({'success': False, 'error': f"Stock insuficiente en POR PULIR: {msj_resta}"}), 400
 
-        if not exito:
-            logger.error(f" Error moviendo inventario: {mensaje}")
-            return jsonify({'success': False, 'error': mensaje}), 400
-
-        # Paso 2: Si hay PNC, ajustar (solo las BUENAS deben quedar en P. TERMINADO)
-        if pnc > 0:
-            logger.info(f" Ajustando stock: restando {pnc} malas de P. TERMINADO")
-            exito_ajuste, _ = mover_inventario_entre_etapas(
-                codigo_sistema_completo,
-                pnc,  # Restar las piezas malas
-                "P. TERMINADO",
-                "POR PULIR"  # Las devolvemos temporalmente
-            )
-            
-            # Ahora eliminarlas definitivamente de POR PULIR (quedan contabilizadas solo en PNC)
-            if exito_ajuste:
-                mover_inventario_entre_etapas(
-                    codigo_sistema_completo,
-                    pnc,
-                    "POR PULIR",
-                    "P. TERMINADO"  # Las eliminamos del ciclo
-                )
+        # 2. Entrada a P. TERMINADO (Solo sumamos las piezas que quedaron buenas)
+        exito_suma, msj_suma = registrar_entrada(codigo_sistema_completo, cantidad_real, "P. TERMINADO")
+        if not exito_suma:
+            # Revertir
+            registrar_entrada(codigo_sistema_completo, cantidad_total, "POR PULIR")
+            logger.error(f" Error sumando stock P. TERMINADO: {msj_suma}")
+            return jsonify({'success': False, 'error': msj_suma}), 400
         
-        logger.info(f" Stock actualizado: {codigo_sistema_completo} - Buenas={cantidad_real} a P. TERMINADO, PNC={pnc} registrado")
+        logger.info(f" Stock actualizado: {codigo_sistema_completo} (-{cantidad_total} POR PULIR, +{cantidad_real} P. TERMINADO)")
 
         
         # ========================================
