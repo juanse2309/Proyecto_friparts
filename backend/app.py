@@ -56,6 +56,7 @@ class Hojas:
     PULIDO = "PULIDO"
     FACTURACION = "FACTURACION"
     CLIENTES = "CLIENTES"
+    MEZCLA = "MEZCLA"
 
 # ====================================================================
 # CONFIGURACIÓN DE CREDENCIALES (compatible con desarrollo y producción)
@@ -569,7 +570,7 @@ def registrar_log_operacion(hoja, fila):
                     "ID_PULIDO", "FECHA", "PROCESO", "RESPONSABLE", 
                     "HORA_INICIO", "HORA_FIN", "CODIGO", "LOTE", 
                     "ORDEN_PRODUCCION", "CANTIDAD_RECIBIDA", "PNC", 
-                    "CANTIDAD_REAL", "OBSERVACIONES", "ALMACEN_DESTINO", "ESTADO"
+                    "BUJES BUENOS", "OBSERVACIONES", "ALMACEN_DESTINO", "ESTADO"
                 ],
                 Hojas.ENSAMBLES: [
                     "ID_ENSAMBLE", "CODIGO_FINAL", "CANTIDAD", 
@@ -1177,11 +1178,11 @@ def handle_pulido():
             data.get('hora_inicio', ''),           # HORA_INICIO
             data.get('hora_fin', ''),              # HORA_FIN
             codigo_sis,                             # CODIGO (sin FR-)
-            data.get('lote', ''),                  # LOTE
+            data.get('fecha_inicio', ''),          # LOTE (Usuario pide que muestre la FECHA Juan Sebastian)
             data.get('orden_produccion', ''),      # ORDEN_PRODUCCION
             int(data.get('cantidad_recibida', 0)), # CANTIDAD_RECIBIDA
             int(data.get('pnc', 0)),               # PNC
-            cantidad_real,                          # CANTIDAD_REAL
+            cantidad_real,                          # BUJES BUENOS (Antes CANTIDAD_REAL)
             data.get('observaciones', ''),         # OBSERVACIONES
             "P. TERMINADO",                        # ALMACEN_DESTINO
             ""                                      # ESTADO
@@ -1785,13 +1786,13 @@ def obtener_historial_global():
                         'Producto': str(safe_get_ignore_case(reg, 'CODIGO', safe_get_ignore_case(reg, 'ID CODIGO'))),
                         'RESPONSABLE': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
                         'ORDEN PRODUCCION': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')),
-                        'CANTIDAD REAL': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD REAL')),
+                        'CANTIDAD REAL': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL'))),
                         # Normalizados para compatibilidad
                         'Responsable': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
-                        'Cant': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD REAL')),
-                        'Orden': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')),
+                        'Cant': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL'))),
+                        'Orden': str(safe_get_ignore_case(reg, 'FECHA', safe_get_ignore_case(reg, 'LOTE'))), # Priorizar FECHA sobre LOTE Juan Sebastian
                         'Detalle': str(safe_get_ignore_case(reg, 'OBSERVACIONES')),
-                        'Extra': ''
+                        'Extra': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')) # Mover OP a Extra (Maquina) Juan Sebastian
                     })
                 
                 logger.info(f" PULIDO: {procesados} procesados, {saltados} saltados de {len(registros_pul)} totales")
@@ -2280,12 +2281,17 @@ def listar_productos():
     """Lista todos los productos con stock y estado (cache opcional)."""
     try:
         ahora = time.time()
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         
-        # Cache (si quieres mantenerlo)
-        if (PRODUCTOS_CACHE["data"] is not None and 
+        # Cache (si no hay force_refresh Juan Sebastian)
+        if not force_refresh and (PRODUCTOS_CACHE["data"] is not None and 
             (ahora - PRODUCTOS_CACHE["timestamp"]) < PRODUCTOS_CACHE_TTL):
             print(" Cache HIT!")
             return jsonify(PRODUCTOS_CACHE["data"])
+        
+        if force_refresh:
+            print(" 🔄 FORCE REFRESH: Saltando cache de productos...")
+            invalidar_cache_productos()
         
         # Leer directo del sheet (igual que clientes/productos)
         ss = gc.open_by_key(GSHEET_KEY)
@@ -4644,22 +4650,44 @@ def buscar_alternativas(interno):
 
 @app.route('/api/mezcla', methods=['POST'])
 def handle_mezcla():
-    """Registra una nueva mezcla de material."""
+    """Registra una nueva mezcla de material (Robustez mejorada Juan Sebastian)."""
     try:
         data = request.get_json()
         logger.info(f" >>> Datos mezcla: {data}")
         
         # Guardar en Sheets (Hoja: MEZCLA)
-        sheet = get_spreadsheet().worksheet("MEZCLA MATERIAL")
+        ss = get_spreadsheet()
+        nombre_hoja = Hojas.MEZCLA 
+        
+        try:
+            sheet = ss.worksheet(nombre_hoja)
+        except gspread.exceptions.WorksheetNotFound:
+            logger.warning(f" Hoja {nombre_hoja} no encontrada, creandola...")
+            sheet = ss.add_worksheet(title=nombre_hoja, rows=1000, cols=10)
+            encabezados = ["ID MEZCLA", "FECHA", "RESPONSABLE", "MAQUINA", "VIRGEN (Kg)", "MOLIDO (Kg)", "PIGMENTO (Kg)", "OBSERVACIONES"]
+            sheet.append_row(encabezados)
+
+        # Conversión segura de números Juan Sebastian
+        virgen = 0.0
+        try: virgen = float(data.get('virgen', 0) or 0)
+        except: pass
+        
+        molido = 0.0
+        try: molido = float(data.get('molido', 0) or 0)
+        except: pass
+
+        pigmento = 0.0
+        try: pigmento = float(data.get('pigmento', 0) or 0)
+        except: pass
         
         fila = [
             str(uuid.uuid4())[:8].upper(),
             data.get('fecha', ''),
             data.get('responsable', ''),
             data.get('maquina', ''),
-            float(data.get('virgen', 0)),
-            float(data.get('molido', 0)),
-            float(data.get('pigmento', 0)),
+            virgen,
+            molido,
+            pigmento,
             data.get('observaciones', '')
         ]
         
@@ -4667,7 +4695,10 @@ def handle_mezcla():
         return jsonify({'success': True, 'mensaje': 'Mezcla registrada correctamente'}), 200
     except Exception as e:
         logger.error(f" Error en /api/mezcla: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        # Devolver JSON con error específico, no 500 genérico HTML
+        return jsonify({'success': False, 'error': f"Error interno: {str(e)}"}), 500
 
 @app.route('/api/historial', methods=['GET'])
 def handle_historial():

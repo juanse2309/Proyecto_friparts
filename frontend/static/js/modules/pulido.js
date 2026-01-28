@@ -137,9 +137,24 @@ async function registrarPulido() {
 /**
  * Cálculo en tiempo real
  */
+/**
+ * Cálculo en tiempo real
+ */
 function actualizarCalculoPulido() {
-    const entrada = parseInt(document.getElementById('entrada-pulido')?.value) || 0;
-    const pnc = parseInt(document.getElementById('pnc-pulido')?.value) || 0;
+    const entradaInput = document.getElementById('entrada-pulido');
+    const pncInput = document.getElementById('pnc-pulido');
+    const buenosInput = document.getElementById('bujes-buenos-pulido');
+
+    let entrada = Number(entradaInput?.value) || 0;
+    let pnc = Number(pncInput?.value) || 0;
+
+    // Validación: PNC no puede ser mayor que entrada
+    if (pnc > entrada) {
+        mostrarNotificacion('⚠️ PNC no puede ser mayor que la cantidad recibida', 'warning');
+        pnc = entrada; // Ajustar automáticamente o dejar en 0 segun preferencia
+        if (pncInput) pncInput.value = pnc;
+    }
+
     const totalReal = Math.max(0, entrada - pnc);
 
     const displaySalida = document.getElementById('salida-calculada');
@@ -154,9 +169,8 @@ function actualizarCalculoPulido() {
         piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalReal)} piezas buenas`;
     }
 
-    // Actualizar también el campo de bujes buenos
-    const inputBuenos = document.getElementById('bujes-buenos-pulido');
-    if (inputBuenos) inputBuenos.value = totalReal;
+    // Actualizar también el campo de bujes buenos (readonly)
+    if (buenosInput) buenosInput.value = totalReal;
 }
 
 /**
@@ -169,7 +183,7 @@ function abrirModalDefectos() {
 
 function agregarDefectoPulido() {
     const criterio = document.getElementById('modal-criterio-pulido').value;
-    const cantidad = parseInt(document.getElementById('modal-cantidad-pulido').value) || 0;
+    const cantidad = Number(document.getElementById('modal-cantidad-pulido').value) || 0;
 
     if (!criterio || cantidad <= 0) {
         mostrarNotificacion('⚠️ Seleccione defecto y cantidad', 'warning');
@@ -225,12 +239,19 @@ function aplicarDefectosPulido() {
     mostrarNotificacion(`✅ ${total} piezas PNC aplicadas`, 'success');
 }
 
+
 /**
  * Inicializar módulo
  */
 function initPulido() {
     console.log('🔧 Inicializando módulo de Pulido...');
     cargarDatosPulido();
+
+    // Auto-inicializar Lote con fecha de hoy Juan Sebastian
+    const loteInput = document.getElementById('lote-pulido');
+    if (loteInput && !loteInput.value) {
+        loteInput.value = new Date().toISOString().split('T')[0];
+    }
 
     // Configurar envío del formulario Juan Sebastian
     const form = document.getElementById('form-pulido');
@@ -241,10 +262,14 @@ function initPulido() {
         });
     }
 
-    document.getElementById('entrada-pulido')?.addEventListener('input', actualizarCalculoPulido);
-    document.getElementById('pnc-pulido')?.addEventListener('input', actualizarCalculoPulido);
+    // Listeners para cálculo en tiempo real Juan Sebastian
+    const entradaInput = document.getElementById('entrada-pulido');
+    const pncInput = document.getElementById('pnc-pulido');
 
-    console.log('✅ Módulo de Pulido inicializado');
+    if (entradaInput) entradaInput.addEventListener('input', actualizarCalculoPulido);
+    if (pncInput) pncInput.addEventListener('input', actualizarCalculoPulido);
+
+    console.log('✅ Módulo de Pulido inicializado con lógica mejorada');
 }
 
 // Exportar

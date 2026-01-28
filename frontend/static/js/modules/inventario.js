@@ -9,12 +9,16 @@ const productosPorPagina = 50;
 /**
  * Cargar productos para inventario
  */
-async function cargarProductos() {
+async function cargarProductos(forceRefresh = false) {
     try {
-        console.log('ðŸ“¦ Cargando productos...');
+        console.log('📦 Cargando productos...');
         mostrarLoading(true);
 
-        const response = await fetch('/api/productos/listar');
+        let url = '/api/productos/listar';
+        if (forceRefresh) {
+            url += '?refresh=true';
+        }
+        const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
@@ -328,12 +332,13 @@ function configurarEventosInventario() {
         });
     });
 
-    // BotÃ³n actualizar
+    // Botón actualizar
     const btnActualizar = document.getElementById('btn-actualizar-productos');
     if (btnActualizar) {
         btnActualizar.addEventListener('click', () => {
-            console.log('ðŸ”„ Recargando productos...');
-            cargarProductos();
+            console.log('🔄 Recargando productos (Forzando actualización)...');
+            mostrarNotificacion('Actualizando inventario desde la nube...', 'info');
+            cargarProductos(true); // Pasar true para forzar refresh
         });
     }
 }
