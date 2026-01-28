@@ -66,25 +66,34 @@ function actualizarSelectEnsamble(selectId, datos) {
  */
 async function registrarEnsamble() {
     try {
+        console.log('🚀 [Ensamble] Intentando registrar...');
         mostrarLoading(true);
 
+        const cantidadTotal = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
+        const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
+        const cantidadReal = Math.max(0, cantidadTotal - pnc);
+
+        // Mapeo exacto esperado por app.py Juan Sebastian
         const datos = {
-            fecha: document.getElementById('fecha-ensamble')?.value || '',
+            fecha_inicio: document.getElementById('fecha-ensamble')?.value || '',
             responsable: document.getElementById('responsable-ensamble')?.value || '',
             hora_inicio: document.getElementById('hora-inicio-ensamble')?.value || '',
             hora_fin: document.getElementById('hora-fin-ensamble')?.value || '',
-            codigo_producto: document.getElementById('ens-id-codigo')?.value || '', // Es el producto final
-            buje_componente: document.getElementById('ens-buje-componente')?.value || '', // El buje base
-            qty_per_ensamble: document.getElementById('ens-qty-bujes')?.value || '1',
-            cantidad: document.getElementById('cantidad-ensamble')?.value || '0',
-            almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || '',
-            almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || '',
-            op: document.getElementById('op-ensamble')?.value || '',
-            pnc: document.getElementById('pnc-ensamble')?.value || '0',
+            codigo_producto: document.getElementById('ens-id-codigo')?.value || '',
+            buje_componente: document.getElementById('ens-buje-componente')?.value || '',
+            qty_unitaria: document.getElementById('ens-qty-bujes')?.value || '1',
+            cantidad_recibida: cantidadTotal,
+            cantidad_real: cantidadReal,
+            almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || 'P. TERMINADO',
+            almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || 'PRODUCTO ENSAMBLADO',
+            orden_produccion: document.getElementById('op-ensamble')?.value || '',
+            pnc: pnc,
             observaciones: document.getElementById('observaciones-ensamble')?.value || ''
         };
 
-        if (!datos.codigo_producto) {
+        console.log('📦 [Ensamble] Datos preparados:', datos);
+
+        if (!datos.codigo_producto || datos.codigo_producto === 'NO DEFINIDO') {
             mostrarNotificacion('⚠️ Selecciona un buje componente válido que genere un ensamble', 'error');
             mostrarLoading(false);
             return;
@@ -97,17 +106,25 @@ async function registrarEnsamble() {
         });
 
         const resultado = await response.json();
+        console.log('📥 [Ensamble] Respuesta:', resultado);
 
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
+            mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success');
+
+            // Limpiar formulario sin recargar
             document.getElementById('form-ensamble')?.reset();
-            setTimeout(() => location.reload(), 1500);
+            actualizarCalculoEnsamble(); // Resetear resumen visual
+
+            // Si el dashboard está abierto abajo, actualizarlo
+            if (window.actualizarDashboard) window.actualizarDashboard();
+
         } else {
-            mostrarNotificacion(`❌ ${resultado.error || 'Error'}`, 'error');
+            const errorMsg = resultado.error || resultado.mensaje || 'Error desconocido en el servidor';
+            mostrarNotificacion(`❌ Error: ${errorMsg}`, 'error');
         }
     } catch (error) {
-        console.error('Error:', error);
-        mostrarNotificacion(`Error: ${error.message}`, 'error');
+        console.error('❌ [Ensamble] Error crítico:', error);
+        mostrarNotificacion(`❌ Error de conexión: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
     }
@@ -184,6 +201,15 @@ function actualizarCalculoEnsamble() {
 function initEnsamble() {
     console.log('🔧 Inicializando módulo de Ensamble (Refactorizado)...');
     cargarDatosEnsamble();
+
+    // Configurar envío del formulario Juan Sebastian
+    const form = document.getElementById('form-ensamble');
+    if (form) {
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            registrarEnsamble();
+        });
+    }
 
     // Listeners para el mapeo automático
     document.getElementById('ens-buje-componente')?.addEventListener('change', actualizarMapeoEnsamble);

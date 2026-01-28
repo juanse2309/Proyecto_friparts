@@ -57,6 +57,9 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
         document.head.appendChild(style);
     }
 
+    // Tiempo visible: errores duran más para poder leer el mensaje técnico Juan Sebastian
+    const timeout = tipo === 'error' ? 8000 : 4000;
+
     setTimeout(() => {
         notificationDiv.style.animation = 'fadeOut 0.5s forwards';
         setTimeout(() => {
@@ -64,7 +67,7 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
                 notificationDiv.parentNode.removeChild(notificationDiv);
             }
         }, 500);
-    }, 4000);
+    }, timeout);
 }
 
 /**
