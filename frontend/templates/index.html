@@ -93,8 +93,6 @@
                         Material</span></a> </li>
             <li class="menu-item" data-page="historial"> <a href="#"><i class="fas fa-history"></i><span>Historial
                         Global</span></a> </li>
-            <li class="menu-item" data-page="reportes"> <a href="#"><i
-                        class="fas fa-chart-bar"></i><span>Reportes</span></a> </li>
         </ul>
         <div class="sidebar-footer">
             <div class="user-info">
@@ -115,7 +113,7 @@
                 </button>
             </div>
 
-            <!-- Dashboard -->
+            <!-- Dashboard (Power BI) -->
             <div id="dashboard-page" class="page active">
                 <header class="top-bar">
                     <button class="btn-icon d-lg-none" id="toggle-sidebar-dashboard">
@@ -123,31 +121,21 @@
                     </button>
                     <div class="page-title">
                         <h1><i class="fas fa-chart-line"></i> Dashboard Analítico</h1>
-                        <p class="subtitle">Monitoreo en tiempo real de producción y ventas</p>
+                        <p class="subtitle">Monitoreo en tiempo real vía Power BI</p>
                     </div>
-                    <div class="top-controls">
-                        <div class="period-selector"> <select id="filtro-periodo" class="styled-select">
-                                <option value="hoy">Hoy</option>
-                                <option value="semana" selected>Esta Semana</option>
-                                <option value="mes">Este Mes</option>
-                                <option value="trimestre">Este Trimestre</option>
-                            </select> </div> <button class="btn btn-primary" id="btn-actualizar-dashboard"> <i
-                                class="fas fa-sync-alt"></i> Actualizar </button>
+                </header>
+
+                <section class="powerbi-section"
+                    style="height: calc(100vh - 120px); position: relative; overflow: hidden; border-radius: 12px; background: #f8f9fa; margin: 10px;">
+                    <div id="powerbi-placeholder"
+                        style="position: absolute; top:0; left:0; width:100%; height:100%; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1;">
+                        <i class="fas fa-chart-pie fa-4x mb-3" style="color: #dee2e6;"></i>
+                        <h4 class="text-muted">Cargando Dashboard de Power BI...</h4>
+                        <p class="text-muted small">Conectando con el origen de datos</p>
                     </div>
-                </header> <!-- KPIs Grid -->
-                <section class="kpis-section">
-                    <div class="kpi-grid">
-                        <div class="kpi-card kpi-primary">
-                            <div class="kpi-icon"><i class="fas fa-industry"></i></div>
-                            <div class="kpi-content">
-                                <h3>Producción Total</h3>
-                                <div class="kpi-value" id="kpi-produccion">0</div>
-                                <div class="kpi-trend"> <span id="kpi-produccion-tendencia" class="trend-up"><i
-                                            class="fas fa-arrow-up"></i> 0%</span> <span class="kpi-subtext">vs mes
-                                        anterior</span> </div>
-                            </div>
-                        </div> <!-- Más KPIs... -->
-                    </div>
+                    <iframe id="powerbi-frame" src="about:blank"
+                        style="width: 100%; height: 100%; border: none; position: relative; z-index: 2;"
+                        allowFullScreen="true"></iframe>
                 </section>
             </div> <!-- Inventario -->
             <div id="inventario-page" class="page">
@@ -1109,7 +1097,7 @@
     <script src="/static/js/modules/facturacion.js?v=1769548627"></script>
     <script src="/static/js/modules/reportes.js?v=1769548627"></script>
     <script src="/static/js/modules/mezcla.js?v=1769548627"></script>
-    <script src="/static/js/modules/historial.js?v=1769548627"></script>
+    <script src="/static/js/modules/historial.js?v=1769548630"></script>
     <!-- Script mínimo para inicialización -->
     <script>
         // Variables globales para el modal de defectos

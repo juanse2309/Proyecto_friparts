@@ -11,6 +11,7 @@ window.addEventListener('unhandledrejection', event => {
 
 window.AppState = {
     paginaActual: 'dashboard',
+    POWER_BI_URL: 'https://app.powerbi.com/view?r=PLACEHOLDER', // Juan Sebastian: Cambiar enlace aquí
     sharedData: {
         responsables: [],
         clientes: [],
@@ -96,7 +97,25 @@ function cargarPagina(nombrePagina) {
 
     inicializarModulo(nombrePagina);
     window.AppState.paginaActual = nombrePagina;
+
+    // Controlar visibilidad del botón 'Volver' en móviles
+    const backBtnContainer = document.getElementById('back-button-container');
+    if (backBtnContainer) {
+        if (nombrePagina !== 'dashboard' && window.innerWidth < 991) {
+            backBtnContainer.classList.add('active');
+        } else {
+            backBtnContainer.classList.remove('active');
+        }
+    }
 }
+
+/**
+ * Función global para volver al dashboard
+ */
+window.volverAlDashboard = function () {
+    console.log('🔙 Volviendo al Dashboard...');
+    cargarPagina('dashboard');
+};
 
 function inicializarModulo(nombrePagina) {
     const modulos = {
@@ -108,12 +127,24 @@ function inicializarModulo(nombrePagina) {
         'ensamble': window.ModuloEnsamble,
         'pnc': window.ModuloPNC,
         'facturacion': window.ModuloFacturacion,
-        'reportes': window.ModuloReportes,
         'mezcla': window.ModuloMezcla,
         'historial': window.ModuloHistorial
     };
 
     const modulo = modulos[nombrePagina];
+
+    // Lógica especial para Dashboard (Power BI) Juan Sebastian
+    if (nombrePagina === 'dashboard') {
+        const frame = document.getElementById('powerbi-frame');
+        const placeholder = document.getElementById('powerbi-placeholder');
+        if (frame && window.AppState.POWER_BI_URL && window.AppState.POWER_BI_URL !== 'https://app.powerbi.com/view?r=PLACEHOLDER') {
+            if (frame.src === 'about:blank') {
+                frame.src = window.AppState.POWER_BI_URL;
+                frame.onload = () => { if (placeholder) placeholder.style.display = 'none'; };
+            }
+        }
+    }
+
     if (modulo?.inicializar) {
         console.log('🔧 Inicializando módulo:', nombrePagina);
         modulo.inicializar();

@@ -3,36 +3,44 @@
 // ============================================
 
 /**
- * Mostrar notificaci??n visual
+ * Mostrar notificación visual
  */
 function mostrarNotificacion(mensaje, tipo = 'info') {
-    console.log(`[${tipo.toUpperCase()}] ${mensaje}`);
-    
+    const icon = {
+        'success': '<i class="fas fa-check-circle me-2"></i>',
+        'error': '<i class="fas fa-exclamation-circle me-2"></i>',
+        'warning': '<i class="fas fa-exclamation-triangle me-2"></i>',
+        'info': '<i class="fas fa-info-circle me-2"></i>'
+    }[tipo] || '';
+
     const notificationDiv = document.createElement('div');
     notificationDiv.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
-        padding: 15px 20px;
-        border-radius: 8px;
+        padding: 12px 20px;
+        border-radius: 10px;
         color: white;
         font-weight: 500;
         z-index: 10002;
         animation: slideInRight 0.3s ease;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        display: flex;
+        align-items: center;
         max-width: 400px;
+        border-left: 5px solid rgba(0,0,0,0.2);
     `;
-    
-    switch(tipo) {
+
+    switch (tipo) {
         case 'success': notificationDiv.style.backgroundColor = '#10b981'; break;
         case 'error': notificationDiv.style.backgroundColor = '#ef4444'; break;
         case 'warning': notificationDiv.style.backgroundColor = '#f59e0b'; break;
-        default: notificationDiv.style.backgroundColor = '#6366f1';
+        default: notificationDiv.style.backgroundColor = '#3b82f6';
     }
-    
-    notificationDiv.textContent = mensaje;
+
+    notificationDiv.innerHTML = `${icon} <span>${mensaje}</span>`;
     document.body.appendChild(notificationDiv);
-    
+
     if (!document.querySelector('style#notification-animations')) {
         const style = document.createElement('style');
         style.id = 'notification-animations';
@@ -42,21 +50,21 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
                 to { transform: translateX(0); opacity: 1; }
             }
             @keyframes fadeOut {
-                from { opacity: 1; }
-                to { opacity: 0; }
+                from { opacity: 1; opacity: 1; }
+                to { transform: translateX(20px); opacity: 0; }
             }
         `;
         document.head.appendChild(style);
     }
-    
+
     setTimeout(() => {
-        notificationDiv.style.animation = 'fadeOut 0.5s ease';
+        notificationDiv.style.animation = 'fadeOut 0.5s forwards';
         setTimeout(() => {
             if (notificationDiv.parentNode) {
                 notificationDiv.parentNode.removeChild(notificationDiv);
             }
         }, 500);
-    }, 5000);
+    }, 4000);
 }
 
 /**
@@ -76,23 +84,23 @@ async function fetchData(url, options = {}) {
     try {
         console.log(`Fetching: ${url}`);
         const response = await fetch(url, options);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const data = await response.json();
-        console.log(`??? Data from ${url}:`, data);
+        console.log(`✅ [API Success] ${url}`); // Log profesional Juan Sebastian
         return data;
     } catch (error) {
-        console.error(`??? Error fetching ${url}:`, error);
-        mostrarNotificacion(`Error: ${error.message}`, 'error');
+        console.error(`❌ [API Error] ${url}:`, error);
+        mostrarNotificacion(`Error en la solicitud: ${error.message}`, 'error');
         return null;
     }
 }
 
 /**
- * Formatear n??meros
+ * Formatear números
  */
 function formatNumber(num) {
     if (num === null || num === undefined || isNaN(num)) return '0';
@@ -133,7 +141,7 @@ function validarEmail(email) {
 function getEstadoStock(stockActual, stockMinimo) {
     stockActual = parseFloat(stockActual || 0);
     stockMinimo = parseFloat(stockMinimo || 0);
-    
+
     if (stockActual <= 0) {
         return { estado: 'AGOTADO', clase: 'bg-danger' };
     } else if (stockActual < stockMinimo) {

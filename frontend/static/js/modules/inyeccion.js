@@ -114,34 +114,34 @@ async function registrarInyeccion() {
             criterio_pnc: document.getElementById('criterio-pnc-inyeccion')?.value || ''
         };
 
-        console.log('???? Datos a enviar (22 campos):', datos);
+        console.log('✅ [Inyección] Datos preparados:', datos);
 
-        // ??? VALIDACI??N
+        // VALIDACIÓN Juan Sebastian
         if (!datos.codigo_producto || datos.codigo_producto.trim() === '') {
-            mostrarNotificacion('??? Ingresa c??digo del producto', 'error');
+            mostrarNotificacion('Por favor, ingresa el código del producto', 'error');
             mostrarLoading(false);
             return;
         }
 
         if (!datos.cantidad_real || datos.cantidad_real <= 0) {
-            mostrarNotificacion('??? Ingresa disparos v??lidos', 'error');
+            mostrarNotificacion('Cantidad de disparos no válida', 'error');
             mostrarLoading(false);
             return;
         }
 
         if (!datos.responsable || datos.responsable.trim() === '') {
-            mostrarNotificacion('??? Selecciona responsable', 'error');
+            mostrarNotificacion('Selecciona un responsable', 'error');
             mostrarLoading(false);
             return;
         }
 
         if (!datos.maquina || datos.maquina.trim() === '') {
-            mostrarNotificacion('??? Selecciona m??quina', 'error');
+            mostrarNotificacion('Selecciona la máquina utilizada', 'error');
             mostrarLoading(false);
             return;
         }
 
-        console.log('??? Validaci??n pasada, enviando...');
+        console.log('🚀 [Inyección] Enviando solicitud...');
 
         // ENVIAR AL SERVIDOR
         const response = await fetch('/api/inyeccion', {
@@ -151,10 +151,10 @@ async function registrarInyeccion() {
         });
 
         const resultado = await response.json();
-        console.log('Respuesta del servidor:', resultado);
+        console.log('📦 [Inyección] Respuesta:', resultado);
 
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`??? ${resultado.mensaje}`, 'success');
+            mostrarNotificacion(resultado.mensaje || 'Registro completado con éxito', 'success');
 
             // Limpiar formulario
             document.getElementById('form-inyeccion').reset();
@@ -163,7 +163,7 @@ async function registrarInyeccion() {
             document.getElementById('cavidades-inyeccion').value = 1;
             document.getElementById('pnc-inyeccion').value = 0;
             document.getElementById('produccion-calculada').textContent = '0';
-            document.getElementById('formula-calc').textContent = 'Disparos: 0 ?? Cavidades: 1 = 0 piezas';
+            document.getElementById('formula-calc').textContent = 'Disparos: 0 x Cavidades: 1 = 0 piezas';
 
             // Restaurar fecha actual
             const fechaHoy = new Date().toISOString().split('T')[0];
@@ -177,18 +177,18 @@ async function registrarInyeccion() {
             const errores = resultado.errors
                 ? Object.values(resultado.errors).join(', ')
                 : resultado.error || 'Error desconocido';
-            mostrarNotificacion(`??? ${errores}`, 'error');
+            mostrarNotificacion(errores, 'error');
         }
     } catch (error) {
-        console.error('Error registrando inyecci??n:', error);
-        mostrarNotificacion(`??? Error: ${error.message}`, 'error');
+        console.error('❌ [Inyección] Error crítico:', error);
+        mostrarNotificacion(`Error del sistema: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
     }
 }
 
 /**
- * Actualizar c??lculo de producci??n en tiempo real
+ * Actualizar cálculo de producción en tiempo real
  */
 function actualizarCalculoProduccion() {
     const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
@@ -225,7 +225,7 @@ function actualizarCalculoProduccion() {
 }
 
 /**
- * Autocompletar c??digo de ensamble cuando se selecciona producto
+ * Autocompletar código de ensamble cuando se selecciona producto
  */
 async function autocompletarCodigoEnsamble() {
     const codigoProducto = document.getElementById('codigo-producto-inyeccion')?.value;
@@ -238,18 +238,17 @@ async function autocompletarCodigoEnsamble() {
         codigoEnsambleField.value = 'Buscando...';
         codigoEnsambleField.classList.add('loading');
 
-        // Buscar informaci??n del producto
-        // Usar endpoint correcto para obtener ensamble
+        // Buscar información del producto Juan Sebastian
         const response = await fetch(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(codigoProducto)}`);
         if (!response.ok) {
-            console.warn('⚠️ No se pudo obtener ensamble para:', codigoProducto);
+            console.warn('⚠️ [Inyección] No se pudo obtener ensamble para:', codigoProducto);
             return;
         }
         const data = await response.json();
 
         if (data.success && data.codigo_ensamble) {
             codigoEnsambleField.value = data.codigo_ensamble;
-            console.log(`✅ Ensamble autocompletado: ${data.codigo_ensamble}`);
+            console.log(`✅ [Inyección] Ensamble autocompletado: ${data.codigo_ensamble}`);
         } else {
             codigoEnsambleField.value = '';
         }
@@ -257,22 +256,22 @@ async function autocompletarCodigoEnsamble() {
         codigoEnsambleField.classList.remove('loading');
 
     } catch (error) {
-        console.error('Error obteniendo c??digo ensamble:', error);
-        codigoEnsambleField.value = codigoProducto; // Fallback al c??digo del producto
+        console.error('❌ [Inyección] Error obteniendo código ensamble:', error);
+        codigoEnsambleField.value = codigoProducto; // Fallback
     } finally {
         codigoEnsambleField.classList.remove('loading');
     }
 }
 
 /**
- * Formatear n??mero con separadores de miles
+ * Formatear número con separadores de miles
  */
 function formatNumber(num) {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 /**
- * Configurar eventos para inyecci??n
+ * Configurar eventos para inyección
  */
 function configurarEventosInyeccion() {
     // Elementos del formulario
@@ -282,7 +281,7 @@ function configurarEventosInyeccion() {
     const codigoProductoInput = document.getElementById('codigo-producto-inyeccion');
     const formInyeccion = document.getElementById('form-inyeccion');
 
-    // Eventos para c??lculo en tiempo real
+    // Eventos para cálculo en tiempo real Juan Sebastian
     if (cantidadInput) {
         cantidadInput.addEventListener('input', actualizarCalculoProduccion);
     }
@@ -304,22 +303,22 @@ function configurarEventosInyeccion() {
     if (formInyeccion) {
         formInyeccion.addEventListener('submit', function (e) {
             e.preventDefault();
-            console.log('???? Enviando formulario de inyecci??n...');
+            console.log('🚀 [Inyección] Procesando formulario...');
             registrarInyeccion();
         });
     }
 
-    // Inicializar c??lculo al cargar
+    // Inicializar cálculo al cargar Juan Sebastian
     setTimeout(() => {
         actualizarCalculoProduccion();
     }, 100);
 }
 
 /**
- * Inicializar m??dulo de inyecci??n
+ * Inicializar módulo de inyección
  */
 function initInyeccion() {
-    console.log('???? Inicializando m??dulo de inyecci??n...');
+    console.log('🔧 [Inyección] Inicializando módulo...');
 
     // Cargar datos
     cargarDatosInyeccion();
@@ -334,10 +333,10 @@ function initInyeccion() {
         fechaInput.value = fechaHoy;
     }
 
-    console.log('??? M??dulo de inyecci??n inicializado');
+    console.log('🚀 [Inyección] Módulo listo');
 }
 
-// Exportar funciones (si usas m??dulos ES6)
+// Exportar funciones si aplica Juan Sebastian
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         initInyeccion,
@@ -346,9 +345,9 @@ if (typeof module !== 'undefined' && module.exports) {
     };
 }
 
-// Inicializar cuando el DOM est?? listo
+// Inicializar cuando el DOM esté listo Juan Sebastian
 document.addEventListener('DOMContentLoaded', function () {
-    // Si estamos en la p??gina de inyecci??n, inicializar
+    // Si estamos en la página de inyección, inicializar
     const inyeccionPage = document.getElementById('inyeccion-page');
     if (inyeccionPage && inyeccionPage.classList.contains('active')) {
         initInyeccion();

@@ -58,7 +58,7 @@ class Hojas:
     CLIENTES = "CLIENTES"
 
 # ====================================================================
-# CONFIGURACIN DE CREDENCIALES (compatible con desarrollo y produccion)
+# CONFIGURACIÓN DE CREDENCIALES (compatible con desarrollo y producción)
 # ====================================================================
 
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -872,10 +872,10 @@ def health_check():
             "timestamp": datetime.datetime.now().isoformat()
         }), 500
 
-# ========== ENDPOINT INYECCIN - VERSIN CORREGIDA ==========
+# ========== ENDPOINT INYECCIÓN - VERSIÓN CORREGIDA ==========
 @app.route('/api/inyeccion', methods=['POST'])
 def registrar_inyeccion():
-    """Registra un nuevo registro de inyeccion en Sheets - VERSIN COMPLETA CON 22 COLUMNAS"""
+    """Registra un nuevo registro de inyección en Sheets - VERSIÓN COMPLETA CON 22 COLUMNAS"""
     try:
         data = request.json
         logger.debug(f" Datos recibidos: {data}")
@@ -905,28 +905,28 @@ def registrar_inyeccion():
         orden_produccion = data.get('orden_produccion', '')
         
         # ========================================
-        # TRADUCIR CDIGO DE PRODUCTO
+        # TRADUCIR CÓDIGO DE PRODUCTO
         # ========================================
         codigo_producto = obtener_codigo_sistema_real(codigo_producto_entrada)
-        logger.info(f" Codigo entrada: '{codigo_producto_entrada}'  Sistema: '{codigo_producto}'")
+        logger.info(f" Código entrada: '{codigo_producto_entrada}'  Sistema: '{codigo_producto}'")
         
         # ========================================
         # VALIDACIONES
         # ========================================
         if not codigo_producto or codigo_producto.strip() == '':
-            return error_response('Codigo de producto obligatorio')
+            return error_response('El código de producto es obligatorio')
         
         if disparos <= 0:
-            return error_response('Disparos debe ser mayor a 0')
+            return error_response('La cantidad de disparos debe ser mayor a 0')
         
         if not responsable or responsable.strip() == '':
-            return error_response('Responsable obligatorio')
+            return error_response('El responsable es obligatorio')
         
         if not maquina or maquina.strip() == '':
-            return error_response('Maquina obligatoria')
+            return error_response('La máquina es obligatoria')
         
         # ========================================
-        # CALCULAR PRODUCCIN
+        # CALCULAR PRODUCCIÓN
         # ========================================
         cantidad_total = disparos * cavidades
         piezas_buenas = max(0, cantidad_total - pnc)
@@ -1028,7 +1028,7 @@ def registrar_inyeccion():
         # ========================================
         return jsonify({
             'success': True,
-            'mensaje': 'Inyeccion guardada correctamente',
+            'mensaje': 'Inyección guardada correctamente',
             'disparos': disparos,
             'cavidades': cavidades,
             'piezasTotal': cantidad_total,
@@ -1671,6 +1671,18 @@ def obtener_historial_global():
             
             return None
         
+        def safe_get_ignore_case(d, key_target, default=''):
+            """Busca una llave en el diccionario ignorando mayúsculas/minúsculas y espacios Juan Sebastian"""
+            if not d: return default
+            # Intento directo
+            if key_target in d: return d[key_target]
+            # Búsqueda normalizada
+            target_norm = str(key_target).strip().upper()
+            for k, v in d.items():
+                if str(k).strip().upper() == target_norm:
+                    return v
+            return default
+        
         # Parsear fechas del filtro
         fecha_desde = parsear_fecha_flexible(desde) if desde else None
         fecha_hasta = parsear_fecha_flexible(hasta) if hasta else None
@@ -1690,7 +1702,7 @@ def obtener_historial_global():
             try:
                 ws_iny = ss.worksheet(Hojas.INYECCION)
                 registros_iny = ws_iny.get_all_records()
-                logger.info(f" INYECCIN: {len(registros_iny)} registros totales")
+                logger.info(f" INYECCIÓN: {len(registros_iny)} registros totales")
                 
                 procesados = 0
                 saltados = 0
@@ -1723,18 +1735,25 @@ def obtener_historial_global():
                     
                     procesados += 1
                     movimientos.append({
-                        'fecha': fecha_reg.strftime('%d/%m/%Y'),
-                        'tipo': 'INYECCION',
-                        'producto': str(reg.get('ID CODIGO', '')),
-                        'cantidad': to_int_seguro(reg.get('CANTIDAD REAL', 0)),
-                        'responsable': str(reg.get('RESPONSABLE', '')),
-                        'detalle': str(reg.get('OBSERVACIONES', ''))
+                        'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'Tipo': 'INYECCION',
+                        'Producto': str(reg.get('ID CODIGO', reg.get('CODIGO', ''))),
+                        'RESPONSABLE': str(reg.get('RESPONSABLE', '')),
+                        'ORDEN PRODUCCION': str(reg.get('ORDEN PRODUCCION', '')),
+                        'MAQUINA': str(reg.get('MAQUINA', '')),
+                        'CANTIDAD REAL': to_int_seguro(reg.get('CANTIDAD REAL', 0)),
+                        # Normalizados para compatibilidad frontend
+                        'Responsable': str(reg.get('RESPONSABLE', '')),
+                        'Cant': to_int_seguro(reg.get('CANTIDAD REAL', 0)),
+                        'Orden': str(reg.get('ORDEN PRODUCCION', '')),
+                        'Extra': str(reg.get('MAQUINA', '')),
+                        'Detalle': str(reg.get('OBSERVACIONES', ''))
                     })
                 
-                logger.info(f" INYECCIN: {procesados} procesados, {saltados} saltados de {len(registros_iny)} totales")
+                logger.info(f" INYECCIÓN: {procesados} procesados, {saltados} saltados de {len(registros_iny)} totales")
                 
             except Exception as e:
-                logger.error(f" Error en INYECCIN: {e}")
+                logger.error(f" Error en INYECCIÓN: {e}")
                 import traceback
                 traceback.print_exc()
         
@@ -1745,11 +1764,19 @@ def obtener_historial_global():
             try:
                 ws_pul = ss.worksheet(Hojas.PULIDO)
                 registros_pul = ws_pul.get_all_records()
+                # Log headers for debugging Juan Sebastian
+                logger.info(f" DEBUG PULIDO - Encabezados detectados: {ws_pul.row_values(1)}")
                 logger.info(f" PULIDO: {len(registros_pul)} registros totales")
                 
                 procesados = 0
                 saltados = 0
                 
+                # Debug raw records Juan Sebastian
+                if registros_pul:
+                    logger.info(f" DEBUG PULIDO - Primeros 3 registros raw:")
+                    for idx, r in enumerate(registros_pul[:3]):
+                        logger.info(f"   [{idx}] {r}")
+
                 for reg in registros_pul:
                     fecha_str = str(reg.get('FECHA', ''))
                     
@@ -1768,13 +1795,20 @@ def obtener_historial_global():
                         continue
                     
                     procesados += 1
+                    # Usar los encabezados reales de la hoja para mayor precisión Juan Sebastian
                     movimientos.append({
-                        'fecha': fecha_reg.strftime('%d/%m/%Y'),
-                        'tipo': 'PULIDO',
-                        'producto': str(reg.get('CODIGO', '')),
-                        'cantidad': to_int_seguro(reg.get('CANTIDAD REAL', 0)),
-                        'responsable': str(reg.get('RESPONSABLE', '')),
-                        'detalle': str(reg.get('OBSERVACIONES', ''))
+                        'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'Tipo': 'PULIDO',
+                        'Producto': str(safe_get_ignore_case(reg, 'CODIGO', safe_get_ignore_case(reg, 'ID CODIGO'))),
+                        'RESPONSABLE': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
+                        'ORDEN PRODUCCION': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')),
+                        'CANTIDAD REAL': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD REAL')),
+                        # Normalizados para compatibilidad
+                        'Responsable': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
+                        'Cant': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD REAL')),
+                        'Orden': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')),
+                        'Detalle': str(safe_get_ignore_case(reg, 'OBSERVACIONES')),
+                        'Extra': ''
                     })
                 
                 logger.info(f" PULIDO: {procesados} procesados, {saltados} saltados de {len(registros_pul)} totales")
@@ -1813,12 +1847,14 @@ def obtener_historial_global():
                     
                     procesados += 1
                     movimientos.append({
-                        'fecha': fecha_reg.strftime('%d/%m/%Y'),
-                        'tipo': 'VENTA',
-                        'producto': str(reg.get('ID CODIGO', '')),
-                        'cantidad': to_int_seguro(reg.get('CANTIDAD', 0)),
-                        'responsable': str(reg.get('CLIENTE', '')),
-                        'detalle': f"Factura: {reg.get('ID FACTURA', '')}"
+                        'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'Tipo': 'VENTA',
+                        'Producto': str(reg.get('ID CODIGO', reg.get('CODIGO', ''))),
+                        'Cant': to_int_seguro(reg.get('CANTIDAD', 0)),
+                        'Responsable': str(reg.get('CLIENTE', '')),
+                        'Detalle': f"Factura: {reg.get('ID FACTURA', '')}",
+                        'Orden': str(reg.get('ORDEN', reg.get('ID FACTURA', ''))),
+                        'Extra': ''
                     })
                 
                 logger.info(f" FACTURACIN: {procesados} procesados, {saltados} saltados de {len(registros_fac)} totales")
@@ -1833,6 +1869,8 @@ def obtener_historial_global():
             try:
                 ws_ens = ss.worksheet(Hojas.ENSAMBLES)
                 registros_ens = ws_ens.get_all_records()
+                # Log headers for debugging Juan Sebastian
+                logger.info(f" DEBUG ENSAMBLE - Encabezados detectados: {ws_ens.row_values(1)}")
                 logger.info(f" ENSAMBLES: {len(registros_ens)} registros totales")
                 
                 procesados = 0
@@ -1858,12 +1896,18 @@ def obtener_historial_global():
                     
                     procesados += 1
                     movimientos.append({
-                        'fecha': fecha_reg.strftime('%d/%m/%Y'),
-                        'tipo': 'ENSAMBLE',
-                        'producto': str(reg.get('ID CODIGO', reg.get('CODIGO_FINAL', ''))),
-                        'cantidad': to_int_seguro(reg.get('CANTIDAD', 0)),
-                        'responsable': str(reg.get('RESPONSABLE', '')),
-                        'detalle': f"ID: {reg.get('ID_ENSAMBLE', '')} | Buje: {reg.get('BUJE_ORIGEN', '')}"
+                        'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'Tipo': 'ENSAMBLE',
+                        'Producto': str(safe_get_ignore_case(reg, 'ID CODIGO', safe_get_ignore_case(reg, 'CODIGO_FINAL', safe_get_ignore_case(reg, 'CODIGO')))),
+                        'RESPONSABLE': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
+                        'OP NUMERO': str(safe_get_ignore_case(reg, 'OP NUMERO', safe_get_ignore_case(reg, 'ORDEN PRODUCCION'))),
+                        'CANTIDAD': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD')),
+                        # Normalizados para compatibilidad
+                        'Responsable': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
+                        'Cant': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD')),
+                        'Orden': str(safe_get_ignore_case(reg, 'OP NUMERO', safe_get_ignore_case(reg, 'ORDEN PRODUCCION'))),
+                        'Detalle': f"ID: {reg.get('ID_ENSAMBLE', '')} | Buje: {reg.get('BUJE_ORIGEN', '')}",
+                        'Extra': ''
                     })
                 
                 logger.info(f" ENSAMBLES: {procesados} procesados, {saltados} saltados de {len(registros_ens)} totales")
@@ -1904,12 +1948,14 @@ def obtener_historial_global():
                                 continue
                                 
                             movimientos.append({
-                                'fecha': fecha_reg.strftime('%d/%m/%Y'),
-                                'tipo': 'PNC',
-                                'producto': str(r.get('ID CODIGO', r.get('CODIGO_PRODUCTO', ''))),
-                                'cantidad': to_int_seguro(r.get('CANTIDAD', 0)),
-                                'responsable': h_config['tipo'],
-                                'detalle': f"{r.get('CRITERIO', '')} | {r.get('NOTAS', '')}"
+                                'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                                'Tipo': 'PNC',
+                                'Producto': str(r.get('ID CODIGO', r.get('CODIGO_PRODUCTO', ''))),
+                                'Cant': to_int_seguro(r.get('CANTIDAD', 0)),
+                                'Responsable': h_config['tipo'],
+                                'Detalle': f"{r.get('CRITERIO', '')} | {r.get('NOTAS', '')}",
+                                'Orden': str(r.get('ID OPERACION', r.get('ORDEN', ''))),
+                                'Extra': ''
                             })
                     except:
                         continue # Si una hoja no existe, pasar a la siguiente
@@ -1921,7 +1967,7 @@ def obtener_historial_global():
         # ORDENAR Y RETORNAR
         # ========================================
         try:
-            movimientos.sort(key=lambda x: datetime.strptime(x['fecha'], '%d/%m/%Y'), reverse=True)
+            movimientos.sort(key=lambda x: datetime.strptime(x['Fecha'], '%d/%m/%Y'), reverse=True)
         except Exception as e:
             logger.warning(f" Error ordenando: {e}")
         
@@ -3774,7 +3820,7 @@ def obtener_movimientos_producto(codigo):
         try:
             ws_iny = ss.worksheet(Hojas.INYECCION)
             inyecciones = ws_iny.get_all_records()
-            print(f"\n INYECCIN: {len(inyecciones)} registros totales")
+            print(f"\n INYECCIÓN: {len(inyecciones)} registros totales")
             
             for idx, mov in enumerate(inyecciones):
                 # Buscar en todos los nombres posibles de columna
@@ -3815,7 +3861,7 @@ def obtener_movimientos_producto(codigo):
                             'responsable': responsable,
                             'maquina': maquina,
                             'estado': 'COMPLETADO',
-                            'tipo_display': 'Inyeccion'
+                            'tipo_display': 'Inyección'
                         })
                         
                         estadisticas['INYECCIN']['procesados'] += 1
@@ -4600,11 +4646,11 @@ def buscar_alternativas(interno):
         return jsonify({'error': str(e)}), 500
 
 # ====================================================================
-# RUTAS PARA SERVIR ARCHIVOS ESTTICOS Y TEMPLATE PRINCIPAL
+# RUTAS PARA SERVIR ARCHIVOS ESTÁTICOS Y TEMPLATE PRINCIPAL
 # ====================================================================
 
 # ====================================================================
-# RUTAS PARA SERVIR ARCHIVOS ESTTICOS
+# RUTAS PARA SERVIR ARCHIVOS ESTÁTICOS
 # ====================================================================
 # La ruta index '/' ya fue definida al inicio
 
