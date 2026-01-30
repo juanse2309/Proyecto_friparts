@@ -146,16 +146,25 @@ async function actualizarMapeoEnsamble() {
         // Usar el endpoint existente que ya hace este trabajo
         const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${bujeCode}`);
 
+        // LOG COMPLETO DE LA RESPUESTA
+        console.log('🔍 Respuesta completa del API:', JSON.stringify(data, null, 2));
+
         if (data && data.success) {
             console.log('✅ Mapeo encontrado:', data);
 
             const inputEnsamble = document.getElementById('ens-id-codigo');
             const inputQty = document.getElementById('ens-qty-bujes');
 
-            if (inputEnsamble) inputEnsamble.value = data.codigo_ensamble || '';
+            if (inputEnsamble) {
+                inputEnsamble.value = data.codigo_ensamble || '';
+                console.log('📦 Código Ensamble asignado:', inputEnsamble.value);
+            }
+
             if (inputQty) {
-                inputQty.value = data.qty || '1';
-                console.log('📊 Actualizando QTY a:', inputQty.value);
+                // Intentar múltiples nombres de campo
+                const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
+                inputQty.value = qtyValue;
+                console.log('📊 QTY asignado:', qtyValue, '(de campo:', data.qty ? 'qty' : data.qty_unitaria ? 'qty_unitaria' : data.cantidad ? 'cantidad' : 'fallback', ')');
             }
 
             // Actualizar cálculos
@@ -166,7 +175,7 @@ async function actualizarMapeoEnsamble() {
             document.getElementById('ens-qty-bujes').value = '1';
         }
     } catch (error) {
-        console.error('Error buscando mapeo:', error);
+        console.error('❌ Error buscando mapeo:', error);
     }
 }
 

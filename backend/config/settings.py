@@ -50,6 +50,7 @@ class Hojas:
     PULIDO = "PULIDO"
     FACTURACION = "FACTURACION"
     CLIENTES = "CLIENTES"
+    PEDIDOS = "PEDIDOS"
 
 
 class Almacenes:

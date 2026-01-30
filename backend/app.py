@@ -23,6 +23,13 @@ app = Flask(__name__,
             static_folder='../frontend/static')
 CORS(app)
 
+# Login Blueprint
+from backend.routes.auth_routes import auth_bp
+from backend.routes.pedidos_routes import pedidos_bp
+
+app.register_blueprint(auth_bp)
+app.register_blueprint(pedidos_bp)
+
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
 def index():
@@ -2049,11 +2056,10 @@ def obtener_ficha(id_codigo):
 
 @app.route('/api/obtener_responsables', methods=['GET'])
 def obtener_responsables():
-    """Obtiene la lista de responsables activos."""
+    """Obtiene la lista de responsables activos (ACTIVO? = 1)."""
     try:
         logger.info(f" Obteniendo responsables desde: {GSHEET_FILE_NAME}")
         
-        # Debug: listar todas las hojas primero
         ss = gc.open_by_key(GSHEET_KEY)
         hojas = [ws.title for ws in ss.worksheets()]
         logger.info(f" Hojas disponibles: {hojas}")
@@ -2080,30 +2086,34 @@ def obtener_responsables():
                 
                 nombres = []
                 for r in registros:
+                    # FILTRO ROBUSTO: Solo usuarios activos (insensible a formato)
+                    activo_raw = r.get('ACTIVO?', r.get('ACTIVO', ''))
+                    
+                    # Convertir a string, quitar espacios y normalizar
+                    valor_limpio = str(activo_raw).strip().upper()
+                    
+                    # Aceptar: '1', '1.0', 'TRUE', 'SI', 'SÍ', 'YES', 'VERDADERO'
+                    if valor_limpio not in ['1', '1.0', 'TRUE', 'VERDADERO', 'SI', 'SÍ', 'YES']:
+                        continue  # Saltar usuarios inactivos
+                    
                     # Buscar responsable en diferentes columnas posibles
                     for col in ['RESPONSABLE', 'NOMBRE', 'OPERARIO', 'NOMBRE COMPLETO']:
                         if col in r and r[col]:
                             responsable = str(r[col]).strip()
-                            # Verificar si esta activo
-                            activo = str(r.get('ACTIVO?', r.get('ACTIVO', r.get('ESTADO', '1')))).strip()
-                            if activo == '1' and responsable:
+                            if responsable:
                                 nombres.append(responsable)
                                 break
                 
-                logger.info(f" Responsables encontrados: {len(nombres)}")
+                logger.info(f" Responsables ACTIVOS encontrados: {len(nombres)}")
                 return jsonify(sorted(list(set(nombres)))), 200
                 
             except Exception as e:
                 logger.warning(f" Hoja {nombre_hoja} no encontrada: {e}")
                 continue
         
-        # Si no encontro ninguna hoja, crear datos de ejemplo
-        logger.warning(" No se encontro hoja de responsables, usando datos de ejemplo")
-        ejemplo_responsables = [
-            "OPERADOR 1", "OPERADOR 2", "OPERADOR 3",
-            "SUPERVISOR", "ADMINISTRADOR"
-        ]
-        return jsonify(ejemplo_responsables), 200
+        # Si no encontro ninguna hoja, devolver lista vacía (no datos de ejemplo)
+        logger.warning(" No se encontro hoja de responsables")
+        return jsonify([]), 200
         
     except Exception as e:
         logger.error(f" ERROR critico en obtener_responsables: {str(e)}")
@@ -2190,20 +2200,29 @@ def obtener_clientes():
         filas = datos[1:]
         
         clientes = []
-        idx = 0
-        # Buscar columna CLIENTE
-        if "CLIENTE" in encabezados:
-             idx = encabezados.index("CLIENTE")
+        
+        # Buscar índices de columnas
+        idx_cliente = encabezados.index("CLIENTE") if "CLIENTE" in encabezados else 0
+        idx_nit = encabezados.index("NIT") if "NIT" in encabezados else -1
 
         for fila in filas:
-            if len(fila) > idx and fila[idx].strip():
-                clientes.append(fila[idx].strip())
+            if len(fila) > idx_cliente and fila[idx_cliente].strip():
+                cliente_obj = {
+                    "nombre": fila[idx_cliente].strip(),
+                    "nit": fila[idx_nit].strip() if idx_nit >= 0 and len(fila) > idx_nit else ""
+                }
+                clientes.append(cliente_obj)
         
-        return jsonify(sorted(list(set(clientes))))
+        # Eliminar duplicados basados en nombre
+        clientes_unicos = {c["nombre"]: c for c in clientes}.values()
+        
+        return jsonify(sorted(list(clientes_unicos), key=lambda x: x["nombre"]))
 
     except Exception as e:
-        print(f" Error real clientes: {e}")
-        return jsonify([]), 500
+        logger.error(f"❌ ERROR en obtener_clientes: {str(e)}")
+        traceback.print_exc()
+        # Devolver lista vacía en lugar de 500 para no bloquear la UI
+        return jsonify({"error": str(e), "clientes": []}), 200
 
 # ELIMINADO: Endpoint duplicado con lógica incorrecta de semáforos (usaba success/danger/warning en lugar de green/red/yellow)
 

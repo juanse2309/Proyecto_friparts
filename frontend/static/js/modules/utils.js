@@ -161,5 +161,9 @@ function limpiarFormulario(formId) {
     const form = document.getElementById(formId);
     if (form) {
         form.reset();
+        // Restaurar usuario logueado
+        if (window.AuthModule) {
+            window.AuthModule.autoFillForms();
+        }
     }
 }

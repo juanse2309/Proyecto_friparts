@@ -47,6 +47,7 @@ async function cargarDatosCompartidos() {
             codigo_sistema: p.codigo || '',
             descripcion: p.descripcion || '',
             imagen: p.imagen || '',
+            precio: p.precio || 0,
             stock_por_pulir: p.stock_por_pulir || 0,
             stock_terminado: p.stock_terminado || 0,
             stock_total: p.existencias_totales || 0,
@@ -67,9 +68,10 @@ async function cargarDatosCompartidos() {
             console.log('  ✅ Máquinas cargadas:', window.AppState.sharedData.maquinas.length);
         }
 
-        // 4. Procesar clientes
+        // 4. Procesar clientes (ahora incluye NIT)
         if (resCli.ok) {
-            window.AppState.sharedData.clientes = await resCli.json();
+            const clientesData = await resCli.json();
+            window.AppState.sharedData.clientes = clientesData; // Array de {nombre, nit}
             console.log('  ✅ Clientes cargados:', window.AppState.sharedData.clientes.length);
         }
 
@@ -151,7 +153,8 @@ function inicializarModulo(nombrePagina) {
         'pnc': window.ModuloPNC,
         'facturacion': window.ModuloFacturacion,
         'mezcla': window.ModuloMezcla,
-        'historial': window.ModuloHistorial
+        'historial': window.ModuloHistorial,
+        'pedidos': window.ModuloPedidos
     };
 
     const modulo = modulos[nombrePagina];
@@ -168,7 +171,24 @@ function inicializarModulo(nombrePagina) {
         }
     }
 
+    // CRÍTICO: Verificar que el usuario esté logueado antes de inicializar módulos
+    const userLoggedIn = window.AppState && window.AppState.user && window.AppState.user.name;
+
     if (modulo?.inicializar) {
+        if (!userLoggedIn && nombrePagina !== 'dashboard') {
+            console.log(`ℹ️  Módulo ${nombrePagina} esperando login de usuario...`);
+            // Reintentar después de 500ms
+            setTimeout(() => {
+                const userNowLoggedIn = window.AppState && window.AppState.user && window.AppState.user.name;
+                if (userNowLoggedIn) {
+                    console.log(`🔧 Inicializando módulo (retry): ${nombrePagina}`);
+                    modulo.inicializar();
+                } else {
+                    console.warn(`⚠️  Módulo ${nombrePagina} requiere usuario logueado`);
+                }
+            }, 500);
+            return;
+        }
         console.log('🔧 Inicializando módulo:', nombrePagina);
         modulo.inicializar();
     } else {
