@@ -12,7 +12,7 @@ class Settings:
     """Configuración global de la aplicación."""
     
     # Google Sheets
-    GSHEET_KEY = os.getenv('GSHEET_KEY')
+    GSHEET_KEY = os.getenv('GSHEET_KEY', '1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM')
     GSHEET_FILE_NAME = os.getenv('GSHEET_FILE_NAME', 'BASES PARA NUEVA APP')
     
     # Cache
