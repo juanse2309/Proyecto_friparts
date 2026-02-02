@@ -1,69 +1,170 @@
 ﻿// ============================================
-// ensamble.js - Lógica de Ensamble (Refactorizada)
+// ensamble.js - Lógica de Ensamble (SMART SEARCH)
 // ============================================
 
-/**
- * Cargar datos de Ensamble
- */
-async function cargarDatosEnsamble() {
-    try {
-        console.log('📦 Cargando datos de ensamble...');
-        mostrarLoading(true);
+const ModuloEnsamble = {
+    productosData: [],
+    responsablesData: [],
 
-        // Cargar responsables
-        const responsables = await fetchData('/api/obtener_responsables');
-        if (responsables && Array.isArray(responsables)) {
-            actualizarSelectEnsamble('responsable-ensamble', responsables);
-        }
+    init: async function () {
+        console.log('🔧 [Ensamble] Inicializando módulo Smart...');
+        await this.cargarDatos();
+        this.configurarEventos();
+        this.initAutocompleteComponente();
+        this.initAutocompleteResponsable();
+    },
 
-        // Usar productos del cache compartido para el BUJE COMPONENTE
-        if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
-            console.log('✅ Usando productos del cache compartido en Ensamble (Bujes)');
-            // Poblamos el select de BUJE COMPONENTE (ens-buje-componente)
-            actualizarSelectEnsamble('ens-buje-componente', window.AppState.sharedData.productos);
-        } else {
-            console.warn('⚠️ No hay productos en cache compartido para Ensamble');
-        }
+    cargarDatos: async function () {
+        try {
+            console.log('📦 Cargando datos de ensamble...');
+            mostrarLoading(true);
 
-        console.log('✅ Datos de ensamble cargados');
-        mostrarLoading(false);
-    } catch (error) {
-        console.error('Error cargando datos:', error);
-        mostrarLoading(false);
-    }
-}
+            // 1. Cargar Responsables
+            const responsables = await fetchData('/api/obtener_responsables');
+            if (responsables) this.responsablesData = responsables;
 
-/**
- * Actualizar select en Ensamble
- */
-function actualizarSelectEnsamble(selectId, datos) {
-    const select = document.getElementById(selectId);
-    if (!select) return;
-
-    const currentValue = select.value;
-    select.innerHTML = '<option value="">-- Seleccionar --</option>';
-
-    if (datos && Array.isArray(datos)) {
-        datos.forEach(item => {
-            const option = document.createElement('option');
-            if (typeof item === 'object') {
-                // Para el buje componente, usamos el codigo de sistema o codigo base
-                option.value = item.codigo_sistema || item.codigo || '';
-                option.textContent = item.descripcion ? `${item.codigo_sistema || item.codigo} - ${item.descripcion}` : (item.nombre || item.id);
+            // 2. Cargar Productos (Para Buje Origen)
+            if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
+                this.productosData = window.AppState.sharedData.productos;
             } else {
-                option.value = item;
-                option.textContent = item;
+                const prods = await fetchData('/api/productos/listar');
+                this.productosData = prods.items || prods;
             }
-            select.appendChild(option);
+
+            mostrarLoading(false);
+        } catch (error) {
+            console.error('Error cargando datos:', error);
+            mostrarLoading(false);
+        }
+    },
+
+    // ---------------------------------------------------------
+    // SMART SEARCH: BUJE ORIGEN (COMPONENTE)
+    // ---------------------------------------------------------
+    initAutocompleteComponente: function () {
+        const input = document.getElementById('ens-buje-componente');
+        const suggestionsDiv = document.getElementById('ensamble-componente-suggestions');
+
+        if (!input || !suggestionsDiv) return;
+
+        let debounceTimer;
+
+        input.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const query = e.target.value.trim();
+
+            if (query.length < 2) {
+                suggestionsDiv.classList.remove('active');
+                return;
+            }
+
+            debounceTimer = setTimeout(() => {
+                const resultados = this.productosData.filter(prod =>
+                    (prod.codigo_sistema || '').toLowerCase().includes(query.toLowerCase()) ||
+                    (prod.descripcion || '').toLowerCase().includes(query.toLowerCase())
+                ).slice(0, 15);
+
+                this.renderSuggestions(suggestionsDiv, resultados, (item) => {
+                    input.value = item.codigo_sistema || item.codigo;
+                    suggestionsDiv.classList.remove('active');
+
+                    // IMPORTANTE: Trigger manual del mapeo de ensamble
+                    actualizarMapeoEnsamble();
+
+                }, true);
+            }, 300);
         });
+
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.classList.remove('active');
+            }
+        });
+    },
+
+    // ---------------------------------------------------------
+    // SMART SEARCH: RESPONSABLE
+    // ---------------------------------------------------------
+    initAutocompleteResponsable: function () {
+        const input = document.getElementById('responsable-ensamble');
+        const suggestionsDiv = document.getElementById('ensamble-responsable-suggestions');
+
+        if (!input || !suggestionsDiv) return;
+
+        input.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            if (query.length < 1) {
+                suggestionsDiv.classList.remove('active');
+                return;
+            }
+
+            const resultados = this.responsablesData.filter(resp =>
+                resp.toLowerCase().includes(query)
+            );
+
+            this.renderSuggestions(suggestionsDiv, resultados, (item) => {
+                input.value = item;
+                suggestionsDiv.classList.remove('active');
+            }, false);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.classList.remove('active');
+            }
+        });
+    },
+
+    renderSuggestions: function (container, items, onSelect, isProduct) {
+        if (items.length === 0) {
+            container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
+            container.classList.add('active');
+            return;
+        }
+
+        container.innerHTML = items.map(item => {
+            if (isProduct) {
+                return `
+                <div class="suggestion-item" data-val="${item.codigo_sistema || item.codigo}">
+                    <strong>${item.codigo_sistema || item.codigo}</strong><br>
+                    <small>${item.descripcion}</small>
+                </div>`;
+            } else {
+                return `<div class="suggestion-item" data-val="${item}">${item}</div>`;
+            }
+        }).join('');
+
+        container.querySelectorAll('.suggestion-item').forEach((div, index) => {
+            div.addEventListener('click', () => {
+                onSelect(items[index]);
+            });
+        });
+
+        container.classList.add('active');
+    },
+
+    configurarEventos: function () {
+        const form = document.getElementById('form-ensamble');
+        if (form) {
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                registrarEnsamble();
+            });
+        }
+
+        document.getElementById('cantidad-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
+        document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
+        document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);
+
+        // Listener en input manual o pegado
+        document.getElementById('ens-buje-componente')?.addEventListener('change', actualizarMapeoEnsamble);
     }
+};
 
-    if (currentValue) select.value = currentValue;
-}
+// ==========================================
+// FUNCIONES GLOBALES (Legacy/Compatibilidad)
+// ==========================================
 
-/**
- * Registrar Ensamble
- */
 async function registrarEnsamble() {
     try {
         console.log('🚀 [Ensamble] Intentando registrar...');
@@ -73,14 +174,13 @@ async function registrarEnsamble() {
         const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
         const cantidadReal = Math.max(0, cantidadTotal - pnc);
 
-        // Mapeo exacto esperado por app.py Juan Sebastian
         const datos = {
             fecha_inicio: document.getElementById('fecha-ensamble')?.value || '',
-            responsable: document.getElementById('responsable-ensamble')?.value || '',
+            responsable: document.getElementById('responsable-ensamble')?.value || '', // Input
             hora_inicio: document.getElementById('hora-inicio-ensamble')?.value || '',
             hora_fin: document.getElementById('hora-fin-ensamble')?.value || '',
             codigo_producto: document.getElementById('ens-id-codigo')?.value || '',
-            buje_componente: document.getElementById('ens-buje-componente')?.value || '',
+            buje_componente: document.getElementById('ens-buje-componente')?.value || '', // Input
             qty_unitaria: document.getElementById('ens-qty-bujes')?.value || '1',
             cantidad_recibida: cantidadTotal,
             cantidad_real: cantidadReal,
@@ -91,10 +191,8 @@ async function registrarEnsamble() {
             observaciones: document.getElementById('observaciones-ensamble')?.value || ''
         };
 
-        console.log('📦 [Ensamble] Datos preparados:', datos);
-
         if (!datos.codigo_producto || datos.codigo_producto === 'NO DEFINIDO') {
-            mostrarNotificacion('⚠️ Selecciona un buje componente válido que genere un ensamble', 'error');
+            mostrarNotificacion('⚠️ Selecciona un buje componente válido', 'error');
             mostrarLoading(false);
             return;
         }
@@ -106,20 +204,13 @@ async function registrarEnsamble() {
         });
 
         const resultado = await response.json();
-        console.log('📥 [Ensamble] Respuesta:', resultado);
 
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success');
-
-            // Limpiar formulario sin recargar
             document.getElementById('form-ensamble')?.reset();
-            actualizarCalculoEnsamble(); // Resetear resumen visual
-
-            // Si el dashboard está abierto abajo, actualizarlo
-            if (window.actualizarDashboard) window.actualizarDashboard();
-
+            actualizarCalculoEnsamble();
         } else {
-            const errorMsg = resultado.error || resultado.mensaje || 'Error desconocido en el servidor';
+            const errorMsg = resultado.error || resultado.mensaje || 'Error desconocido';
             mostrarNotificacion(`❌ Error: ${errorMsg}`, 'error');
         }
     } catch (error) {
@@ -130,9 +221,6 @@ async function registrarEnsamble() {
     }
 }
 
-/**
- * Buscar mapeo de ensamble cuando cambia el buje componente
- */
 async function actualizarMapeoEnsamble() {
     const bujeCode = document.getElementById('ens-buje-componente')?.value;
     if (!bujeCode) {
@@ -143,34 +231,14 @@ async function actualizarMapeoEnsamble() {
 
     try {
         console.log('🔍 Buscando ensamble para:', bujeCode);
-        // Usar el endpoint existente que ya hace este trabajo
-        const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${bujeCode}`);
-
-        // LOG COMPLETO DE LA RESPUESTA
-        console.log('🔍 Respuesta completa del API:', JSON.stringify(data, null, 2));
+        const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(bujeCode)}`);
 
         if (data && data.success) {
-            console.log('✅ Mapeo encontrado:', data);
-
-            const inputEnsamble = document.getElementById('ens-id-codigo');
-            const inputQty = document.getElementById('ens-qty-bujes');
-
-            if (inputEnsamble) {
-                inputEnsamble.value = data.codigo_ensamble || '';
-                console.log('📦 Código Ensamble asignado:', inputEnsamble.value);
-            }
-
-            if (inputQty) {
-                // Intentar múltiples nombres de campo
-                const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
-                inputQty.value = qtyValue;
-                console.log('📊 QTY asignado:', qtyValue, '(de campo:', data.qty ? 'qty' : data.qty_unitaria ? 'qty_unitaria' : data.cantidad ? 'cantidad' : 'fallback', ')');
-            }
-
-            // Actualizar cálculos
+            document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
+            const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
+            document.getElementById('ens-qty-bujes').value = qtyValue;
             actualizarCalculoEnsamble();
         } else {
-            console.warn('⚠️ No se encontró mapeo para este buje');
             document.getElementById('ens-id-codigo').value = 'NO DEFINIDO';
             document.getElementById('ens-qty-bujes').value = '1';
         }
@@ -179,9 +247,6 @@ async function actualizarMapeoEnsamble() {
     }
 }
 
-/**
- * Actualizar cálculo de ensamble en tiempo real
- */
 function actualizarCalculoEnsamble() {
     const cantidad = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
     const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
@@ -190,47 +255,18 @@ function actualizarCalculoEnsamble() {
     const ensamblesBuenos = Math.max(0, cantidad - pnc);
     const bujesConsumidos = cantidad * qtyPerEnsamble;
 
-    // UI Elements
     const displaySalida = document.getElementById('produccion-calculada-ensamble');
     const formulaCalc = document.getElementById('formula-calc-ensamble');
     const piezasBuenasDisplay = document.getElementById('piezas-buenas-ensamble');
 
     if (displaySalida) displaySalida.textContent = formatNumber(ensamblesBuenos);
-    if (formulaCalc) {
-        formulaCalc.textContent = `Ensambles: ${formatNumber(cantidad)} - PNC: ${formatNumber(pnc)} = ${formatNumber(ensamblesBuenos)} finales`;
-    }
-    if (piezasBuenasDisplay) {
-        piezasBuenasDisplay.textContent = `Bujes consumidos: ${formatNumber(bujesConsumidos)}`;
-    }
+    if (formulaCalc) formulaCalc.textContent = `Ensambles: ${formatNumber(cantidad)} - PNC: ${formatNumber(pnc)} = ${formatNumber(ensamblesBuenos)} finales`;
+    if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Bujes consumidos: ${formatNumber(bujesConsumidos)}`;
 }
 
-/**
- * Inicializar módulo
- */
-function initEnsamble() {
-    console.log('🔧 Inicializando módulo de Ensamble (Refactorizado)...');
-    cargarDatosEnsamble();
-
-    // Configurar envío del formulario Juan Sebastian
-    const form = document.getElementById('form-ensamble');
-    if (form) {
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            registrarEnsamble();
-        });
-    }
-
-    // Listeners para el mapeo automático
-    document.getElementById('ens-buje-componente')?.addEventListener('change', actualizarMapeoEnsamble);
-
-    // Listeners para el cálculo en tiempo real
-    document.getElementById('cantidad-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
-    document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
-    document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);
-
-    console.log('✅ Módulo de Ensamble inicializado');
+function formatNumber(num) {
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-// Exportar
-window.initEnsamble = initEnsamble;
-window.ModuloEnsamble = { inicializar: initEnsamble };
+window.initEnsamble = () => ModuloEnsamble.init();
+window.ModuloEnsamble = ModuloEnsamble;

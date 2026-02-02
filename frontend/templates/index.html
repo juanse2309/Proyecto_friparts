@@ -277,8 +277,12 @@
                         <div class="form-grid"> <!-- Fila 1 -->
                             <div class="form-group"> <label for="fecha-inyeccion"><i class="fas fa-calendar"></i>
                                     Fecha</label> <input type="date" id="fecha-inyeccion" required> </div>
-                            <div class="form-group"> <label for="responsable-inyeccion"><i class="fas fa-user"></i>
-                                    Responsable</label> <select id="responsable-inyeccion" required></select> </div>
+                            <div class="form-group"> <label for="responsable-inyeccion"><i
+                                        class="fas fa-user-circle"></i>
+                                    Responsable</label> <input type="text" id="responsable-inyeccion"
+                                    placeholder="Buscar operario..." autocomplete="off">
+                                <div id="inyeccion-responsable-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
                             <!-- Fila 2 -->
                             <div class="form-group"> <label for="maquina-inyeccion"><i class="fas fa-cogs"></i>
                                     Máquina</label> <select id="maquina-inyeccion" required></select> </div>
@@ -293,8 +297,10 @@
                                     id="hora-termina-inyeccion" required> </div> <!-- Fila 4 -->
                             <div class="form-group"> <label for="codigo-producto-inyeccion"><i
                                         class="fas fa-barcode"></i> Producto</label> <input type="text"
-                                    id="codigo-producto-inyeccion" list="productos-list"
-                                    placeholder="Buscar producto..." required> </div>
+                                    id="codigo-producto-inyeccion" placeholder="Buscar por código o descripción..."
+                                    autocomplete="off">
+                                <div id="inyeccion-producto-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
                             <div class="form-group"> <label for="cavidades-inyeccion"><i class="fas fa-cube"></i> No.
                                     Cavidades</label> <input type="number" id="cavidades-inyeccion" min="1" value="1"
                                     required> </div> <!-- Fila 5 -->
@@ -400,8 +406,10 @@
                                 <input type="date" id="fecha-pulido" required>
                             </div>
                             <div class="form-group">
-                                <label for="responsable-pulido"><i class="fas fa-user"></i> Responsable</label>
-                                <select id="responsable-pulido" required></select>
+                                <label for="responsable-pulido"><i class="fas fa-user-circle"></i> Responsable</label>
+                                <input type="text" id="responsable-pulido" placeholder="Buscar operario..."
+                                    autocomplete="off">
+                                <div id="pulido-responsable-suggestions" class="autocomplete-suggestions"></div>
                             </div>
 
                             <!-- Fila 2: Horas -->
@@ -418,8 +426,9 @@
                             <div class="form-group">
                                 <label for="codigo-producto-pulido"><i class="fas fa-barcode"></i> Código
                                     Producto</label>
-                                <input type="text" id="codigo-producto-pulido" list="productos-list"
-                                    placeholder="Buscar producto..." required>
+                                <input type="text" id="codigo-producto-pulido" placeholder="Buscar por código..."
+                                    autocomplete="off">
+                                <div id="pulido-producto-suggestions" class="autocomplete-suggestions"></div>
                             </div>
                             <div class="form-group">
                                 <label for="lote-pulido"><i class="fas fa-calendar-alt"></i> Lote (Fecha)</label>
@@ -535,8 +544,10 @@
                                 <input type="date" id="fecha-ensamble" required>
                             </div>
                             <div class="form-group">
-                                <label for="responsable-ensamble"><i class="fas fa-user"></i> Responsable</label>
-                                <select id="responsable-ensamble" required></select>
+                                <label for="responsable-ensamble"><i class="fas fa-user-circle"></i> Responsable</label>
+                                <input type="text" id="responsable-ensamble" placeholder="Buscar operario..."
+                                    autocomplete="off">
+                                <div id="ensamble-responsable-suggestions" class="autocomplete-suggestions"></div>
                             </div>
 
                             <!-- Fila 2: Horas -->
@@ -551,10 +562,11 @@
 
                             <!-- Fila 3: Buje Componente y Código Ensamble (REFACCIONADO) -->
                             <div class="form-group">
-                                <label for="ens-buje-componente"><i class="fas fa-cube"></i> Buje Componente</label>
-                                <select id="ens-buje-componente" required>
-                                    <option value="">-- Seleccionar Buje --</option>
-                                </select>
+                                <label for="ens-buje-componente"><i class="fas fa-cube"></i> Buje Componente
+                                    (Origen)</label>
+                                <input type="text" id="ens-buje-componente" placeholder="Buscar componente..."
+                                    autocomplete="off">
+                                <div id="ensamble-componente-suggestions" class="autocomplete-suggestions"></div>
                             </div>
                             <div class="form-group">
                                 <label for="ens-id-codigo"><i class="fas fa-box"></i> Código Ensamble (Producto

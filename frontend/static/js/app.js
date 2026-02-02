@@ -140,6 +140,8 @@ window.addEventListener('popstate', (event) => {
 window.volverAlDashboard = function () {
     console.log('🔙 Volviendo al Dashboard...');
     cargarPagina('dashboard');
+    document.querySelector('.sidebar')?.classList.remove('active');
+    document.querySelector('.sidebar-overlay')?.classList.remove('active');
 };
 
 function inicializarModulo(nombrePagina) {
@@ -208,6 +210,7 @@ function configurarNavegacion() {
             // Cerrar sidebar en móvil al hacer click en un item
             if (window.innerWidth < 992) {
                 document.querySelector('.sidebar')?.classList.remove('active');
+                document.querySelector('.sidebar-overlay')?.classList.remove('active');
             }
         });
     });

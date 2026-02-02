@@ -3964,4 +3964,82 @@ body.loaded {
         /* Más seguro en móviles pequeños */
         gap: 15px;
     }
+}/* =========================================
+   SMART SEARCH / AUTOCOMPLETE STYLES
+   ========================================= */
+.form-group {
+    position: relative;
+}
+
+.autocomplete-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    max-height: 250px;
+    overflow-y: auto;
+    display: none;
+}
+
+.autocomplete-suggestions.active {
+    display: block;
+}
+
+.suggestion-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.95rem;
+    transition: background 0.2s;
+    color: #374151;
+}
+
+.suggestion-item:last-child {
+    border-bottom: none;
+}
+
+.suggestion-item:hover {
+    background-color: #f3f4f6;
+    color: #111827;
+}
+
+.suggestion-item strong {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.suggestion-item small {
+    display: block;
+    color: #9ca3af;
+    font-size: 0.8rem;
+    margin-top: 2px;
+}
+
+/* =========================================
+   MOBILE OPTIMIZATION (TOUCH TARGETS)
+   ========================================= */
+@media (max-width: 768px) {
+
+    input[type="text"],
+    input[type="number"],
+    input[type="date"],
+    input[type="time"],
+    input[type="password"],
+    input[type="email"],
+    select,
+    button.btn {
+        min-height: 44px !important;
+        font-size: 16px !important;
+    }
+
+    .form-container,
+    .page {
+        overflow-x: hidden;
+        width: 100%;
+    }
 }
