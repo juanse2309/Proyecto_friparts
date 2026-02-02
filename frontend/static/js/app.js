@@ -106,6 +106,10 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         menuItem.classList.add('active');
     }
 
+    // Ensure overlay is removed when changing pages via any method
+    document.querySelector('.sidebar')?.classList.remove('active');
+    document.querySelector('.sidebar-overlay')?.classList.remove('active');
+
     // Gestionar historial para el botón atrás de móviles Juan Sebastian
     if (pushToHistory) {
         history.pushState({ page: nombrePagina }, '', `#${nombrePagina}`);

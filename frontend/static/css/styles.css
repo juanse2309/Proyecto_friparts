@@ -4110,3 +4110,14 @@ body.loaded {
         letter-spacing: 0.5px;
     }
 }
+
+/* EMERGENCY OVERRIDE: Restore Table View for Pedidos */
+@media (max-width: 991px) {
+    #tabla-items-pedido { display: table !important; width: 100% !important; border-collapse: collapse !important; }
+    #tabla-items-pedido thead { display: table-header-group !important; }
+    #tabla-items-pedido tbody { display: table-row-group !important; }
+    #tabla-items-pedido tr { display: table-row !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
+    #tabla-items-pedido td { display: table-cell !important; text-align: left !important; padding: 12px 15px !important; border-bottom: 1px solid #dee2e6 !important; justify-content: normal !important; }
+    #tabla-items-pedido td::before { content: none !important; }
+    #tabla-items-pedido td:last-child { display: table-cell !important; text-align: center !important; }
+}
