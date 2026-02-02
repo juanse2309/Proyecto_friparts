@@ -87,7 +87,13 @@ function actualizarSelectInyeccion(selectId, datos) {
  * REGISTRAR INYECCIÓN - FUNCIÓN PRINCIPAL COMPLETA (22 CAMPOS)
  */
 async function registrarInyeccion() {
+    const btn = document.querySelector('#form-inyeccion button[type="submit"]');
+
     try {
+        // Mostrar loading en botón
+        if (window.TouchFeedback && btn) {
+            TouchFeedback.setButtonLoading(btn, true);
+        }
         mostrarLoading(true);
 
         // RECOPILAR TODOS LOS DATOS (22 CAMPOS)
@@ -120,24 +126,28 @@ async function registrarInyeccion() {
         if (!datos.codigo_producto || datos.codigo_producto.trim() === '') {
             mostrarNotificacion('Por favor, ingresa el código del producto', 'error');
             mostrarLoading(false);
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
             return;
         }
 
         if (!datos.cantidad_real || datos.cantidad_real <= 0) {
             mostrarNotificacion('Cantidad de disparos no válida', 'error');
             mostrarLoading(false);
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
             return;
         }
 
         if (!datos.responsable || datos.responsable.trim() === '') {
             mostrarNotificacion('Selecciona un responsable', 'error');
             mostrarLoading(false);
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
             return;
         }
 
         if (!datos.maquina || datos.maquina.trim() === '') {
             mostrarNotificacion('Selecciona la máquina utilizada', 'error');
             mostrarLoading(false);
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
             return;
         }
 
@@ -184,6 +194,9 @@ async function registrarInyeccion() {
         mostrarNotificacion(`Error del sistema: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
+        if (window.TouchFeedback && btn) {
+            TouchFeedback.setButtonLoading(btn, false);
+        }
     }
 }
 
@@ -318,13 +331,18 @@ function configurarEventosInyeccion() {
  * Inicializar módulo de inyección
  */
 function initInyeccion() {
-    console.log('🔧 [Inyección] Inicializando módulo...');
+    console.log('🔧 [Inyeccion] Inicializando módulo...');
 
     // Cargar datos
     cargarDatosInyeccion();
 
     // Configurar eventos
     configurarEventosInyeccion();
+
+    // Inicializar validación en tiempo real
+    if (window.FormValidator) {
+        FormValidator.initRealtimeValidation('form-inyeccion');
+    }
 
     // Establecer fecha actual
     const fechaHoy = new Date().toISOString().split('T')[0];
@@ -333,7 +351,7 @@ function initInyeccion() {
         fechaInput.value = fechaHoy;
     }
 
-    console.log('🚀 [Inyección] Módulo listo');
+    console.log('🚀 [Inyeccion] Módulo listo');
 }
 
 // Exportar funciones si aplica Juan Sebastian
