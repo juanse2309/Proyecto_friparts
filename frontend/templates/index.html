@@ -693,11 +693,7 @@
                         <h1><i class="fas fa-exclamation-triangle"></i> Control de PNC Global</h1>
                         <p class="subtitle">Registro y análisis de productos no conformes</p>
                     </div>
-                    <div class="top-controls">
-                        <button class="btn btn-secondary" id="btn-exportar-pnc">
-                            <i class="fas fa-file-download"></i> Exportar CSV
-                        </button>
-                    </div>
+
                 </header>
 
                 <div class="form-container">
@@ -711,9 +707,11 @@
                             <div class="form-group">
                                 <label for="pnc-manual-producto"><i class="fas fa-barcode"></i> Producto (ID o
                                     FR-)</label>
-                                <input type="text" id="pnc-manual-producto" list="pnc-productos-list"
-                                    placeholder="Ej: 9304 o FR-9304" required>
+                                <input type="text" id="pnc-manual-producto" placeholder="Buscar producto..."
+                                    autocomplete="off">
                                 <datalist id="pnc-productos-list"></datalist>
+                                <!-- Keep datalist just in case or remove if unused, but new JS uses div -->
+                                <div id="pnc-manual-producto-suggestions" class="autocomplete-suggestions"></div>
                             </div>
 
                             <!-- Fila 2: Cantidad y Criterio -->
@@ -757,18 +755,7 @@
                     </form>
                 </div>
 
-                <div class="mt-4 p-4 rounded-4 bg-white shadow-sm border-start border-danger border-5">
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="flex-shrink-0 bg-danger-subtle p-3 rounded-circle text-danger">
-                            <i class="fas fa-history fa-2x"></i>
-                        </div>
-                        <div>
-                            <h5 class="mb-1 fw-bold">Seguimiento de Registros</h5>
-                            <p class="mb-0 text-muted">Todos los registros guardados aquí aparecerán automáticamente en
-                                el <strong>Historial Global</strong> para su auditoría y exportación.</p>
-                        </div>
-                    </div>
-                </div>
+
             </div>
 
             <!-- Modal Detalle PNC -->
@@ -805,16 +792,16 @@
                             </div>
                             <div class="form-group">
                                 <label for="cliente-facturacion"><i class="fas fa-user-tie"></i> Cliente</label>
-                                <select id="cliente-facturacion" required>
-                                    <option value="">Cargando clientes...</option>
-                                </select>
+                                <input type="text" id="cliente-facturacion" placeholder="Buscar cliente..."
+                                    autocomplete="off">
+                                <div id="facturacion-cliente-suggestions" class="autocomplete-suggestions"></div>
                             </div>
                             <div class="form-group">
                                 <label for="producto-facturacion"><i class="fas fa-box-open"></i> Producto a
                                     Vender</label>
-                                <input type="text" id="producto-facturacion" list="fac-productos-list"
-                                    placeholder="Buscar producto..." required>
-                                <datalist id="fac-productos-list"></datalist>
+                                <input type="text" id="producto-facturacion" placeholder="Buscar producto..."
+                                    autocomplete="off">
+                                <div id="facturacion-producto-suggestions" class="autocomplete-suggestions"></div>
                             </div>
                             <div class="form-group">
                                 <label for="cantidad-facturacion"><i class="fas fa-sort-amount-up"></i> Cantidad</label>
@@ -1099,9 +1086,8 @@
                             </div>
                             <div class="form-group">
                                 <label for="responsable-mezcla"><i class="fas fa-user-shield"></i> Responsable</label>
-                                <select id="responsable-mezcla" required>
-                                    <option value="">Seleccionar...</option>
-                                </select>
+                                <input type="text" id="responsable-mezcla" placeholder="Auto-llenado..." readonly
+                                    style="background-color: #f8f9fa; cursor: not-allowed; font-weight: 500;">
                             </div>
                             <div class="form-group">
                                 <label for="maquina-mezcla"><i class="fas fa-cogs"></i> Máquina / Proceso</label>

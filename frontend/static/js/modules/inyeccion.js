@@ -232,15 +232,18 @@ const ModuloInyeccion = {
     },
 
     registrar: function () {
-        // Wrapper para usar la función global existente si se prefiere, o mover la lógica aquí.
-        // Por compatibilidad, llamaremos a la función global modificada si existe, o copiaremos la lógica.
-        // En este archivo voy a EXPORTAR `initInyeccion` que apunta a `ModuloInyeccion.init`
-        registrarInyeccion(); // Llama a la funcion global (que sigue existiendo o la defino abajo)
+        registrarInyeccion();
+    },
+
+    // Alias para compatibilidad con app.js
+    inicializar: function () {
+        return this.init();
     }
 };
 
 // Mantener funciones globales para compatibilidad con código legacy
 window.initInyeccion = () => ModuloInyeccion.init();
+window.ModuloInyeccion = ModuloInyeccion;
 
 // Re-implementar registrarInyeccion globalmente para que use los inputs nuevos
 async function registrarInyeccion() {

@@ -377,6 +377,15 @@ const AuthModule = {
             // I'll leave it selectable but pre-selected.
         });
 
+        // Soporte para INPUTS (Readonly o Smart Search) 
+        const inputs = document.querySelectorAll('input[id^="responsable-"]');
+        inputs.forEach(input => {
+            if (input.type === 'text' || input.type === 'search') {
+                input.value = this.currentUser.nombre;
+                // Si es readonly, ya cumple "auto-fill y bloqueo" si se desea
+            }
+        });
+
         // Facturación
         const vendedorInput = document.getElementById('vendedor-facturacion'); // If exists
         // Need to check specific IDs for other forms based on index.html analysis

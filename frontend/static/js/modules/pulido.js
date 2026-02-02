@@ -22,6 +22,11 @@ const ModuloPulido = {
         }
     },
 
+    // Alias para compatibilidad con app.js
+    inicializar: function () {
+        return this.init();
+    },
+
     cargarDatos: async function () {
         try {
             console.log('📦 Cargando datos de pulido...');

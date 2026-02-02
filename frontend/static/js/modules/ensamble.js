@@ -10,8 +10,14 @@ const ModuloEnsamble = {
         console.log('🔧 [Ensamble] Inicializando módulo Smart...');
         await this.cargarDatos();
         this.configurarEventos();
+        this.configurarEventos();
         this.initAutocompleteComponente();
-        this.initAutocompleteResponsable();
+        // this.initAutocompleteResponsable(); // Eliminado por solicitud de usuario (Auto-fill simple)
+    },
+
+    // Alias para compatibilidad con app.js
+    inicializar: function () {
+        return this.init();
     },
 
     cargarDatos: async function () {
