@@ -6,68 +6,82 @@
  * Mostrar notificación visual
  */
 function mostrarNotificacion(mensaje, tipo = 'info') {
+    // Definir colores de borde según tipo
+    const colors = {
+        'success': '#10b981', // Green
+        'error': '#ef4444',   // Red
+        'warning': '#f59e0b', // Amber
+        'info': '#3b82f6'     // Blue
+    };
+
+    const iconColor = colors[tipo] || colors['info'];
+
     const icon = {
-        'success': '<i class="fas fa-check-circle me-2"></i>',
-        'error': '<i class="fas fa-exclamation-circle me-2"></i>',
-        'warning': '<i class="fas fa-exclamation-triangle me-2"></i>',
-        'info': '<i class="fas fa-info-circle me-2"></i>'
+        'success': `<i class="fas fa-check-circle" style="color: ${iconColor}; font-size: 1.2rem;"></i>`,
+        'error': `<i class="fas fa-times-circle" style="color: ${iconColor}; font-size: 1.2rem;"></i>`,
+        'warning': `<i class="fas fa-exclamation-triangle" style="color: ${iconColor}; font-size: 1.2rem;"></i>`,
+        'info': `<i class="fas fa-info-circle" style="color: ${iconColor}; font-size: 1.2rem;"></i>`
     }[tipo] || '';
 
     const notificationDiv = document.createElement('div');
+
+    // Estilos profesionales: Fondo blanco, sombra, centrado top
     notificationDiv.style.cssText = `
         position: fixed;
         top: 20px;
-        right: 20px;
-        padding: 12px 20px;
-        border-radius: 10px;
-        color: white;
+        left: 50%;
+        transform: translateX(-50%); /* Centrado horizontal */
+        background-color: #ffffff;
+        color: #333333;
+        padding: 16px 24px;
+        border-radius: 12px;
         font-weight: 500;
-        z-index: 10002;
-        animation: slideInRight 0.3s ease;
-        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        font-size: 0.95rem;
+        z-index: 10005; /* Encima de todo */
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); /* Sombra suave pero visible */
         display: flex;
         align-items: center;
-        max-width: 400px;
-        border-left: 5px solid rgba(0,0,0,0.2);
+        gap: 15px;
+        max-width: 90%;
+        width: 400px;
+        border-left: 6px solid ${iconColor};
+        animation: slideInDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     `;
 
-    switch (tipo) {
-        case 'success': notificationDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.9)'; break;
-        case 'error': notificationDiv.style.backgroundColor = 'rgba(239, 68, 68, 0.9)'; break;
-        case 'warning': notificationDiv.style.backgroundColor = 'rgba(245, 158, 11, 0.9)'; break;
-        default: notificationDiv.style.backgroundColor = 'rgba(59, 130, 246, 0.9)';
-    }
+    notificationDiv.innerHTML = `
+        <div style="flex-shrink: 0;">${icon}</div>
+        <span style="flex-grow: 1; line-height: 1.4;">${mensaje}</span>
+        <i class="fas fa-times" style="color: #9ca3af; cursor: pointer; font-size: 0.9rem;" onclick="this.parentElement.remove()"></i>
+    `;
 
-    notificationDiv.innerHTML = `${icon} <span>${mensaje}</span>`;
     document.body.appendChild(notificationDiv);
 
+    // Animaciones
     if (!document.querySelector('style#notification-animations')) {
         const style = document.createElement('style');
         style.id = 'notification-animations';
         style.textContent = `
-            @keyframes slideInRight {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
+            @keyframes slideInDown {
+                from { transform: translate(-50%, -100%); opacity: 0; }
+                to { transform: translate(-50%, 0); opacity: 1; }
             }
-            @keyframes fadeOut {
-                from { opacity: 1; opacity: 1; }
-                to { transform: translateX(20px); opacity: 0; }
+            @keyframes fadeOutUp {
+                from { opacity: 1; transform: translate(-50%, 0); }
+                to { opacity: 0; transform: translate(-50%, -20px); }
             }
         `;
         document.head.appendChild(style);
     }
 
-    // Tiempo visible: 3 segundos
-    const timeout = 3000;
-
+    // Auto eliminar
     setTimeout(() => {
-        notificationDiv.style.animation = 'fadeOut 0.5s forwards';
-        setTimeout(() => {
-            if (notificationDiv.parentNode) {
-                notificationDiv.parentNode.removeChild(notificationDiv);
-            }
-        }, 500);
-    }, timeout);
+        if (notificationDiv.parentNode) {
+            notificationDiv.style.animation = 'fadeOutUp 0.5s forwards';
+            setTimeout(() => {
+                if (notificationDiv.parentNode) notificationDiv.remove();
+            }, 500);
+        }
+    }, 4000); // 4 segundos
 }
 
 /**

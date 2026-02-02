@@ -4043,3 +4043,70 @@ body.loaded {
         width: 100%;
     }
 }
+/* =========================================
+   MOBILE CARD VIEW FOR TABLES
+   ========================================= */
+@media (max-width: 768px) {
+
+    /* Force table to not be like a table */
+    .table-mobile-cards,
+    #tabla-items-pedido {
+        display: block;
+        width: 100%;
+    }
+
+    /* Hide standard headers */
+    .table-mobile-cards thead,
+    #tabla-items-pedido thead {
+        display: none;
+    }
+
+    .table-mobile-cards tbody,
+    #tabla-items-pedido tbody {
+        display: block;
+        width: 100%;
+    }
+
+    .table-mobile-cards tr,
+    #tabla-items-pedido tr {
+        display: block;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        margin-bottom: 20px;
+        padding: 20px;
+        border: 1px solid #f3f4f6;
+    }
+
+    .table-mobile-cards td,
+    #tabla-items-pedido td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        text-align: right;
+        padding: 10px 0;
+        border: none;
+        border-bottom: 1px solid #f3f4f6;
+        font-size: 0.95rem;
+    }
+
+    .table-mobile-cards td:last-child,
+    #tabla-items-pedido td:last-child {
+        border-bottom: none;
+        justify-content: flex-end;
+        /* Actions generally at end */
+        padding-top: 15px;
+    }
+
+    /* Add label using data-label attribute */
+    .table-mobile-cards td::before,
+    #tabla-items-pedido td::before {
+        content: attr(data-label);
+        float: left;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+    }
+}

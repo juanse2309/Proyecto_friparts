@@ -325,12 +325,12 @@ const ModuloPedidos = {
             const subtotal = item.cantidad * item.precio_unitario;
             return `
                 <tr>
-                    <td style="padding: 10px; border: 1px solid #dee2e6;">${item.codigo}</td>
-                    <td style="padding: 10px; border: 1px solid #dee2e6;">${item.descripcion}</td>
-                    <td style="padding: 10px; border: 1px solid #dee2e6;">${item.cantidad}</td>
-                    <td style="padding: 10px; border: 1px solid #dee2e6;">$${formatNumber(item.precio_unitario)}</td>
-                    <td style="padding: 10px; border: 1px solid #dee2e6;">$${formatNumber(subtotal)}</td>
-                    <td style="padding: 10px; border: 1px solid #dee2e6;">
+                    <td data-label="Código">${item.codigo}</td>
+                    <td data-label="Descripción">${item.descripcion}</td>
+                    <td data-label="Cantidad">${item.cantidad}</td>
+                    <td data-label="Precio Unit.">$${formatNumber(item.precio_unitario)}</td>
+                    <td data-label="Subtotal">$${formatNumber(subtotal)}</td>
+                    <td data-label="Acciones">
                         <button type="button" class="btn btn-sm btn-danger" onclick="ModuloPedidos.eliminarItemDelCarrito(${index})">
                             <i class="fas fa-trash"></i>
                         </button>
