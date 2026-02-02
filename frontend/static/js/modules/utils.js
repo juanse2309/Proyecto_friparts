@@ -32,10 +32,10 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
     `;
 
     switch (tipo) {
-        case 'success': notificationDiv.style.backgroundColor = '#10b981'; break;
-        case 'error': notificationDiv.style.backgroundColor = '#ef4444'; break;
-        case 'warning': notificationDiv.style.backgroundColor = '#f59e0b'; break;
-        default: notificationDiv.style.backgroundColor = '#3b82f6';
+        case 'success': notificationDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.9)'; break;
+        case 'error': notificationDiv.style.backgroundColor = 'rgba(239, 68, 68, 0.9)'; break;
+        case 'warning': notificationDiv.style.backgroundColor = 'rgba(245, 158, 11, 0.9)'; break;
+        default: notificationDiv.style.backgroundColor = 'rgba(59, 130, 246, 0.9)';
     }
 
     notificationDiv.innerHTML = `${icon} <span>${mensaje}</span>`;
@@ -57,8 +57,8 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
         document.head.appendChild(style);
     }
 
-    // Tiempo visible: errores duran más para poder leer el mensaje técnico Juan Sebastian
-    const timeout = tipo === 'error' ? 8000 : 4000;
+    // Tiempo visible: 3 segundos
+    const timeout = 3000;
 
     setTimeout(() => {
         notificationDiv.style.animation = 'fadeOut 0.5s forwards';

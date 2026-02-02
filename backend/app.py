@@ -173,25 +173,64 @@ def get_worksheet(nombre_hoja):
 # ====================================================================
 
 def buscar_producto_en_inventario(codigo_sistema):
-    """Busca un producto en la hoja PRODUCTOS y devuelve su informacion."""
+    """
+    Busca un producto en la hoja PRODUCTOS y devuelve su información.
+    MEJORADO: Usa comparación normalizada (sin espacios, case-insensitive).
+    
+    Ahora '9304' encontrará 'FR-9304', 'fr-9304', ' 9304 ', etc.
+    """
     try:
+        logger.info(f"🔎 ===== INICIO BÚSQUEDA EN INVENTARIO =====")
+        logger.info(f"🔎 Código recibido: '{codigo_sistema}' (tipo: {type(codigo_sistema).__name__})")
+        
         ws = get_worksheet(Hojas.PRODUCTOS)
         registros = ws.get_all_records()
         
+        logger.info(f"📊 Total de productos en hoja: {len(registros)}")
+        
+        # Normalizar el código de búsqueda
+        codigo_normalizado = normalizar_codigo(codigo_sistema)
+        logger.info(f"🔍 Código normalizado para búsqueda: '{codigo_normalizado}'")
+        
         for idx, r in enumerate(registros):
             val_hoja = str(r.get('CODIGO SISTEMA', '')).strip()
-            # Comparacion robusta: permite "9304" match "FR-9304" y viceversa
-            if val_hoja == codigo_sistema or \
-               val_hoja.replace('FR-', '') == codigo_sistema.replace('FR-', '') or \
-               val_hoja == f"FR-{codigo_sistema}":
+            id_codigo = str(r.get('ID CODIGO', '')).strip()
+            
+            # Normalizar ambos valores de la hoja
+            val_hoja_norm = normalizar_codigo(val_hoja)
+            id_codigo_norm = normalizar_codigo(id_codigo)
+            
+            # LOGS DETALLADOS DE COMPARACIÓN
+            if idx < 5 or codigo_normalizado in [val_hoja_norm, id_codigo_norm]:
+                logger.info(f"   🔄 Fila {idx+2}:")
+                logger.info(f"      Buscando: '{codigo_normalizado}'")
+                logger.info(f"      Contra CODIGO SISTEMA: '{val_hoja}' → normalizado: '{val_hoja_norm}'")
+                logger.info(f"      Contra ID CODIGO: '{id_codigo}' → normalizado: '{id_codigo_norm}'")
+                logger.info(f"      Match CODIGO SISTEMA: {val_hoja_norm == codigo_normalizado}")
+                logger.info(f"      Match ID CODIGO: {id_codigo_norm == codigo_normalizado}")
+            
+            # Comparación normalizada
+            if val_hoja_norm == codigo_normalizado or id_codigo_norm == codigo_normalizado:
+                logger.info(f"✅ ¡¡¡PRODUCTO ENCONTRADO!!! en fila {idx+2}")
+                logger.info(f"   CODIGO SISTEMA original: '{val_hoja}'")
+                logger.info(f"   ID CODIGO original: '{id_codigo}'")
+                logger.info(f"   Descripción: '{r.get('DESCRIPCION', '')}'")
                 return {
                     'fila': idx + 2,
                     'datos': r,
                     'encontrado': True
                 }
         
+        logger.warning(f"❌ PRODUCTO NO ENCONTRADO: '{codigo_sistema}'")
+        logger.warning(f"   Código normalizado buscado: '{codigo_normalizado}'")
+        logger.warning(f"   Total de registros revisados: {len(registros)}")
+        logger.warning(f"   Primeras 5 filas revisadas en detalle (ver arriba)")
         return {'encontrado': False, 'error': f'Producto "{codigo_sistema}" no encontrado en la hoja PRODUCTOS'}
     except Exception as e:
+        logger.error(f"❌ ERROR en buscar_producto_en_inventario: {str(e)}")
+        logger.error(f"   Tipo de error: {type(e).__name__}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {'encontrado': False, 'error': str(e)}
 
 def obtener_datos_producto(codigo_entrada):
@@ -396,16 +435,65 @@ def to_int(valor, default=0):
 # FUNCIONES DE APOYO
 # ====================================================================
 
+def normalizar_codigo(codigo):
+    """
+    Normaliza un código para comparación EXTREMADAMENTE flexible:
+    - Elimina TODOS los espacios
+    - Elimina TODOS los guiones
+    - Convierte a mayúsculas
+    - Elimina prefijos comunes (FR-, INY-)
+    
+    Ejemplos:
+    - 'fr-9304' → '9304'
+    - ' 9 3 0 4 ' → '9304'
+    - 'FR-9304' → '9304'
+    - 'F R - 9 3 0 4' → '9304'
+    - '9304' → '9304'
+    """
+    if not codigo:
+        logger.debug("🔍 normalizar_codigo: Código vacío recibido")
+        return ""
+    
+    codigo_original = str(codigo)
+    logger.info(f"🔍 normalizar_codigo INPUT: '{codigo_original}'")
+    
+    # Convertir a string y mayúsculas
+    codigo = str(codigo).upper()
+    logger.info(f"   Paso 1 - Mayúsculas: '{codigo}'")
+    
+    # Eliminar TODOS los espacios (incluso en medio)
+    codigo = codigo.replace(" ", "")
+    logger.info(f"   Paso 2 - Sin espacios: '{codigo}'")
+    
+    # Eliminar TODOS los guiones
+    codigo = codigo.replace("-", "")
+    logger.info(f"   Paso 3 - Sin guiones: '{codigo}'")
+    
+    # Quitar prefijos comunes SI EXISTEN
+    if codigo.startswith('FR'):
+        codigo = codigo[2:]
+        logger.info(f"   Paso 4 - Quitado prefijo FR: '{codigo}'")
+    elif codigo.startswith('INY'):
+        codigo = codigo[3:]
+        logger.info(f"   Paso 4 - Quitado prefijo INY: '{codigo}'")
+    
+    # Trim final por si acaso
+    codigo = codigo.strip()
+    
+    logger.info(f"🔍 normalizar_codigo OUTPUT FINAL: '{codigo}'")
+    return codigo
+
 def obtener_codigo_sistema_real(codigo_entrada):
     """
     Traduce el codigo ingresado por el usuario al codigo real del sistema.
-    Extrae la parte despues del guion si existe.
+    MEJORADO: Ahora normaliza para comparación flexible.
     
     Ejemplos:
-    - 'FR-9304'  '9304'
-    - 'INY-1050'  '1050'
-    - '9304'  '9304'
-    - '  FR-9304  '  '9304'
+    - 'FR-9304' → '9304'
+    - 'fr-9304' → '9304'
+    - ' 9304 ' → '9304'
+    - 'INY-1050' → '1050'
+    - '9304' → '9304'
     
     Args:
         codigo_entrada (str): Codigo ingresado por el usuario
@@ -414,32 +502,23 @@ def obtener_codigo_sistema_real(codigo_entrada):
         str: Codigo normalizado del sistema
     """
     try:
-        # Verificar si es None o vacio
+        logger.info(f"📥 obtener_codigo_sistema_real ENTRADA: '{codigo_entrada}' (tipo: {type(codigo_entrada).__name__})")
+        
         if codigo_entrada is None:
+            logger.warning("⚠️  Código de entrada es None")
             return ""
         
-        # Convertir a string y limpiar espacios
-        codigo_entrada = str(codigo_entrada).strip()
-        
-        # Si esta vacio despues de limpiar
-        if not codigo_entrada:
-            return ""
-        
-        if '-' in codigo_entrada:
-            partes = codigo_entrada.split('-')
-            # Solo quitar prefijo si es FR o INY (prefijos comunes de etiquetas)
-            # de lo contrario, mantener el codigo con su guion (ej. DE-1000)
-            if partes[0].upper() in ['FR', 'INY']:
-                return partes[-1].strip()
-            return codigo_entrada
-        
-        # Si no contiene guion, devolver tal cual
-        return codigo_entrada
+        # Usar la nueva función de normalización
+        resultado = normalizar_codigo(codigo_entrada)
+        logger.info(f"📤 obtener_codigo_sistema_real SALIDA: '{resultado}'")
+        return resultado
         
     except Exception as e:
-        logger.error(f" Error al traducir codigo '{codigo_entrada}': {str(e)}")
-        # En caso de error, devolver el codigo original
-        return str(codigo_entrada) if codigo_entrada else ""
+        logger.error(f"❌ Error al traducir codigo '{codigo_entrada}': {str(e)}")
+        logger.error(f"   Tipo de error: {type(e).__name__}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return str(codigo_entrada).strip() if codigo_entrada else ""
 
 def obtener_producto_por_codigo(codigo_entrada: str):
     """

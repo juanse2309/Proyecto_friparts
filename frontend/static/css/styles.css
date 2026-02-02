@@ -3793,3 +3793,175 @@ body.loaded {
 .btn-back-mobile:active {
     transform: scale(0.95);
 }
+
+/* ===== MODAL DE CONFIRMACIÓN ===== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.3s ease;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    max-width: 90%;
+    width: 400px;
+    animation: slideUp 0.3s ease;
+}
+
+.modal-header {
+    padding: 25px 25px 15px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--dark);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.modal-header i {
+    color: var(--primary);
+}
+
+.modal-body {
+    padding: 25px;
+}
+
+.modal-body p {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--gray);
+    line-height: 1.6;
+}
+
+.modal-footer {
+    padding: 15px 25px 25px;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ===== BOTÓN "AÑADIR AL PEDIDO" DISTINTIVO ===== */
+.btn-add-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 123, 255, 0.5) !important;
+    background: #0056b3 !important;
+}
+
+.btn-add-item:active {
+    transform: translateY(0);
+}
+
+/* ===== OPTIMIZACIONES MÓVILES ===== */
+@media (max-width: 768px) {
+
+    /* Botones táctiles mínimo 44px */
+    .btn {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 12px 20px;
+    }
+
+    .btn-icon {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    /* Tabla responsive con scroll suave */
+    .table-container {
+        -webkit-overflow-scrolling: touch;
+        scroll-behavior: smooth;
+    }
+
+
+    /* Inputs más grandes para móvil */
+    input[type="text"],
+    input[type="number"],
+    select {
+        min-height: 45px;
+        font-size: 16px;
+        /* Previene zoom en iOS */
+    }
+
+    /* Modal responsive */
+    .modal-content {
+        max-width: 95%;
+        margin: 15px;
+    }
+
+    /* Botón añadir más prominente en móvil */
+    .btn-add-item {
+        font-size: 18px !important;
+        padding: 14px !important;
+        min-height: 50px !important;
+    }
+}
+
+
+/* Scroll horizontal suave en tablas */
+.table-container::-webkit-scrollbar {
+    height: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+
+/* ===== NUEVA CLASE PARA ALINEACIÓN LADO A LADO PRO (Visual Reengineering) ===== */
+.row-form-aligned {
+    display: flex;
+    gap: 20px;
+    align-items: flex-end;
+    margin-top: 25px;
+    width: 100%;
+}
+
+.row-form-aligned>.form-group {
+    flex: 1;
+    min-width: 0;
+}
+
+/* En móvil, mantener el stack vertical si es necesario para legibilidad, 
+   o ajustar gap. Si el usuario pide explícitamente lado a lado: */
+@media (max-width: 600px) {
+    .row-form-aligned {
+        flex-direction: column;
+        /* Más seguro en móviles pequeños */
+        gap: 15px;
+    }
+}

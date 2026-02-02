@@ -213,13 +213,19 @@ function configurarNavegacion() {
     });
 
     // Configurar botones de toggle para el sidebar (hamburguesa)
-    document.addEventListener('click', (e) => {
+    // Configurar botones de toggle para el sidebar (hamburguesa)
+    const handleSidebarToggle = (e) => {
         const toggleBtn = e.target.closest('[id^="toggle-sidebar"]');
         if (toggleBtn) {
+            e.preventDefault(); // Evitar doble ejecución en algunos dispositivos
             console.log('🍔 Toggle sidebar pulsado');
             document.querySelector('.sidebar')?.classList.toggle('active');
+            document.querySelector('.sidebar-overlay')?.classList.toggle('active');
         }
-    });
+    };
+
+    document.addEventListener('click', handleSidebarToggle);
+    document.addEventListener('touchstart', handleSidebarToggle, { passive: false });
 
     console.log('✅ Navegación configurada -', document.querySelectorAll('.menu-item').length, 'items');
 }
