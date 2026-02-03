@@ -110,11 +110,13 @@ const TouchFeedback = {
 
         if (!sidebar || !toggleBtn) return;
 
-        // Toggle sidebar
+        // Toggle sidebar - ELIMINADO: Ya lo maneja app.js con event delegation
+        /*
         toggleBtn.addEventListener('click', () => {
             sidebar.classList.toggle('active');
             overlay.classList.toggle('active');
         });
+        */
 
         // Cerrar al hacer click en overlay
         overlay.addEventListener('click', () => {

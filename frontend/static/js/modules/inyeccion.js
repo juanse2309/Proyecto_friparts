@@ -1,5 +1,5 @@
 ﻿// ============================================
-// inyeccion.js - Lógica de Inyección (SMART SEARCH)
+// inyeccion.js - Lógica de Inyección (SMART SEARCH) - NAMESPACED
 // ============================================
 
 const ModuloInyeccion = {
@@ -21,7 +21,7 @@ const ModuloInyeccion = {
 
     cargarDatos: async function () {
         try {
-            console.log('📦 Cargando datos de inyección...');
+            console.log('📦 [Inyeccion] Cargando datos...');
             mostrarLoading(true);
 
             // 1. Cargar Responsables
@@ -33,20 +33,20 @@ const ModuloInyeccion = {
             // 2. Cargar Productos (Cache Compartido)
             if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
                 this.productosData = window.AppState.sharedData.productos;
-                console.log('✅ Usando productos del cache compartido:', this.productosData.length);
+                console.log('✅ [Inyeccion] Usando productos del cache compartido:', this.productosData.length);
             } else {
-                console.warn('⚠️ Cache vacío, intentando fetch...');
+                console.warn('⚠️ [Inyeccion] Cache vacío, intentando fetch...');
                 const prods = await fetchData('/api/productos/listar');
                 this.productosData = prods.items || prods;
             }
 
-            // 3. Cargar Máquinas (Select normal)
+            // 3. Cargar Máquinas
             const maquinas = await fetchData('/api/obtener_maquinas');
             this.actualizarSelect('maquina-inyeccion', maquinas);
 
             mostrarLoading(false);
         } catch (error) {
-            console.error('Error cargando datos:', error);
+            console.error('Error [Inyeccion] cargarDatos:', error);
             mostrarLoading(false);
         }
     },
@@ -65,9 +65,6 @@ const ModuloInyeccion = {
         }
     },
 
-    // ---------------------------------------------------------
-    // SMART SEARCH: PRODUCTO
-    // ---------------------------------------------------------
     initAutocompleteProducto: function () {
         const input = document.getElementById('codigo-producto-inyeccion');
         const suggestionsDiv = document.getElementById('inyeccion-producto-suggestions');
@@ -78,7 +75,7 @@ const ModuloInyeccion = {
 
         input.addEventListener('input', (e) => {
             clearTimeout(debounceTimer);
-            const query = e.target.value.trim();
+            const query = e.target.value.trim().toLowerCase();
 
             if (query.length < 2) {
                 suggestionsDiv.classList.remove('active');
@@ -87,25 +84,18 @@ const ModuloInyeccion = {
 
             debounceTimer = setTimeout(() => {
                 const resultados = this.productosData.filter(prod =>
-                    (prod.codigo_sistema || '').toLowerCase().includes(query.toLowerCase()) ||
-                    (prod.descripcion || '').toLowerCase().includes(query.toLowerCase())
-                ).slice(0, 15); // Límite de 15 resultados
+                    (prod.codigo_sistema || '').toLowerCase().includes(query) ||
+                    (prod.descripcion || '').toLowerCase().includes(query)
+                ).slice(0, 15);
 
                 this.renderSuggestions(suggestionsDiv, resultados, (item) => {
-                    // Acción al seleccionar
-                    input.value = item.codigo_sistema || item.codigo; // Solo el código como pidió el usuario? "Buscar por código o descripción" -> Value usually just Code or Code - Desc. 
-                    // El usuario dijo: "mantenga el auto-llenado de datos (como el ID del Código)". 
-                    // El sistema actual espera el CÓDIGO en el input para que `autocompletarCodigoEnsamble` funcione.
-
-                    // Trigger change event para autocompletar ensamble
+                    input.value = item.codigo_sistema || item.codigo;
                     this.autocompletarCodigoEnsamble(input.value);
-
                     suggestionsDiv.classList.remove('active');
-                }, true); // true = es producto
+                }, true);
             }, 300);
         });
 
-        // Cerrar al click fuera
         document.addEventListener('click', (e) => {
             if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
                 suggestionsDiv.classList.remove('active');
@@ -113,9 +103,6 @@ const ModuloInyeccion = {
         });
     },
 
-    // ---------------------------------------------------------
-    // SMART SEARCH: RESPONSABLE
-    // ---------------------------------------------------------
     initAutocompleteResponsable: function () {
         const input = document.getElementById('responsable-inyeccion');
         const suggestionsDiv = document.getElementById('inyeccion-responsable-suggestions');
@@ -136,7 +123,7 @@ const ModuloInyeccion = {
             this.renderSuggestions(suggestionsDiv, resultados, (item) => {
                 input.value = item;
                 suggestionsDiv.classList.remove('active');
-            }, false); // false = es lista simple
+            }, false);
         });
 
         document.addEventListener('click', (e) => {
@@ -165,7 +152,6 @@ const ModuloInyeccion = {
             }
         }).join('');
 
-        // Listeners
         container.querySelectorAll('.suggestion-item').forEach((div, index) => {
             div.addEventListener('click', () => {
                 onSelect(items[index]);
@@ -192,8 +178,8 @@ const ModuloInyeccion = {
                 codigoEnsambleField.value = '';
             }
         } catch (error) {
-            console.error('Error buscando ensamble:', error);
-            codigoEnsambleField.value = codigoProducto; // Fallback
+            console.error('Error [Inyeccion] buscando ensamble:', error);
+            codigoEnsambleField.value = codigoProducto;
         } finally {
             codigoEnsambleField.classList.remove('loading');
         }
@@ -202,110 +188,133 @@ const ModuloInyeccion = {
     configurarEventos: function () {
         const form = document.getElementById('form-inyeccion');
         if (form) {
-            form.addEventListener('submit', (e) => {
+            form.onsubmit = (e) => {
                 e.preventDefault();
                 this.registrar();
-            });
+            };
         }
 
-        // Cálculos
+        const btnDefectos = document.getElementById('btn-defectos-inyeccion');
+        if (btnDefectos) {
+            btnDefectos.replaceWith(btnDefectos.cloneNode(true));
+            const newBtn = document.getElementById('btn-defectos-inyeccion');
+            newBtn.onclick = () => {
+                if (typeof window.abrirModalInyeccion === 'function') {
+                    window.abrirModalInyeccion();
+                }
+            };
+        }
+
         ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => this.calculos());
         });
     },
 
     calculos: function () {
-        // Replicar lógica de cálculo
-        if (typeof actualizarCalculoProduccion === 'function') {
-            actualizarCalculoProduccion();
-        } else {
-            // Fallback local logic if needed, but existing global function works
-            const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
-            const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
-            const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
-            const total = disparos * cavidades;
-            const buenas = Math.max(0, total - pnc);
+        const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
+        const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
+        const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
 
-            document.getElementById('produccion-calculada').textContent = buenas.toLocaleString();
-            // ... update text details ...
+        const produccionTotal = disparos * cavidades;
+        const piezasBuenas = Math.max(0, produccionTotal - pnc);
+
+        const displayProduccion = document.getElementById('produccion-calculada');
+        const displayFormula = document.getElementById('formula-calc');
+        const displayBuenas = document.getElementById('piezas-buenas');
+
+        if (displayProduccion) {
+            displayProduccion.textContent = (pnc > 0 ? piezasBuenas : produccionTotal).toLocaleString();
+        }
+
+        if (displayFormula) {
+            displayFormula.textContent = `Disparos: ${disparos} × Cavidades: ${cavidades} = ${produccionTotal} piezas`;
+        }
+
+        if (displayBuenas) {
+            if (pnc > 0) {
+                displayBuenas.textContent = `${produccionTotal} - PNC: ${pnc} = ${piezasBuenas} piezas buenas`;
+                displayBuenas.style.display = 'block';
+            } else {
+                displayBuenas.style.display = 'none';
+            }
         }
     },
 
-    registrar: function () {
-        registrarInyeccion();
+    registrar: async function () {
+        const btn = document.querySelector('#form-inyeccion button[type="submit"]');
+
+        try {
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, true);
+            mostrarLoading(true);
+
+            const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
+            const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
+            const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
+            const produccionBruta = disparos * cavidades;
+            const cantidadReal = Math.max(0, produccionBruta - pnc);
+
+            const datos = {
+                fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
+                maquina: document.getElementById('maquina-inyeccion')?.value || '',
+                responsable: document.getElementById('responsable-inyeccion')?.value || '',
+                codigo_producto: document.getElementById('codigo-producto-inyeccion')?.value || '',
+                no_cavidades: cavidades,
+                disparos: disparos,
+                hora_llegada: document.getElementById('hora-llegada-inyeccion')?.value || '',
+                hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
+                hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
+                cantidad_real: cantidadReal,
+                almacen_destino: document.getElementById('almacen-destino-inyeccion')?.value || '',
+                codigo_ensamble: document.getElementById('codigo-ensamble-inyeccion')?.value || '',
+                orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
+                observaciones: document.getElementById('observaciones-inyeccion')?.value || '',
+                peso_vela_maquina: parseFloat(document.getElementById('peso-vela-inyeccion')?.value) || 0,
+                peso_bujes: parseFloat(document.getElementById('peso-bujes-inyeccion')?.value) || 0,
+                pnc: pnc,
+                criterio_pnc: document.getElementById('criterio-pnc-hidden-inyeccion')?.value || ''
+            };
+
+            if (!datos.codigo_producto) {
+                mostrarNotificacion('⚠️ Falta código de producto', 'error');
+                mostrarLoading(false);
+                return;
+            }
+
+            console.log('📤 [Inyeccion] ENVIANDO:', datos);
+
+            const response = await fetch('/api/inyeccion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(datos)
+            });
+
+            const resultado = await response.json();
+
+            if (response.ok && resultado.success) {
+                mostrarNotificacion('Registro exitoso', 'success');
+                document.getElementById('form-inyeccion').reset();
+                document.getElementById('cavidades-inyeccion').value = 1;
+                document.getElementById('pnc-inyeccion').value = 0;
+                this.calculos();
+            } else {
+                mostrarNotificacion(resultado.error || 'Error', 'error');
+            }
+
+        } catch (e) {
+            console.error('Error [Inyeccion] registrar:', e);
+            mostrarNotificacion(e.message, 'error');
+        } finally {
+            mostrarLoading(false);
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
+        }
     },
 
-    // Alias para compatibilidad con app.js
+    // Alias para compatibilidad
     inicializar: function () {
         return this.init();
     }
 };
 
-// Mantener funciones globales para compatibilidad con código legacy
-window.initInyeccion = () => ModuloInyeccion.init();
+// Exportación global
 window.ModuloInyeccion = ModuloInyeccion;
-
-// Re-implementar registrarInyeccion globalmente para que use los inputs nuevos
-async function registrarInyeccion() {
-    // ... Copia optimizada de la lógica de registro ...
-    // Nota: El código original leía valores. Al cambiar Selects por Inputs, `.value` sigue funcionando igual.
-    // Solo hay que asegurarse de validar bien.
-
-    // (Incluiré la lógica completa de registrarInyeccion aquí para asegurar integridad)
-
-    const btn = document.querySelector('#form-inyeccion button[type="submit"]');
-
-    try {
-        if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, true);
-        mostrarLoading(true);
-
-        const datos = {
-            fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
-            // ... (resto de campos igual) ...
-            maquina: document.getElementById('maquina-inyeccion')?.value || '',
-            responsable: document.getElementById('responsable-inyeccion')?.value || '', // Input ahora
-            codigo_producto: document.getElementById('codigo-producto-inyeccion')?.value || '', // Input ahora
-            no_cavidades: parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1,
-            hora_llegada: document.getElementById('hora-llegada-inyeccion')?.value || '',
-            hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
-            hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
-            cantidad_real: parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0,
-            almacen_destino: document.getElementById('almacen-destino-inyeccion')?.value || '',
-            codigo_ensamble: document.getElementById('codigo-ensamble-inyeccion')?.value || '',
-            orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
-            observaciones: document.getElementById('observaciones-inyeccion')?.value || '',
-            peso_vela_maquina: parseFloat(document.getElementById('peso-vela-inyeccion')?.value) || 0,
-            peso_bujes: parseFloat(document.getElementById('peso-bujes-inyeccion')?.value) || 0,
-            pnc: parseInt(document.getElementById('pnc-inyeccion')?.value) || 0
-        };
-
-        // ... validaciones ...
-        if (!datos.codigo_producto) return mostrarNotificacion('Falta producto', 'error');
-
-        const response = await fetch('/api/inyeccion', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datos)
-        });
-
-        const resultado = await response.json();
-
-        if (response.ok && resultado.success) {
-            mostrarNotificacion('Registro exitoso', 'success');
-            document.getElementById('form-inyeccion').reset();
-            // Restaurar defaults
-            document.getElementById('cavidades-inyeccion').value = 1;
-            document.getElementById('pnc-inyeccion').value = 0;
-            ModuloInyeccion.calculos();
-        } else {
-            mostrarNotificacion(resultado.error || 'Error', 'error');
-        }
-
-    } catch (e) {
-        console.error(e);
-        mostrarNotificacion(e.message, 'error');
-    } finally {
-        mostrarLoading(false);
-        if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
-    }
-}
+window.initInyeccion = () => ModuloInyeccion.init();

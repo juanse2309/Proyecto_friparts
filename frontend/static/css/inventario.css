@@ -1,5 +1,4 @@
-﻿
-/* Lazy loading placeholder */
+﻿/* Lazy loading placeholder */
 .producto-imagen {
     transition: opacity 0.3s ease-in-out;
 }
@@ -11,8 +10,13 @@
 }
 
 @keyframes loading-shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 .producto-imagen:not([src]) {
@@ -32,7 +36,7 @@
     padding: 1rem;
     background: #fff;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .paginacion-container {
@@ -106,24 +110,90 @@
         flex-direction: column;
         align-items: stretch;
     }
-    
+
     .paginacion-info {
         flex-direction: column;
         align-items: stretch;
     }
-    
+
     .paginacion-info select {
         width: 100%;
     }
-    
+
     .paginacion-controles {
         justify-content: center;
     }
-    
+
     .btn-page {
         min-width: 32px;
         height: 32px;
         font-size: 0.875rem;
         padding: 0.25rem 0.5rem;
+    }
+}
+
+@media (max-width: 768px) {
+
+    /* Ocultar encabezados de tabla */
+    .table-inventario thead {
+        display: none;
+    }
+
+    /* Card View para filas */
+    .table-inventario tbody tr {
+        display: block;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        margin-bottom: 15px;
+        padding: 15px;
+        border: 1px solid #eee;
+    }
+
+    .table-inventario tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #f9f9f9;
+        text-align: right;
+    }
+
+    .table-inventario tbody td:last-child {
+        border-bottom: none;
+    }
+
+    /* Labels via data-attribute */
+    .table-inventario tbody td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #666;
+        text-align: left;
+        margin-right: 15px;
+        font-size: 0.9em;
+    }
+
+    /* Imagen adjustments for mobile */
+    .table-inventario tbody td img {
+        width: 60px;
+        height: 60px;
+        margin: 0;
+    }
+
+    /* Specific adjustments */
+    td[data-label="IMAGEN"] {
+        justify-content: center;
+        border-bottom: 1px solid #eee;
+        margin-bottom: 10px;
+        padding-bottom: 15px;
+    }
+
+    td[data-label="IMAGEN"]::before {
+        display: none;
+    }
+
+    /* Badge alignment */
+    .badge {
+        float: none;
     }
 }

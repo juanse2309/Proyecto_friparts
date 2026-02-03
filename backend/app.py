@@ -26,9 +26,11 @@ CORS(app)
 # Login Blueprint
 from backend.routes.auth_routes import auth_bp
 from backend.routes.pedidos_routes import pedidos_bp
+from backend.routes.imagenes_routes import imagenes_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
+app.register_blueprint(imagenes_bp, url_prefix='/imagenes')
 
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
@@ -272,7 +274,9 @@ def obtener_stock(codigo_sistema, almacen):
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
             'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
-            'CLIENTE': 'CLIENTE'
+            'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
+            'CLIENTE': 'CLIENTE',
+            'PNC': 'PNC'
         }
         
         columna = mapeo_almacenes.get(almacen)
@@ -303,7 +307,9 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
             'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
-            'CLIENTE': 'CLIENTE'
+            'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
+            'CLIENTE': 'CLIENTE',
+            'PNC': 'PNC'  # Mapping for PNC column
         }
         
         columna = mapeo_almacenes.get(almacen)
@@ -434,6 +440,30 @@ def to_int(valor, default=0):
 # ====================================================================
 # FUNCIONES DE APOYO
 # ====================================================================
+
+def formatear_fecha_para_sheet(fecha_str):
+    """Convierte YYYY-MM-DD a D/M/YYYY de forma robusta."""
+    if not fecha_str: return ""
+    try:
+        f_val = str(fecha_str).strip()
+        # Si ya tiene /, retornar
+        if '/' in f_val: return f_val
+        
+        # Intentar parsear guiones
+        if '-' in f_val:
+            partes = f_val.split('-')
+            if len(partes) == 3:
+                # Si el primer elemento es el año (YYYY-MM-DD)
+                if len(partes[0]) == 4:
+                    dt = datetime.datetime.strptime(f_val, '%Y-%m-%d')
+                else: 
+                    # Podría ser DD-MM-YYYY
+                    dt = datetime.datetime.strptime(f_val, '%d-%m-%Y')
+                return f"{dt.day}/{dt.month}/{dt.year}"
+        return f_val
+    except Exception as e:
+        logger.warning(f"Error formateando fecha '{fecha_str}': {e}")
+        return str(fecha_str)
 
 def normalizar_codigo(codigo):
     """
@@ -617,7 +647,7 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
             cantidad_pnc,
             criterio_pnc,
             observaciones,
-            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            formatear_fecha_para_sheet(datetime.datetime.now().strftime("%Y-%m-%d")),
             "",
             "PENDIENTE"
         ]
@@ -861,13 +891,39 @@ def obtener_maquinas_validas():
 
 
 def corregir_url_imagen(url):
-    """Convierte URLs de Google Drive al formato correcto"""
+    """Convierte URLs de Google Drive o IDs al formato de proxy correcto"""
     if not url:
         return ''
-    # Formato incorrecto: https://lh3.googleusercontent.com/u/0/d/FILE_ID
-    # Formato correcto: https://lh3.googleusercontent.com/d/FILE_ID
-    if '/u/0/d/' in url:
-        return url.replace('/u/0/d/', '/d/')
+    
+    url = str(url).strip()
+    
+    # 1. Si ya es una URL de proxy, retornarla
+    if '/imagenes/proxy/' in url:
+        return url
+        
+    # 2. Descartar rutas locales basura (.jpg, .png o carpetas locales)
+    if (url.endswith('.jpg') or url.endswith('.png') or url.endswith('.jpeg') or 
+        url.startswith('/imagenes/') or url.startswith('imagenes/')):
+        return ''
+            
+    # 3. Extraer ID de varios formatos conocidos
+    file_id = None
+    
+    if 'id=' in url:
+        import re
+        match = re.search(r'id=([a-zA-Z0-9_-]+)', url)
+        if match: file_id = match.group(1)
+    elif 'drive.google.com' in url:
+        import re
+        match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+        if match: file_id = match.group(1)
+    elif len(url) > 15 and not url.startswith('http') and not url.startswith('/') and '.' not in url:
+        # Los IDs de Drive suelen ser largos y sin puntos
+        file_id = url
+            
+    if file_id:
+        return f"/imagenes/proxy/{file_id}"
+        
     return url
 
 
@@ -1047,12 +1103,19 @@ def registrar_inyeccion():
             logger.warning(f" No se encontro CODIGO SISTEMA para {codigo_producto}, usando: {codigo_producto_entrada}")
         
         # ========================================
+        # GENERAR ID UNICO (Fijar para primera columna)
+        # ========================================
+        id_inyeccion = f"INY-{str(uuid.uuid4())[:8].upper()}"
+        fecha_inicia_f = formatear_fecha_para_sheet(fecha_inicio)
+        fecha_fin_f = formatear_fecha_para_sheet(fecha_fin)
+
+        # ========================================
         # PREPARAR FILA (22 COLUMNAS)
         # ========================================
         row_validada = [
-            "",                      # 1  ID INYECCION
-            str(fecha_inicio),       # 2  FECHA INICIA
-            str(fecha_fin),          # 3  FECHA FIN
+            id_inyeccion,            # 1  ID INYECCION
+            str(fecha_inicia_f),     # 2  FECHA INICIA
+            str(fecha_fin_f),        # 3  FECHA FIN
             "INYECCION",             # 4  DEPARTAMENTO
             str(maquina),            # 5  MAQUINA
             str(responsable),        # 6  RESPONSABLE
@@ -1268,6 +1331,10 @@ def handle_pulido():
             logger.error(f" Error restando stock POR PULIR: {msj_resta}")
             return jsonify({'success': False, 'error': f"Stock insuficiente en POR PULIR: {msj_resta}"}), 400
 
+        # 1.5. Si hay PNC, sumarlo a columna PNC (si existe) y NO a P. Terminad
+        if pnc > 0:
+            actualizar_stock(codigo_sistema_completo, pnc, "PNC", "sumar")
+
         # 2. Entrada a P. TERMINADO (Solo sumamos las piezas que quedaron buenas)
         exito_suma, msj_suma = registrar_entrada(codigo_sistema_completo, cantidad_real, "P. TERMINADO")
         if not exito_suma:
@@ -1286,13 +1353,13 @@ def handle_pulido():
         
         fila_pulido = [
             id_pulido,                              # ID_PULIDO
-            data.get('fecha_inicio', ''),          # FECHA
+            formatear_fecha_para_sheet(data.get('fecha_inicio', '')), # FECHA
             "Pulido",                               # PROCESO
             data.get('responsable', ''),           # RESPONSABLE
             data.get('hora_inicio', ''),           # HORA_INICIO
             data.get('hora_fin', ''),              # HORA_FIN
             codigo_sis,                             # CODIGO (sin FR-)
-            data.get('fecha_inicio', ''),          # LOTE (Usuario pide que muestre la FECHA Juan Sebastian)
+            formatear_fecha_para_sheet(data.get('fecha_inicio', '')), # LOTE
             data.get('orden_produccion', ''),      # ORDEN_PRODUCCION
             int(data.get('cantidad_recibida', 0)), # CANTIDAD_RECIBIDA
             int(data.get('pnc', 0)),               # PNC
@@ -1466,9 +1533,12 @@ def handle_ensamble():
         
         #  ORDEN CORRECTO SEGN TUS ENCABEZADOS - SIN CAMPO LOTE
         # Asegurate que la hoja ENSAMBLES no tenga columna para "LOTE"
+        # Fila para Google Sheets
+        fecha_ensamble_f = formatear_fecha_para_sheet(data.get('fecha_inicio', ''))
+        
         fila_ensamble = [
-            data.get('fecha_inicio', ''),              # 1. FECHA
-            id_ensamble,                                # 2. ID ENSAMBLE
+            fecha_ensamble_f,                            # 1. FECHA
+            id_ensamble,                                 # 2. ID ENSAMBLE
             codigo_sis,                                 # 3. ID CODIGO (sin FR-)
             cantidad_real,                              # 4. CANTIDAD
             data.get('orden_produccion', ''),          # 5. OP NUMERO
@@ -1625,7 +1695,7 @@ def handle_facturacion():
         fila_factura = [
             id_factura,
             data['cliente'],
-            data['fecha_inicio'],
+            formatear_fecha_para_sheet(data['fecha_inicio']),
             nit_cliente,
             cantidad_vendida,
             total_venta,
@@ -2481,7 +2551,7 @@ def listar_productos():
                     'precio': r.get('PRECIO', 0),
                     'stock_minimo': stock_minimo,
                     'punto_reorden': punto_reorden,
-                    'imagen': r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or '',
+                    'imagen': corregir_url_imagen(r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or ''),
                     'semaforo': {
                         'color': semaforo_color,
                         'estado': semaforo_estado,
@@ -2497,6 +2567,7 @@ def listar_productos():
 
         # Guardar en cache
         resultado = {'items': productos}
+        
         PRODUCTOS_CACHE["data"] = resultado
         PRODUCTOS_CACHE["timestamp"] = ahora
         
@@ -4592,14 +4663,18 @@ def registrar_pnc():
         fecha = data.get("fecha", datetime.datetime.now().strftime("%Y-%m-%d"))
         id_pnc = data.get("id_pnc", f"PNC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
         codigo_ensamble = str(data.get("codigo_ensamble", "")).strip()
+        cliente = str(data.get("cliente", "")).strip()  # NEW CLIENT FIELDS
         
         fila = [
-            fecha,              # FECHA
+            formatear_fecha_para_sheet(fecha), # FECHA
             id_pnc,            # ID PNC
             codigo_producto,   # ID CODIGO (normalizado sin FR-)
             cantidad,          # CANTIDAD
             criterio,          # CRITERIO
-            codigo_ensamble    # CODIGO ENSAMBLE
+            cantidad,          # CANTIDAD
+            criterio,          # CRITERIO
+            codigo_ensamble,   # CODIGO ENSAMBLE
+            cliente            # CLIENTE
         ]
         
         logger.debug(f" Fila a guardar: {fila}")
@@ -4613,8 +4688,8 @@ def registrar_pnc():
         except gspread.exceptions.WorksheetNotFound:
             # Si no existe, crearla
             logger.warning(" Hoja PNC no encontrada, creandola...")
-            ws = ss.add_worksheet(title="PNC", rows=1000, cols=6)
-            encabezados = ["FECHA", "ID PNC", "ID CODIGO", "CANTIDAD", "CRITERIO", "CODIGO ENSAMBLE"]
+            ws = ss.add_worksheet(title="PNC", rows=1000, cols=7)
+            encabezados = ["FECHA", "ID PNC", "ID CODIGO", "CANTIDAD", "CRITERIO", "CODIGO ENSAMBLE", "CLIENTE"]
             ws.append_row(encabezados)
             logger.info(" Hoja PNC creada con encabezados")
         
@@ -4639,35 +4714,6 @@ def registrar_pnc():
 # ENDPOINT PNC MULTI-CRITERIO (Soporta lista de defectos)
 # ====================================================================
 
-def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_pnc, criterio_pnc, observaciones=''):
-    """Registra detalladamente un defecto en la hoja de PNC correspondiente Juan Sebastian."""
-    try:
-        ss = gc.open_by_key(GSHEET_KEY)
-        nombre_hoja = Hojas.PNC_INYECCION
-        if tipo_proceso == 'pulido': nombre_hoja = Hojas.PNC_PULIDO
-        elif tipo_proceso == 'ensamble': nombre_hoja = Hojas.PNC_ENSAMBLE
-        
-        ws = ss.worksheet(nombre_hoja)
-        
-        # Generar ID Unico
-        id_pnc = f"PNC-{int(time.time())}-{str(uuid.uuid4())[:4].upper()}"
-        
-        # Col A: ID, Col B: ID Proc, Col C: Prod, Col D: Qty, Col E: Criterio, Col F: Notas/Ensamble
-        fila = [
-            id_pnc,
-            id_operacion,
-            codigo_producto,
-            cantidad_pnc,
-            criterio_pnc,
-            observaciones
-        ]
-        
-        ws.append_row(fila)
-        logger.info(f" ✅ PNC registrado auto: {cantidad_pnc} de {codigo_producto} en {nombre_hoja}")
-        return True
-    except Exception as e:
-        logger.error(f" ❌ Error registrar_pnc_detalle: {e}")
-        return False
 
 @app.route('/api/obtener_pnc', methods=['GET'])
 def obtener_pnc():
@@ -4823,7 +4869,7 @@ def handle_mezcla():
         
         fila = [
             str(uuid.uuid4())[:8].upper(),
-            data.get('fecha', ''),
+            formatear_fecha_para_sheet(data.get('fecha', '')),
             data.get('responsable', ''),
             data.get('maquina', ''),
             virgen,

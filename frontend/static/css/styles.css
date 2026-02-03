@@ -3964,7 +3964,9 @@ body.loaded {
         /* Más seguro en móviles pequeños */
         gap: 15px;
     }
-}/* =========================================
+}
+
+/* =========================================
    SMART SEARCH / AUTOCOMPLETE STYLES
    ========================================= */
 .form-group {
@@ -4043,6 +4045,7 @@ body.loaded {
         width: 100%;
     }
 }
+
 /* =========================================
    MOBILE CARD VIEW FOR TABLES
    ========================================= */
@@ -4113,11 +4116,81 @@ body.loaded {
 
 /* EMERGENCY OVERRIDE: Restore Table View for Pedidos */
 @media (max-width: 991px) {
-    #tabla-items-pedido { display: table !important; width: 100% !important; border-collapse: collapse !important; }
-    #tabla-items-pedido thead { display: table-header-group !important; }
-    #tabla-items-pedido tbody { display: table-row-group !important; }
-    #tabla-items-pedido tr { display: table-row !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
-    #tabla-items-pedido td { display: table-cell !important; text-align: left !important; padding: 12px 15px !important; border-bottom: 1px solid #dee2e6 !important; justify-content: normal !important; }
-    #tabla-items-pedido td::before { content: none !important; }
-    #tabla-items-pedido td:last-child { display: table-cell !important; text-align: center !important; }
+    #tabla-items-pedido {
+        display: table !important;
+        width: 100% !important;
+        border-collapse: collapse !important;
+    }
+
+    #tabla-items-pedido thead {
+        display: table-header-group !important;
+    }
+
+    #tabla-items-pedido tbody {
+        display: table-row-group !important;
+    }
+
+    #tabla-items-pedido tr {
+        display: table-row !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+
+    #tabla-items-pedido td {
+        display: table-cell !important;
+        text-align: left !important;
+        padding: 12px 15px !important;
+        border-bottom: 1px solid #dee2e6 !important;
+        justify-content: normal !important;
+    }
+
+    #tabla-items-pedido td::before {
+        content: none !important;
+    }
+
+    #tabla-items-pedido td:last-child {
+        display: table-cell !important;
+        text-align: center !important;
+    }
+}
+
+/* Mobile Modal Improvements */
+@media (max-width: 768px) {
+    .modal-content-custom {
+        width: 95% !important;
+        margin: 10px auto !important;
+        max-width: none !important;
+        border-radius: 12px;
+    }
+
+    #detalle-producto {
+        width: 100% !important;
+        right: -100% !important;
+    }
+
+    #detalle-producto.active {
+        right: 0 !important;
+    }
+
+    /* Mejores targets táctiles */
+    .btn,
+    button,
+    input,
+    select {
+        min-height: 44px;
+        touch-action: manipulation;
+    }
+
+    /* Espaciado mejorado en inputs móviles */
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    /* Modal PNC específico */
+    #modal-detalle-pnc .modal-content-custom {
+        padding: 15px;
+        background: #ffffff;
+        /* Explicit white background */
+    }
 }

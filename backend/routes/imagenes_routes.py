@@ -9,30 +9,35 @@ logger = logging.getLogger(__name__)
 # Caché en memoria para 1000 imágenes
 @lru_cache(maxsize=1000)
 def obtener_imagen_google_drive(file_id):
-    '''Obtiene imagen de Google Drive con caché en memoria.'''
+    '''Obtiene imagen de Google Drive con caché en memoria, manejando disclaimers de virus.'''
     try:
-        url = f"https://drive.google.com/uc?export=view&id={file_id}"
+        session = requests.Session()
+        # Formato de descarga directa que suele ser más estable para el proxy
+        url = f"https://drive.google.com/uc?export=download&id={file_id}"
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        response = requests.get(url, headers=headers, timeout=10, stream=True)
+        response = session.get(url, headers=headers, timeout=10, stream=True)
         
+        # Si Google pide confirmación por archivo grande/virus (típico en Drive API sin auth)
+        if response.status_code == 200 and ("confirm=" in response.text or "download" not in response.headers.get('Content-Disposition', '')):
+            import re
+            match = re.search(r'confirm=([a-zA-Z0-9_-]+)', response.text)
+            if match:
+                confirm_token = match.group(1)
+                url = f"https://drive.google.com/uc?export=download&confirm={confirm_token}&id={file_id}"
+                response = session.get(url, headers=headers, timeout=10, stream=True)
+
         if response.status_code == 200:
             return response.content, response.headers.get('Content-Type', 'image/jpeg')
         else:
-            logger.warning(f"Error al obtener imagen {file_id}: {response.status_code}")
+            logger.warning(f"Error al obtener imagen {file_id}: status {response.status_code}")
             return None, None
             
-    except requests.exceptions.Timeout:
-        logger.error(f"Timeout al obtener imagen {file_id}")
-        return None, None
     except Exception as e:
-        logger.error(f"Error al obtener imagen {file_id}: {str(e)}")
+        logger.error(f"Excepción al obtener imagen {file_id}: {str(e)}")
         return None, None
 
 @imagenes_bp.route('/proxy/<file_id>')
@@ -54,7 +59,7 @@ def proxy_imagen(file_id):
             }
         )
     else:
-        return jsonify({'error': 'No se pudo obtener la imagen'}), 504
+        return jsonify({'error': 'No se pudo obtener la imagen del servidor de Google'}), 502
 
 @imagenes_bp.route('/limpiar-cache', methods=['POST'])
 def limpiar_cache():

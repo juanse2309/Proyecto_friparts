@@ -1,189 +1,173 @@
 ﻿// ============================================
-// pnc.js - Lógica de PNC (Producto No Conforme)
+// pnc.js - Lógica de PNC (Producto No Conforme) - NAMESPACED
 // ============================================
 
-/**
- * Cargar datos de PNC
- */
-async function cargarDatosPNC() {
-    try {
-        console.log('📦 Cargando datos de PNC...');
-        mostrarLoading(true);
+const ModuloPNC = {
+    /**
+     * Cargar datos de PNC
+     */
+    cargarDatos: async function () {
+        try {
+            console.log('📦 [PNC] Cargando datos...');
+            mostrarLoading(true);
 
-        // Generar ID automático
-        const timestamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 14);
-        const idPNC = `PNC-${timestamp}`;
-        const inputId = document.getElementById('id-pnc');
-        if (inputId) inputId.value = idPNC;
+            // Fecha actual
+            const hoy = new Date().toISOString().split('T')[0];
+            const fechaInput = document.getElementById('pnc-manual-fecha');
+            if (fechaInput) fechaInput.value = hoy;
 
-        // Fecha actual
-        const hoy = new Date().toISOString().split('T')[0];
-        const fechaInput = document.getElementById('fecha-pnc');
-        if (fechaInput) fechaInput.value = hoy;
-
-        // Usar productos del cache compartido
-        if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
-            console.log('✅ Usando productos del cache compartido en PNC');
-            const datalist = document.getElementById('pnc-productos-list');
-            if (datalist) {
-                datalist.innerHTML = '';
-                window.AppState.sharedData.productos.forEach(p => {
-                    const opt = document.createElement('option');
-                    opt.value = p.codigo_sistema || p.codigo;
-                    opt.textContent = `${p.codigo_sistema || p.codigo} - ${p.descripcion}`;
-                    datalist.appendChild(opt);
-                });
-            }
-        } else {
-            console.warn('⚠️ No hay productos en cache compartido para PNC');
-        }
-
-        // Configurar botones de criterio
-        configurarCriteriosPNC();
-
-        console.log('✅ Datos de PNC cargados');
-        mostrarLoading(false);
-    } catch (error) {
-        console.error('Error cargando datos:', error);
-        mostrarLoading(false);
-    }
-}
-
-/**
- * Configurar botones de criterio
- */
-function configurarCriteriosPNC() {
-    const botones = document.querySelectorAll('.criterio-btn');
-    const inputHidden = document.getElementById('criterio-pnc-hidden');
-
-    botones.forEach(btn => {
-        btn.addEventListener('click', function () {
-            botones.forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-            const criterio = this.dataset.criterio;
-            if (inputHidden) inputHidden.value = criterio;
-            console.log('Criterio seleccionado:', criterio);
-        });
-    });
-}
-
-function initAutocompleteProducto() {
-    const input = document.getElementById('pnc-manual-producto');
-    const suggestionsDiv = document.getElementById('pnc-manual-producto-suggestions');
-
-    if (!input || !suggestionsDiv) return;
-
-    let debounceTimer;
-
-    input.addEventListener('input', (e) => {
-        clearTimeout(debounceTimer);
-        const query = e.target.value.trim();
-
-        if (query.length < 2) {
-            suggestionsDiv.classList.remove('active');
-            return;
-        }
-
-        debounceTimer = setTimeout(() => {
-            const products = window.AppState.sharedData.productos || [];
-            const resultados = products.filter(prod =>
-                (prod.codigo_sistema || '').toLowerCase().includes(query.toLowerCase()) ||
-                (prod.descripcion || '').toLowerCase().includes(query.toLowerCase())
-            ).slice(0, 15);
-
-            renderSuggestions(suggestionsDiv, resultados, (item) => {
-                input.value = item.codigo_sistema || item.codigo;
-                suggestionsDiv.classList.remove('active');
-            });
-        }, 300);
-    });
-
-    document.addEventListener('click', (e) => {
-        if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
-            suggestionsDiv.classList.remove('active');
-        }
-    });
-}
-
-function renderSuggestions(container, items, onSelect) {
-    if (items.length === 0) {
-        container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
-        container.classList.add('active');
-        return;
-    }
-
-    container.innerHTML = items.map(item => `
-        <div class="suggestion-item" data-val="${item.codigo_sistema || item.codigo}">
-            <strong>${item.codigo_sistema || item.codigo}</strong><br>
-            <small>${item.descripcion}</small>
-        </div>
-    `).join('');
-
-    container.querySelectorAll('.suggestion-item').forEach((div, index) => {
-        div.addEventListener('click', () => {
-            onSelect(items[index]);
-        });
-    });
-
-    container.classList.add('active');
-}
-
-/**
- * Registar PNC
- */
-async function registrarPNC() {
-    try {
-        mostrarLoading(true);
-
-        const datos = {
-            fecha: document.getElementById('pnc-manual-fecha')?.value || '',
-            id_pnc: document.getElementById('id-pnc')?.value || '', // Check if this ID exists in HTML, might need fix
-            codigo_producto: document.getElementById('pnc-manual-producto')?.value || '',
-            cantidad: document.getElementById('pnc-manual-cantidad')?.value || '0',
-            criterio: document.getElementById('pnc-manual-criterio')?.value || '',
-            // Mapping html ID to logic
-            codigo_ensamble: document.getElementById('pnc-manual-ensamble')?.value || ''
-        };
-        // ... rest of logic
-        if (!datos.codigo_producto?.trim()) {
-            mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
+            console.log('✅ [PNC] Datos cargados');
             mostrarLoading(false);
-            return;
+        } catch (error) {
+            console.error('Error [PNC] cargarDatos:', error);
+            mostrarLoading(false);
         }
+    },
 
-        const response = await fetch('/api/pnc', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datos)
+    /**
+     * Autocomplete de Producto (Aislado)
+     */
+    initAutocompleteProducto: function () {
+        const input = document.getElementById('pnc-manual-producto');
+        const suggestionsDiv = document.getElementById('pnc-manual-producto-suggestions');
+
+        console.log('🔍 [PNC] initAutocomplete - Context:', { input: !!input, suggestions: !!suggestionsDiv });
+
+        if (!input || !suggestionsDiv) return;
+
+        let debounceTimer;
+
+        input.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const query = e.target.value.trim().toLowerCase();
+
+            if (query.length < 2) {
+                suggestionsDiv.classList.remove('active');
+                suggestionsDiv.style.display = 'none';
+                return;
+            }
+
+            debounceTimer = setTimeout(() => {
+                let products = [];
+                if (window.AppState && window.AppState.sharedData && Array.isArray(window.AppState.sharedData.productos)) {
+                    products = window.AppState.sharedData.productos;
+                }
+
+                console.log(`🔍 [PNC] Buscando "${query}" en ${products.length} productos`);
+
+                const resultados = products.filter(prod => {
+                    const cod = String(prod.codigo_sistema || prod.codigo || '').toLowerCase();
+                    const desc = String(prod.descripcion || '').toLowerCase();
+                    return cod.includes(query) || desc.includes(query);
+                }).slice(0, 15);
+
+                this.renderSuggestions(suggestionsDiv, resultados, (item) => {
+                    input.value = item.codigo_sistema || item.codigo || '';
+                    suggestionsDiv.classList.remove('active');
+                    suggestionsDiv.style.display = 'none';
+                    console.log('✅ [PNC] Seleccionado:', input.value);
+                });
+            }, 300);
         });
 
-        const resultado = await response.json();
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.classList.remove('active');
+                suggestionsDiv.style.display = 'none';
+            }
+        });
+    },
 
-        if (response.ok && resultado.success) {
-            mostrarNotificacion(`✅ ${resultado.mensaje}`, 'success');
-            document.getElementById('form-manual-pnc')?.reset();
-            setTimeout(() => cargarDatosPNC(), 1500);
+    /**
+     * Renderizador de sugerencias local
+     */
+    renderSuggestions: function (container, items, onSelect) {
+        if (!container) return;
+
+        if (items.length === 0) {
+            container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
         } else {
-            mostrarNotificacion(`❌ ${resultado.error || 'Error'}`, 'error');
+            container.innerHTML = items.map(item => `
+                <div class="suggestion-item" data-val="${item.codigo_sistema || item.codigo || ''}">
+                    <strong>${item.codigo_sistema || item.codigo || ''}</strong><br>
+                    <small>${item.descripcion || ''}</small>
+                </div>
+            `).join('');
+
+            container.querySelectorAll('.suggestion-item').forEach((div, index) => {
+                div.addEventListener('click', () => onSelect(items[index]));
+            });
         }
-    } catch (error) {
-        console.error('Error registrar:', error);
-        mostrarNotificacion(`Error: ${error.message}`, 'error');
-    } finally {
-        mostrarLoading(false);
+
+        container.classList.add('active');
+        container.style.display = 'block';
+    },
+
+    /**
+     * Registrar PNC
+     */
+    registrar: async function () {
+        try {
+            mostrarLoading(true);
+
+            const datos = {
+                fecha: document.getElementById('pnc-manual-fecha')?.value || '',
+                codigo_producto: document.getElementById('pnc-manual-producto')?.value || '',
+                cantidad: document.getElementById('pnc-manual-cantidad')?.value || '0',
+                criterio: document.getElementById('pnc-manual-criterio')?.value || '',
+                notas: document.getElementById('pnc-manual-ensamble')?.value || ''
+            };
+
+            console.log('📤 [PNC] ENVIANDO:', datos);
+
+            if (!datos.codigo_producto?.trim()) {
+                mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
+                mostrarLoading(false);
+                return;
+            }
+
+            const response = await fetch('/api/pnc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(datos)
+            });
+
+            const resultado = await response.json();
+
+            if (response.ok && resultado.success) {
+                mostrarNotificacion(`✅ ${resultado.mensaje || 'PNC registrado'}`, 'success');
+                document.getElementById('form-manual-pnc')?.reset();
+                this.cargarDatos();
+            } else {
+                mostrarNotificacion(`❌ ${resultado.error || 'Error'}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error [PNC] registrar:', error);
+            mostrarNotificacion(`Error: ${error.message}`, 'error');
+        } finally {
+            mostrarLoading(false);
+        }
+    },
+
+    /**
+     * Inicialización del módulo
+     */
+    inicializar: function () {
+        console.log('🔧 [PNC] Inicializando...');
+        this.cargarDatos();
+        this.initAutocompleteProducto();
+
+        const form = document.getElementById('form-manual-pnc');
+        if (form) {
+            form.onsubmit = (e) => {
+                e.preventDefault();
+                this.registrar();
+            };
+        }
+        console.log('✅ [PNC] Módulo inicializado');
     }
-}
+};
 
-/**
- * Inicializar módulo
- */
-function initPnc() {
-    console.log('🔧 Inicializando módulo de PNC...');
-    cargarDatosPNC();
-    initAutocompleteProducto();
-    console.log('✅ Módulo de PNC inicializado');
-}
-
-// Exportar
-window.initPnc = initPnc;
-window.ModuloPNC = { inicializar: initPnc };
+// Exportación global
+window.ModuloPNC = ModuloPNC;
+window.initPnc = () => ModuloPNC.inicializar();

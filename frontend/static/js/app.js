@@ -40,21 +40,40 @@ async function cargarDatosCompartidos() {
         console.log('  - Respuesta productos:', resProd.status);
         if (!resProd.ok) throw new Error(`Error HTTP productos: ${resProd.status}`);
         const productosData = await resProd.json();
-        const productosRaw = productosData.items || productosData;
+
+        // DEBUG: Log full response structure
+        console.log('  - productosData type:', typeof productosData);
+        console.log('  - productosData.items?:', productosData.items?.length);
+        console.log('  - productosData (is array)?:', Array.isArray(productosData), productosData.length);
+
+        // Handle different response structures
+        let productosRaw = [];
+        if (productosData.items && Array.isArray(productosData.items)) {
+            productosRaw = productosData.items;
+        } else if (Array.isArray(productosData)) {
+            productosRaw = productosData;
+        } else if (productosData.productos && Array.isArray(productosData.productos)) {
+            productosRaw = productosData.productos;
+        }
+
+        console.log('  - productosRaw length:', productosRaw.length);
+        if (productosRaw.length > 0) {
+            console.log('  - Sample producto:', JSON.stringify(productosRaw[0]).substring(0, 200));
+        }
 
         window.AppState.sharedData.productos = productosRaw.map(p => ({
-            id_codigo: p.id_codigo || 0,
-            codigo_sistema: p.codigo || '',
-            descripcion: p.descripcion || '',
+            id_codigo: p.id_codigo || p.ID_CODIGO || 0,
+            codigo_sistema: p.codigo || p.codigo_sistema || p.CODIGO || '',
+            descripcion: p.descripcion || p.DESCRIPCION || '',
             imagen: p.imagen || '',
-            precio: p.precio || 0,
-            stock_por_pulir: p.stock_por_pulir || 0,
-            stock_terminado: p.stock_terminado || 0,
-            stock_total: p.existencias_totales || 0,
+            precio: p.precio || p.PRECIO || 0,
+            stock_por_pulir: p.stock_por_pulir || p.POR_PULIR || 0,
+            stock_terminado: p.stock_terminado || p.TERMINADO || 0,
+            stock_total: p.existencias_totales || p.EXISTENCIAS || 0,
             semaforo: p.semaforo || { color: 'gray', estado: '', mensaje: '' },
             metricas: p.metricas || { min: 0, max: 0, reorden: 0 }
         }));
-        console.log('  ✅ Productos cargados:', window.AppState.sharedData.productos.length);
+        console.log('  ✅ Productos cargados en cache:', window.AppState.sharedData.productos.length);
 
         // 2. Procesar responsables
         if (resResp.ok) {

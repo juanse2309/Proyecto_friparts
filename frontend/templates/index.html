@@ -312,8 +312,8 @@
                                 <div style="display: flex; gap: 5px;"> <input type="number" id="pnc-inyeccion" value="0"
                                         readonly
                                         style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
-                                        onclick="abrirModalDefectos('pnc-inyeccion')"> <button type="button"
-                                        onclick="abrirModalDefectos('pnc-inyeccion')"
+                                        onclick="window.abrirModalInyeccion()"> <button type="button"
+                                        onclick="window.abrirModalInyeccion()"
                                         style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
                                         <i class="fas fa-list-ul"></i> </button> </div>
                             </div> <!-- Fila 6 -->
@@ -341,7 +341,9 @@
                             <div class="form-group full-width"> <label for="observaciones-inyeccion"><i
                                         class="fas fa-sticky-note"></i> Observaciones</label> <textarea
                                     id="observaciones-inyeccion" rows="3"
-                                    placeholder="Notas adicionales del proceso..."></textarea> </div>
+                                    placeholder="Notas adicionales del proceso..."></textarea>
+                                <input type="hidden" id="criterio-pnc-hidden-inyeccion">
+                            </div>
                             <!-- PRODUCCIÓN CALCULADA (Destacada) -->
                             <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                                        padding: 20px; 
@@ -456,11 +458,12 @@
                             <div class="form-group">
                                 <label for="pnc-pulido"><i class="fas fa-times-circle"></i> PNC</label>
                                 <div style="display: flex; gap: 5px;">
-                                    <input type="number" id="pnc-pulido" value="0" readonly
-                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
-                                        onclick="ModuloPulido.abrirModalDefectos()">
-                                    <button type="button" onclick="ModuloPulido.abrirModalDefectos()"
-                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    <input type="text" id="pnc-pulido" value="0" readonly
+                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer; flex: 1;"
+                                        onclick="window.abrirModalPulido()" title="Click para registrar defectos">
+                                    <button type="button" onclick="window.abrirModalPulido()"
+                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;"
+                                        title="Registrar defectos">
                                         <i class="fas fa-list-ul"></i>
                                     </button>
                                 </div>
@@ -472,6 +475,7 @@
                                     Observaciones</label>
                                 <textarea id="observaciones-pulido" rows="3"
                                     placeholder="Notas adicionales del proceso..."></textarea>
+                                <input type="hidden" id="criterio-pnc-hidden">
                             </div>
 
                             <!-- PRODUCCIÓN CALCULADA (Destacada) -->
@@ -617,8 +621,8 @@
                                 <div style="display: flex; gap: 5px;">
                                     <input type="number" id="pnc-ensamble" value="0" readonly
                                         style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
-                                        onclick="abrirModalDefectos('pnc-ensamble')">
-                                    <button type="button" onclick="abrirModalDefectos('pnc-ensamble')"
+                                        onclick="window.abrirModalEnsamble()">
+                                    <button type="button" onclick="window.abrirModalEnsamble()"
                                         style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
                                         <i class="fas fa-list-ul"></i>
                                     </button>
@@ -631,6 +635,7 @@
                                     Observaciones</label>
                                 <textarea id="observaciones-ensamble" rows="3"
                                     placeholder="Notas adicionales..."></textarea>
+                                <input type="hidden" id="criterio-pnc-hidden-ensamble">
                             </div>
 
                             <!-- PRODUCCIÓN CALCULADA (Destacada) -->
@@ -699,18 +704,18 @@
                 <div class="form-container">
                     <form id="form-manual-pnc" class="styled-form">
                         <div class="form-grid">
-                            <!-- Fila 1: Fecha y Producto -->
+                            <!-- Fila 1: Fecha -->
                             <div class="form-group">
                                 <label for="pnc-manual-fecha"><i class="fas fa-calendar"></i> Fecha</label>
                                 <input type="date" id="pnc-manual-fecha" required>
                             </div>
-                            <div class="form-group">
+
+                            <!-- Fila 2: Producto -->
+                            <div class="form-group full-width">
                                 <label for="pnc-manual-producto"><i class="fas fa-barcode"></i> Producto (ID o
                                     FR-)</label>
                                 <input type="text" id="pnc-manual-producto" placeholder="Buscar producto..."
                                     autocomplete="off">
-                                <datalist id="pnc-productos-list"></datalist>
-                                <!-- Keep datalist just in case or remove if unused, but new JS uses div -->
                                 <div id="pnc-manual-producto-suggestions" class="autocomplete-suggestions"></div>
                             </div>
 
@@ -905,8 +910,8 @@
                                 </h4>
                                 <div class="table-container"
                                     style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
-                                    <table id="tabla-items-pedido" class="table"
-                                        style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                                    <table id="tabla-items-pedido" class="table responsive-mobile"
+                                        style="width: 100%; border-collapse: collapse;">
                                         <thead style="background: #f8f9fa;">
                                             <tr>
                                                 <th style="padding: 10px; border: 1px solid #dee2e6;">Código</th>
@@ -1085,8 +1090,9 @@
                             </div>
                             <div class="form-group">
                                 <label for="responsable-mezcla"><i class="fas fa-user-shield"></i> Responsable</label>
-                                <input type="text" id="responsable-mezcla" placeholder="Auto-llenado..." readonly
-                                    style="background-color: #f8f9fa; cursor: not-allowed; font-weight: 500;">
+                                <select id="responsable-mezcla" required>
+                                    <option value="">Seleccionar...</option>
+                                </select>
                             </div>
                             <div class="form-group">
                                 <label for="maquina-mezcla"><i class="fas fa-cogs"></i> Máquina / Proceso</label>
@@ -1205,78 +1211,8 @@
                     id="btn-guardar-producto">Guardar Producto</button> </div>
         </div>
     </div> <!-- Modal para defectos (compartido) -->
-    <div class="modal fade" id="modalDefectos" tabindex="-1" aria-hidden="true" style="z-index: 9999;">
-        <div class="modal-dialog modal-dialog-centered" style="max-width: 550px;">
-            <div class="modal-content"
-                style="border-radius: 12px; border: none; box-shadow: 0 20px 60px rgba(0,0,0,0.4);">
-                <div class="modal-header"
-                    style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
-                    <h5 class="modal-title"
-                        style="margin: 0; font-size: 15px; font-weight: bold; letter-spacing: 0.5px; display: flex; align-items: center;">
-                        <i class="fas fa-exclamation-triangle" style="margin-right: 12px; color: #fbbf24;"></i>
-                        REGISTRAR DEFECTOS
-                    </h5> <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
-                        aria-label="Close"></button>
-                </div>
-                <div class="modal-body" style="background-color: #f8fafc; padding: 24px;"> <!-- Caja de ingreso -->
-                    <div
-                        style="background: white; padding: 16px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.03); margin-bottom: 20px; border: 1px solid #e2e8f0;">
-                        <label
-                            style="display: block; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 8px; letter-spacing: 0.5px;">Nuevo
-                            Defecto</label>
-                        <div style="display: flex; gap: 10px;"> <select id="modal-criterio"
-                                style="flex: 3; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; color: #334155; height: 40px;">
-                                <option value="">Seleccione tipo...</option>
-                                <option value="Rechupe">Rechupe</option>
-                                <option value="Quemado">Quemado</option>
-                                <option value="Escaso">Escaso</option>
-                                <option value="Contaminado">Contaminado</option>
-                                <option value="Buje de prueba">Buje de prueba</option>
-                                <option value="Rayado">Rayado</option>
-                                <option value="Mal pulido">Mal pulido</option>
-                                <option value="Quebrado">Quebrado</option>
-                                <option value="Fuera de especificación">Fuera de especificación</option>
-                                <option value="Dimensión incorrecta">Dimensión incorrecta</option>
-                                <option value="Otro">Otro</option>
-                            </select> <input type="number" id="modal-cantidad" placeholder="0" min="1"
-                                style="flex: 1; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; text-align: center; font-size: 14px; color: #334155; height: 40px;">
-                            <button type="button" onclick="window.agregarDefectoModal()"
-                                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 500; cursor: pointer;">
-                                <i class="fas fa-plus"></i> </button>
-                        </div>
-                    </div> <!-- Lista -->
-                    <div
-                        style="background: white; border-radius: 10px; border: 1px solid #e2e8f0; min-height: 140px; max-height: 250px; overflow-y: auto;">
-                        <ul id="modal-lista-defectos" class="list-group"
-                            style="min-height: 140px; display: flex; flex-direction: column;"> <!-- Estado vacío -->
-                            <div
-                                style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; padding: 20px;">
-                                <div
-                                    style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
-                                    <i class="fas fa-clipboard-list" style="font-size: 20px; color: #cbd5e1;"></i>
-                                </div> <small style="font-size: 13px; font-weight: 500;">No hay defectos
-                                    registrados</small>
-                            </div>
-                        </ul>
-                    </div> <!-- Total -->
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
-                        <span style="font-weight: 700; color: #475569; font-size: 12px; letter-spacing: 1px;">TOTAL
-                            PIEZAS MALAS</span> <span id="modal-total"
-                            style="font-size: 24px; font-weight: 800; color: #ef4444;">0</span>
-                    </div>
-                </div>
-                <div class="modal-footer"
-                    style="background: #f8fafc; padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px;">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
-                        style="padding: 10px 20px; border-radius: 8px;">Cancelar</button> <button type="button"
-                        onclick="window.aplicarDefectos()" data-bs-dismiss="modal"
-                        style="padding: 10px 28px; border: none; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: white; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">
-                        APLICAR </button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- ELIMINADO: Modal Defectos Compartido (Ahora es específico por proceso) -->
+
 
     <!-- Login Modal -->
     <div id="login-modal" class="modal-custom"
@@ -1354,111 +1290,9 @@
     <script src="/static/js/modules/mezcla.js?v=1769548627"></script>
     <script src="/static/js/modules/historial.js?v=1769548630"></script>
     <script src="/static/js/modules/pedidos.js?v=1.0.0"></script>
-    <!-- Script mínimo para inicialización -->
+    <!-- Script de inicialización -->
     <script>
-        // Variables globales para el modal de defectos
-        window.listaDefectosTemp = [];
-        window.inputIdDestino = 'pnc';
-
-        // Función para abrir modal de defectos
-        window.abrirModalDefectos = function (targetId) {
-            window.inputIdDestino = targetId || 'pnc';
-
-            var modalEl = document.getElementById('modalDefectos');
-            if (!modalEl) return alert("Error: Modal no encontrado");
-
-            // Limpiar modal
-            window.listaDefectosTemp = [];
-            document.getElementById('modal-criterio').value = '';
-            document.getElementById('modal-cantidad').value = '';
-            renderizarListaDefectosGlobal();
-
-            if (typeof bootstrap !== 'undefined') {
-                var modal = new bootstrap.Modal(modalEl);
-                modal.show();
-            } else {
-                modalEl.style.display = 'block';
-            }
-        };
-
-        // Función para agregar defecto al modal
-        window.agregarDefectoModal = function () {
-            const criterio = document.getElementById('modal-criterio').value;
-            const cantidad = parseInt(document.getElementById('modal-cantidad').value);
-
-            if (!criterio || !cantidad || cantidad <= 0) {
-                alert('Selecciona un tipo de defecto y cantidad válida');
-                return;
-            }
-
-            window.listaDefectosTemp.push({ criterio, cantidad });
-
-            // Limpiar inputs
-            document.getElementById('modal-criterio').value = '';
-            document.getElementById('modal-cantidad').value = '';
-
-            renderizarListaDefectosGlobal();
-        };
-
-        // Función para renderizar lista de defectos
-        function renderizarListaDefectosGlobal() {
-            const lista = document.getElementById('modal-lista-defectos');
-            const total = document.getElementById('modal-total');
-
-            if (!lista || !total) return;
-
-            let totalDefectos = 0;
-
-            if (window.listaDefectosTemp.length === 0) {
-                lista.innerHTML = `
-                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; padding: 20px;">
-                        <div style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
-                            <i class="fas fa-clipboard-list" style="font-size: 20px; color: #cbd5e1;"></i>
-                        </div>
-                        <small style="font-size: 13px; font-weight: 500;">No hay defectos registrados</small>
-                    </div>
-                `;
-            } else {
-                lista.innerHTML = window.listaDefectosTemp.map((d, i) => {
-                    totalDefectos += d.cantidad;
-                    return `
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f1f5f9;">
-                            <div>
-                                <span style="font-weight: 600; color: #334155; font-size: 13px;">${d.criterio}</span>
-                                <span style="color: #94a3b8; font-size: 12px; margin-left: 8px;">× ${d.cantidad}</span>
-                            </div>
-                            <button onclick="eliminarDefectoGlobal(${i})" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px;">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            total.textContent = totalDefectos;
-        }
-
-        // Función para eliminar defecto
-        window.eliminarDefectoGlobal = function (index) {
-            window.listaDefectosTemp.splice(index, 1);
-            renderizarListaDefectosGlobal();
-        };
-
-        // Función para aplicar defectos
-        window.aplicarDefectos = function () {
-            const totalDefectos = window.listaDefectosTemp.reduce((sum, d) => sum + d.cantidad, 0);
-            const inputPNC = document.getElementById(window.inputIdDestino);
-
-            if (inputPNC) {
-                inputPNC.value = totalDefectos;
-
-                // Disparar evento de cambio para actualizar cálculos
-                const event = new Event('input', { bubbles: true });
-                inputPNC.dispatchEvent(event);
-            }
-
-            // Evento disparado
-        };
+        // ELIMINADO LOGICA LEGACY DE MODAL COMPARTIDO
 
         // Inicializar fecha en sidebar
         document.addEventListener('DOMContentLoaded', function () {
@@ -1475,69 +1309,268 @@
         });
     </script>
 
-    <!-- ============================== -->
-    <!-- MODAL DEFECTOS ENSAMBLE -->
-    <!-- ============================== -->
-    <div id="modalDefectosEnsamble" class="modal fade" tabindex="-1">
-        <!-- ... (contenido igual al anterior) ... -->
-    </div>
-
-    <!-- ============================== -->
-    <!-- MODAL DEFECTOS PULIDO -->
-    <!-- ============================== -->
-    <div id="modalDefectosPulido" class="modal fade" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content" style="border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.15);">
-                <div class="modal-header"
-                    style="background: linear-gradient(135deg, #f72585 0%, #b5179e 100%); color: white; border-radius: 16px 16px 0 0; padding: 20px 24px;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <i class="fas fa-exclamation-triangle" style="font-size: 24px;"></i>
-                        <h5 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">REGISTRAR DEFECTOS
-                            - PULIDO</h5>
-                    </div>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <!-- ======================================================== -->
+    <!-- MODAL DEFECTOS INYECCIÓN -->
+    <!-- ======================================================== -->
+    <div id="modalDefectosInyeccion" class="custom-modal-overlay"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="custom-modal-content"
+            style="background: white; border-radius: 12px; width: 90%; max-width: 450px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+            <div
+                style="background: #3b82f6; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
+                <h6 style="margin: 0; font-weight: 600;">Defectos Inyección</h6>
+                <button onclick="cerrarModalInyeccion()"
+                    style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="d-flex gap-2 mb-3 mobile-stack">
+                    <select id="crit-inyeccion" class="form-select">
+                        <option value="">Seleccionar Defecto...</option>
+                        <option value="RECHUPE">Rechupe</option>
+                        <option value="QUEMADO">Quemado</option>
+                        <option value="RAGUÑO">Raguño</option>
+                        <option value="CONTAMINADO">Contaminado</option>
+                        <option value="INCOMPLETO">Incompleto</option>
+                        <option value="GRASA">Grasa</option>
+                        <option value="OTROS">Otros</option>
+                    </select>
+                    <input type="number" id="cant-inyeccion" class="form-control" placeholder="Cant"
+                        style="width: 80px;">
+                    <button onclick="agregarDefectoInyeccion()" class="btn btn-primary">+</button>
                 </div>
-                <div class="modal-body" style="padding: 24px;">
-                    <div style="margin-bottom: 20px;">
-                        <label
-                            style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: block;">NUEVO
-                            DEFECTO</label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <select id="modal-criterio-pulido"
-                                style="flex: 2; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; color: #334155; height: 40px;">
-                                <option value="">-- Seleccionar defecto --</option>
-                                <option value="RECHUPE">Rechupe</option>
-                                <option value="QUEMADO">Quemado</option>
-                                <option value="ESCASO">Escaso</option>
-                                <option value="CONTAMINADO">Contaminado</option>
-                                <option value="MANCHADO">Manchado</option>
-                                <option value="REVENTADO">Reventado</option>
-                                <option value="POROSIDAD">Porosidad</option>
-                                <option value="OTROS">Otros</option>
-                            </select>
-                            <input type="number" id="modal-cantidad-pulido" min="1" placeholder="Cantidad"
-                                style="flex: 1; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; text-align: center; font-size: 14px; color: #334155; height: 40px;">
-                            <button onclick="agregarDefectoPulido()"
-                                style="width: 40px; height: 40px; background: linear-gradient(135deg, #f72585 0%, #b5179e 100%); color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer;">+</button>
-                        </div>
-                    </div>
-                    <div style="margin-bottom: 20px;">
-                        <label
-                            style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: block;">TOTAL
-                            PIEZAS MALAS (PNC): <span id="modal-total-pulido"
-                                style="color: #ef4444; font-weight: 700;">0</span></label>
-                        <ul id="modal-lista-defectos-pulido" class="list-group"
-                            style="max-height: 200px; overflow-y: auto; border-radius: 8px;"></ul>
-                    </div>
+                <div
+                    style="max-height: 150px; overflow-y: auto; background: #f8fafc; border-radius: 8px; padding: 10px;">
+                    <ul id="lista-inyeccion" class="list-unstyled m-0"></ul>
                 </div>
-                <div class="modal-footer" style="border-top: 1px solid #e2e8f0; padding: 16px 24px;">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-primary" onclick="aplicarDefectosPulido()"
-                        style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none;">APLICAR</button>
-                </div>
+                <div class="mt-3 text-end fw-bold text-danger">Totales Malas: <span id="total-inyeccion">0</span></div>
+            </div>
+            <div style="padding: 15px 20px; background: #f1f5f9; text-align: right;">
+                <button onclick="aplicarDefectosInyeccion()" class="btn btn-success fw-bold w-100">APLICAR AL
+                    CÁLCULO</button>
             </div>
         </div>
     </div>
+
+    <!-- ======================================================== -->
+    <!-- MODAL DEFECTOS PULIDO -->
+    <!-- ======================================================== -->
+    <div id="modalDefectosPulido" class="custom-modal-overlay"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="custom-modal-content"
+            style="background: white; border-radius: 12px; width: 90%; max-width: 450px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+            <div
+                style="background: #10b981; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
+                <h6 style="margin: 0; font-weight: 600;">Defectos Pulido</h6>
+                <button onclick="cerrarModalPulido()"
+                    style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="d-flex gap-2 mb-3 mobile-stack">
+                    <select id="crit-pulido" class="form-select">
+                        <option value="">Seleccionar Defecto...</option>
+                        <option value="ESCASO">Escaso</option>
+                        <option value="RECHUPE">Rechupe</option>
+                        <option value="CONTAMINADO">Contaminado</option>
+                        <option value="BUJE DE PRUEBA">Buje de Prueba</option>
+                    </select>
+                    <input type="number" id="cant-pulido" class="form-control" placeholder="Cant" style="width: 80px;">
+                    <button onclick="agregarDefectoPulido()" class="btn btn-success">+</button>
+                </div>
+                <div
+                    style="max-height: 150px; overflow-y: auto; background: #f8fafc; border-radius: 8px; padding: 10px;">
+                    <ul id="lista-pulido" class="list-unstyled m-0"></ul>
+                </div>
+                <div class="mt-3 text-end fw-bold text-danger">Totales Malas: <span id="total-pulido">0</span></div>
+            </div>
+            <div style="padding: 15px 20px; background: #f1f5f9; text-align: right;">
+                <button onclick="aplicarDefectosPulido()" class="btn btn-success fw-bold w-100">APLICAR AL
+                    CÁLCULO</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- MODAL DEFECTOS ENSAMBLE -->
+    <!-- ======================================================== -->
+    <div id="modalDefectosEnsamble" class="custom-modal-overlay"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="custom-modal-content"
+            style="background: white; border-radius: 12px; width: 90%; max-width: 450px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+            <div
+                style="background: #f59e0b; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
+                <h6 style="margin: 0; font-weight: 600;">Defectos Ensamble</h6>
+                <button onclick="cerrarModalEnsamble()"
+                    style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="d-flex gap-2 mb-3 mobile-stack">
+                    <select id="crit-ensamble" class="form-select">
+                        <option value="">Seleccionar Defecto...</option>
+                        <option value="MAL ENSAMBLADO">Mal Ensamblado</option>
+                        <option value="FALTA COMPONENTE">Falta Componente</option>
+                        <option value="COMPONENTE DAÑADO">Componente Dañado</option>
+                        <option value="OTROS">Otros</option>
+                    </select>
+                    <input type="number" id="cant-ensamble" class="form-control" placeholder="Cant"
+                        style="width: 80px;">
+                    <button onclick="agregarDefectoEnsamble()" class="btn btn-warning text-white">+</button>
+                </div>
+                <div
+                    style="max-height: 150px; overflow-y: auto; background: #f8fafc; border-radius: 8px; padding: 10px;">
+                    <ul id="lista-ensamble" class="list-unstyled m-0"></ul>
+                </div>
+                <div class="mt-3 text-end fw-bold text-danger">Totales Malas: <span id="total-ensamble">0</span></div>
+            </div>
+            <div style="padding: 15px 20px; background: #f1f5f9; text-align: right;">
+                <button onclick="aplicarDefectosEnsamble()" class="btn btn-success fw-bold w-100">APLICAR AL
+                    CÁLCULO</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGICA DE MODALES (INLINE PARA SEGURIDAD) -->
+    <script>
+        // --- ESTADO GLOBALES PARA MODALES ---
+        window.tmpDefectosInyeccion = [];
+        window.tmpDefectosPulido = [];
+        window.tmpDefectosEnsamble = [];
+
+        // --- INYECCION ---
+        window.abrirModalInyeccion = () => {
+            window.tmpDefectosInyeccion = [];
+            renderizarInyeccion();
+            document.getElementById('modalDefectosInyeccion').style.display = 'flex';
+        };
+        window.cerrarModalInyeccion = () => document.getElementById('modalDefectosInyeccion').style.display = 'none';
+
+        window.agregarDefectoInyeccion = () => {
+            const c = document.getElementById('crit-inyeccion').value;
+            const q = parseInt(document.getElementById('cant-inyeccion').value) || 0;
+            if (!c || q <= 0) return alert('Seleccione defecto y cantidad > 0');
+            window.tmpDefectosInyeccion.push({ criterio: c, cantidad: q });
+            document.getElementById('crit-inyeccion').value = '';
+            document.getElementById('cant-inyeccion').value = '';
+            renderizarInyeccion();
+        };
+
+        function renderizarInyeccion() {
+            const lista = document.getElementById('lista-inyeccion');
+            lista.innerHTML = window.tmpDefectosInyeccion.map((d, i) =>
+                `<li class="d-flex justify-content-between border-bottom py-2">
+                    <span>${d.criterio} x${d.cantidad}</span>
+                    <button onclick="window.tmpDefectosInyeccion.splice(${i},1); renderizarInyeccion()" class="btn btn-sm text-danger"><i class="fas fa-trash"></i></button>
+                </li>`).join('');
+            document.getElementById('total-inyeccion').innerText = window.tmpDefectosInyeccion.reduce((a, b) => a + b.cantidad, 0);
+        }
+
+        window.aplicarDefectosInyeccion = () => {
+            const total = window.tmpDefectosInyeccion.reduce((a, b) => a + b.cantidad, 0);
+            const listStr = window.tmpDefectosInyeccion.map(d => `${d.criterio} (${d.cantidad})`).join(', ');
+
+            const inputCount = document.getElementById('pnc-inyeccion');
+            const inputCrit = document.getElementById('criterio-pnc-hidden-inyeccion');
+
+            if (inputCount) {
+                inputCount.value = total;
+                inputCount.dispatchEvent(new Event('input'));
+            }
+            if (inputCrit) {
+                inputCrit.value = listStr;
+            }
+            cerrarModalInyeccion();
+        };
+
+        // --- PULIDO ---
+        window.abrirModalPulido = () => {
+            window.tmpDefectosPulido = [];
+            renderizarPulido();
+            document.getElementById('modalDefectosPulido').style.display = 'flex';
+        };
+        window.cerrarModalPulido = () => document.getElementById('modalDefectosPulido').style.display = 'none';
+
+        window.agregarDefectoPulido = () => {
+            const c = document.getElementById('crit-pulido').value;
+            const q = parseInt(document.getElementById('cant-pulido').value) || 0;
+            if (!c || q <= 0) return alert('Seleccione defecto y cantidad > 0');
+            window.tmpDefectosPulido.push({ criterio: c, cantidad: q });
+            document.getElementById('crit-pulido').value = '';
+            document.getElementById('cant-pulido').value = '';
+            renderizarPulido();
+        };
+
+        function renderizarPulido() {
+            const lista = document.getElementById('lista-pulido');
+            lista.innerHTML = window.tmpDefectosPulido.map((d, i) =>
+                `<li class="d-flex justify-content-between border-bottom py-2">
+                    <span>${d.criterio} x${d.cantidad}</span>
+                    <button onclick="window.tmpDefectosPulido.splice(${i},1); renderizarPulido()" class="btn btn-sm text-danger"><i class="fas fa-trash"></i></button>
+                </li>`).join('');
+            document.getElementById('total-pulido').innerText = window.tmpDefectosPulido.reduce((a, b) => a + b.cantidad, 0);
+        }
+
+        window.aplicarDefectosPulido = () => {
+            const total = window.tmpDefectosPulido.reduce((a, b) => a + b.cantidad, 0);
+            const listStr = window.tmpDefectosPulido.map(d => `${d.criterio} (${d.cantidad})`).join(', ');
+
+            const inputCount = document.getElementById('pnc-pulido');
+            const inputCrit = document.getElementById('criterio-pnc-hidden');
+
+            if (inputCount) {
+                inputCount.value = total;
+                inputCount.dispatchEvent(new Event('input'));
+            }
+            if (inputCrit) {
+                inputCrit.value = listStr;
+            }
+            cerrarModalPulido();
+        };
+
+        // --- ENSAMBLE ---
+        window.abrirModalEnsamble = () => {
+            window.tmpDefectosEnsamble = [];
+            renderizarEnsamble();
+            document.getElementById('modalDefectosEnsamble').style.display = 'flex';
+        };
+        window.cerrarModalEnsamble = () => document.getElementById('modalDefectosEnsamble').style.display = 'none';
+
+        window.agregarDefectoEnsamble = () => {
+            const c = document.getElementById('crit-ensamble').value;
+            const q = parseInt(document.getElementById('cant-ensamble').value) || 0;
+            if (!c || q <= 0) return alert('Seleccione defecto y cantidad > 0');
+            window.tmpDefectosEnsamble.push({ criterio: c, cantidad: q });
+            document.getElementById('crit-ensamble').value = '';
+            document.getElementById('cant-ensamble').value = '';
+            renderizarEnsamble();
+        };
+
+        function renderizarEnsamble() {
+            const lista = document.getElementById('lista-ensamble');
+            lista.innerHTML = window.tmpDefectosEnsamble.map((d, i) =>
+                `<li class="d-flex justify-content-between border-bottom py-2">
+                    <span>${d.criterio} x${d.cantidad}</span>
+                    <button onclick="window.tmpDefectosEnsamble.splice(${i},1); renderizarEnsamble()" class="btn btn-sm text-danger"><i class="fas fa-trash"></i></button>
+                </li>`).join('');
+            document.getElementById('total-ensamble').innerText = window.tmpDefectosEnsamble.reduce((a, b) => a + b.cantidad, 0);
+        }
+
+        window.aplicarDefectosEnsamble = () => {
+            const total = window.tmpDefectosEnsamble.reduce((a, b) => a + b.cantidad, 0);
+            const listStr = window.tmpDefectosEnsamble.map(d => `${d.criterio} (${d.cantidad})`).join(', ');
+
+            const inputCount = document.getElementById('pnc-ensamble');
+            const inputCrit = document.getElementById('criterio-pnc-hidden-ensamble');
+
+            if (inputCount) {
+                inputCount.value = total;
+                inputCount.dispatchEvent(new Event('input'));
+            }
+            if (inputCrit) {
+                inputCrit.value = listStr;
+            }
+            cerrarModalEnsamble();
+        };
+    </script>
+
 </body>
 
 </html>

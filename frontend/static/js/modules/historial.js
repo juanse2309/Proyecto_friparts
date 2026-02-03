@@ -73,66 +73,137 @@
         const registrosVisibles = h_datos.slice(inicio, fin);
         const totalPaginas = Math.ceil(h_datos.length / h_registrosPorPagina);
 
-        let html = `
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0" style="min-width: 1000px;">
-                    <thead class="ps-4 bg-light">
-                        <tr>
-                            <th class="ps-4" style="width: 100px;">Fecha</th>
-                            <th style="width: 120px;">Tipo</th>
-                            <th style="width: 150px;">Responsable</th>
-                            <th style="width: 120px;">Producto</th>
-                            <th style="width: 120px;">Orden Prod.</th>
-                            <th style="width: 100px;">Máquina</th>
-                            <th>Detalle</th>
-                            <th class="text-center" style="width: 80px;">Cant.</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
+        // Detectar modo vista (Móvil vs Escritorio)
+        const esMovil = window.innerWidth < 992;
 
-        registrosVisibles.forEach(r => {
-            const badgeClass = obtenerBadgeClass(r.Tipo);
+        let html = '';
 
-            // Valores por defecto (normalizados)
-            let responsable = r.Responsable;
-            let cantidad = r.Cant;
-            let orden = r.Orden;
-            let maquina = r.Extra || '-';
+        if (esMovil) {
+            // VISTA DE TARJETAS (MOBILE)
+            html += '<div class="d-flex flex-column gap-3 pb-5">';
 
-            // Manejo especial por proceso según requerimiento Juan Sebastian
-            if (r.Tipo === 'INYECCION') {
-                responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
-                orden = r['ORDEN PRODUCCION'] || r.Orden;
-                maquina = r.MAQUINA || r.Extra;
-            } else if (r.Tipo === 'PULIDO') {
-                responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
-                orden = r['ORDEN PRODUCCION'] || r.Orden;
-                maquina = '-'; // Pulido no tiene máquina
-            } else if (r.Tipo === 'ENSAMBLE') {
-                responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                cantidad = r['CANTIDAD'] !== undefined ? r['CANTIDAD'] : r.Cant;
-                orden = r['OP NUMERO'] || r.Orden;
-                maquina = '-';
-            }
+            registrosVisibles.forEach(r => {
+                const badgeClass = obtenerBadgeClass(r.Tipo);
 
+                // Normalización de datos
+                let responsable = r.Responsable;
+                let cantidad = r.Cant;
+                let orden = r.Orden;
+                let maquina = r.Extra || '-';
+
+                if (r.Tipo === 'INYECCION') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    orden = r['ORDEN PRODUCCION'] || r.Orden;
+                    maquina = r.MAQUINA || r.Extra;
+                } else if (r.Tipo === 'PULIDO') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    orden = r['ORDEN PRODUCCION'] || r.Orden;
+                    maquina = 'N/A';
+                } else if (r.Tipo === 'ENSAMBLE') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r['CANTIDAD'] !== undefined ? r['CANTIDAD'] : r.Cant;
+                    orden = r['OP NUMERO'] || r.Orden;
+                    maquina = 'N/A';
+                }
+
+                html += `
+                    <div class="card shadow-sm border-0" style="border-radius: 12px; overflow: hidden;">
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="badge ${badgeClass}">${r.Tipo}</span>
+                                <small class="text-muted fw-bold">${r.Fecha}</small>
+                            </div>
+                            <h6 class="mb-1 fw-bold text-dark">${r.Producto || 'Sin Producto'}</h6>
+                            <div class="text-muted small mb-3">
+                                <i class="fas fa-user me-1"></i> ${responsable}
+                            </div>
+                            
+                            <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
+                                <div class="text-center px-2">
+                                    <small class="d-block text-muted" style="font-size: 10px;">CANTIDAD</small>
+                                    <span class="fw-bold fs-5 text-primary">${cantidad ?? '-'}</span>
+                                </div>
+                                <div class="text-center px-2 border-start">
+                                    <small class="d-block text-muted" style="font-size: 10px;">ORDEN</small>
+                                    <span class="fw-medium">${orden || '-'}</span>
+                                </div>
+                                <div class="text-center px-2 border-start">
+                                    <small class="d-block text-muted" style="font-size: 10px;">MAQ</small>
+                                    <span class="fw-medium">${maquina || '-'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+
+        } else {
+            // VISTA DE TABLA (DESKTOP)
             html += `
-                <tr>
-                    <td class="ps-4">${r.Fecha || '-'}</td>
-                    <td><span class="badge ${badgeClass}">${r.Tipo || 'N/A'}</span></td>
-                    <td>${responsable || '-'}</td>
-                    <td><strong>${r.Producto || '-'}</strong></td>
-                    <td><span class="text-primary fw-medium">${orden || '-'}</span></td>
-                    <td><small>${maquina || '-'}</small></td>
-                    <td><small class="text-muted">${r.Detalle || '-'}</small></td>
-                    <td class="text-center fw-bold">${cantidad ?? '-'}</td>
-                </tr>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" style="min-width: 1000px;">
+                        <thead class="ps-4 bg-light">
+                            <tr>
+                                <th class="ps-4" style="width: 100px;">Fecha</th>
+                                <th style="width: 120px;">Tipo</th>
+                                <th style="width: 150px;">Responsable</th>
+                                <th style="width: 120px;">Producto</th>
+                                <th style="width: 120px;">Orden Prod.</th>
+                                <th style="width: 100px;">Máquina</th>
+                                <th>Detalle</th>
+                                <th class="text-center" style="width: 80px;">Cant.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
             `;
-        });
 
-        html += `</tbody></table></div>`;
+            registrosVisibles.forEach(r => {
+                const badgeClass = obtenerBadgeClass(r.Tipo);
+
+                // Valores por defecto (normalizados)
+                let responsable = r.Responsable;
+                let cantidad = r.Cant;
+                let orden = r.Orden;
+                let maquina = r.Extra || '-';
+
+                // Manejo especial por proceso según requerimiento Juan Sebastian
+                if (r.Tipo === 'INYECCION') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    orden = r['ORDEN PRODUCCION'] || r.Orden;
+                    maquina = r.MAQUINA || r.Extra;
+                } else if (r.Tipo === 'PULIDO') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    orden = r['ORDEN PRODUCCION'] || r.Orden;
+                    maquina = '-'; // Pulido no tiene máquina
+                } else if (r.Tipo === 'ENSAMBLE') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r['CANTIDAD'] !== undefined ? r['CANTIDAD'] : r.Cant;
+                    orden = r['OP NUMERO'] || r.Orden;
+                    maquina = '-';
+                }
+
+                html += `
+                    <tr>
+                        <td class="ps-4">${r.Fecha || '-'}</td>
+                        <td><span class="badge ${badgeClass}">${r.Tipo || 'N/A'}</span></td>
+                        <td>${responsable || '-'}</td>
+                        <td><strong>${r.Producto || '-'}</strong></td>
+                        <td><span class="text-primary fw-medium">${orden || '-'}</span></td>
+                        <td><small>${maquina || '-'}</small></td>
+                        <td><small class="text-muted">${r.Detalle || '-'}</small></td>
+                        <td class="text-center fw-bold">${cantidad ?? '-'}</td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table></div>`;
+        }
 
         // Controles de Paginación
         if (totalPaginas > 1) {

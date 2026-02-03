@@ -10,7 +10,6 @@ const ModuloEnsamble = {
         console.log('🔧 [Ensamble] Inicializando módulo Smart...');
         await this.cargarDatos();
         this.configurarEventos();
-        this.configurarEventos();
         this.initAutocompleteComponente();
         // this.initAutocompleteResponsable(); // Eliminado por solicitud de usuario (Auto-fill simple)
     },
@@ -164,6 +163,20 @@ const ModuloEnsamble = {
 
         // Listener en input manual o pegado
         document.getElementById('ens-buje-componente')?.addEventListener('change', actualizarMapeoEnsamble);
+
+        // Configurar botón de defectos
+        const btnDefectos = document.getElementById('btn-defectos-ensamble');
+        if (btnDefectos) {
+            btnDefectos.replaceWith(btnDefectos.cloneNode(true));
+            const newBtn = document.getElementById('btn-defectos-ensamble');
+            newBtn.addEventListener('click', function () {
+                if (typeof window.abrirModalEnsamble === 'function') {
+                    window.abrirModalEnsamble();
+                } else {
+                    console.error('❌ Función window.abrirModalEnsamble no encontrada');
+                }
+            });
+        }
     }
 };
 
@@ -176,24 +189,31 @@ async function registrarEnsamble() {
         console.log('🚀 [Ensamble] Intentando registrar...');
         mostrarLoading(true);
 
-        const cantidadTotal = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
+        const cantidadBolsas = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
         const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
-        const cantidadReal = Math.max(0, cantidadTotal - pnc);
+        const qty = parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1;
+
+        // Cálculo: (Bolsas * QTY) - PNC = Total Piezas Buenas
+        const totalPiezas = cantidadBolsas * qty;
+        const cantidadReal = Math.max(0, totalPiezas - pnc);
 
         const datos = {
             fecha_inicio: document.getElementById('fecha-ensamble')?.value || '',
-            responsable: document.getElementById('responsable-ensamble')?.value || '', // Input
+            responsable: document.getElementById('responsable-ensamble')?.value || '',
             hora_inicio: document.getElementById('hora-inicio-ensamble')?.value || '',
             hora_fin: document.getElementById('hora-fin-ensamble')?.value || '',
-            codigo_producto: document.getElementById('ens-id-codigo')?.value || '',
-            buje_componente: document.getElementById('ens-buje-componente')?.value || '', // Input
-            qty_unitaria: document.getElementById('ens-qty-bujes')?.value || '1',
-            cantidad_recibida: cantidadTotal,
-            cantidad_real: cantidadReal,
+            codigo_producto: document.getElementById('ens-id-codigo')?.value || '', // Producto final
+            buje_componente: document.getElementById('ens-buje-componente')?.value || '',
+            qty_unitaria: qty,
+            cantidad_bolsas: cantidadBolsas, // Explicitly sending bags
+            cantidad_recibida: cantidadBolsas, // Keeping for backward compat if needed, or remove if backend updated
+            cantidad_real: cantidadReal, // Piezas Buenas
+            total_piezas: totalPiezas, // Raw total pieces
             almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || 'P. TERMINADO',
             almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || 'PRODUCTO ENSAMBLADO',
             orden_produccion: document.getElementById('op-ensamble')?.value || '',
             pnc: pnc,
+            criterio_pnc: document.getElementById('criterio-pnc-hidden-ensamble')?.value || '',
             observaciones: document.getElementById('observaciones-ensamble')?.value || ''
         };
 
@@ -203,6 +223,8 @@ async function registrarEnsamble() {
             return;
         }
 
+        console.log('📤 [Ensamble] DATOS ENVIADOS:', JSON.stringify(datos, null, 2));
+
         const response = await fetch('/api/ensamble', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -210,10 +232,14 @@ async function registrarEnsamble() {
         });
 
         const resultado = await response.json();
+        console.log('📥 [Ensamble] RESPUESTA SERVIDOR:', resultado);
 
         if (response.ok && resultado.success) {
             mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success');
             document.getElementById('form-ensamble')?.reset();
+
+            // Reset state
+            window.tmpDefectosEnsamble = [];
             actualizarCalculoEnsamble();
         } else {
             const errorMsg = resultado.error || resultado.mensaje || 'Error desconocido';
@@ -254,20 +280,20 @@ async function actualizarMapeoEnsamble() {
 }
 
 function actualizarCalculoEnsamble() {
-    const cantidad = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
+    const cantidadBolsas = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
     const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
     const qtyPerEnsamble = parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1;
 
-    const ensamblesBuenos = Math.max(0, cantidad - pnc);
-    const bujesConsumidos = cantidad * qtyPerEnsamble;
+    const totalPiezas = cantidadBolsas * qtyPerEnsamble;
+    const ensamblesBuenos = Math.max(0, totalPiezas - pnc);
 
     const displaySalida = document.getElementById('produccion-calculada-ensamble');
     const formulaCalc = document.getElementById('formula-calc-ensamble');
     const piezasBuenasDisplay = document.getElementById('piezas-buenas-ensamble');
 
     if (displaySalida) displaySalida.textContent = formatNumber(ensamblesBuenos);
-    if (formulaCalc) formulaCalc.textContent = `Ensambles: ${formatNumber(cantidad)} - PNC: ${formatNumber(pnc)} = ${formatNumber(ensamblesBuenos)} finales`;
-    if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Bujes consumidos: ${formatNumber(bujesConsumidos)}`;
+    if (formulaCalc) formulaCalc.textContent = `Bolsas: ${formatNumber(cantidadBolsas)} × QTY: ${qtyPerEnsamble} = ${formatNumber(totalPiezas)} piezas`;
+    if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalPiezas)} - PNC: ${pnc} = ${formatNumber(ensamblesBuenos)} buenas`;
 }
 
 function formatNumber(num) {

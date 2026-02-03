@@ -2,9 +2,12 @@
 // inventario.js - LÃ³gica de Inventario con PaginaciÃ³n
 // ============================================
 
-// Estado de paginaciÃ³n
-let paginaActual = 1;
+// Configuración de paginación
 const productosPorPagina = 50;
+let paginaActual = 1;
+
+// Placeholder premium de FriTech (SVG en base64 para evitar peticiones extra)
+const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f8fafc;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23e2e8f0;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g)' rx='12'/%3E%3Cg opacity='0.4' transform='translate(0, -5)'%3E%3Cpath d='M30 40c0-2.2 1.8-4 4-4h32c2.2 0 4 1.8 4 4v25c0 2.2-1.8 4-4 4H34c-2.2 0-4-1.8-4-4V40z' fill='%2364748b'/%3E%3Ccircle cx='50' cy='52.5' r='7' fill='%23f1f5f9'/%3E%3Cpath d='M46 32h8l2 4h-12z' fill='%2364748b'/%3E%3C/g%3E%3Ctext x='50' y='82' text-anchor='middle' font-family='sans-serif' font-size='7' fill='%2394a3b8' font-weight='bold'%3EFriTech%3C/text%3E%3C/svg%3E`;
 
 /**
  * Cargar productos para inventario
@@ -81,36 +84,102 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
     // Usar DocumentFragment para renderizado eficiente
     const fragment = document.createDocumentFragment();
 
-    productosPagina.forEach(p => {
-        const tr = document.createElement('tr');
-        tr.style.borderBottom = '1px solid #f0f0f0';
+    // Detectar modo móvil
+    const esMovil = window.innerWidth < 992;
 
-        // Obtener semÃ¡foro
-        const semaforoColor = p.semaforo?.color || 'gray';
-        const semaforoEstado = p.semaforo?.estado || '';
+    // Si es móvil, limpiar estilos de tabla para usar grid/flex si es necesario, 
+    // pero aquí mantendremos el tbody y usaremos celdas block o cambiaremos el contenedor.
+    // ESTRATEGIA: Si es móvil, no inyectamos TRs, inyectamos un solo TR con un TD que contiene el Grid de Cards.
+    // O mejor, manipulamos el DOM para ocultar la tabla y mostrar un div de cards.
+    // SIMPLIFICACION: Generar HTML de cards dentro del tbody (un tr por card con display block) o reemplazar contenido.
 
-        // Imagen del producto (thumbnail)
-        const imagenUrl = p.imagen || '';
-        const imagenHtml = imagenUrl
-            ? `<img src="${imagenUrl}" alt="${p.codigo}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22%3E%3Crect fill=%22%23667eea%22 width=%2240%22 height=%2240%22 rx=%224%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-size=%2220%22 fill=%22white%22%3E📷%3C/text%3E%3C/svg%3E';this.onclick=null;this.onerror=null;" onclick="window.open('${imagenUrl}', '_blank')" title="Click para ampliar">`
-            : '<div style="width: 40px; height: 40px; background: #f0f0f0; border-radius: 4px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-image" style="color: #ccc;"></i></div>';
+    // MEJOR OPCION: Detectar y renderizar Cards
+    // const fragment = document.createDocumentFragment(); // YA DECLARADO ARRIBA
 
-        tr.innerHTML = `
-            <td style="padding: 10px; text-align: center;">${imagenHtml}</td>
-            <td style="padding: 10px;">${p.codigo || '-'}</td>
-            <td style="padding: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.descripcion || '-'}</td>
-            <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_por_pulir || 0)}</td>
-            <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_terminado || 0)}</td>
-            <td style="padding: 10px; text-align: right; font-weight: bold;">${formatNumber(p.existencias_totales || 0)}</td>
-            <td style="padding: 10px; text-align: center;">
-                <span style="background: ${getSemaforoColor(semaforoColor)}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">
-                    ${semaforoEstado}
-                </span>
-            </td>
-        `;
+    if (esMovil) {
+        // MODO MÓVIL: CARDS MODERNAS (PWA Style)
+        productosPagina.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.className = 'mobile-product-card-row'; // Usar clase en lugar de estilos inline pesados
 
-        fragment.appendChild(tr);
-    });
+            const semaforoColor = p.semaforo?.color || 'gray';
+            const imagenUrl = p.imagen || '';
+
+            tr.innerHTML = `
+                <td class="mobile-card-cell">
+                    <div class="mobile-product-card">
+                        <div class="card-image-wrapper">
+                            ${imagenUrl
+                    ? `<img src="${imagenUrl}" class="card-img" onerror="this.src='${PLACEHOLDER_SVG}';this.onerror=null;">`
+                    : `<img src="${PLACEHOLDER_SVG}" class="card-img" style="opacity: 0.7;">`
+                }
+                            <span class="mobile-status-badge" style="background: ${getSemaforoColor(semaforoColor)}"></span>
+                        </div>
+                        
+                        <div class="card-content">
+                            <div class="card-header-flex">
+                                <span class="card-code">${p.codigo}</span>
+                                <span class="card-status-text" style="color: ${getSemaforoColor(semaforoColor)}">${p.semaforo?.estado || ''}</span>
+                            </div>
+                            
+                            <h6 class="card-title">${p.descripcion || 'Sin descripción'}</h6>
+                            
+                            <div class="card-stats-grid">
+                                <div class="stat-item">
+                                    <span class="stat-label">TOTAL</span>
+                                    <span class="stat-value">${formatNumber(p.existencias_totales || 0)}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">PULIR</span>
+                                    <span class="stat-value secondary">${formatNumber(p.stock_por_pulir || 0)}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">OK</span>
+                                    <span class="stat-value success">${formatNumber(p.stock_terminado || 0)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-arrow">
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                    </div>
+                </td>
+            `;
+            fragment.appendChild(tr);
+        });
+
+    } else {
+        // MODO DESKTOP: TABLA NORMAL
+        productosPagina.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid #f0f0f0';
+
+            // Obtener semáforo
+            const semaforoColor = p.semaforo?.color || 'gray';
+            const semaforoEstado = p.semaforo?.estado || '';
+
+            // Imagen del producto (thumbnail)
+            const imagenUrl = p.imagen || '';
+            const imagenHtml = imagenUrl
+                ? `<img src="${imagenUrl}" alt="${p.codigo}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer;" onerror="this.src='${PLACEHOLDER_SVG}';this.onerror=null;" onclick="window.open('${imagenUrl}', '_blank')" title="Click para ampliar">`
+                : `<img src="${PLACEHOLDER_SVG}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; opacity: 0.6;">`;
+
+            tr.innerHTML = `
+                <td style="padding: 10px; text-align: center;">${imagenHtml}</td>
+                <td style="padding: 10px;">${p.codigo || '-'}</td>
+                <td style="padding: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.descripcion || '-'}</td>
+                <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_por_pulir || 0)}</td>
+                <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_terminado || 0)}</td>
+                <td style="padding: 10px; text-align: right; font-weight: bold;">${formatNumber(p.existencias_totales || 0)}</td>
+                <td style="padding: 10px; text-align: center;">
+                    <span style="background: ${getSemaforoColor(semaforoColor)}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">
+                        ${semaforoEstado}
+                    </span>
+                </td>
+            `;
+            fragment.appendChild(tr);
+        });
+    }
 
     // Limpiar y agregar todo de una vez
     tbody.innerHTML = '';
