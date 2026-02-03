@@ -430,6 +430,45 @@ html {
     textarea {
         font-size: 16px !important;
     }
+
+    /* Contenedor de Total en Pedidos */
+    .pedidos-total-container {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        background: #ecfdf5 !important;
+        border: 1px solid #10b981 !important;
+        padding: 15px 20px !important;
+        border-radius: 12px !important;
+        margin-top: 10px !important;
+        gap: 10px !important;
+    }
+
+    .pedidos-total-label-box {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        color: #065f46 !important;
+    }
+
+    .pedidos-total-label-box i {
+        font-size: 1.4rem !important;
+        color: #059669 !important;
+    }
+
+    .pedidos-total-label-text {
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        line-height: 1 !important;
+    }
+
+    .pedidos-total-value {
+        font-size: 1.8rem !important;
+        font-weight: 800 !important;
+        color: #059669 !important;
+        white-space: nowrap !important;
+    }
 }
 
 /* ===== ORIENTACIÓN LANDSCAPE ===== */
@@ -641,4 +680,57 @@ html {
         font-size: 14px;
         justify-content: center;
     }
-}@media (max-width: 991px) { .pagination-container { display: flex !important; flex-direction: column !important; gap: 15px !important; padding: 20px 10px !important; background: #f8fafc; border-radius: 12px; margin-top: 10px; border: 1px solid #e2e8f0; align-items: center !important; } .pagination-info { text-align: center !important; font-size: 13px !important; color: #64748b !important; order: 2; } .pagination-buttons { display: flex !important; gap: 4px !important; justify-content: center !important; width: 100%; order: 1; } .pagination-btn { padding: 8px 10px !important; min-width: 38px !important; height: 38px !important; font-size: 13px !important; display: flex !important; align-items: center !important; justify-content: center !important; border: 1px solid #ddd !important; background: white !important; border-radius: 6px !important; cursor: pointer !important; color: #333 !important; } .pagination-btn .btn-text { display: none !important; } .pagination-btn i { font-size: 14px !important; margin: 0 !important; } }
+}
+
+@media (max-width: 991px) {
+    .pagination-container {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 15px !important;
+        padding: 20px 10px !important;
+        background: #f8fafc;
+        border-radius: 12px;
+        margin-top: 10px;
+        border: 1px solid #e2e8f0;
+        align-items: center !important;
+    }
+
+    .pagination-info {
+        text-align: center !important;
+        font-size: 13px !important;
+        color: #64748b !important;
+        order: 2;
+    }
+
+    .pagination-buttons {
+        display: flex !important;
+        gap: 4px !important;
+        justify-content: center !important;
+        width: 100%;
+        order: 1;
+    }
+
+    .pagination-btn {
+        padding: 8px 10px !important;
+        min-width: 38px !important;
+        height: 38px !important;
+        font-size: 13px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border: 1px solid #ddd !important;
+        background: white !important;
+        border-radius: 6px !important;
+        cursor: pointer !important;
+        color: #333 !important;
+    }
+
+    .pagination-btn .btn-text {
+        display: none !important;
+    }
+
+    .pagination-btn i {
+        font-size: 14px !important;
+        margin: 0 !important;
+    }
+}

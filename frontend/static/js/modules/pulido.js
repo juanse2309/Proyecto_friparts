@@ -210,7 +210,13 @@ const ModuloPulido = {
                 return;
             }
 
-            if (!(await new Promise(resolve => resolve(window.confirm(`¿Confirmar registro de Pulido?\n\nProducto: ${datos.codigo_producto}\nEntrada: ${datos.cantidad_recibida}\nBuenas: ${datos.cantidad_real}`))))) return;
+            // Confirmación Pro
+            const confirmar = await this.mostrarConfirmacion(
+                '¿Confirmar Registro?',
+                `Producto: ${datos.codigo_producto}<br>Entrada: ${datos.cantidad_recibida}<br>Buenas: ${datos.cantidad_real}`
+            );
+
+            if (!confirmar) return;
 
             mostrarLoading(true);
 
@@ -237,6 +243,50 @@ const ModuloPulido = {
         } finally {
             mostrarLoading(false);
         }
+    },
+
+    mostrarConfirmacion: function (titulo, mensaje) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal-content confirmation-modal-pro" style="max-width: 420px; border: none; overflow: hidden; background-color: #ffffff;">
+                    <div class="modal-header" style="background: white; border-bottom: 1px solid #e5e7eb; padding: 20px 25px;">
+                        <h3 style="color: #111827; margin: 0; font-size: 1.25rem; font-weight: 600;"><i class="fas fa-question-circle" style="color: #3b82f6; margin-right: 12px;"></i> \${titulo}</h3>
+                    </div>
+                    <div class="modal-body" style="padding: 30px 25px; color: #374151; font-size: 1.05rem; line-height: 1.6; background-color: #ffffff;">
+                        <p>\${mensaje}</p>
+                    </div>
+                    <div class="modal-footer" style="background: #f9fafb; padding: 15px 25px; border-top: 1px solid #e5e7eb; display: flex; gap: 12px; justify-content: flex-end;">
+                        <button class="btn btn-secondary" id="modal-cancelar-pulido" style="background: white; border: 1px solid #d1d5db; color: #374151; padding: 8px 16px; font-weight: 500; border-radius: 6px;">
+                            Cancelar
+                        </button>
+                        <button class="btn btn-primary" id="modal-confirmar-pulido" style="background: #2563eb; color: white; border: 1px solid #2563eb; padding: 8px 20px; font-weight: 500; border-radius: 6px;">
+                            Confirmar
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            document.getElementById('modal-confirmar-pulido').addEventListener('click', () => {
+                document.body.removeChild(modal);
+                resolve(true);
+            });
+
+            document.getElementById('modal-cancelar-pulido').addEventListener('click', () => {
+                document.body.removeChild(modal);
+                resolve(false);
+            });
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                    resolve(false);
+                }
+            });
+        });
     },
 
     inicializar: function () { return this.init(); }
