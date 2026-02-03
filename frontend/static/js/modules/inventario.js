@@ -3,7 +3,7 @@
 // ============================================
 
 // Configuración de paginación
-const productosPorPagina = 50;
+const getItemsPerPage = () => window.innerWidth < 992 ? 10 : 50;
 let paginaActual = 1;
 
 // Placeholder premium de FriTech (SVG en base64 para evitar peticiones extra)
@@ -75,10 +75,11 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
     if (resetearPagina) paginaActual = 1;
 
     // Calcular Ã­ndices de paginaciÃ³n
+    const itemsPerPage = getItemsPerPage();
     const totalProductos = productos.length;
-    const totalPaginas = Math.ceil(totalProductos / productosPorPagina);
-    const inicio = (paginaActual - 1) * productosPorPagina;
-    const fin = Math.min(inicio + productosPorPagina, totalProductos);
+    const totalPaginas = Math.ceil(totalProductos / itemsPerPage);
+    const inicio = (paginaActual - 1) * itemsPerPage;
+    const fin = Math.min(inicio + itemsPerPage, totalProductos);
     const productosPagina = productos.slice(inicio, fin);
 
     // Usar DocumentFragment para renderizado eficiente
@@ -203,15 +204,16 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
         return;
     }
 
-    const inicio = (paginaActual - 1) * productosPorPagina + 1;
-    const fin = Math.min(paginaActual * productosPorPagina, totalProductos);
+    const itemsPerPage = getItemsPerPage();
+    const inicio = (paginaActual - 1) * itemsPerPage + 1;
+    const fin = Math.min(paginaActual * itemsPerPage, totalProductos);
 
     let html = `
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
-            <div style="color: #666; font-size: 14px;">
+        <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
+            <div class="pagination-info" style="color: #666; font-size: 14px;">
                 Mostrando <strong>${inicio}-${fin}</strong> de <strong>${totalProductos}</strong> productos
             </div>
-            <div style="display: flex; gap: 5px;">
+            <div class="pagination-buttons" style="display: flex; gap: 5px;">
     `;
 
     // BotÃ³n anterior
@@ -219,9 +221,10 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
         <button 
             onclick="window.ModuloInventario.cambiarPagina(${paginaActual - 1})" 
             ${paginaActual === 1 ? 'disabled' : ''}
+            class="pagination-btn"
             style="padding: 8px 12px; border: 1px solid #ddd; background: ${paginaActual === 1 ? '#f5f5f5' : 'white'}; border-radius: 4px; cursor: ${paginaActual === 1 ? 'not-allowed' : 'pointer'}; color: ${paginaActual === 1 ? '#ccc' : '#333'};"
         >
-            <i class="fas fa-chevron-left"></i> Anterior
+            <i class="fas fa-chevron-left"></i> <span class="btn-text">Anterior</span>
         </button>
     `;
 
@@ -244,6 +247,7 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
         html += `
             <button 
                 onclick="window.ModuloInventario.cambiarPagina(${i})" 
+                class="pagination-btn"
                 style="padding: 8px 12px; border: 1px solid ${esActiva ? '#007bff' : '#ddd'}; background: ${esActiva ? '#007bff' : 'white'}; color: ${esActiva ? 'white' : '#333'}; border-radius: 4px; cursor: pointer; font-weight: ${esActiva ? 'bold' : 'normal'};"
             >
                 ${i}
@@ -261,9 +265,10 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
         <button 
             onclick="window.ModuloInventario.cambiarPagina(${paginaActual + 1})" 
             ${paginaActual === totalPaginas ? 'disabled' : ''}
+            class="pagination-btn"
             style="padding: 8px 12px; border: 1px solid #ddd; background: ${paginaActual === totalPaginas ? '#f5f5f5' : 'white'}; border-radius: 4px; cursor: ${paginaActual === totalPaginas ? 'not-allowed' : 'pointer'}; color: ${paginaActual === totalPaginas ? '#ccc' : '#333'};"
         >
-            Siguiente <i class="fas fa-chevron-right"></i>
+            <span class="btn-text">Siguiente</span> <i class="fas fa-chevron-right"></i>
         </button>
     `;
 
@@ -275,8 +280,9 @@ function renderizarPaginacion(totalProductos, totalPaginas, productos) {
  * Cambiar pÃ¡gina
  */
 function cambiarPagina(nuevaPagina) {
+    const itemsPerPage = getItemsPerPage();
     const productosActuales = window.AppState.productosFiltrados || window.AppState.productosData || [];
-    const totalPaginas = Math.ceil(productosActuales.length / productosPorPagina);
+    const totalPaginas = Math.ceil(productosActuales.length / itemsPerPage);
 
     if (nuevaPagina < 1 || nuevaPagina > totalPaginas) return;
 

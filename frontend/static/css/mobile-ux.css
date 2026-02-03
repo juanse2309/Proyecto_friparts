@@ -641,4 +641,4 @@ html {
         font-size: 14px;
         justify-content: center;
     }
-}
+}@media (max-width: 991px) { .pagination-container { display: flex !important; flex-direction: column !important; gap: 15px !important; padding: 20px 10px !important; background: #f8fafc; border-radius: 12px; margin-top: 10px; border: 1px solid #e2e8f0; align-items: center !important; } .pagination-info { text-align: center !important; font-size: 13px !important; color: #64748b !important; order: 2; } .pagination-buttons { display: flex !important; gap: 4px !important; justify-content: center !important; width: 100%; order: 1; } .pagination-btn { padding: 8px 10px !important; min-width: 38px !important; height: 38px !important; font-size: 13px !important; display: flex !important; align-items: center !important; justify-content: center !important; border: 1px solid #ddd !important; background: white !important; border-radius: 6px !important; cursor: pointer !important; color: #333 !important; } .pagination-btn .btn-text { display: none !important; } .pagination-btn i { font-size: 14px !important; margin: 0 !important; } }

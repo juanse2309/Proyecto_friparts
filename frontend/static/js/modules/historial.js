@@ -8,7 +8,7 @@
     // Variables de estado privadas al módulo
     let h_datos = [];
     let h_paginaActual = 1;
-    const h_registrosPorPagina = 20;
+    const getHRegistrosPorPagina = () => window.innerWidth < 992 ? 10 : 20;
 
     /**
      * Cargar datos desde la API
@@ -68,6 +68,7 @@
         }
 
         // Calcular paginación
+        const h_registrosPorPagina = getHRegistrosPorPagina();
         const inicio = (h_paginaActual - 1) * h_registrosPorPagina;
         const fin = inicio + h_registrosPorPagina;
         const registrosVisibles = h_datos.slice(inicio, fin);
@@ -207,24 +208,28 @@
 
         // Controles de Paginación
         if (totalPaginas > 1) {
+            const h_registrosPorPagina = getHRegistrosPorPagina();
+            const inicio_real = (h_paginaActual - 1) * h_registrosPorPagina + 1;
+            const fin_real = Math.min(h_paginaActual * h_registrosPorPagina, h_datos.length);
+
             html += `
-                <div class="d-flex justify-content-between align-items-center p-3 bg-light border-top">
-                    <div class="text-muted small">
-                        Mostrando ${inicio + 1} a ${Math.min(fin, h_datos.length)} de ${h_datos.length} registros
+                <div class="pagination-container d-flex justify-content-between align-items-center p-3 bg-light border-top">
+                    <div class="pagination-info text-muted small">
+                        Mostrando ${inicio_real} a ${fin_real} de ${h_datos.length} registros
                     </div>
                     <nav>
-                        <ul class="pagination pagination-sm mb-0">
+                        <ul class="pagination-buttons pagination pagination-sm mb-0" style="display: flex; gap: 5px; list-style: none; padding: 0;">
                             <li class="page-item ${h_paginaActual === 1 ? 'disabled' : ''}">
-                                <button class="page-link" onclick="window.ModuloHistorial.cambiarPagina(${h_paginaActual - 1})">
-                                    <i class="fas fa-chevron-left"></i> Anterior
+                                <button class="pagination-btn page-link" onclick="window.ModuloHistorial.cambiarPagina(${h_paginaActual - 1})" ${h_paginaActual === 1 ? 'disabled' : ''}>
+                                    <i class="fas fa-chevron-left"></i> <span class="btn-text">Anterior</span>
                                 </button>
                             </li>
                             <li class="page-item disabled">
                                 <span class="page-link text-dark">Página ${h_paginaActual} de ${totalPaginas}</span>
                             </li>
                             <li class="page-item ${h_paginaActual === totalPaginas ? 'disabled' : ''}">
-                                <button class="page-link" onclick="window.ModuloHistorial.cambiarPagina(${h_paginaActual + 1})">
-                                    Siguiente <i class="fas fa-chevron-right"></i>
+                                <button class="pagination-btn page-link" onclick="window.ModuloHistorial.cambiarPagina(${h_paginaActual + 1})" ${h_paginaActual === totalPaginas ? 'disabled' : ''}>
+                                    <span class="btn-text">Siguiente</span> <i class="fas fa-chevron-right"></i>
                                 </button>
                             </li>
                         </ul>
@@ -240,6 +245,9 @@
      * Cambiar de página
      */
     function cambiarPagina(nuevaPagina) {
+        const h_registrosPorPagina = getHRegistrosPorPagina();
+        const totalPaginas = Math.ceil(h_datos.length / h_registrosPorPagina);
+        if (nuevaPagina < 1 || nuevaPagina > totalPaginas) return;
         h_paginaActual = nuevaPagina;
         renderizarTablaHistorial();
         const container = document.getElementById('historial-container');
