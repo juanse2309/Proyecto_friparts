@@ -3,6 +3,67 @@
 // ============================================
 
 /**
+ * Placeholder SVG para productos sin imagen
+ */
+const PLACEHOLDER_SVG_PRODUCTO = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f8fafc;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23e2e8f0;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g)' rx='12'/%3E%3Cg opacity='0.4' transform='translate(0, -5)'%3E%3Cpath d='M30 40c0-2.2 1.8-4 4-4h32c2.2 0 4 1.8 4 4v25c0 2.2-1.8 4-4 4H34c-2.2 0-4-1.8-4-4V40z' fill='%2364748b'/%3E%3Ccircle cx='50' cy='52.5' r='7' fill='%23f1f5f9'/%3E%3Cpath d='M46 32h8l2 4h-12z' fill='%2364748b'/%3E%3C/g%3E%3Ctext x='50' y='82' text-anchor='middle' font-family='sans-serif' font-size='7' fill='%2394a3b8' font-weight='bold'%3EFriTech%3C/text%3E%3C/svg%3E`;
+
+/**
+ * Renderiza sugerencias de productos con imagen (Estandarizado)
+ * @param {HTMLElement} container - El div de sugerencias
+ * @param {Array} items - Lista de productos filtrados
+ * @param {Function} onSelect - Callback al seleccionar un item
+ */
+function renderProductSuggestions(container, items, onSelect) {
+    if (!container) return;
+
+    if (items.length === 0) {
+        container.innerHTML = '<div class="suggestion-item">No se encontraron productos</div>';
+        container.classList.add('active');
+        return;
+    }
+
+    container.innerHTML = items.map(prod => {
+        const imgUrl = prod.imagen || PLACEHOLDER_SVG_PRODUCTO;
+        const codigo = prod.codigo_sistema || prod.codigo || 'N/A';
+        const descripcion = prod.descripcion || 'Sin descripción';
+        const precio = prod.precio || 0;
+        const stock = prod.stock_total || prod.stock || 0;
+
+        return `
+            <div class="suggestion-item product-suggestion-pro" 
+                 style="display: flex; align-items: center; gap: 12px; padding: 10px; cursor: pointer; border-bottom: 1px solid #f0f0f0;"
+                 data-codigo="${codigo}">
+                
+                <img src="${imgUrl}" 
+                     onerror="this.src='${PLACEHOLDER_SVG_PRODUCTO}';this.onerror=null;"
+                     style="width: 42px; height: 42px; object-fit: cover; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0;">
+                
+                <div style="flex: 1; min-width: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+                        <strong style="color: #1e293b; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${codigo}</strong>
+                        <span style="color: #64748b; font-size: 0.75rem; font-weight: 600;">Stock: ${stock}</span>
+                    </div>
+                    <div style="color: #475569; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${descripcion}</div>
+                    ${precio > 0 ? `<div style="color: #0891b2; font-size: 0.8rem; font-weight: 600; margin-top: 2px;">$ ${formatNumber(precio)}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Event listeners para selección
+    container.querySelectorAll('.suggestion-item').forEach((item, index) => {
+        item.addEventListener('click', () => {
+            onSelect(items[index]);
+            container.classList.remove('active');
+            container.style.display = 'none'; // Asegurar que se oculte
+        });
+    });
+
+    container.classList.add('active');
+    container.style.display = 'block';
+}
+
+/**
  * Mostrar notificación visual
  */
 function mostrarNotificacion(mensaje, tipo = 'info') {

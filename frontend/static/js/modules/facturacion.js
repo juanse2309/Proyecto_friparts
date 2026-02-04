@@ -133,22 +133,7 @@ const ModuloFacturacion = {
      * Renderizador Sugerencias Universal del Módulo
      */
     renderSuggestions: function (container, items, onSelect) {
-        if (!container) return;
-        if (items.length === 0) {
-            container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
-        } else {
-            container.innerHTML = items.map(item => `
-                <div class="suggestion-item" data-val="${item.codigo_sistema || item.codigo}">
-                    <strong>${item.codigo_sistema || item.codigo}</strong><br>
-                    <small>${item.descripcion}</small>
-                </div>
-            `).join('');
-
-            container.querySelectorAll('.suggestion-item').forEach((div, index) => {
-                div.addEventListener('click', () => onSelect(items[index]));
-            });
-        }
-        container.classList.add('active');
+        renderProductSuggestions(container, items, onSelect);
     },
 
     renderSuggestionsCliente: function (container, items, onSelect) {

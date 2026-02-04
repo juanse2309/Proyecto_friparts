@@ -134,31 +134,25 @@ const ModuloInyeccion = {
     },
 
     renderSuggestions: function (container, items, onSelect, isProduct) {
-        if (items.length === 0) {
-            container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
-            container.classList.add('active');
-            return;
-        }
-
-        container.innerHTML = items.map(item => {
-            if (isProduct) {
-                return `
-                <div class="suggestion-item" data-val="${item.codigo_sistema || item.codigo}">
-                    <strong>${item.codigo_sistema || item.codigo}</strong><br>
-                    <small>${item.descripcion}</small>
-                </div>`;
-            } else {
-                return `<div class="suggestion-item" data-val="${item}">${item}</div>`;
+        if (isProduct) {
+            renderProductSuggestions(container, items, onSelect);
+        } else {
+            if (items.length === 0) {
+                container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
+                container.classList.add('active');
+                return;
             }
-        }).join('');
 
-        container.querySelectorAll('.suggestion-item').forEach((div, index) => {
-            div.addEventListener('click', () => {
-                onSelect(items[index]);
+            container.innerHTML = items.map(item => `<div class="suggestion-item" data-val="${item}">${item}</div>`).join('');
+
+            container.querySelectorAll('.suggestion-item').forEach((div, index) => {
+                div.addEventListener('click', () => {
+                    onSelect(items[index]);
+                });
             });
-        });
 
-        container.classList.add('active');
+            container.classList.add('active');
+        }
     },
 
     autocompletarCodigoEnsamble: async function (codigoProducto) {

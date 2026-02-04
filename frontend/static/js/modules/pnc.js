@@ -82,25 +82,7 @@ const ModuloPNC = {
      * Renderizador de sugerencias local
      */
     renderSuggestions: function (container, items, onSelect) {
-        if (!container) return;
-
-        if (items.length === 0) {
-            container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
-        } else {
-            container.innerHTML = items.map(item => `
-                <div class="suggestion-item" data-val="${item.codigo_sistema || item.codigo || ''}">
-                    <strong>${item.codigo_sistema || item.codigo || ''}</strong><br>
-                    <small>${item.descripcion || ''}</small>
-                </div>
-            `).join('');
-
-            container.querySelectorAll('.suggestion-item').forEach((div, index) => {
-                div.addEventListener('click', () => onSelect(items[index]));
-            });
-        }
-
-        container.classList.add('active');
-        container.style.display = 'block';
+        renderProductSuggestions(container, items, onSelect);
     },
 
     /**

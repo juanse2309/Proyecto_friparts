@@ -116,31 +116,25 @@ const ModuloPulido = {
     },
 
     renderSuggestions: function (container, items, onSelect, isProduct) {
-        if (items.length === 0) {
-            container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
-            container.classList.add('active');
-            return;
-        }
-
-        container.innerHTML = items.map(item => {
-            if (isProduct) {
-                return `
-                <div class="suggestion-item" data-val="${item.codigo_sistema || item.codigo}">
-                    <strong>${item.codigo_sistema || item.codigo}</strong><br>
-                    <small>${item.descripcion}</small>
-                </div>`;
-            } else {
-                return `<div class="suggestion-item" data-val="${item}">${item}</div>`;
+        if (isProduct) {
+            renderProductSuggestions(container, items, onSelect);
+        } else {
+            if (items.length === 0) {
+                container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
+                container.classList.add('active');
+                return;
             }
-        }).join('');
 
-        container.querySelectorAll('.suggestion-item').forEach((div, index) => {
-            div.addEventListener('click', () => {
-                onSelect(items[index]);
+            container.innerHTML = items.map(item => `<div class="suggestion-item" data-val="${item}">${item}</div>`).join('');
+
+            container.querySelectorAll('.suggestion-item').forEach((div, index) => {
+                div.addEventListener('click', () => {
+                    onSelect(items[index]);
+                });
             });
-        });
 
-        container.classList.add('active');
+            container.classList.add('active');
+        }
     },
 
     configurarEventos: function () {
@@ -252,10 +246,10 @@ const ModuloPulido = {
             modal.innerHTML = `
                 <div class="modal-content confirmation-modal-pro" style="max-width: 420px; border: none; overflow: hidden; background-color: #ffffff;">
                     <div class="modal-header" style="background: white; border-bottom: 1px solid #e5e7eb; padding: 20px 25px;">
-                        <h3 style="color: #111827; margin: 0; font-size: 1.25rem; font-weight: 600;"><i class="fas fa-question-circle" style="color: #3b82f6; margin-right: 12px;"></i> \${titulo}</h3>
+                        <h3 style="color: #111827; margin: 0; font-size: 1.25rem; font-weight: 600;"><i class="fas fa-question-circle" style="color: #3b82f6; margin-right: 12px;"></i> ${titulo}</h3>
                     </div>
                     <div class="modal-body" style="padding: 30px 25px; color: #374151; font-size: 1.05rem; line-height: 1.6; background-color: #ffffff;">
-                        <p>\${mensaje}</p>
+                        <p>${mensaje}</p>
                     </div>
                     <div class="modal-footer" style="background: #f9fafb; padding: 15px 25px; border-top: 1px solid #e5e7eb; display: flex; gap: 12px; justify-content: flex-end;">
                         <button class="btn btn-secondary" id="modal-cancelar-pulido" style="background: white; border: 1px solid #d1d5db; color: #374151; padding: 8px 16px; font-weight: 500; border-radius: 6px;">
