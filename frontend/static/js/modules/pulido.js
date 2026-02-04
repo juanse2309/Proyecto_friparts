@@ -162,7 +162,7 @@ const ModuloPulido = {
         let pnc = Number(pncInput?.value) || 0;
 
         if (pnc > entrada) {
-            mostrarNotificacion('⚠️ PNC no puede ser mayor que la cantidad recibida', 'warning');
+            mostrarNotificacion('⚠️ PNC no puede ser mayor que la cantidad pulida', 'warning');
             pnc = entrada;
             if (pncInput) pncInput.value = pnc;
         }
