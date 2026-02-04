@@ -179,7 +179,8 @@ function inicializarModulo(nombrePagina) {
         'facturacion': window.ModuloFacturacion,
         'mezcla': window.ModuloMezcla,
         'historial': window.ModuloHistorial,
-        'pedidos': window.ModuloPedidos
+        'pedidos': window.ModuloPedidos,
+        'almacen': window.AlmacenModule
     };
 
     const modulo = modulos[nombrePagina];

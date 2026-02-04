@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, request
 from backend.core.database import sheets_client
 from backend.config.settings import Hojas
+import gspread
 import uuid
 import datetime
 import logging
@@ -79,7 +80,7 @@ def registrar_pedido():
         ws = sheets_client.get_or_create_worksheet(
             Hojas.PEDIDOS, 
             rows=1000, 
-            cols=13
+            cols=14
         )
         
         logger.info(f"📄 Worksheet 'PEDIDOS' obtenida correctamente")
@@ -89,7 +90,8 @@ def registrar_pedido():
         expected_headers = [
             "ID PEDIDO", "FECHA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
             "CLIENTE", "NIT", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
-            "ESTADO", "CANTIDAD", "PRECIO UNITARIO"
+            "ESTADO", "CANTIDAD", "PRECIO UNITARIO", "PROGRESO", "CANT_ALISTADA",
+            "PROGRESO_DESPACHO", "CANT_ENVIADA"
         ]
         
         if not existing_headers:
@@ -150,7 +152,11 @@ def registrar_pedido():
                 0,  # Total se calculará después
                 estado,
                 cantidad,
-                precio_unitario
+                precio_unitario,
+                "0%", # PROGRESO inicial (Alistamiento)
+                0,    # CANT_ALISTADA inicial
+                "0%", # PROGRESO_DESPACHO inicial
+                0     # CANT_ENVIADA inicial
             ]
             
             rows_to_append.append(row)
@@ -295,4 +301,144 @@ def registrar_pedido():
         logger.error(f"   Tipo de error: {type(e).__name__}")
         import traceback
         logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pedidos_bp.route('/api/pedidos/pendientes', methods=['GET'])
+def obtener_pedidos_pendientes():
+    """
+    Retorna la lista de pedidos que no están completados, agrupados por ID.
+    """
+    try:
+        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        registros = ws.get_all_records()
+        
+        # Agrupar por ID PEDIDO
+        pedidos_dict = {}
+        for r in registros:
+            id_pedido = r.get("ID PEDIDO")
+            estado = r.get("ESTADO", "PENDIENTE").upper()
+            
+            if estado != "COMPLETADO":
+                if id_pedido not in pedidos_dict:
+                    pedidos_dict[id_pedido] = {
+                        "id_pedido": id_pedido,
+                        "fecha": r.get("FECHA"),
+                        "cliente": r.get("CLIENTE"),
+                        "estado": estado,
+                        "progreso": r.get("PROGRESO", "0%"),
+                        "vendedor": r.get("VENDEDOR"),
+                        "productos": []
+                    }
+                
+                pedidos_dict[id_pedido]["productos"].append({
+                    "codigo": r.get("ID CODIGO"),
+                    "descripcion": r.get("DESCRIPCION"),
+                    "cantidad": r.get("CANTIDAD"),
+                    "cant_lista": r.get("CANT_ALISTADA", 0),
+                    "cant_enviada": r.get("CANT_ENVIADA", 0)
+                })
+            
+            # Siempre intentamos obtener el progreso de despacho si existe
+            if id_pedido in pedidos_dict:
+                pedidos_dict[id_pedido]["progreso_despacho"] = r.get("PROGRESO_DESPACHO", "0%")
+        
+        return jsonify({
+            "success": True, 
+            "pedidos": list(pedidos_dict.values())
+        })
+    except Exception as e:
+        logger.error(f"Error cargando pedidos pendientes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pedidos_bp.route('/api/pedidos/actualizar-alistamiento', methods=['POST'])
+def actualizar_alistamiento():
+    """
+    Actualiza el progreso y estado de un pedido en Google Sheets.
+    """
+    try:
+        data = request.json
+        id_pedido = data.get("id_pedido")
+        progreso = data.get("progreso")          # Alistamiento %
+        progreso_despacho = data.get("progreso_despacho") # Despacho %
+        estado = data.get("estado")              # ej: "EN ALISTAMIENTO", "ENVIADO", etc.
+        detalles = data.get("detalles", [])      # [{codigo, cant_lista, cant_enviada}, ...]
+        
+        if not id_pedido:
+            return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
+            
+        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        registros = ws.get_all_records()
+        headers = ws.row_values(1)
+        
+        # Asegurar columnas necesarias expandiendo la hoja si es necesario
+        def asegurar_columna(nombre):
+            nonlocal headers
+            if nombre not in headers:
+                new_col_idx = len(headers) + 1
+                if new_col_idx > ws.col_count:
+                    ws.add_cols(1)
+                ws.update_cell(1, new_col_idx, nombre)
+                headers.append(nombre)
+                return True
+            return False
+
+        asegurar_columna("ESTADO")
+        asegurar_columna("PROGRESO")
+        asegurar_columna("CANT_ALISTADA")
+        asegurar_columna("PROGRESO_DESPACHO")
+        asegurar_columna("CANT_ENVIADA")
+            
+        col_estado = headers.index("ESTADO") + 1
+        col_progreso = headers.index("PROGRESO") + 1
+        col_id = headers.index("ID PEDIDO") + 1
+        col_codigo = headers.index("ID CODIGO") + 1
+        col_cant_lista = headers.index("CANT_ALISTADA") + 1
+        col_progreso_despacho = headers.index("PROGRESO_DESPACHO") + 1
+        col_cant_enviada = headers.index("CANT_ENVIADA") + 1
+        
+        updates = []
+        for idx, r in enumerate(registros):
+            if str(r.get("ID PEDIDO")) == str(id_pedido):
+                fila = idx + 2
+                
+                # Actualizar estado y progreso general
+                updates.append({
+                    'range': gspread.utils.rowcol_to_a1(fila, col_estado),
+                    'values': [[estado]]
+                })
+                if progreso is not None:
+                    updates.append({
+                        'range': gspread.utils.rowcol_to_a1(fila, col_progreso),
+                        'values': [[progreso]]
+                    })
+
+                if progreso_despacho is not None:
+                    updates.append({
+                        'range': gspread.utils.rowcol_to_a1(fila, col_progreso_despacho),
+                        'values': [[progreso_despacho]]
+                    })
+                
+                # Buscar si este producto tiene una cantidad específica para actualizar
+                codigo_fila = r.get("ID CODIGO")
+                for d in detalles:
+                    if str(d.get("codigo")) == str(codigo_fila):
+                        if "cant_lista" in d:
+                            updates.append({
+                                'range': gspread.utils.rowcol_to_a1(fila, col_cant_lista),
+                                'values': [[d.get("cant_lista")]]
+                            })
+                        if "cant_enviada" in d:
+                            updates.append({
+                                'range': gspread.utils.rowcol_to_a1(fila, col_cant_enviada),
+                                'values': [[d.get("cant_enviada")]]
+                            })
+        
+        if updates:
+            ws.batch_update(updates)
+            return jsonify({"success": True, "message": f"Pedido {id_pedido} actualizado a {estado} ({progreso})"})
+        else:
+            return jsonify({"success": False, "error": "Pedido no encontrado"}), 404
+            
+    except Exception as e:
+        logger.error(f"Error actualizando alistamiento: {e}")
         return jsonify({"success": False, "error": str(e)}), 500

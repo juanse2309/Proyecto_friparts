@@ -16,10 +16,6 @@ const ModuloMezcla = {
                 this.poblarSelect('responsable-mezcla', window.AppState.sharedData.responsables);
             }
 
-            if (window.AppState.sharedData.maquinas) {
-                this.poblarSelect('maquina-mezcla', window.AppState.sharedData.maquinas);
-            }
-
             console.log('✅ [Mezcla] Datos cargados');
             mostrarLoading(false);
         } catch (error) {
@@ -90,6 +86,33 @@ const ModuloMezcla = {
     },
 
     /**
+     * Calcular valores automáticamente basados en bultos
+     */
+    calcularPesosAutomaticos: function () {
+        const bultos = parseFloat(document.getElementById('bultos-mezcla')?.value) || 0;
+
+        // Constantes del cliente
+        const KG_VIRGEN_POR_BULTO = 25;
+        const KG_MOLIDO_POR_BULTO = 3.39; // 3 tazas de 1.130 kg
+        const GR_PIGMENTO_POR_BULTO = 12.1;
+
+        const v = (bultos * KG_VIRGEN_POR_BULTO);
+        const m = (bultos * KG_MOLIDO_POR_BULTO);
+        const p = (bultos * GR_PIGMENTO_POR_BULTO);
+
+        // Actualizar inputs
+        const inputVirgen = document.getElementById('virgen-mezcla');
+        const inputMolido = document.getElementById('molido-mezcla');
+        const inputPigmento = document.getElementById('pigmento-mezcla');
+
+        if (inputVirgen) inputVirgen.value = v.toFixed(2);
+        if (inputMolido) inputMolido.value = m.toFixed(2);
+        if (inputPigmento) inputPigmento.value = p.toFixed(1);
+
+        this.calcularProporcion();
+    },
+
+    /**
      * Calcular proporción en tiempo real
      */
     calcularProporcion: function () {
@@ -98,22 +121,35 @@ const ModuloMezcla = {
         const total = v + m;
 
         const display = document.getElementById('info-proporcion');
-        if (display && total > 0) {
+        if (!display) return;
+
+        if (total > 0) {
             const pV = ((v / total) * 100).toFixed(1);
             const pM = ((m / total) * 100).toFixed(1);
+
             display.innerHTML = `
-                <div style="display:flex; justify-content: space-between; font-size: 14px; font-weight: 600;">
-                    <span style="color: #2563eb;">Virgen: ${pV}%</span>
-                    <span style="color: #059669;">Molido: ${pM}%</span>
-                    <span style="color: #1e293b;">Total: ${total.toFixed(2)} Kg</span>
+                <div style="display:flex; flex-direction: column; gap: 8px;">
+                    <div style="display:flex; justify-content: space-between; align-items: baseline;">
+                        <span style="color: #1e3a8a; font-weight: 800; font-size: 1.1rem;">${pV}% VIRGEN</span>
+                        <span style="color: #065f46; font-weight: 800; font-size: 1.1rem;">${pM}% MOLIDO</span>
+                    </div>
+                    <div style="width: 100%; height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden; display: flex;">
+                        <div style="width: ${pV}%; background: #3b82f6; height: 100%;"></div>
+                        <div style="width: ${pM}%; background: #10b981; height: 100%;"></div>
+                    </div>
+                    <div style="text-align: center; color: #1e293b; font-size: 0.9rem; font-weight: 600; margin-top: 4px;">
+                        Material Total a Preparar: ${total.toFixed(2)} Kg
+                    </div>
                 </div>
             `;
+        } else {
+            display.innerHTML = '<div style="text-align: center; color: #64748b;">Ingrese cantidad de bultos para ver porcentajes</div>';
         }
     },
 
     limpiarProporcion: function () {
         const info = document.getElementById('info-proporcion');
-        if (info) info.innerHTML = '<!-- Se llena vía JS -->';
+        if (info) info.innerHTML = '<div style="text-align: center; color: #64748b;">Ingrese cantidad de bultos para ver porcentajes</div>';
     },
 
     /**
@@ -123,8 +159,8 @@ const ModuloMezcla = {
         console.log('🔧 [Mezcla] Inicializando...');
         this.cargarDatos();
 
-        document.getElementById('virgen-mezcla')?.addEventListener('input', () => this.calcularProporcion());
-        document.getElementById('molido-mezcla')?.addEventListener('input', () => this.calcularProporcion());
+        // Listener para bultos
+        document.getElementById('bultos-mezcla')?.addEventListener('input', () => this.calcularPesosAutomaticos());
 
         const form = document.getElementById('form-mezcla');
         if (form) {
@@ -132,8 +168,12 @@ const ModuloMezcla = {
                 e.preventDefault();
                 this.registrar();
             };
-            form.onreset = () => this.limpiarProporcion();
+            form.onreset = () => {
+                setTimeout(() => this.limpiarProporcion(), 10);
+            };
         }
+
+        this.limpiarProporcion();
         console.log('✅ [Mezcla] Módulo inicializado');
     }
 };

@@ -3,11 +3,15 @@
 Este proyecto es una aplicación web full-stack diseñada para gestionar la producción, inventario y facturación de una fábrica de bujes. Utiliza **Google Sheets** como base de datos en tiempo real.
 
 ## 🚀 Características
-- **Dashboard en Tiempo Real**: KPIs y gráficos de producción.
-- **Gestión de Procesos**: Módulos para Inyección, Pulido y Ensamble.
-- **Control de Inventario**: Seguimiento de stock con alertas de reorden.
-- **Facturación**: Registro de ventas y exportación de historial.
-- **PNC (Producto No Conforme)**: Registro detallado de defectos.
+- **Dashboard en Tiempo Real**: KPIs y gráficos de producción integrados con Power BI.
+- **Gestión de Almacén (Doble Check)**: Sistema avanzado de alistamiento (Box 📦) y despacho (Truck 🚚) con seguimiento de entregas parciales.
+- **Modo TV**: Vista de monitoreo continuo para planta con auto-refresco y fuentes de alto contraste.
+- **Optimización Mobile**: Interfaz 100% responsiva diseñada para uso en campo/celulares.
+- **Gestión de Procesos**: Módulos especializados para Inyección, Pulido, Ensamble y Mezclas Automáticas.
+- **Control de Inventario**: Seguimiento de stock sincronizado e inteligente con alertas de stockout.
+- **Facturación y Pedidos**: Creación de órdenes con generación de comprobantes PDF Premium (Logo oficial + Datos extensos).
+- **PNC (Producto No Conforme)**: Control detallado de rechazos por calidad.
+- **Seguridad y Permisos**: Sistema de acceso granular por departamentos y perfiles especiales de supervisión.
 
 ## 📁 Estructura del Proyecto
 - `backend/`: Contiene `app.py` (Flask) y la lógica de integración con Google Sheets.

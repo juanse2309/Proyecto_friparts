@@ -114,7 +114,13 @@
                         <div class="card-body p-3">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <span class="badge ${badgeClass}">${r.Tipo}</span>
-                                <small class="text-muted fw-bold">${r.Fecha}</small>
+                                <div class="d-flex align-items-center gap-2">
+                                    <small class="text-muted fw-bold">${r.Fecha}</small>
+                                    ${(window.AppState.user.nombre === 'Paola' || window.AppState.user.rol === 'Administración') ?
+                        `<button class="btn btn-sm btn-outline-primary p-1" onclick="window.ModuloHistorial.editarRegistro(${h_datos.indexOf(r)})" style="line-height: 1;">
+                                            <i class="fas fa-pencil-alt" style="font-size: 0.8rem;"></i>
+                                        </button>` : ''}
+                                </div>
                             </div>
                             <h6 class="mb-1 fw-bold text-dark">${r.Producto || 'Sin Producto'}</h6>
                             <div class="text-muted small mb-3">
@@ -157,6 +163,7 @@
                                 <th style="width: 100px;">Máquina</th>
                                 <th>Detalle</th>
                                 <th class="text-center" style="width: 80px;">Cant.</th>
+                                ${(window.AppState.user.nombre === 'Paola' || window.AppState.user.rol === 'Administración') ? '<th class="text-center" style="width: 50px;"></th>' : ''}
                             </tr>
                         </thead>
                         <tbody>
@@ -199,6 +206,12 @@
                         <td><small>${maquina || '-'}</small></td>
                         <td><small class="text-muted">${r.Detalle || '-'}</small></td>
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
+                        ${(window.AppState.user.nombre === 'Paola' || window.AppState.user.rol === 'Administración') ?
+                        `<td class="text-center">
+                                <button class="btn btn-sm btn-link text-primary p-0" onclick="window.ModuloHistorial.editarRegistro(${h_datos.indexOf(r)})">
+                                    <i class="fas fa-pencil-alt"></i>
+                                </button>
+                            </td>` : ''}
                     </tr>
                 `;
             });
@@ -288,11 +301,198 @@
     }
 
     // Registro Global indispensable para el onclick en HTML
+    /**
+     * Abrir modal de edición (Sólo Paola)
+     */
+    function editarRegistro(index) {
+        const r = h_datos[index];
+        if (!r || !r.hoja || !r.fila) {
+            mostrarNotificacion('No se puede editar este registro (Faltan metadatos)', 'error');
+            return;
+        }
+
+        const modal = document.getElementById('modalEditarHistorial');
+        const container = document.getElementById('campos-edicion-dinamicos');
+        document.getElementById('edit-hoja').value = r.hoja;
+        document.getElementById('edit-fila').value = r.fila;
+
+        let html = '';
+
+        if (r.Tipo === 'INYECCION') {
+            html += `
+                <div class="edit-section mb-4">
+                    <h6 class="section-title"><i class="fas fa-info-circle me-2"></i> Información General</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Departamento', r.DEPARTAMENTO, 'text', 'DEPARTAMENTO')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Máquina', r.Extra, 'text', 'MAQUINA')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Orden Producción', r.Orden, 'text', 'ORDEN PRODUCCION')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('ID Código', r.Producto, 'text', 'ID CODIGO')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Cod. Ensamble', r.CODIGO_ENSAMBLE, 'text', 'CODIGO ENSAMBLE')}</div>
+                    </div>
+                </div>
+
+                <div class="edit-section mb-4">
+                    <h6 class="section-title"><i class="fas fa-clock me-2"></i> Tiempos y Fechas</h6>
+                    <div class="row g-3">
+                        <div class="col-md-12">${crearCampoEdicion('Fecha Inicia', r.FECHA_INICIA, 'text', 'FECHA INICIA')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Hora Llegada', r.HORA_LLEGADA, 'text', 'HORA LLEGADA')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Hora Inicio', r.HORA_INICIO, 'text', 'HORA INICIO')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Hora Termina', r.HORA_TERMINA, 'text', 'HORA TERMINA')}</div>
+                    </div>
+                </div>
+
+                <div class="edit-section mb-4">
+                    <h6 class="section-title"><i class="fas fa-microchip me-2"></i> Producción y Contadores</h6>
+                    <div class="row g-3">
+                        <div class="col-md-4">${crearCampoEdicion('No. Cavidades', r.N_CAVIDADES, 'number', 'No. CAVIDADES')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Contador Maq.', r.CONTADOR_MAQ, 'number', 'CONTADOR MAQ.')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Cant. Contador', r.CANT_CONTADOR, 'number', 'CANT. CONTADOR')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Tomados Proceso', r.TOMADOS_PROCESO, 'number', 'TOMADOS EN PROCESO')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Cantidad REAL', r.Cant, 'number', 'CANTIDAD REAL')}</div>
+                        <div class="col-md-12">${crearCampoEdicion('Almacén Destino', r.ALMACEN_DESTINO, 'text', 'ALMACEN DESTINO')}</div>
+                    </div>
+                </div>
+
+                <div class="edit-section mb-4">
+                    <h6 class="section-title"><i class="fas fa-weight-hanging me-2"></i> Pesos (g)</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">${crearCampoEdicion('Peso Tomadas (g)', r.PESO_TOMADOS_PROCESO, 'number', 'PESO TOMADAS EN PROCESO')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Peso Vela (g)', r.PESO_VELA, 'number', 'PESO VELA MAQUINA')}</div>
+                        <div class="col-md-12">${crearCampoEdicion('Peso Bujes (g)', r.PESO_BUJES, 'number', 'PESO BUJES')}</div>
+                    </div>
+                </div>
+
+                <div class="edit-section mb-3">
+                    <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
+                    <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                        style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${r.Detalle || ''}</textarea>
+                </div>
+            `;
+        } else if (r.Tipo === 'PULIDO') {
+            html += `
+                <div class="edit-section mb-4">
+                    <h6 class="section-title"><i class="fas fa-id-badge me-2"></i> Datos de Pulido</h6>
+                    <div class="row g-3">
+                        <div class="col-md-12">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Recibidos', r.RECIBIDOS, 'number', 'BUJES RECIBIDOS')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Buenos', r.Cant, 'number', 'BUJES BUENOS')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('PNC', r.PNC, 'number', 'PNC')}</div>
+                    </div>
+                </div>
+            `;
+        } else if (r.Tipo === 'ENSAMBLE') {
+            html += `
+                <div class="edit-section mb-4">
+                    <h6 class="section-title"><i class="fas fa-puzzle-piece me-2"></i> Datos de Ensamble</h6>
+                    <div class="row g-3">
+                        <div class="col-md-12">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
+                        <div class="col-md-12">${crearCampoEdicion('Cantidad', r.Cant, 'number', 'CANTIDAD')}</div>
+                    </div>
+                </div>
+            `;
+        } else if (r.Tipo === 'MEZCLA') {
+            html += `
+                <div class="edit-section mb-4">
+                    <h6 class="section-title"><i class="fas fa-blender me-2"></i> Datos de Mezcla</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Máquina', r.Extra, 'text', 'MAQUINA')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Virgen (Kg)', r.VIRGEN, 'number', 'VIRGEN (Kg)')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Molido (Kg)', r.MOLIDO, 'number', 'MOLIDO (Kg)')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Pigmento (Kg)', r.PIGMENTO, 'number', 'PIGMENTO (Kg)')}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Siempre permitir editar observaciones
+        html += `
+            <div class="edit-section mb-3">
+                <h6 class="section-title text-primary"><i class="fas fa-comment-dots me-2"></i> Motivo de la Corrección</h6>
+                <textarea class="form-control" id="edit-motivo" rows="3" 
+                    placeholder="Describa brevemente por qué realiza este cambio..."
+                    style="border-radius: 12px; border: 1px solid #cbd5e1; padding: 12px; font-size: 0.95rem;"></textarea>
+            </div>`;
+
+        container.innerHTML = html;
+        modal.style.display = 'flex';
+    }
+
+    function crearCampoEdicion(label, valor, tipo, colName) {
+        return `
+            <div class="form-group mb-1">
+                <label class="small fw-bold text-secondary text-uppercase mb-1 d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">${label}</label>
+                <input type="${tipo}" class="form-control edit-input" data-col="${colName}" value="${valor || ''}" 
+                    style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; font-size: 0.95rem; background: #ffffff; transition: all 0.2s ease;">
+            </div>
+        `;
+    }
+
+    /**
+     * Guardar cambios en el backend
+     */
+    async function guardarCambios() {
+        const hoja = document.getElementById('edit-hoja').value;
+        const fila = document.getElementById('edit-fila').value;
+        const motivo = document.getElementById('edit-motivo').value;
+
+        const inputs = document.querySelectorAll('.edit-input');
+        const datos = {};
+        inputs.forEach(input => {
+            datos[input.dataset.col] = input.value;
+        });
+
+        // Añadir motivo a las observaciones si se proporcionó (Concatenar si ya existe en datos)
+        if (motivo) {
+            if (datos['OBSERVACIONES']) {
+                datos['OBSERVACIONES'] = datos['OBSERVACIONES'] + " | Motivo: " + motivo;
+            } else {
+                datos['OBSERVACIONES'] = motivo;
+            }
+        }
+
+        try {
+            mostrarLoading(true);
+            const res = await fetch('/api/historial/actualizar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    hoja: hoja,
+                    fila: fila,
+                    datos: datos,
+                    usuario: window.AppState.user.nombre
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                mostrarNotificacion('Registro corregido correctamente', 'success');
+                cerrarModalEdicion();
+                cargarHistorial(); // Refrescar lista
+            } else {
+                mostrarNotificacion(data.error || 'Error al actualizar', 'error');
+            }
+        } catch (error) {
+            console.error('Error guardando edicion:', error);
+            mostrarNotificacion('Error de conexión', 'error');
+        } finally {
+            mostrarLoading(false);
+        }
+    }
+
+    function cerrarModalEdicion() {
+        document.getElementById('modalEditarHistorial').style.display = 'none';
+    }
+
     window.filtrarHistorial = cargarHistorial;
     window.ModuloHistorial = {
         inicializar: initHistorial,
         filtrar: cargarHistorial,
-        cambiarPagina: cambiarPagina
+        cambiarPagina: cambiarPagina,
+        editarRegistro: editarRegistro,
+        guardarCambios: guardarCambios,
+        cerrarModalEdicion: cerrarModalEdicion
     };
 
     console.log('🚀 Módulo Historial registrado y listo');

@@ -7,9 +7,9 @@ const AuthModule = {
     // Matriz de Permisos
     // Roles: 'Administración', 'Comercial', 'Auxiliar Inventario', 'Inyección', 'Pulido', 'Ensamble'
     permissions: {
-        'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos'],
+        'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen'],
         'Comercial': ['pedidos'],  // Solo acceso a Pedidos
-        'Auxiliar Inventario': ['inventario', 'inyeccion', 'pnc', 'historial'],
+        'Auxiliar Inventario': ['inventario', 'inyeccion', 'pnc', 'historial', 'almacen'],
         'Inyección': ['inyeccion', 'mezcla'],
         'Pulido': ['pulido'],
         'Ensamble': ['ensamble'],
@@ -153,6 +153,7 @@ const AuthModule = {
         if (!window.AppState) window.AppState = {};
         window.AppState.user = {
             name: user.nombre,
+            nombre: user.nombre, // Compatibilidad
             rol: user.rol,
             fullData: user
         };
@@ -208,6 +209,7 @@ const AuthModule = {
                 if (!window.AppState) window.AppState = {};
                 window.AppState.user = {
                     name: user.nombre,
+                    nombre: user.nombre, // Compatibilidad
                     rol: user.rol,
                     fullData: user
                 };
@@ -272,7 +274,16 @@ const AuthModule = {
         if (!this.currentUser) return;
 
         const role = this.currentUser.rol;
-        const allowedPages = this.permissions[role] || [];
+        let allowedPages = [...(this.permissions[role] || [])];
+
+        // EXCEPCIÓN ESPECIAL: Paola requiere acceso a Pulido y Ensamble independientemente de su rol
+        if (this.currentUser.nombre.toUpperCase() === 'PAOLA') {
+            const modulosExtra = ['pulido', 'ensamble', 'historial', 'almacen'];
+            modulosExtra.forEach(m => {
+                if (!allowedPages.includes(m)) allowedPages.push(m);
+            });
+            console.log("🔓 Permisos extendidos aplicados para Paola");
+        }
 
         // 1. Sidebar Links
         const menuItems = document.querySelectorAll('.sidebar-menu .menu-item');

@@ -64,7 +64,7 @@ class Hojas:
     RESPONSABLES = "RESPONSABLES"
     PULIDO = "PULIDO"
     FACTURACION = "FACTURACION"
-    CLIENTES = "CLIENTES"
+    CLIENTES = "DB_Clientes"
     MEZCLA = "MEZCLA"
 
 # ====================================================================
@@ -1928,7 +1928,24 @@ def obtener_historial_global():
                         'Cant': to_int_seguro(reg.get('CANTIDAD REAL', 0)),
                         'Orden': str(reg.get('ORDEN PRODUCCION', '')),
                         'Extra': str(reg.get('MAQUINA', '')),
-                        'Detalle': str(reg.get('OBSERVACIONES', ''))
+                        'Detalle': str(reg.get('OBSERVACIONES', '')),
+                        'hoja': Hojas.INYECCION,
+                        'fila': idx + 2,
+                        # TODOS LOS CAMPOS SOLICITADOS (Inyeccion)
+                        'FECHA_INICIA': str(reg.get('FECHA INICIA', '')),
+                        'DEPARTAMENTO': str(reg.get('DEPARTAMENTO', '')),
+                        'N_CAVIDADES': reg.get('No. CAVIDADES', ''),
+                        'HORA_LLEGADA': str(reg.get('HORA LLEGADA', '')),
+                        'HORA_INICIO': str(reg.get('HORA INICIO', '')),
+                        'HORA_TERMINA': str(reg.get('HORA TERMINA', '')),
+                        'CONTADOR_MAQ': reg.get('CONTADOR MAQ.', ''),
+                        'CANT_CONTADOR': reg.get('CANT. CONTADOR', ''),
+                        'TOMADOS_PROCESO': reg.get('TOMADOS EN PROCESO', ''),
+                        'PESO_TOMADOS_PROCESO': reg.get('PESO TOMADAS EN PROCESO', ''),
+                        'ALMACEN_DESTINO': str(reg.get('ALMACEN DESTINO', '')),
+                        'CODIGO_ENSAMBLE': str(reg.get('CODIGO ENSAMBLE', '')),
+                        'PESO_VELA': reg.get('PESO VELA MAQUINA', ''),
+                        'PESO_BUJES': reg.get('PESO BUJES', '')
                     })
                 
                 logger.info(f" INYECCIÓN: {procesados} procesados, {saltados} saltados de {len(registros_iny)} totales")
@@ -1958,7 +1975,7 @@ def obtener_historial_global():
                     for idx, r in enumerate(registros_pul[:3]):
                         logger.info(f"   [{idx}] {r}")
 
-                for reg in registros_pul:
+                for idx, reg in enumerate(registros_pul):
                     fecha_str = str(reg.get('FECHA', ''))
                     
                     if not fecha_str or fecha_str == '' or fecha_str == 'None':
@@ -1989,7 +2006,12 @@ def obtener_historial_global():
                         'Cant': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL'))),
                         'Orden': str(safe_get_ignore_case(reg, 'FECHA', safe_get_ignore_case(reg, 'LOTE'))), # Priorizar FECHA sobre LOTE Juan Sebastian
                         'Detalle': str(safe_get_ignore_case(reg, 'OBSERVACIONES')),
-                        'Extra': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')) # Mover OP a Extra (Maquina) Juan Sebastian
+                        'Extra': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')), # Mover OP a Extra (Maquina) Juan Sebastian
+                        'hoja': Hojas.PULIDO,
+                        'fila': idx + 2,
+                        # Campos adicionales
+                        'RECIBIDOS': safe_get_ignore_case(reg, 'BUJES RECIBIDOS'),
+                        'PNC': safe_get_ignore_case(reg, 'PNC')
                     })
                 
                 logger.info(f" PULIDO: {procesados} procesados, {saltados} saltados de {len(registros_pul)} totales")
@@ -2057,7 +2079,7 @@ def obtener_historial_global():
                 procesados = 0
                 saltados = 0
                 
-                for reg in registros_ens:
+                for idx, reg in enumerate(registros_ens):
                     # Intentar obtener fecha de multiples columnas comunes en Ensamble Juan Sebastian
                     fecha_str = str(reg.get('FECHA', reg.get('FECHA INICIA', '')))
                     
@@ -2088,7 +2110,9 @@ def obtener_historial_global():
                         'Cant': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD')),
                         'Orden': str(safe_get_ignore_case(reg, 'OP NUMERO', safe_get_ignore_case(reg, 'ORDEN PRODUCCION'))),
                         'Detalle': f"ID: {reg.get('ID_ENSAMBLE', '')} | Buje: {reg.get('BUJE_ORIGEN', '')}",
-                        'Extra': ''
+                        'Extra': '',
+                        'hoja': Hojas.ENSAMBLES,
+                        'fila': idx + 2
                     })
                 
                 logger.info(f" ENSAMBLES: {procesados} procesados, {saltados} saltados de {len(registros_ens)} totales")
@@ -2097,7 +2121,48 @@ def obtener_historial_global():
                 logger.error(f" Error en ENSAMBLES: {e}")
 
         # ========================================
-        # 5. PNC (DEFECTOS)
+        # 5. MEZCLAS
+        # ========================================
+        if not tipo or tipo == 'MEZCLA':
+            try:
+                ws_mez = ss.worksheet(Hojas.MEZCLA)
+                registros_mez = ws_mez.get_all_records()
+                logger.info(f" MEZCLAS: {len(registros_mez)} registros totales")
+                
+                procesados = 0
+                for idx, reg in enumerate(registros_mez):
+                    fecha_str = str(reg.get('FECHA', ''))
+                    if not fecha_str or fecha_str == '': continue
+                    
+                    fecha_reg = parsear_fecha_flexible(fecha_str)
+                    if not fecha_reg: continue
+                    
+                    if fecha_desde and fecha_reg < fecha_desde: continue
+                    if fecha_hasta and fecha_reg > fecha_hasta: continue
+                    
+                    procesados += 1
+                    movimientos.append({
+                        'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'Tipo': 'MEZCLA',
+                        'Producto': 'MEZCLA MATERIAL',
+                        'Responsable': str(reg.get('RESPONSABLE', '')),
+                        'Cant': str(reg.get('VIRGEN (Kg)', '0')) + "Kg V",
+                        'Orden': str(reg.get('ID MEZCLA', '')),
+                        'Extra': str(reg.get('MAQUINA', '')),
+                        'Detalle': str(reg.get('OBSERVACIONES', '')),
+                        'hoja': Hojas.MEZCLA,
+                        'fila': idx + 2,
+                        # Detalles de mezcla para edicion
+                        'MOLIDO': reg.get('MOLIDO (Kg)', 0),
+                        'PIGMENTO': reg.get('PIGMENTO (Kg)', 0),
+                        'VIRGEN': reg.get('VIRGEN (Kg)', 0)
+                    })
+                logger.info(f" MEZCLAS: {procesados} procesados")
+            except Exception as e:
+                logger.error(f" Error en MEZCLAS: {e}")
+
+        # ========================================
+        # 6. PNC (DEFECTOS)
         # ========================================
         if not tipo or tipo == 'PNC':
             try:
@@ -2175,7 +2240,79 @@ def obtener_historial_global():
             'data': []
         }), 500
 
+@app.route('/api/historial/actualizar', methods=['POST'])
+def actualizar_registro_historial():
+    """
+    Permite actualizar una fila especifica en cualquier hoja de produccion.
+    Solo disponible para usuarios autorizados (Paola).
+    """
+    try:
+        data = request.json
+        hoja_nombre = data.get('hoja')
+        fila = int(data.get('fila'))
+        nuevos_datos = data.get('datos', {})
+        usuario = data.get('usuario', 'Desconocido')
+        
+        if not hoja_nombre or not fila or not nuevos_datos:
+            return jsonify({"success": False, "error": "Faltan datos requeridos"}), 400
+            
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet(hoja_nombre)
+        headers = ws.row_values(1)
+        
+        from datetime import datetime
+        fecha_hoy = datetime.now().strftime('%d/%m/%Y %H:%M')
+        
+        updates = []
+        
+        # Mapeo de campos del frontend a columnas del sheet
+        for key, value in nuevos_datos.items():
+            col_idx = -1
+            target_key = str(key).strip().upper()
+            
+            for i, h in enumerate(headers):
+                if h.strip().upper() == target_key:
+                    col_idx = i + 1
+                    break
+            
+            if col_idx != -1:
+                updates.append({
+                    'range': gspread.utils.rowcol_to_a1(fila, col_idx),
+                    'values': [[value]]
+                })
+        
+        # Log de Auditoria en la columna OBSERVACIONES
+        col_obs = -1
+        for i, h in enumerate(headers):
+            if h.strip().upper() == 'OBSERVACIONES':
+                col_obs = i + 1
+                break
+        
+        if col_obs == -1:
+            col_obs = len(headers) + 1
+            ws.update_cell(1, col_obs, "OBSERVACIONES")
+            headers.append("OBSERVACIONES")
+            
+        # Obtener observacion previa para no perderla (o la nueva si se envió en datos)
+        obs_actual = nuevos_datos.get('OBSERVACIONES', ws.cell(fila, col_obs).value or "")
+        log_entry = f" | [Editado por {usuario} el {fecha_hoy}]"
+        nueva_obs = (str(obs_actual) + log_entry).strip()
+        
+        updates.append({
+            'range': gspread.utils.rowcol_to_a1(fila, col_obs),
+            'values': [[nueva_obs]]
+        })
+        
+        if updates:
+            ws.batch_update(updates)
+            logger.info(f" Registro actualizado en {hoja_nombre}, fila {fila} por {usuario}")
+            return jsonify({"success": True, "message": "Registro actualizado correctamente"}), 200
+        else:
+            return jsonify({"success": False, "error": "No se encontraron columnas para actualizar"}), 400
 
+    except Exception as e:
+        logger.error(f" Error actualizando historial: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ====================================================================
@@ -2342,7 +2479,7 @@ def obtener_clientes():
     try:
         # Usamos el ID directo que ya sabemos que funciona
         ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet("CLIENTES") 
+        ws = ss.worksheet(Hojas.CLIENTES) 
         
         datos = ws.get_all_values()
         encabezados = datos[0]
@@ -2350,15 +2487,21 @@ def obtener_clientes():
         
         clientes = []
         
-        # Buscar índices de columnas
-        idx_cliente = encabezados.index("CLIENTE") if "CLIENTE" in encabezados else 0
-        idx_nit = encabezados.index("NIT") if "NIT" in encabezados else -1
+        # Buscar índices de columnas (Soporte para CLIENTES y DB_Clientes)
+        idx_nombre = next((encabezados.index(h) for h in ["NOMBRE", "CLIENTE"] if h in encabezados), 0)
+        idx_nit = next((encabezados.index(h) for h in ["IDENTIFICACION", "NIT"] if h in encabezados), -1)
+        idx_dir = encabezados.index("DIRECCION") if "DIRECCION" in encabezados else -1
+        idx_tel = encabezados.index("TELEFONOS") if "TELEFONOS" in encabezados else -1
+        idx_ciu = encabezados.index("CIUDAD") if "CIUDAD" in encabezados else -1
 
         for fila in filas:
-            if len(fila) > idx_cliente and fila[idx_cliente].strip():
+            if len(fila) > idx_nombre and fila[idx_nombre].strip():
                 cliente_obj = {
-                    "nombre": fila[idx_cliente].strip(),
-                    "nit": fila[idx_nit].strip() if idx_nit >= 0 and len(fila) > idx_nit else ""
+                    "nombre": fila[idx_nombre].strip(),
+                    "nit": fila[idx_nit].strip() if idx_nit >= 0 and len(fila) > idx_nit else "",
+                    "direccion": fila[idx_dir].strip() if idx_dir >= 0 and len(fila) > idx_dir else "",
+                    "telefonos": fila[idx_tel].strip() if idx_tel >= 0 and len(fila) > idx_tel else "",
+                    "ciudad": fila[idx_ciu].strip() if idx_ciu >= 0 and len(fila) > idx_ciu else ""
                 }
                 clientes.append(cliente_obj)
         

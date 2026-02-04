@@ -6,6 +6,7 @@ const ModuloPedidos = {
     clientesData: [],  // Cache de clientes
     productosData: [], // Cache de productos
     clienteSeleccionado: null, // {nombre, nit}
+    ultimoIdRegistrado: null, // ID generado por el servidor
 
     init: function () {
         console.log("🛒 Inicializando Módulo Pedidos...");
@@ -116,9 +117,15 @@ const ModuloPedidos = {
         }
 
         suggestionsDiv.innerHTML = resultados.map(cliente => `
-            <div class="suggestion-item" data-nombre="${cliente.nombre}" data-nit="${cliente.nit || ''}">
+            <div class="suggestion-item" 
+                data-nombre="${cliente.nombre}" 
+                data-nit="${cliente.nit || ''}"
+                data-direccion="${cliente.direccion || ''}"
+                data-telefonos="${cliente.telefonos || ''}"
+                data-ciudad="${cliente.ciudad || ''}">
                 <strong>${cliente.nombre}</strong>
                 ${cliente.nit ? `<br><small>NIT: ${cliente.nit}</small>` : ''}
+                ${cliente.ciudad ? `<small> - ${cliente.ciudad}</small>` : ''}
             </div>
         `).join('');
 
@@ -127,7 +134,10 @@ const ModuloPedidos = {
             item.addEventListener('click', () => {
                 this.seleccionarCliente({
                     nombre: item.dataset.nombre,
-                    nit: item.dataset.nit
+                    nit: item.dataset.nit,
+                    direccion: item.dataset.direccion,
+                    telefonos: item.dataset.telefonos,
+                    ciudad: item.dataset.ciudad
                 });
                 suggestionsDiv.classList.remove('active');
             });
@@ -140,7 +150,7 @@ const ModuloPedidos = {
         this.clienteSeleccionado = cliente;
         document.getElementById('ped-cliente').value = cliente.nombre;
         document.getElementById('ped-nit').value = cliente.nit || '';
-        console.log("🔄 Cliente seleccionado:", cliente.nombre);
+        console.log("🔄 Cliente seleccionado con datos detallados:", cliente);
     },
 
     inicializarAutocompleteProducto: function () {
@@ -293,6 +303,7 @@ const ModuloPedidos = {
         this.listaProductos.splice(index, 1);
         this.renderizarTablaItems();
         this.calcularTotalPedido();
+        this.actualizarEstadoBotonPDF();
     },
 
     renderizarTablaItems: function () {
@@ -306,6 +317,7 @@ const ModuloPedidos = {
                     </td>
                 </tr>
             `;
+            this.actualizarEstadoBotonPDF();
             return;
         }
 
@@ -326,6 +338,14 @@ const ModuloPedidos = {
                 </tr>
             `;
         }).join('');
+        this.actualizarEstadoBotonPDF();
+    },
+
+    actualizarEstadoBotonPDF: function () {
+        const btnPdf = document.getElementById('btn-pdf-pedido');
+        if (btnPdf) {
+            btnPdf.disabled = this.listaProductos.length === 0;
+        }
     },
 
     calcularTotalPedido: function () {
@@ -406,6 +426,7 @@ const ModuloPedidos = {
 
             if (result.success) {
                 console.log("✅ Pedido registrado exitosamente:", result.id_pedido);
+                this.ultimoIdRegistrado = result.id_pedido;
                 mostrarNotificacion(`✓ Pedido ${result.id_pedido} registrado con ${result.total_productos} productos`, 'success');
 
                 // Limpiar formulario y lista SOLO después de éxito
@@ -430,6 +451,160 @@ const ModuloPedidos = {
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
+        }
+
+        // Preguntar por PDF tras registro
+        if (confirmar) {
+            setTimeout(async () => {
+                const descargar = await this.mostrarConfirmacion(
+                    '¡Pedido Registrado!',
+                    '¿Desea descargar el comprobante PDF del pedido ahora?'
+                );
+                if (descargar) {
+                    this.generarPDF();
+                }
+            }, 500);
+        }
+    },
+
+    generarPDF: function (idForzado = null) {
+        try {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            const fecha = document.getElementById('ped-fecha').value;
+            const vendedor = document.getElementById('ped-vendedor').value;
+            const cliente = this.clienteSeleccionado || {
+                nombre: document.getElementById('ped-cliente').value,
+                nit: document.getElementById('ped-nit').value,
+                direccion: '',
+                telefonos: '',
+                ciudad: ''
+            };
+            const totalStr = document.getElementById('ped-total').textContent;
+            const formaPago = document.getElementById('ped-pago').value;
+
+            // --- 1. ENCABEZADO Y LOGO ---
+            const imgPath = '/static/img/logo_friparts.png';
+
+            // Función interna para dibujar el contenido (con o sin logo)
+            const dibujarContenido = (imgData = null) => {
+                if (imgData) {
+                    doc.addImage(imgData, 'PNG', 14, 10, 60, 28); // Proporción ajustada para el logo ovalado
+                }
+
+                doc.setFontSize(24);
+                doc.setTextColor(30, 58, 138); // Azul corporativo
+                doc.setFont(undefined, 'bold');
+                doc.text("FRIPARTS S.A.S", imgData ? 78 : 14, 25);
+
+                doc.setFontSize(10);
+                doc.setTextColor(100);
+                doc.setFont(undefined, 'normal');
+                doc.text("Soluciones Integrales en Sistemas de Suspensión", imgData ? 78 : 14, 32);
+                const idMostrar = idForzado || this.ultimoIdRegistrado || `Ped-TEMP`;
+                doc.text(`Comprobante No: ${idMostrar}`, 196, 20, { align: 'right' });
+                doc.text(`Fecha: ${fecha}`, 196, 26, { align: 'right' });
+
+                // --- 2. BLOQUE DE INFORMACIÓN (Grid de 2 columnas) ---
+                doc.setDrawColor(220);
+                doc.setLineWidth(0.5);
+                doc.line(14, 55, 196, 55);
+
+                // Columna Izquierda: Cliente (Ancho máx 100)
+                doc.setFontSize(11);
+                doc.setTextColor(30, 58, 138);
+                doc.setFont(undefined, 'bold');
+                doc.text("CLIENTE:", 14, 65);
+
+                doc.setFontSize(10);
+                doc.setTextColor(40);
+                doc.setFont(undefined, 'normal');
+                const splitNombre = doc.splitTextToSize(`Nombre: ${cliente.nombre}`, 110);
+                doc.text(splitNombre, 14, 72);
+
+                const nextY = 72 + (splitNombre.length * 5);
+                doc.text(`NIT/ID: ${cliente.nit || 'N/A'}`, 14, nextY);
+                doc.text(`Dirección: ${cliente.direccion || 'N/A'}`, 14, nextY + 7);
+                doc.text(`Ciudad: ${cliente.ciudad || 'N/A'}`, 14, nextY + 14);
+                doc.text(`Teléfonos: ${cliente.telefonos || 'N/A'}`, 14, nextY + 21);
+
+                // Columna Derecha: Venta (Movida más a la derecha para evitar choques)
+                const rightX = 135;
+                doc.setFontSize(11);
+                doc.setTextColor(30, 58, 138);
+                doc.setFont(undefined, 'bold');
+                doc.text("DETALLES DE VENTA:", rightX, 65);
+
+                doc.setFontSize(10);
+                doc.setTextColor(40);
+                doc.setFont(undefined, 'normal');
+                doc.text(`Vendedor: ${vendedor}`, rightX, 72);
+                doc.text(`Forma de Pago: ${formaPago}`, rightX, 79);
+                doc.text(`Estado: REGISTRADO`, rightX, 86);
+
+                // --- 3. TABLA DE PRODUCTOS ---
+                const tablaData = this.listaProductos.map(item => [
+                    item.codigo,
+                    item.descripcion,
+                    item.cantidad,
+                    `$ ${formatNumber(item.precio_unitario)}`,
+                    `$ ${formatNumber(item.cantidad * item.precio_unitario)}`
+                ]);
+
+                doc.autoTable({
+                    startY: 115,
+                    head: [['Código', 'Descripción', 'Cant.', 'Unitario', 'Subtotal']],
+                    body: tablaData,
+                    theme: 'grid',
+                    headStyles: { fillColor: [30, 58, 138], textColor: 255, halign: 'center' },
+                    styles: { fontSize: 9, cellPadding: 3 },
+                    columnStyles: {
+                        0: { cellWidth: 30 },
+                        2: { halign: 'center' },
+                        3: { halign: 'right' },
+                        4: { halign: 'right' }
+                    }
+                });
+
+                // --- 4. TOTALES ---
+                const finalY = doc.lastAutoTable.finalY + 15;
+                doc.setDrawColor(30, 58, 138);
+                doc.setLineWidth(1);
+                doc.line(140, finalY - 5, 196, finalY - 5);
+
+                doc.setFontSize(14);
+                doc.setTextColor(30, 58, 138);
+                doc.setFont(undefined, 'bold');
+                doc.text(`TOTAL A PAGAR: ${totalStr}`, 196, finalY, { align: 'right' });
+
+                // --- 5. FIRMAS Y PIE ---
+                const footerY = 270;
+                doc.setFontSize(8);
+                doc.setTextColor(150);
+                doc.text("Este documento es un comprobante interno de pedido y no constituye factura legal.", 105, footerY, { align: 'center' });
+                doc.text("FriParts S.A.S - Carrera 29 #78-40 - www.friparts.com", 105, footerY + 5, { align: 'center' });
+
+                // Guardar
+                const fileName = `Pedido_${cliente.nombre.replace(/\s+/g, '_')}_${fecha}.pdf`;
+                doc.save(fileName);
+                mostrarNotificacion("PDF generado correctamente", "success");
+            };
+
+            // Intentar cargar logo antes de dibujar
+            const img = new Image();
+            img.onload = function () {
+                dibujarContenido(this);
+            };
+            img.onerror = function () {
+                console.warn("Logo no encontrado en /static/img/logo_friparts.png - Generando sin logo");
+                dibujarContenido(null);
+            };
+            img.src = imgPath;
+
+        } catch (error) {
+            console.error("Error generando PDF:", error);
+            mostrarNotificacion("No se pudo generar el PDF", "error");
         }
     },
 
