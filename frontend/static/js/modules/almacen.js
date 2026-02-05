@@ -16,26 +16,38 @@ const AlmacenModule = {
      */
     inicializar: function () {
         console.log('🔧 [Almacen] Inicializando módulo...');
+        console.log('🔧 [Almacen] Estado actual:', {
+            pedidosPendientes: this.pedidosPendientes.length,
+            user: window.AppState?.user,
+            tvMode: this.isTVMode
+        });
+
         this.cargarPedidos();
         this.iniciarAutoRefresco();
 
         // Listener para refrescar automáticamente al entrar a la página
         document.querySelector('[data-page="almacen"]')?.addEventListener('click', () => {
+            console.log('🔧 [Almacen] Click en menú detectado, recargando...');
             this.cargarPedidos();
         });
+
+        console.log('✅ [Almacen] Módulo inicializado correctamente');
     },
 
     /**
      * Cargar pedidos pendientes desde la API
      */
     cargarPedidos: async function (showLoading = true) {
+        console.log('📦 [Almacen] cargarPedidos() iniciado, showLoading:', showLoading);
         try {
             if (showLoading) mostrarLoading(true);
 
             // CRÍTICO: Si window.AppState.user no está listo, intentar recuperarlo de AuthModule o SessionStorage
             let user = window.AppState?.user;
+            console.log('📦 [Almacen] Usuario inicial:', user);
             if (!user || (!user.name && !user.nombre)) {
                 const sessionUser = sessionStorage.getItem('friparts_user');
+                console.log('📦 [Almacen] Recuperando usuario de sesión:', sessionUser);
                 if (sessionUser) {
                     const parsed = JSON.parse(sessionUser);
                     user = {
@@ -60,6 +72,7 @@ const AlmacenModule = {
             // CRÍTICO: Cache buster para evitar que el navegador guarde la respuesta
             url.searchParams.append('_t', Date.now());
 
+            console.log('📦 [Almacen] Haciendo fetch a:', url.toString());
             const response = await fetch(url, {
                 cache: 'no-store', // Forzar al navegador a no usar cache
                 headers: {
@@ -67,20 +80,29 @@ const AlmacenModule = {
                     'Pragma': 'no-cache'
                 }
             });
+            console.log('📦 [Almacen] Response status:', response.status);
+
             const data = await response.json();
+            console.log('📦 [Almacen] Datos recibidos:', {
+                success: data.success,
+                pedidosCount: data.pedidos?.length || 0
+            });
 
             if (data.success) {
                 this.pedidosPendientes = data.pedidos;
+                console.log('📦 [Almacen] Pedidos asignados, llamando renderizarTarjetas()...');
                 this.renderizarTarjetas();
+                console.log('✅ [Almacen] renderizarTarjetas() completado');
             } else {
                 console.error('Error al cargar pedidos:', data.error);
                 if (showLoading) mostrarNotificacion('Error al cargar pedidos pendientes', 'error');
             }
         } catch (error) {
-            console.error('Error fetch pedidos:', error);
+            console.error('❌ [Almacen] Error fetch pedidos:', error);
             if (showLoading) mostrarNotificacion('Error de conexión con el servidor', 'error');
         } finally {
             if (showLoading) mostrarLoading(false);
+            console.log('📦 [Almacen] cargarPedidos() finalizado');
         }
     },
 
@@ -232,9 +254,13 @@ const AlmacenModule = {
         const pedido = this.pedidosPendientes.find(p => p.id_pedido === id_pedido);
         if (!pedido) return;
 
-        this.pedidoActual = JSON.parse(JSON.stringify(pedido)); // Clonar para no afectar el original hasta guardar
+        this.pedidoActual = JSON.parse(JSON.stringify(pedido)); // Clonar para no afectar el original
+        // Reiniciar estado de visualización de ocultos
+        this.mostrarOcultos = false;
+        const toggle = document.getElementById('toggle-ver-ocultos');
+        if (toggle) toggle.checked = false;
 
-        document.getElementById('modal-alistamiento-titulo').innerText = `Alistamiento: ${pedido.id_pedido} `;
+        document.getElementById('modal-alistamiento-titulo').innerText = `Alistamiento: ${pedido.id_pedido}`;
         document.getElementById('modal-alistamiento-cliente').innerText = `Cliente: ${pedido.cliente} `;
 
         this.renderizarProductosChecklist();
@@ -258,9 +284,13 @@ const AlmacenModule = {
             // Asegurar booleano
             if (prod.despachado === undefined) prod.despachado = false;
 
-            // CRÍTICO: Si está 100% alistado y despachado, no renderizar (ya desapareció)
-            if (prod.cant_lista >= prod.cantidad && prod.despachado) {
-                return;
+            // Lógica de Filtrado:
+            // - Normal: Ocultar si está 100% alistado y despachado.
+            // - Recuperación (mostrarOcultos): Mostrar todo
+            const estaCompletamenteDespachado = prod.cant_lista >= prod.cantidad && prod.despachado;
+
+            if (estaCompletamenteDespachado && !this.mostrarOcultos) {
+                return; // Ocultar en modo normal
             }
 
             itemsVisibles++;
@@ -373,24 +403,35 @@ const AlmacenModule = {
 
         this.actualizarProgresoVisual();
 
-        // Si se marca como despachado y estaba completamente alistado, aplicar efecto fade-out despues de breve delay
+        // Si se marca como despachado y estaba completamente alistado...
         const prod = this.pedidoActual.productos[index];
         if (checked && prod.cant_lista >= prod.cantidad) {
-            setTimeout(() => {
-                const row = document.getElementById(`row-prod-${index}`);
-                if (row) {
-                    row.style.transform = 'translateX(50px)';
-                    row.style.opacity = '0';
-                    setTimeout(() => {
+            // Si estamos viendo ocultos, NO ocultar (para permitir gestión), solo actualizar estado visual
+            if (this.mostrarOcultos) {
+                this.renderizarProductosChecklist();
+            } else {
+                // Modo normal: fade-out y desaparecer
+                setTimeout(() => {
+                    const row = document.getElementById(`row-prod-${index}`);
+                    if (row) {
+                        row.style.transform = 'translateX(50px)';
+                        row.style.opacity = '0';
+                        setTimeout(() => {
+                            this.renderizarProductosChecklist();
+                        }, 500);
+                    } else {
                         this.renderizarProductosChecklist();
-                    }, 500); // Esperar a que termine la transición CSS
-                } else {
-                    this.renderizarProductosChecklist();
-                }
-            }, 500); // 500ms para que vea el check verde
+                    }
+                }, 500);
+            }
         } else {
             this.renderizarProductosChecklist();
         }
+    },
+
+    toggleOcultos: function (checked) {
+        this.mostrarOcultos = checked;
+        this.renderizarProductosChecklist();
     },
 
     /**
@@ -432,19 +473,21 @@ const AlmacenModule = {
     actualizarProgresoVisual: function () {
         let totalRequerido = 0;
         let totalListo = 0;
-        let itemsTotal = 0;
-        let itemsDespachados = 0;
+        let totalUnidadesDespachadas = 0;
 
         this.pedidoActual.productos.forEach(p => {
-            totalRequerido += parseFloat(p.cantidad) || 0;
+            const cantidad = parseFloat(p.cantidad) || 0;
+            totalRequerido += cantidad;
             totalListo += parseInt(p.cant_lista) || 0;
-            itemsTotal++;
-            if (p.despachado) itemsDespachados++;
+
+            if (p.despachado) {
+                totalUnidadesDespachadas += cantidad;
+            }
         });
 
         const pctAlisado = totalRequerido > 0 ? Math.round((totalListo / totalRequerido) * 100) : 0;
-        // El progreso enviado ahora se basa en items despachados vs items totales
-        const pctEnviado = itemsTotal > 0 ? Math.round((itemsDespachados / itemsTotal) * 100) : 0;
+        // AHORA: El progreso enviado se basa en VOLUMEN (unidades) igual que el alistado
+        const pctEnviado = totalRequerido > 0 ? Math.round((totalUnidadesDespachadas / totalRequerido) * 100) : 0;
 
         // Actualizar barras en el modal
         const barAlisado = document.getElementById('modal-alisado-progress');
@@ -461,7 +504,7 @@ const AlmacenModule = {
         }
         if (barEnviado) {
             barEnviado.style.width = `${pctEnviado}% `;
-            barEnviado.innerText = `Enviado (Checks): ${pctEnviado}% `;
+            barEnviado.innerText = `Despachado: ${pctEnviado}% `;
             // ... efectos ...
             barEnviado.parentElement.classList.add('progress-modern');
             barEnviado.classList.add('progress-bar-shimmer');
@@ -486,18 +529,21 @@ const AlmacenModule = {
 
         let totalReq = 0;
         let totalLis = 0;
-        let itemsTotal = 0;
-        let itemsDespachados = 0;
+        let totalUnidadesDesp = 0;
 
         this.pedidoActual.productos.forEach(p => {
-            totalReq += parseFloat(p.cantidad) || 0;
+            const cantidad = parseFloat(p.cantidad) || 0;
+            totalReq += cantidad;
             totalLis += parseInt(p.cant_lista) || 0;
-            itemsTotal++;
-            if (p.despachado) itemsDespachados++;
+
+            if (p.despachado) {
+                totalUnidadesDesp += cantidad;
+            }
         });
 
         const pctLis = totalReq > 0 ? Math.round((totalLis / totalReq) * 100) : 0;
-        const pctEnv = itemsTotal > 0 ? Math.round((itemsDespachados / itemsTotal) * 100) : 0;
+        // Calculo basado en volumen
+        const pctEnv = totalReq > 0 ? Math.round((totalUnidadesDesp / totalReq) * 100) : 0;
 
         // Determinar estado final para la UI
         let estado = 'EN ALISTAMIENTO';

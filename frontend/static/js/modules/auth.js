@@ -173,6 +173,17 @@ const AuthModule = {
 
         // Auto-rellenar selects de responsables en la app
         this.autoFillForms();
+
+        // CRÍTICO: Re-inicializar el módulo actual si ya estamos en una página
+        // Esto soluciona el problema de race condition donde el módulo intenta inicializarse antes del login
+        if (window.AppState?.paginaActual && window.AppState.paginaActual !== 'dashboard') {
+            console.log(`🔄 [Auth] Re-inicializando módulo actual: ${window.AppState.paginaActual}`);
+            setTimeout(() => {
+                if (typeof inicializarModulo === 'function') {
+                    inicializarModulo(window.AppState.paginaActual);
+                }
+            }, 100); // Pequeño delay para asegurar que todo esté listo
+        }
     },
 
     showWelcomeMessage: function (user) {
