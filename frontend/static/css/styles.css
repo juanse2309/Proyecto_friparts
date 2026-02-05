@@ -4241,8 +4241,8 @@ body.loaded {
         margin: 10px !important;
         border-radius: 12px !important;
     }
-    
-    .custom-modal-content > div:nth-child(2) {
+
+    .custom-modal-content>div:nth-child(2) {
         padding: 15px !important;
     }
 
@@ -4267,4 +4267,75 @@ body.loaded {
         flex-direction: column;
         gap: 15px !important;
     }
+}
+
+/* ===== ANIMACIONES PREMIUM PARA BARRAS DE PROGRESO ===== */
+
+/* Efecto Shimmer (Brillo que recorre la barra) */
+.progress-bar-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar-shimmer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.4) 50%,
+            rgba(255, 255, 255, 0) 100%);
+    animation: shimmer-effect 2.5s infinite;
+}
+
+@keyframes shimmer-effect {
+    0% {
+        left: -100%;
+    }
+
+    100% {
+        left: 150%;
+    }
+}
+
+/* Efecto Glow (Resplandor cuando hay progreso) */
+.progress-glow-indigo {
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+.progress-glow-emerald {
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+/* Pulso suave para indicar actividad */
+.progress-pulse {
+    animation: pulse-border 2s infinite ease-in-out;
+}
+
+@keyframes pulse-border {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.02);
+        opacity: 0.9;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Refinado de la barra de Bootstrap para que se vea más moderna */
+.progress-modern {
+    background-color: #e2e8f0 !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow: visible !important;
+    /* Permitir que el resplandor salga */
 }

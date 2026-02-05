@@ -388,10 +388,11 @@ const ModuloPedidos = {
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
 
         try {
+            const totalStr = document.getElementById('ped-total').textContent;
             const descuentoGlobal = parseFloat(document.getElementById('ped-descuento-global')?.value || 0);
 
             const pedidoData = {
-                fecha: document.getElementById('ped-fecha').value,
+                fecha: document.getElementById('ped-fecha').value || new Date().toISOString().split('T')[0],
                 vendedor: document.getElementById('ped-vendedor').value,
                 cliente: this.clienteSeleccionado.nombre,
                 nit: this.clienteSeleccionado.nit || '',
@@ -440,6 +441,33 @@ const ModuloPedidos = {
                     document.getElementById('ped-descuento-global').value = '0';
                 }
                 this.actualizarVendedor();
+
+                // --- Preguntar por PDF tras registro ---
+                // Capturamos datos antes de la confirmación porque es async y el estado podría cambiar
+                const dataParaPDF = {
+                    id_pedido: result.id_pedido,
+                    fecha: pedidoData.fecha,
+                    vendedor: pedidoData.vendedor,
+                    cliente: {
+                        nombre: pedidoData.cliente,
+                        nit: pedidoData.nit,
+                        direccion: '', city: '', telefonos: '' // Datos básicos
+                    },
+                    productos: JSON.parse(JSON.stringify(pedidoData.productos)),
+                    total: totalStr, // Usar el string capturado arriba
+                    forma_pago: pedidoData.forma_pago
+                };
+
+                setTimeout(async () => {
+                    const descargar = await this.mostrarConfirmacion(
+                        '¡Pedido Registrado!',
+                        '¿Desea descargar el comprobante PDF del pedido ahora?'
+                    );
+                    if (descargar) {
+                        this.generarPDF(dataParaPDF);
+                    }
+                }, 500);
+
             } else {
                 console.error("❌ Error del servidor:", result.error);
                 mostrarNotificacion(result.error || "Error desconocido", 'error');
@@ -452,57 +480,55 @@ const ModuloPedidos = {
             btn.disabled = false;
             btn.innerHTML = originalText;
         }
-
-        // Preguntar por PDF tras registro
-        if (confirmar) {
-            setTimeout(async () => {
-                const descargar = await this.mostrarConfirmacion(
-                    '¡Pedido Registrado!',
-                    '¿Desea descargar el comprobante PDF del pedido ahora?'
-                );
-                if (descargar) {
-                    this.generarPDF();
-                }
-            }, 500);
-        }
     },
 
-    generarPDF: function (idForzado = null) {
+    generarPDF: function (datosManuales = null) {
         try {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
 
-            const fecha = document.getElementById('ped-fecha').value;
-            const vendedor = document.getElementById('ped-vendedor').value;
-            const cliente = this.clienteSeleccionado || {
+            // Si vienen datos manuales (ej: justo después de registrar), usarlos. 
+            // Si no, leer del DOM (flujo normal).
+            const fechaRaw = datosManuales ? datosManuales.fecha : document.getElementById('ped-fecha').value;
+            const fecha = fechaRaw || new Date().toLocaleDateString();
+            const vendedor = datosManuales ? datosManuales.vendedor : document.getElementById('ped-vendedor').value;
+            const cliente = datosManuales ? datosManuales.cliente : (this.clienteSeleccionado || {
                 nombre: document.getElementById('ped-cliente').value,
                 nit: document.getElementById('ped-nit').value,
                 direccion: '',
                 telefonos: '',
                 ciudad: ''
-            };
-            const totalStr = document.getElementById('ped-total').textContent;
-            const formaPago = document.getElementById('ped-pago').value;
+            });
+            const totalStr = datosManuales ? datosManuales.total : document.getElementById('ped-total').textContent;
+            const formaPago = datosManuales ? datosManuales.forma_pago : document.getElementById('ped-pago').value;
+            const listaProductos = datosManuales ? datosManuales.productos : this.listaProductos;
+            const idMostrar = datosManuales ? datosManuales.id_pedido : (this.ultimoIdRegistrado || `Ped-TEMP`);
 
             // --- 1. ENCABEZADO Y LOGO ---
-            const imgPath = '/static/img/logo_friparts.png';
+            const imgPath = '/static/img/logo_friparts_nuevo.jpg';
 
             // Función interna para dibujar el contenido (con o sin logo)
             const dibujarContenido = (imgData = null) => {
                 if (imgData) {
-                    doc.addImage(imgData, 'PNG', 14, 10, 60, 28); // Proporción ajustada para el logo ovalado
+                    // El logo es un JPEG, intentamos con JPEG y si no PNG como fallback por compatibilidad de jsPDF
+                    try {
+                        doc.addImage(imgData, 'JPEG', 14, 10, 60, 28);
+                    } catch (e) {
+                        doc.addImage(imgData, 'PNG', 14, 10, 60, 28);
+                    }
                 }
 
-                doc.setFontSize(24);
+                // Nombre de la empresa DEBAJO del logo (alineado a la izquierda)
+                doc.setFontSize(22);
                 doc.setTextColor(30, 58, 138); // Azul corporativo
                 doc.setFont(undefined, 'bold');
-                doc.text("FRIPARTS S.A.S", imgData ? 78 : 14, 25);
+                doc.text("FRIPARTS S.A.S", 14, 45);
 
                 doc.setFontSize(10);
                 doc.setTextColor(100);
                 doc.setFont(undefined, 'normal');
-                doc.text("Soluciones Integrales en Sistemas de Suspensión", imgData ? 78 : 14, 32);
-                const idMostrar = idForzado || this.ultimoIdRegistrado || `Ped-TEMP`;
+                // SE ELIMINA EL ESLOGAN "Soluciones Integrales..." SOLICITADO POR EL USUARIO
+
                 doc.text(`Comprobante No: ${idMostrar}`, 196, 20, { align: 'right' });
                 doc.text(`Fecha: ${fecha}`, 196, 26, { align: 'right' });
 
@@ -544,7 +570,7 @@ const ModuloPedidos = {
                 doc.text(`Estado: REGISTRADO`, rightX, 86);
 
                 // --- 3. TABLA DE PRODUCTOS ---
-                const tablaData = this.listaProductos.map(item => [
+                const tablaData = listaProductos.map(item => [
                     item.codigo,
                     item.descripcion,
                     item.cantidad,
@@ -580,10 +606,21 @@ const ModuloPedidos = {
 
                 // --- 5. FIRMAS Y PIE ---
                 const footerY = 270;
+
+                // Línea separadora final
+                doc.setDrawColor(200);
+                doc.setLineWidth(0.2);
+                doc.line(14, footerY - 10, 196, footerY - 10);
+
                 doc.setFontSize(8);
                 doc.setTextColor(150);
                 doc.text("Este documento es un comprobante interno de pedido y no constituye factura legal.", 105, footerY, { align: 'center' });
-                doc.text("FriParts S.A.S - Carrera 29 #78-40 - www.friparts.com", 105, footerY + 5, { align: 'center' });
+                doc.text("FRIPARTS S.A.S - Carrera 29 #78-40 - www.friparts.com", 105, footerY + 5, { align: 'center' });
+
+                doc.setFontSize(9);
+                doc.setTextColor(100);
+                doc.setFont(undefined, 'normal');
+                doc.text("Instagram: @friparts_bujes", 105, footerY + 11, { align: 'center' });
 
                 // Guardar
                 const fileName = `Pedido_${cliente.nombre.replace(/\s+/g, '_')}_${fecha}.pdf`;

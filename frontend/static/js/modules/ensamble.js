@@ -26,7 +26,10 @@ const ModuloEnsamble = {
 
             // 1. Cargar Responsables
             const responsables = await fetchData('/api/obtener_responsables');
-            if (responsables) this.responsablesData = responsables;
+            if (responsables) {
+                // Mapear de objetos a strings (nombres) para el sistema de búsqueda
+                this.responsablesData = responsables.map(r => typeof r === 'object' ? r.nombre : r);
+            }
 
             // 2. Cargar Productos (Para Buje Origen)
             if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {

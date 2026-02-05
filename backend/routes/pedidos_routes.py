@@ -80,7 +80,7 @@ def registrar_pedido():
         ws = sheets_client.get_or_create_worksheet(
             Hojas.PEDIDOS, 
             rows=1000, 
-            cols=14
+            cols=20
         )
         
         logger.info(f"📄 Worksheet 'PEDIDOS' obtenida correctamente")
@@ -91,7 +91,7 @@ def registrar_pedido():
             "ID PEDIDO", "FECHA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
             "CLIENTE", "NIT", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
             "ESTADO", "CANTIDAD", "PRECIO UNITARIO", "PROGRESO", "CANT_ALISTADA",
-            "PROGRESO_DESPACHO", "CANT_ENVIADA"
+            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A"
         ]
         
         if not existing_headers:
@@ -156,7 +156,8 @@ def registrar_pedido():
                 "0%", # PROGRESO inicial (Alistamiento)
                 0,    # CANT_ALISTADA inicial
                 "0%", # PROGRESO_DESPACHO inicial
-                0     # CANT_ENVIADA inicial
+                0,    # CANT_ENVIADA inicial
+                ""    # DELEGADO_A inicial
             ]
             
             rows_to_append.append(row)
@@ -312,11 +313,43 @@ def obtener_pedidos_pendientes():
         ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
         registros = ws.get_all_records()
         
+        # Obtener usuario y rol desde query params para filtrado
+        usuario_actual = request.args.get('usuario')
+        rol_actual = request.args.get('rol')
+        
+        logger.info(f"🔍 Filtrando pedidos para: Usuario='{usuario_actual}', Rol='{rol_actual}'")
+        if registros:
+            logger.info(f"📊 Primer registro de PEDIDOS: {registros[0].keys()}")
+        else:
+            logger.warning("⚠️ La hoja PEDIDOS está vacía")
+
         # Agrupar por ID PEDIDO
         pedidos_dict = {}
         for r in registros:
             id_pedido = r.get("ID PEDIDO")
             estado = r.get("ESTADO", "PENDIENTE").upper()
+            delegado_a = str(r.get("DELEGADO_A", "")).strip()
+            
+            # FILTRADO DE SEGURIDAD:
+            # Si no es Admin ni Natalia, solo ve lo que tiene asignado o lo que no tiene a nadie asignado (para que Natalia lo asigne)
+            # El usuario pidió: "viera desde su usuario solo los que tienen pendientes o delegados"
+            # Asumimos que si está vacío es "para todos" hasta que se delegue, 
+            # pero el requerimiento dice "solo los que tienen pendientes o delegados".
+            # Verificar si es admin o Natalia (case-insensitive para evitar problemas de acentos o nombres)
+            # Normalizar para comparación
+            rol_norm = str(rol_actual).upper() if rol_actual else ""
+            user_norm = str(usuario_actual).upper() if usuario_actual else ""
+            
+            es_admin = "ADMIN" in rol_norm or "NATALIA" in user_norm or "NATHALIA" in user_norm
+            
+            if not es_admin:
+                # Si no es admin/Natalia, solo ve lo que tiene expresamente asignado
+                # Normalización para evitar problemas con mayúsculas/minúsculas
+                if str(delegado_a).strip().upper() != str(usuario_actual).strip().upper():
+                    logger.debug(f"   ⏩ Saltando pedido {id_pedido}: no delegado a {usuario_actual}")
+                    continue # No es para mí
+            
+            logger.info(f"   ✅ Incluyendo pedido {id_pedido} para {usuario_actual} (es_admin={es_admin})")
             
             if estado != "COMPLETADO":
                 if id_pedido not in pedidos_dict:
@@ -327,6 +360,7 @@ def obtener_pedidos_pendientes():
                         "estado": estado,
                         "progreso": r.get("PROGRESO", "0%"),
                         "vendedor": r.get("VENDEDOR"),
+                        "delegado_a": delegado_a,
                         "productos": []
                     }
                 
@@ -348,6 +382,51 @@ def obtener_pedidos_pendientes():
         })
     except Exception as e:
         logger.error(f"Error cargando pedidos pendientes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pedidos_bp.route('/api/pedidos/delegar', methods=['POST'])
+def delegar_pedido():
+    """
+    Asigna un pedido a una colaboradora específica.
+    """
+    try:
+        data = request.json
+        id_pedido = data.get("id_pedido")
+        colaboradora = data.get("colaboradora")
+        
+        if not id_pedido or colaboradora is None:
+            return jsonify({"success": False, "error": "ID Pedido y Colaboradora requeridos"}), 400
+            
+        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        registros = ws.get_all_records()
+        headers = ws.row_values(1)
+        
+        if "DELEGADO_A" not in headers:
+            # Crear columna si no existe
+            col_idx = len(headers) + 1
+            ws.update_cell(1, col_idx, "DELEGADO_A")
+            headers.append("DELEGADO_A")
+            
+        col_id = headers.index("ID PEDIDO") + 1
+        col_delegado = headers.index("DELEGADO_A") + 1
+        
+        updates = []
+        for idx, r in enumerate(registros):
+            if str(r.get("ID PEDIDO")) == str(id_pedido):
+                fila = idx + 2
+                updates.append({
+                    'range': gspread.utils.rowcol_to_a1(fila, col_delegado),
+                    'values': [[colaboradora]]
+                })
+        
+        if updates:
+            ws.batch_update(updates)
+            return jsonify({"success": True, "message": f"Pedido {id_pedido} delegado a {colaboradora}"})
+        else:
+            return jsonify({"success": False, "error": "Pedido no encontrado"}), 404
+            
+    except Exception as e:
+        logger.error(f"Error delegando pedido: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/actualizar-alistamiento', methods=['POST'])

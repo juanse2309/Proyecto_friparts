@@ -13,6 +13,7 @@ const AuthModule = {
         'Inyección': ['inyeccion', 'mezcla'],
         'Pulido': ['pulido'],
         'Ensamble': ['ensamble'],
+        'Alistamiento': ['almacen', 'historial'], // Las colaboradoras ven almacen e historial
         // Fallback
         'Invitado': []
     },
@@ -275,6 +276,16 @@ const AuthModule = {
 
         const role = this.currentUser.rol;
         let allowedPages = [...(this.permissions[role] || [])];
+
+        // EXCEPCIÓN ESPECIAL: Natalia/Nathalia es la jefa de Alistamiento, requiere permisos de administración en este flujo
+        const userNameUpper = this.currentUser.nombre.toUpperCase();
+        if (userNameUpper.includes('NATALIA') || userNameUpper.includes('NATHALIA')) {
+            const modulosAdmin = ['almacen', 'pedidos', 'historial', 'reportes', 'inventario', 'dashboard'];
+            modulosAdmin.forEach(m => {
+                if (!allowedPages.includes(m)) allowedPages.push(m);
+            });
+            console.log("🔓 Permisos de Jefa aplicados para Natalia");
+        }
 
         // EXCEPCIÓN ESPECIAL: Paola requiere acceso a Pulido y Ensamble independientemente de su rol
         if (this.currentUser.nombre.toUpperCase() === 'PAOLA') {

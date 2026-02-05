@@ -30,7 +30,8 @@ const ModuloPulido = {
             // 1. Cargar Responsables
             const responsables = await fetchData('/api/obtener_responsables');
             if (responsables) {
-                this.responsablesData = responsables;
+                // Mapear de objetos a strings para el buscador
+                this.responsablesData = responsables.map(r => typeof r === 'object' ? r.nombre : r);
             }
 
             // 2. Cargar Productos (Cache Compartido)

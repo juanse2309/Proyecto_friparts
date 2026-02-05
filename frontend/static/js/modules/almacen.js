@@ -8,6 +8,7 @@ const AlmacenModule = {
     pedidosPendientes: [],
     pedidoActual: null,
     tvInterval: null,
+    autoRefreshInterval: null,
     isTVMode: false,
 
     /**
@@ -16,6 +17,7 @@ const AlmacenModule = {
     inicializar: function () {
         console.log('🔧 [Almacen] Inicializando módulo...');
         this.cargarPedidos();
+        this.iniciarAutoRefresco();
 
         // Listener para refrescar automáticamente al entrar a la página
         document.querySelector('[data-page="almacen"]')?.addEventListener('click', () => {
@@ -26,10 +28,45 @@ const AlmacenModule = {
     /**
      * Cargar pedidos pendientes desde la API
      */
-    cargarPedidos: async function () {
+    cargarPedidos: async function (showLoading = true) {
         try {
-            mostrarLoading(true);
-            const response = await fetch('/api/pedidos/pendientes');
+            if (showLoading) mostrarLoading(true);
+
+            // CRÍTICO: Si window.AppState.user no está listo, intentar recuperarlo de AuthModule o SessionStorage
+            let user = window.AppState?.user;
+            if (!user || (!user.name && !user.nombre)) {
+                const sessionUser = sessionStorage.getItem('friparts_user');
+                if (sessionUser) {
+                    const parsed = JSON.parse(sessionUser);
+                    user = {
+                        name: parsed.nombre,
+                        nombre: parsed.nombre,
+                        rol: parsed.rol
+                    };
+                    console.log('📦 [Almacen] Usuario recuperado de sesión:', user.name);
+                }
+            }
+
+            const url = new URL('/api/pedidos/pendientes', window.location.origin);
+            if (user) {
+                const isAdmin = user.rol === 'Administración' ||
+                    (user.name && (user.name.toUpperCase().includes('ANDRES') || user.name.toUpperCase().includes('ANDRÉS')));
+
+                // Si es admin o Andres, pasamos el rol Administración para que el backend devuelva todo
+                url.searchParams.append('usuario', user.name || user.nombre || 'N/A');
+                url.searchParams.append('rol', isAdmin ? 'Administración' : (user.rol || 'N/A'));
+            }
+
+            // CRÍTICO: Cache buster para evitar que el navegador guarde la respuesta
+            url.searchParams.append('_t', Date.now());
+
+            const response = await fetch(url, {
+                cache: 'no-store', // Forzar al navegador a no usar cache
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
             const data = await response.json();
 
             if (data.success) {
@@ -37,13 +74,13 @@ const AlmacenModule = {
                 this.renderizarTarjetas();
             } else {
                 console.error('Error al cargar pedidos:', data.error);
-                mostrarNotificacion('Error al cargar pedidos pendientes', 'error');
+                if (showLoading) mostrarNotificacion('Error al cargar pedidos pendientes', 'error');
             }
         } catch (error) {
             console.error('Error fetch pedidos:', error);
-            mostrarNotificacion('Error de conexión con el servidor', 'error');
+            if (showLoading) mostrarNotificacion('Error de conexión con el servidor', 'error');
         } finally {
-            mostrarLoading(false);
+            if (showLoading) mostrarLoading(false);
         }
     },
 
@@ -72,44 +109,78 @@ const AlmacenModule = {
             // Colores sugeridos por el usuario
             const colorStatus = this.getColorPorEstadoProporcional(progresoAlisado, progresoEnviado);
 
+            const currentUser = window.AppState?.user;
+            // Natalia y Rol Administración pueden DELEGAR
+            const puedeDelegar = (currentUser?.name && (
+                currentUser.name.toUpperCase().includes('NATALIA') ||
+                currentUser.name.toUpperCase().includes('NATHALIA')
+            )) || currentUser?.rol === 'Administración';
+            const esParaMi = pedido.delegado_a === currentUser?.name;
+
             html += `
                 <div class="col-md-6 col-lg-4">
-                    <div class="card h-100 shadow-sm border-0" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')" 
-                        style="cursor: pointer; transition: transform 0.2s; border-radius: 12px; overflow: hidden; border-left: 5px solid ${colorStatus} !important;">
-                        <div style="background: #f8fafc; padding: 15px; border-bottom: 1px solid #edf2f7;">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span class="fw-bold text-primary" style="font-size: 1.1rem;">${pedido.id_pedido}</span>
-                                <span class="badge" style="background: ${colorStatus}; font-size: 0.75rem;">${pedido.estado}</span>
+                    <div class="card h-100 shadow-sm border-0 almacen-card-pro"
+                        style="transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); border-radius: 12px; overflow: hidden; border-left: 5px solid ${colorStatus} !important; background: #fff; min-height: 280px; display: flex; flex-direction: column;">
+                        <div style="background: #f8fafc; padding: 12px 15px; border-bottom: 1px solid #edf2f7; cursor: pointer;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                <span class="fw-bold text-primary" style="font-size: 0.9rem; white-space: nowrap; letter-spacing: -0.5px; overflow: hidden; text-overflow: ellipsis; max-width: 120px;">${pedido.id_pedido}</span>
+                                <div class="d-flex flex-wrap gap-1 align-items-center justify-content-end" style="flex: 1;">
+                                    ${esParaMi ? '<span class="badge bg-info" style="font-size: 0.6rem; padding: 4px 6px; font-weight: 700; border-radius: 4px;"><i class="fas fa-user-check me-1"></i>MÍO</span>' : ''}
+                                    <span class="badge" style="background: ${colorStatus}; font-size: 0.6rem; padding: 4px 6px; text-transform: uppercase; font-weight: 700; border-radius: 4px;">${pedido.estado}</span>
+                                </div>
                             </div>
                         </div>
-                        <div class="card-body" style="padding: 15px;">
-                            <h6 class="card-title fw-bold mb-1" style="color: #1e293b;">${pedido.cliente}</h6>
-                            <p class="text-muted small mb-3"><i class="fas fa-calendar-alt me-1"></i> ${pedido.fecha} | <i class="fas fa-user me-1"></i> ${pedido.vendedor}</p>
+                        <div class="card-body" style="padding: 15px; flex: 1; display: flex; flex-direction: column;">
+                            <h6 class="card-title fw-bold mb-1" style="color: #1e293b; cursor: pointer; font-size: 0.85rem; line-height: 1.3; margin-bottom: 8px !important;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">${pedido.cliente}</h6>
+                            <p class="text-muted mb-3" style="font-size: 0.7rem; margin-bottom: 12px !important;"><i class="fas fa-calendar-alt me-1"></i> ${pedido.fecha} | <i class="fas fa-user me-1"></i> ${pedido.vendedor}</p>
                             
                             <!-- Barra Doble de Progreso -->
-                            <div class="mb-3">
+                            <div class="mt-auto" style="cursor: pointer; margin-bottom: 10px;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="small fw-bold text-muted"><i class="fas fa-box me-1"></i> Alistado</span>
-                                    <span class="small fw-bold" style="color: #6366f1;">${progresoAlisado}%</span>
+                                    <span class="small fw-bold text-muted" style="font-size: 0.65rem;"><i class="fas fa-box me-1"></i> Alistado</span>
+                                    <span class="small fw-bold" style="color: #6366f1; font-size: 0.7rem;">${progresoAlisado}%</span>
                                 </div>
-                                <div class="progress" style="height: 6px; border-radius: 3px; background: #e2e8f0; margin-bottom: 8px;">
-                                    <div class="progress-bar" role="progressbar" style="width: ${progresoAlisado}%; background: #6366f1;" 
+                                <div class="progress progress-modern" style="height: 6px; border-radius: 10px; background: #f1f5f9; margin-bottom: 10px;">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated progress-bar-shimmer ${progresoAlisado > 0 ? 'progress-glow-indigo' : ''}" role="progressbar" style="width: ${progresoAlisado}%; background: linear-gradient(90deg, #6366f1, #818cf8);" 
                                         aria-valuenow="${progresoAlisado}" aria-valuemin="0" aria-valuemax="100"></div>
                                 </div>
 
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="small fw-bold text-muted"><i class="fas fa-truck me-1"></i> Despachado</span>
-                                    <span class="small fw-bold" style="color: #10b981;">${progresoEnviado}%</span>
+                                    <span class="small fw-bold text-muted" style="font-size: 0.65rem;"><i class="fas fa-truck me-1"></i> Despachado</span>
+                                    <span class="small fw-bold" style="color: #10b981; font-size: 0.7rem;">${progresoEnviado}%</span>
                                 </div>
-                                <div class="progress" style="height: 6px; border-radius: 3px; background: #e2e8f0;">
-                                    <div class="progress-bar" role="progressbar" style="width: ${progresoEnviado}%; background: #10b981;" 
+                                <div class="progress progress-modern" style="height: 6px; border-radius: 10px; background: #f1f5f9;">
+                                    <div class="progress-bar progress-bar-shimmer ${progresoEnviado > 0 ? 'progress-glow-emerald' : ''}" role="progressbar" style="width: ${progresoEnviado}%; background: linear-gradient(90deg, #10b981, #34d399);" 
                                         aria-valuenow="${progresoEnviado}" aria-valuemin="0" aria-valuemax="100"></div>
                                 </div>
                             </div>
+
+                            ${puedeDelegar ? `
+                            <div class="mt-3 pt-3 border-top" style="border-top: 1px dashed #e2e8f0 !important;">
+                                <label class="small fw-bold text-muted mb-2 d-block text-uppercase" style="letter-spacing: 0.5px; font-size: 0.6rem; opacity: 0.7;">Delegar Alistamiento</label>
+                                <div class="input-group input-group-sm">
+                                    <select class="form-select select-delegar" id="select-delegar-${pedido.id_pedido}" style="border-radius: 6px 0 0 6px; font-size: 0.75rem; border-color: #e2e8f0; background-color: #f8fafc;">
+                                        <option value="">Sin asignar</option>
+                                        ${(window.AppState.sharedData.responsables || [])
+                        .filter(r => {
+                            const depto = (typeof r === 'object' ? r.departamento : '').toUpperCase();
+                            return depto.includes('ALISTAMIENTO');
+                        })
+                        .map(r => {
+                            const nome = typeof r === 'object' ? r.nombre : r;
+                            return `<option value="${nome}" ${pedido.delegado_a === nome ? 'selected' : ''}>${nome}</option>`;
+                        }).join('')}
+                                    </select>
+                                    <button class="btn btn-primary" onclick="AlmacenModule.delegarPedido('${pedido.id_pedido}')" style="border-radius: 0 6px 6px 0; padding: 0 12px; background: #4f46e5; border: none;">
+                                        <i class="fas fa-user-plus" style="font-size: 0.8rem;"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            ` : ''}
                         </div>
                     </div>
                 </div>
-            `;
+    `;
         });
         html += '</div>';
         container.innerHTML = html;
@@ -146,8 +217,8 @@ const AlmacenModule = {
 
         this.pedidoActual = JSON.parse(JSON.stringify(pedido)); // Clonar para no afectar el original hasta guardar
 
-        document.getElementById('modal-alistamiento-titulo').innerText = `Alistamiento: ${pedido.id_pedido}`;
-        document.getElementById('modal-alistamiento-cliente').innerText = `Cliente: ${pedido.cliente}`;
+        document.getElementById('modal-alistamiento-titulo').innerText = `Alistamiento: ${pedido.id_pedido} `;
+        document.getElementById('modal-alistamiento-cliente').innerText = `Cliente: ${pedido.cliente} `;
 
         this.renderizarProductosChecklist();
         this.actualizarProgresoVisual();
@@ -171,7 +242,7 @@ const AlmacenModule = {
             const isCompletoEnviado = prod.cant_enviada == prod.cantidad;
 
             html += `
-                <div class="p-3 mb-3 bg-white border rounded shadow-sm">
+    <div class="p-3 mb-3 bg-white border rounded shadow-sm">
                     <div class="d-flex justify-content-between align-items-start mb-3">
                         <div>
                             <div class="fw-bold" style="color: #1e293b; font-size: 1.1rem;">${prod.codigo}</div>
@@ -222,7 +293,7 @@ const AlmacenModule = {
                         </div>
                     </div>
                 </div>
-            `;
+    `;
         });
         container.innerHTML = html;
     },
@@ -241,13 +312,6 @@ const AlmacenModule = {
 
         val = Math.max(0, Math.min(max, val + delta));
         this.cambiarCantidad(index, val, campo);
-    },
-
-    /**
-     * Marcar un item como completamente listo
-     */
-    marcarCompleto: function (index) {
-        this.cambiarCantidad(index, this.pedidoActual.productos[index].cantidad);
     },
 
     /**
@@ -300,12 +364,24 @@ const AlmacenModule = {
         const barEnviado = document.getElementById('modal-enviado-progress');
 
         if (barAlisado) {
-            barAlisado.style.width = `${pctAlisado}%`;
-            barAlisado.innerText = `Alistado: ${pctAlisado}%`;
+            barAlisado.style.width = `${pctAlisado}% `;
+            barAlisado.innerText = `Alistado: ${pctAlisado}% `;
+
+            // Añadir efectos dinámicos
+            barAlisado.parentElement.classList.add('progress-modern');
+            barAlisado.classList.add('progress-bar-shimmer');
+            if (pctAlisado > 0) barAlisado.classList.add('progress-glow-indigo');
+            else barAlisado.classList.remove('progress-glow-indigo');
         }
         if (barEnviado) {
-            barEnviado.style.width = `${pctEnviado}%`;
-            barEnviado.innerText = `Enviado: ${pctEnviado}%`;
+            barEnviado.style.width = `${pctEnviado}% `;
+            barEnviado.innerText = `Enviado: ${pctEnviado}% `;
+
+            // Añadir efectos dinámicos
+            barEnviado.parentElement.classList.add('progress-modern');
+            barEnviado.classList.add('progress-bar-shimmer');
+            if (pctEnviado > 0) barEnviado.classList.add('progress-glow-emerald');
+            else barEnviado.classList.remove('progress-glow-emerald');
         }
     },
 
@@ -356,8 +432,8 @@ const AlmacenModule = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id_pedido: this.pedidoActual.id_pedido,
-                    progreso: `${pctLis}%`,
-                    progreso_despacho: `${pctEnv}%`,
+                    progreso: `${pctLis}% `,
+                    progreso_despacho: `${pctEnv}% `,
                     estado: estado,
                     detalles: detalles
                 })
@@ -413,7 +489,7 @@ const AlmacenModule = {
                 const modal = document.getElementById('modalAlistamiento');
                 if (modal && modal.style.display !== 'flex' && modal.style.display !== 'block') {
                     console.log('📺 [Almacen] Refresco automático de Modo TV...');
-                    this.cargarPedidos();
+                    this.cargarPedidos(false);
                 }
             }, 30000);
 
@@ -438,13 +514,129 @@ const AlmacenModule = {
                 this.tvInterval = null;
             }
         }
+    },
+
+    /**
+     * Delegar un pedido a una colaboradora
+     */
+    delegarPedido: async function (id_pedido) {
+        const select = document.getElementById(`select-delegar-${id_pedido}`);
+        if (!select) return;
+
+        const colaboradora = select.value;
+        const title = colaboradora ? 'Confirmar Asignación' : 'Quitar Asignación';
+        const confirmMsg = colaboradora
+            ? `¿Deseas asignar el pedido <b>${id_pedido}</b> a <b>${colaboradora}</b>?`
+            : `¿Deseas quitar la asignación del pedido <b>${id_pedido}</b>?`;
+
+        const confirmar = await this.mostrarConfirmacion(title, confirmMsg);
+        if (!confirmar) return;
+
+        try {
+            mostrarLoading(true);
+            const response = await fetch('/api/pedidos/delegar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id_pedido: id_pedido,
+                    colaboradora: colaboradora
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                mostrarNotificacion(`Pedido ${id_pedido} actualizado`, 'success');
+                this.cargarPedidos();
+            } else {
+                mostrarNotificacion(data.error || 'Error al delegar', 'error');
+            }
+        } catch (error) {
+            console.error('Error delegando:', error);
+            mostrarNotificacion('Error de conexión', 'error');
+        } finally {
+            mostrarLoading(false);
+        }
+    },
+
+    /**
+     * Mostrar confirmación personalizada estilo Pedidos
+     */
+    mostrarConfirmacion: function (titulo, mensaje) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '10001';
+            modal.innerHTML = `
+    <div class="modal-content confirmation-modal-pro" style = "max-width: 420px; border: none; overflow: hidden; background-color: #ffffff; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);">
+                    <div class="modal-header" style="background: white; border-bottom: 1px solid #e5e7eb; padding: 20px 25px;">
+                        <h3 style="color: #111827; margin: 0; font-size: 1.15rem; font-weight: 700;">
+                            <i class="fas fa-question-circle" style="color: #6366f1; margin-right: 12px;"></i> ${titulo}
+                        </h3>
+                    </div>
+                    <div class="modal-body" style="padding: 25px; color: #4b5563; font-size: 0.95rem; line-height: 1.5; background-color: #ffffff;">
+                        <p style="margin: 0;">${mensaje}</p>
+                    </div>
+                    <div class="modal-footer" style="background: #f9fafb; padding: 15px 25px; border-top: 1px solid #e5e7eb; display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="btn btn-sm btn-secondary" id="modal-cancelar" style="background: white; border: 1px solid #d1d5db; color: #4b5563; padding: 7px 15px; font-weight: 600; border-radius: 8px;">
+                            Cancelar
+                        </button>
+                        <button class="btn btn-sm btn-primary" id="modal-confirmar" style="background: #4f46e5; color: white; border: none; padding: 7px 20px; font-weight: 600; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4);">
+                            Confirmar
+                        </button>
+                    </div>
+                </div>
+    `;
+
+            document.body.appendChild(modal);
+
+            document.getElementById('modal-confirmar').addEventListener('click', () => {
+                document.body.removeChild(modal);
+                resolve(true);
+            });
+
+            document.getElementById('modal-cancelar').addEventListener('click', () => {
+                document.body.removeChild(modal);
+                resolve(false);
+            });
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                    resolve(false);
+                }
+            });
+        });
+    },
+
+    /**
+     * Iniciar refresco automático cada 60 segundos si la pestaña está activa
+     */
+    iniciarAutoRefresco: function () {
+        if (this.autoRefreshInterval) return;
+
+        console.log('⏱️ [Almacen] Iniciando poll background (60s)...');
+        this.autoRefreshInterval = setInterval(() => {
+            const paginaActual = window.AppState?.paginaActual;
+            const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex';
+
+            if (paginaActual === 'almacen' && !this.isTVMode && !modalAbierto) {
+                console.log('🔄 [Almacen] Auto-refresco de fondo...');
+                this.cargarPedidos(false);
+            }
+        }, 60000);
+    },
+
+    /**
+     * Detener el refresco automático
+     */
+    detenerAutoRefresco: function () {
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+            this.autoRefreshInterval = null;
+        }
     }
 };
 
-// Auto-inicializar cuando el script cargue
-document.addEventListener('DOMContentLoaded', () => {
-    // Solo inicializar si estamos en la app principal
-    if (typeof AppState !== 'undefined') {
-        AlmacenModule.inicializar();
-    }
-});
+// Exportación global para app.js
+window.AlmacenModule = AlmacenModule;
+window.initAlmacen = () => AlmacenModule.inicializar();

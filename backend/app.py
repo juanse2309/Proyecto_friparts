@@ -53,6 +53,12 @@ PRODUCTOS_CACHE = {
 }
 PRODUCTOS_CACHE_TTL = 120  # segundos (ajusta a 120, 300, etc.)
 
+RESPONSABLES_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 300  # 5 minutos
+}
+
 class Hojas:
     INYECCION = "INYECCION"
     PNC_INYECCION = "PNC INYECCION"
@@ -2342,9 +2348,15 @@ def obtener_ficha(id_codigo):
 
 @app.route('/api/obtener_responsables', methods=['GET'])
 def obtener_responsables():
-    """Obtiene la lista de responsables activos (ACTIVO? = 1)."""
+    """Obtiene la lista de responsables activos (ACTIVO? = 1) - CON CACHE."""
     try:
-        logger.info(f" Obteniendo responsables desde: {GSHEET_FILE_NAME}")
+        # Verificar cache
+        ahora = time.time()
+        if RESPONSABLES_CACHE["data"] and (ahora - RESPONSABLES_CACHE["timestamp"]) < RESPONSABLES_CACHE["ttl"]:
+            logger.info("⚡ Usando cache para responsables")
+            return jsonify(RESPONSABLES_CACHE["data"]), 200
+
+        logger.info(f" 🔄 Obteniendo responsables desde: {GSHEET_FILE_NAME}")
         
         ss = gc.open_by_key(GSHEET_KEY)
         hojas = [ws.title for ws in ss.worksheets()]
@@ -2385,13 +2397,23 @@ def obtener_responsables():
                     # Buscar responsable en diferentes columnas posibles
                     for col in ['RESPONSABLE', 'NOMBRE', 'OPERARIO', 'NOMBRE COMPLETO']:
                         if col in r and r[col]:
-                            responsable = str(r[col]).strip()
-                            if responsable:
-                                nombres.append(responsable)
+                            responsable_nombre = str(r[col]).strip()
+                            if responsable_nombre:
+                                depto = str(r.get('DEPARTAMENTO', '')).strip()
+                                nombres.append({
+                                    "nombre": responsable_nombre,
+                                    "departamento": depto
+                                })
                                 break
                 
                 logger.info(f" Responsables ACTIVOS encontrados: {len(nombres)}")
-                return jsonify(sorted(list(set(nombres)))), 200
+                
+                # Guardar en cache (ordenador por nombre)
+                resultado = sorted(nombres, key=lambda x: x['nombre'])
+                RESPONSABLES_CACHE["data"] = resultado
+                RESPONSABLES_CACHE["timestamp"] = ahora
+                
+                return jsonify(resultado), 200
                 
             except Exception as e:
                 logger.warning(f" Hoja {nombre_hoja} no encontrada: {e}")

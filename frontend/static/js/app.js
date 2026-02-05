@@ -28,12 +28,12 @@ async function cargarDatosCompartidos() {
     try {
         console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
 
-        // Cargar todos los datos en paralelo para mejor rendimiento
+        const t = Date.now();
         const [resProd, resResp, resMaq, resCli] = await Promise.all([
-            fetch('/api/productos/listar'),  // Endpoint correcto (no listar_v2)
-            fetch('/api/obtener_responsables'),
-            fetch('/api/obtener_maquinas'),
-            fetch('/api/obtener_clientes')
+            fetch(`/api/productos/listar?_t=${t}`),
+            fetch(`/api/obtener_responsables?_t=${t}`),
+            fetch(`/api/obtener_maquinas?_t=${t}`),
+            fetch(`/api/obtener_clientes?_t=${t}`)
         ]);
 
         // 1. Procesar productos
