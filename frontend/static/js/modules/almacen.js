@@ -102,7 +102,24 @@ const AlmacenModule = {
         }
 
         let html = '<div class="row g-3">';
-        this.pedidosPendientes.forEach(pedido => {
+        // Filtrar pedidos completados (100% Alistado y 100% Enviado)
+        const pendientesReales = this.pedidosPendientes.filter(p => {
+            const alistado = parseInt(p.progreso) || 0;
+            const enviado = parseInt(p.progreso_despacho) || 0;
+            return !(alistado === 100 && enviado === 100);
+        });
+
+        if (pendientesReales.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-5 text-muted empty-state-almacen">
+                     <i class="fas fa-check-circle fa-3x mb-3" style="opacity: 0.2; color: #10b981;"></i>
+                    <p>¡Todo al día! No hay pedidos pendientes de gestión.</p>
+                </div>
+            `;
+            return;
+        }
+
+        pendientesReales.forEach(pedido => {
             const progresoAlisado = parseInt(pedido.progreso) || 0;
             const progresoEnviado = parseInt(pedido.progreso_despacho) || 0;
 
@@ -619,7 +636,10 @@ const AlmacenModule = {
             const paginaActual = window.AppState?.paginaActual;
             const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex';
 
-            if (paginaActual === 'almacen' && !this.isTVMode && !modalAbierto) {
+            // Verificación robusta: página actual O existencia del contenedor
+            const esPaginaAlmacen = paginaActual === 'almacen' || !!document.getElementById('almacen-container');
+
+            if (esPaginaAlmacen && !this.isTVMode && !modalAbierto) {
                 console.log('🔄 [Almacen] Auto-refresco de fondo...');
                 this.cargarPedidos(false);
             }
