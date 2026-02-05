@@ -614,7 +614,7 @@ const AlmacenModule = {
     iniciarAutoRefresco: function () {
         if (this.autoRefreshInterval) return;
 
-        console.log('⏱️ [Almacen] Iniciando poll background (60s)...');
+        console.log('⏱️ [Almacen] Iniciando poll background (15s)...');
         this.autoRefreshInterval = setInterval(() => {
             const paginaActual = window.AppState?.paginaActual;
             const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex';
@@ -623,7 +623,7 @@ const AlmacenModule = {
                 console.log('🔄 [Almacen] Auto-refresco de fondo...');
                 this.cargarPedidos(false);
             }
-        }, 60000);
+        }, 15000);
     },
 
     /**
