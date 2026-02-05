@@ -369,7 +369,9 @@ def obtener_pedidos_pendientes():
                     "descripcion": r.get("DESCRIPCION"),
                     "cantidad": r.get("CANTIDAD"),
                     "cant_lista": r.get("CANT_ALISTADA", 0),
-                    "cant_enviada": r.get("CANT_ENVIADA", 0)
+                    "cant_enviada": r.get("CANT_ENVIADA", 0),
+                    # Leer estado booleano de despacho (convertir string 'TRUE'/'FALSE' a bool)
+                    "despachado": str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper() == "TRUE"
                 })
             
             # Siempre intentamos obtener el progreso de despacho si existe
@@ -433,6 +435,7 @@ def delegar_pedido():
 def actualizar_alistamiento():
     """
     Actualiza el progreso y estado de un pedido en Google Sheets.
+    Ahora soporta ESTADO_DESPACHO como boolean (CHECKBOX).
     """
     try:
         data = request.json
@@ -440,7 +443,7 @@ def actualizar_alistamiento():
         progreso = data.get("progreso")          # Alistamiento %
         progreso_despacho = data.get("progreso_despacho") # Despacho %
         estado = data.get("estado")              # ej: "EN ALISTAMIENTO", "ENVIADO", etc.
-        detalles = data.get("detalles", [])      # [{codigo, cant_lista, cant_enviada}, ...]
+        detalles = data.get("detalles", [])      # [{codigo, cant_lista, despachado}, ...]
         
         if not id_pedido:
             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
@@ -465,15 +468,14 @@ def actualizar_alistamiento():
         asegurar_columna("PROGRESO")
         asegurar_columna("CANT_ALISTADA")
         asegurar_columna("PROGRESO_DESPACHO")
-        asegurar_columna("CANT_ENVIADA")
+        # Asegurar columna booleana para despacho
+        asegurar_columna("ESTADO_DESPACHO")
             
         col_estado = headers.index("ESTADO") + 1
         col_progreso = headers.index("PROGRESO") + 1
-        col_id = headers.index("ID PEDIDO") + 1
-        col_codigo = headers.index("ID CODIGO") + 1
         col_cant_lista = headers.index("CANT_ALISTADA") + 1
         col_progreso_despacho = headers.index("PROGRESO_DESPACHO") + 1
-        col_cant_enviada = headers.index("CANT_ENVIADA") + 1
+        col_estado_despacho = headers.index("ESTADO_DESPACHO") + 1
         
         updates = []
         for idx, r in enumerate(registros):
@@ -506,10 +508,13 @@ def actualizar_alistamiento():
                                 'range': gspread.utils.rowcol_to_a1(fila, col_cant_lista),
                                 'values': [[d.get("cant_lista")]]
                             })
-                        if "cant_enviada" in d:
+                        # ACTUALIZACION CHECKBOX DESPACHO
+                        if "despachado" in d:
+                            # Convertir a TRUE/FALSE string para Sheets
+                            val_despacho = "TRUE" if d.get("despachado") else "FALSE"
                             updates.append({
-                                'range': gspread.utils.rowcol_to_a1(fila, col_cant_enviada),
-                                'values': [[d.get("cant_enviada")]]
+                                'range': gspread.utils.rowcol_to_a1(fila, col_estado_despacho),
+                                'values': [[val_despacho]]
                             })
         
         if updates:

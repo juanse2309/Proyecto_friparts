@@ -4339,3 +4339,40 @@ body.loaded {
     overflow: visible !important;
     /* Permitir que el resplandor salga */
 }
+
+/* Animation for progress bar shimmer */
+.progress-bar-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar-shimmer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background-image: linear-gradient(-45deg,
+            rgba(255, 255, 255, 0.2) 25%,
+            transparent 25%,
+            transparent 50%,
+            rgba(255, 255, 255, 0.2) 50%,
+            rgba(255, 255, 255, 0.2) 75%,
+            transparent 75%,
+            transparent);
+    z-index: 1;
+    background-size: 50px 50px;
+    animation: shimmer-move 2s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes shimmer-move {
+    0% {
+        background-position: 0 0;
+    }
+
+    100% {
+        background-position: 50px 50px;
+    }
+}

@@ -251,15 +251,48 @@ const AlmacenModule = {
         if (!container) return;
 
         let html = '';
+        let itemsVisibles = 0;
+
         this.pedidoActual.productos.forEach((prod, index) => {
             if (prod.cant_lista === undefined) prod.cant_lista = 0;
-            if (prod.cant_enviada === undefined) prod.cant_enviada = 0;
+            // Asegurar booleano
+            if (prod.despachado === undefined) prod.despachado = false;
 
-            const isCompletoAlisado = prod.cant_lista == prod.cantidad;
-            const isCompletoEnviado = prod.cant_enviada == prod.cantidad;
+            // CRÍTICO: Si está 100% alistado y despachado, no renderizar (ya desapareció)
+            if (prod.cant_lista >= prod.cantidad && prod.despachado) {
+                return;
+            }
+
+            itemsVisibles++;
+            const isCompletoAlisado = prod.cant_lista >= prod.cantidad;
+
+            // Lógica de Estado Visual (Tri-estado)
+            const isReadyToDispatch = isCompletoAlisado && !prod.despachado;
+
+            // Colores Dinámicos
+            let bgClass = '#f8fafc'; // Gris (Default/Disabled)
+            let borderClass = '#e2e8f0';
+            let iconHtml = '<i class="far fa-circle"></i> PENDIENTE';
+            let labelStyle = 'color: #94a3b8;'; // Gray 400
+
+            if (prod.despachado) {
+                bgClass = '#dcfce7'; // Green 100
+                borderClass = '#22c55e'; // Green 500
+                iconHtml = '<i class="fas fa-check-circle"></i> DESPACHADO';
+                labelStyle = 'color: #15803d;'; // Green 700
+            } else if (isReadyToDispatch) {
+                bgClass = '#fff7ed'; // Orange 50
+                borderClass = '#fdba74'; // Orange 300
+                iconHtml = '<i class="far fa-clock"></i> LISTO PARA ENVIAR';
+                labelStyle = 'color: #ea580c;'; // Orange 600
+            }
+
+            // ID único para el checkbox
+            const checkId = `check-despacho-${index}`;
 
             html += `
-    <div class="p-3 mb-3 bg-white border rounded shadow-sm">
+                <div class="product-row-item p-3 mb-3 bg-white border rounded shadow-sm" id="row-prod-${index}" 
+                     style="transition: all 0.5s ease; opacity: 1;">
                     <div class="d-flex justify-content-between align-items-start mb-3">
                         <div>
                             <div class="fw-bold" style="color: #1e293b; font-size: 1.1rem;">${prod.codigo}</div>
@@ -272,60 +305,102 @@ const AlmacenModule = {
                         </div>
                     </div>
                     
-                    <div class="row g-2">
+                    <div class="row g-3 align-items-center">
                         <!-- Control de Alistamiento (Caja) -->
-                        <div class="col-6">
+                        <div class="col-7">
                             <div class="p-2 rounded" style="background: #f0f7ff; border: 1px solid #dbeafe;">
-                                <label class="small fw-bold text-primary mb-1 d-block"><i class="fas fa-box"></i> Alistado</label>
-                                <div class="input-group input-group-sm">
-                                    <button class="btn btn-white border" type="button" onclick="AlmacenModule.ajustarCantidad(${index}, -1, 'cant_lista')">-</button>
+                                <label class="small fw-bold text-primary mb-1 d-block"><i class="fas fa-box"></i> Alistamiento</label>
+                                <div class="input-group input-group-lg">
+                                    <button class="btn btn-white border" type="button" 
+                                        onclick="AlmacenModule.ajustarCantidad(${index}, -1, 'cant_lista')"
+                                        style="min-width: 48px;">-</button>
                                     <input type="number" class="form-control text-center fw-bold" 
                                         value="${prod.cant_lista}" 
                                         onchange="AlmacenModule.cambiarCantidad(${index}, this.value, 'cant_lista')"
-                                        style="font-size: 1rem; border-color: #6366f1;">
-                                    <button class="btn btn-white border" type="button" onclick="AlmacenModule.ajustarCantidad(${index}, 1, 'cant_lista')">+</button>
+                                        style="font-size: 1.2rem; border-color: #6366f1;">
+                                    <button class="btn btn-white border" type="button" 
+                                        onclick="AlmacenModule.ajustarCantidad(${index}, 1, 'cant_lista')"
+                                        style="min-width: 48px;">+</button>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Control de Despacho (Camion) -->
-                        <div class="col-6">
-                            <div class="p-2 rounded ${prod.cant_lista === 0 ? 'opacity-50' : ''}" 
-                                style="background: #f0fdf4; border: 1px solid #dcfce7; transition: opacity 0.3s;">
-                                <label class="small fw-bold text-success mb-1 d-block"><i class="fas fa-truck"></i> Enviado</label>
-                                <div class="input-group input-group-sm">
-                                    <button class="btn btn-white border" type="button" 
-                                        ${prod.cant_lista === 0 ? 'disabled' : ''}
-                                        onclick="AlmacenModule.ajustarCantidad(${index}, -1, 'cant_enviada')">-</button>
-                                    <input type="number" class="form-control text-center fw-bold" 
-                                        value="${prod.cant_enviada}" 
-                                        ${prod.cant_lista === 0 ? 'disabled' : ''}
-                                        onchange="AlmacenModule.cambiarCantidad(${index}, this.value, 'cant_enviada')"
-                                        style="font-size: 1rem; border-color: #10b981;">
-                                    <button class="btn btn-white border" type="button" 
-                                        ${prod.cant_lista === 0 ? 'disabled' : ''}
-                                        onclick="AlmacenModule.ajustarCantidad(${index}, 1, 'cant_enviada')">+</button>
+                        <!-- Checkbox de Despacho Simplificado -->
+                        <div class="col-5">
+                            <div class="p-2 rounded d-flex flex-column align-items-center justify-content-center h-100 ${!isCompletoAlisado ? 'opacity-50' : ''}" 
+                                style="background: ${bgClass}; border: 1px solid ${borderClass}; transition: all 0.3s; position: relative;">
+                                
+                                <label class="small fw-bold mb-2 d-block text-center" style="${labelStyle} transition: color 0.3s;">
+                                    ${iconHtml}
+                                </label>
+
+                                <div class="form-check form-switch d-flex justify-content-center">
+                                    <input class="form-check-input scale-125" type="checkbox" role="switch" id="${checkId}"
+                                        ${prod.despachado ? 'checked' : ''}
+                                        ${!isCompletoAlisado ? 'disabled' : ''}
+                                        onchange="AlmacenModule.toggleDespacho(${index}, this.checked)"
+                                        style="width: 3.5rem; height: 1.75rem; cursor: pointer; ${isReadyToDispatch ? 'border-color: #fdba74; background-color: #fed7aa;' : ''}">
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-    `;
+            `;
         });
+
+        if (itemsVisibles === 0) {
+            html = `
+                <div class="text-center py-5">
+                    <i class="fas fa-check-double fa-3x text-success mb-3"></i>
+                    <h5 class="text-muted">¡Todo alistado y despachado!</h5>
+                    <p class="small text-muted">Este pedido se cerrará automáticamente.</p>
+                </div>
+            `;
+        }
+
         container.innerHTML = html;
     },
 
     /**
-     * Ajustar cantidad con botones +/- genérico para ambos estados
+     * Alternar estado de despacho y guardar automáticamente
+     * Si está completo (alistado=cantidad) y se despacha, iniciar fade-out
+     */
+    toggleDespacho: function (index, checked) {
+        this.pedidoActual.productos[index].despachado = checked;
+
+        // Efecto Sonoro/Háptico
+        if (window.HapticFeedback) window.HapticFeedback.light();
+
+        this.actualizarProgresoVisual();
+
+        // Si se marca como despachado y estaba completamente alistado, aplicar efecto fade-out despues de breve delay
+        const prod = this.pedidoActual.productos[index];
+        if (checked && prod.cant_lista >= prod.cantidad) {
+            setTimeout(() => {
+                const row = document.getElementById(`row-prod-${index}`);
+                if (row) {
+                    row.style.transform = 'translateX(50px)';
+                    row.style.opacity = '0';
+                    setTimeout(() => {
+                        this.renderizarProductosChecklist();
+                    }, 500); // Esperar a que termine la transición CSS
+                } else {
+                    this.renderizarProductosChecklist();
+                }
+            }, 500); // 500ms para que vea el check verde
+        } else {
+            this.renderizarProductosChecklist();
+        }
+    },
+
+    /**
+     * Ajustar cantidad con botones +/- genérico
      */
     ajustarCantidad: function (index, delta, campo) {
+        if (campo === 'cant_enviada') return; // Deprecado, usar toggleDespacho
+
         let val = parseInt(this.pedidoActual.productos[index][campo]) || 0;
         let max = this.pedidoActual.productos[index].cantidad;
-
-        // Validación: Despacho no puede superar al Alistamiento
-        if (campo === 'cant_enviada') {
-            max = this.pedidoActual.productos[index].cant_lista;
-        }
 
         val = Math.max(0, Math.min(max, val + delta));
         this.cambiarCantidad(index, val, campo);
@@ -335,23 +410,15 @@ const AlmacenModule = {
      * Cambiar cantidad manualmente genérico
      */
     cambiarCantidad: function (index, valor, campo) {
+        if (campo === 'cant_enviada') return; // Deprecado
+
         let max = this.pedidoActual.productos[index].cantidad;
-
-        // Validación: Despacho no puede superar al Alistamiento
-        if (campo === 'cant_enviada') {
-            max = this.pedidoActual.productos[index].cant_lista;
-        }
-
         let num = parseInt(valor) || 0;
+
         if (num < 0) num = 0;
         if (num > max) num = max;
 
         this.pedidoActual.productos[index][campo] = num;
-
-        // Si bajamos el alistamiento por debajo del despacho, bajamos el despacho automáticamente
-        if (campo === 'cant_lista' && this.pedidoActual.productos[index].cant_enviada > num) {
-            this.pedidoActual.productos[index].cant_enviada = num;
-        }
 
         this.renderizarProductosChecklist();
         this.actualizarProgresoVisual();
@@ -365,16 +432,19 @@ const AlmacenModule = {
     actualizarProgresoVisual: function () {
         let totalRequerido = 0;
         let totalListo = 0;
-        let totalEnviado = 0;
+        let itemsTotal = 0;
+        let itemsDespachados = 0;
 
         this.pedidoActual.productos.forEach(p => {
             totalRequerido += parseFloat(p.cantidad) || 0;
             totalListo += parseInt(p.cant_lista) || 0;
-            totalEnviado += parseInt(p.cant_enviada) || 0;
+            itemsTotal++;
+            if (p.despachado) itemsDespachados++;
         });
 
         const pctAlisado = totalRequerido > 0 ? Math.round((totalListo / totalRequerido) * 100) : 0;
-        const pctEnviado = totalRequerido > 0 ? Math.round((totalEnviado / totalRequerido) * 100) : 0;
+        // El progreso enviado ahora se basa en items despachados vs items totales
+        const pctEnviado = itemsTotal > 0 ? Math.round((itemsDespachados / itemsTotal) * 100) : 0;
 
         // Actualizar barras en el modal
         const barAlisado = document.getElementById('modal-alisado-progress');
@@ -383,8 +453,7 @@ const AlmacenModule = {
         if (barAlisado) {
             barAlisado.style.width = `${pctAlisado}% `;
             barAlisado.innerText = `Alistado: ${pctAlisado}% `;
-
-            // Añadir efectos dinámicos
+            // ... efectos ...
             barAlisado.parentElement.classList.add('progress-modern');
             barAlisado.classList.add('progress-bar-shimmer');
             if (pctAlisado > 0) barAlisado.classList.add('progress-glow-indigo');
@@ -392,9 +461,8 @@ const AlmacenModule = {
         }
         if (barEnviado) {
             barEnviado.style.width = `${pctEnviado}% `;
-            barEnviado.innerText = `Enviado: ${pctEnviado}% `;
-
-            // Añadir efectos dinámicos
+            barEnviado.innerText = `Enviado (Checks): ${pctEnviado}% `;
+            // ... efectos ...
             barEnviado.parentElement.classList.add('progress-modern');
             barEnviado.classList.add('progress-bar-shimmer');
             if (pctEnviado > 0) barEnviado.classList.add('progress-glow-emerald');
@@ -418,20 +486,22 @@ const AlmacenModule = {
 
         let totalReq = 0;
         let totalLis = 0;
-        let totalEnv = 0;
+        let itemsTotal = 0;
+        let itemsDespachados = 0;
 
         this.pedidoActual.productos.forEach(p => {
             totalReq += parseFloat(p.cantidad) || 0;
             totalLis += parseInt(p.cant_lista) || 0;
-            totalEnv += parseInt(p.cant_enviada) || 0;
+            itemsTotal++;
+            if (p.despachado) itemsDespachados++;
         });
 
         const pctLis = totalReq > 0 ? Math.round((totalLis / totalReq) * 100) : 0;
-        const pctEnv = totalReq > 0 ? Math.round((totalEnv / totalReq) * 100) : 0;
+        const pctEnv = itemsTotal > 0 ? Math.round((itemsDespachados / itemsTotal) * 100) : 0;
 
         // Determinar estado final para la UI
         let estado = 'EN ALISTAMIENTO';
-        if (pctEnv === 100) estado = 'DESPACHADO';
+        if (pctEnv === 100 && pctLis === 100) estado = 'DESPACHADO'; // Todo alistado y todo check despachado
         else if (pctEnv > 0) estado = 'DESPACHO PARCIAL';
         else if (pctLis === 100) estado = 'ALISTADO';
         else if (pctLis === 0) estado = 'PENDIENTE';
@@ -439,7 +509,7 @@ const AlmacenModule = {
         const detalles = this.pedidoActual.productos.map(p => ({
             codigo: p.codigo,
             cant_lista: p.cant_lista,
-            cant_enviada: p.cant_enviada
+            despachado: p.despachado // Enviamos el booleano
         }));
 
         try {
