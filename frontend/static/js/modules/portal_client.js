@@ -141,81 +141,159 @@ const ModuloPortal = {
         });
     },
 
+    // PAGINACIÓN
+    currentPage: 1,
+    itemsPerPage: 50,
+    currentFilteredProducts: [], // Para mantener estado de busqueda + paginacion
+
     renderizarProductos: function (productos) {
         const grid = document.getElementById('product-grid');
-        // Fallback: Si no pasan productos, usar el catalogo completo cargado
-        const lista = productos || this.productos;
 
-        if (!lista || lista.length === 0) {
+        // Determinar lista base: si pasan productos (ej: filtro), usarlos. Si no, usar this.productos completos.
+        // PERO: Si renderizarProductos se llama sin argumentos (reload), debemos ver si hay filtro activo o usar todo.
+        // Simplificación: Si 'productos' es undefined, usamos this.productos.
+        // Actualizamos 'currentFilteredProducts' solo si se pasa un array explicito (filtro o carga inicial).
+        if (productos) {
+            this.currentFilteredProducts = productos;
+            this.currentPage = 1; // Reset a pagina 1 al cambiar datos
+        } else if (this.currentFilteredProducts.length === 0 && this.productos.length > 0) {
+            this.currentFilteredProducts = this.productos; // Init default
+        }
+
+        const listaTotal = this.currentFilteredProducts;
+
+        if (!listaTotal || listaTotal.length === 0) {
             grid.innerHTML = '<div class="col-12 text-center text-muted py-5">No se encontraron productos.</div>';
             return;
         }
 
-        grid.innerHTML = lista.map(p => {
-            // Lógica de Imagen: Auto-Descubrimiento Local > URL > Placeholder
-            // Intentamos cargar la imagen local basada en el código. Si falla, el onerror probará la URL del excel.
-            // Si esa también falla (o no existe), se mostrará el placeholder (via CSS/display none).
+        // --- Paginación Slice ---
+        const start = (this.currentPage - 1) * this.itemsPerPage;
+        const end = start + this.itemsPerPage;
+        const listaPagina = listaTotal.slice(start, end);
+        const totalPages = Math.ceil(listaTotal.length / this.itemsPerPage);
 
+        // VISTA LISTA (Tabla)
+        grid.className = 'w-100';
+        grid.style.display = 'block';
+        grid.style.gridTemplateColumns = 'none';
+        grid.style.gap = '0';
+
+        const tableHeader = `
+            <div class="table-responsive">
+                <table class="table table-hover align-middle shadow-sm rounded-3 overflow-hidden" style="background: white;">
+                    <thead class="bg-light text-secondary small text-uppercase">
+                        <tr>
+                            <th scope="col" class="ps-4" style="width: 80px;">Img</th>
+                            <th scope="col" style="min-width: 200px;">Producto</th>
+                            <th scope="col" class="text-center">Stock</th>
+                            <th scope="col" class="text-end" style="min-width: 100px;">Precio</th>
+                            <th scope="col" class="text-center" style="width: 180px;">Solicitar</th>
+                        </tr>
+                    </thead>
+                    <tbody class="border-top-0">
+        `;
+
+        const tableBody = listaPagina.map(p => {
             const localImage = `/static/img/productos/${p.codigo.trim()}.jpg`;
             const fallbackImage = p.imagen && p.imagen.length > 5 ? p.imagen : '';
+            const noImage = '/static/img/no-image.png';
 
             return `
-            <div class="card h-100 shadow-sm border-0 hover-lift">
-                <div style="height: 160px; background: #fff; position: relative; overflow: hidden; border-radius: 12px 12px 0 0;">
-                    <!-- Layer 1: Placeholder (always there) -->
-                    <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#f8fafc; z-index: 1;">
-                        <i class="fas fa-box fa-3x text-muted opacity-25"></i>
+            <tr>
+                <td class="ps-4">
+                    <div class="position-relative bg-white rounded border d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                        <img src="${localImage}" 
+                             alt="${p.codigo}"
+                             class="rounded"
+                             style="width: 100%; height: 100%; object-fit: contain; cursor: pointer;"
+                             onclick="window.open(this.src, '_blank')"
+                             onerror="
+                                if (this.src.endsWith('.jpg')) { 
+                                    this.src = this.src.replace('.jpg', '.png'); 
+                                } else if (this.src.endsWith('.png') && '${fallbackImage}' !== '') { 
+                                    this.src = '${fallbackImage}'; 
+                                } else { 
+                                    this.src = '${noImage}';
+                                }
+                             ">
                     </div>
-                    
-                    <!-- Layer 2: Real Image (Local JPG -> Local PNG -> Excel -> Hidden) -->
-                    <img src="${localImage}" 
-                         alt="${p.descripcion}" 
-                         style="position: absolute; top:0; left:0; width: 100%; height: 100%; object-fit: contain; padding: 10px; transition: transform 0.3s; z-index: 2; background:white;"
-                         onerror="
-                            if (this.src.endsWith('.jpg')) { 
-                                this.src = this.src.replace('.jpg', '.png'); 
-                            } else if (this.src.endsWith('.png') && '${fallbackImage}' !== '') { 
-                                this.src = '${fallbackImage}'; 
-                            } else { 
-                                this.style.display='none'; 
-                            }
-                         ">
-                    
-                    <div style="position: absolute; top: 10px; right: 10px; z-index: 3;">
-                        ${this.getStockBadge(p.stock)}
+                </td>
+                <td>
+                    <div class="fw-bold text-dark mb-1" style="font-size: 0.95rem;">${p.descripcion}</div>
+                    <div class="d-flex align-items-center">
+                        <span class="badge bg-light text-secondary border fw-normal me-2">${p.codigo}</span>
                     </div>
-                </div>
-                <div class="card-body d-flex flex-column pt-2">
-                    <small class="text-muted fw-bold" style="font-size: 0.75rem;">${p.codigo}</small>
-                    <h6 class="card-title fw-bold text-dark mb-2" style="font-size: 0.95rem; line-height: 1.3;">${p.descripcion}</h6>
-                    
-                    <div class="mt-auto">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <span class="fs-5 fw-bold text-primary">
-                                ${p.precio > 0 ? '$' + p.precio.toLocaleString() : '<small class="text-muted fw-normal">Consultar</small>'}
-                            </span>
-                        </div>
-
-                        <div class="d-flex gap-2">
-                            <input type="number" id="qty-${p.codigo}" class="form-control text-center px-1" value="1" min="1" style="width: 60px; font-weight: 500;">
-                            <button class="btn btn-primary w-100 shadow-sm py-1" onclick="ModuloPortal.agregarAlCarrito('${p.codigo}')">
-                                <i class="fas fa-cart-plus me-1"></i> Agregar
-                            </button>
-                        </div>
+                </td>
+                <td class="text-center">
+                   ${this.getStockBadge(p.stock)}
+                </td>
+                <td class="text-end fw-bold text-dark">
+                    ${p.precio > 0 ? '$' + p.precio.toLocaleString() : '<span class="text-muted small">Consultar</span>'}
+                </td>
+                <td>
+                     <div class="d-flex align-items-center justify-content-end gap-2">
+                        <input type="number" id="qty-${p.codigo}" class="form-control form-control-sm text-center fw-bold" value="1" min="1" style="width: 60px;">
+                        <button class="btn btn-primary btn-sm px-3 fw-bold shadow-sm" onclick="ModuloPortal.agregarAlCarrito('${p.codigo}')">
+                            <i class="fas fa-plus"></i> <span class="d-none d-md-inline ms-1">Agregar</span>
+                        </button>
                     </div>
-                </div>
-            </div>
+                </td>
+            </tr>
             `;
         }).join('');
+
+        const tableFooter = `
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        // Controles de Paginación
+        const paginationControls = `
+            <div class="d-flex justify-content-between align-items-center py-3">
+                <small class="text-muted">Mostrando ${start + 1}-${Math.min(end, listaTotal.length)} de ${listaTotal.length} productos</small>
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm" 
+                        ${this.currentPage === 1 ? 'disabled' : ''} 
+                        onclick="ModuloPortal.cambiarPagina(-1)">
+                        <i class="fas fa-chevron-left"></i> Anterior
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" disabled>
+                        Página ${this.currentPage} de ${totalPages}
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" 
+                        ${this.currentPage >= totalPages ? 'disabled' : ''} 
+                        onclick="ModuloPortal.cambiarPagina(1)">
+                        Siguiente <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        grid.innerHTML = tableHeader + tableBody + tableFooter + paginationControls;
     },
 
+    cambiarPagina: function (delta) {
+        this.currentPage += delta;
+        // renderizarProductos sin args usa currentFilteredProducts y respeta currentPage
+        this.renderizarProductos();
+        // Scroll top suave
+        document.getElementById('product-grid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+
+    searchTimer: null,
     filtrarProductos: function () {
-        const query = document.getElementById('portal-search').value.toLowerCase();
-        const filtrados = this.productos.filter(p =>
-            p.descripcion.toLowerCase().includes(query) ||
-            p.codigo.toLowerCase().includes(query)
-        );
-        this.renderizarProductos(filtrados);
+        clearTimeout(this.searchTimer);
+        this.searchTimer = setTimeout(() => {
+            const query = document.getElementById('portal-search').value.toLowerCase();
+            const filtrados = this.productos.filter(p =>
+                p.descripcion.toLowerCase().includes(query) ||
+                p.codigo.toLowerCase().includes(query)
+            );
+            // Renderizar la lista filtrada (esto resetea page a 1)
+            this.renderizarProductos(filtrados);
+        }, 300); // Debounce 300ms
     },
 
     // =================================================================
@@ -307,14 +385,28 @@ const ModuloPortal = {
 
         const cartHtml = this.carrito.map((item, idx) => {
             const prod = this.productos.find(p => p.codigo === item.codigo);
-            // Fallback robusto de imagen
-            const imagen = prod && prod.imagen && prod.imagen.length > 5 ? prod.imagen : null;
+            // Fallback robusto de imagen (Igual que en renderizarProductos)
+            const localImage = `/static/img/productos/${item.codigo.trim()}.jpg`;
+            const fallbackImage = prod && prod.imagen && prod.imagen.length > 5 ? prod.imagen : '';
+            const noImage = '/static/img/no-image.png';
+
             const subtotal = item.cantidad * item.precio;
             totalPrecio += subtotal;
 
-            const imgHtml = imagen
-                ? `<img src="${imagen}" class="rounded-3 border" style="width: 60px; height: 60px; object-fit: contain; background: #fff;" onerror="this.src='/static/img/no-image.png'">`
-                : `<div class="rounded-3 border d-flex align-items-center justify-content-center bg-light text-secondary" style="width: 60px; height: 60px;"><i class="fas fa-image fa-lg opacity-50"></i></div>`;
+            const imgHtml = `
+                <img src="${localImage}" 
+                     class="rounded-3 border" 
+                     style="width: 60px; height: 60px; object-fit: contain; background: #fff;" 
+                     onerror="
+                        if (this.src.endsWith('.jpg')) { 
+                            this.src = this.src.replace('.jpg', '.png'); 
+                        } else if (this.src.endsWith('.png') && '${fallbackImage}' !== '') { 
+                            this.src = '${fallbackImage}'; 
+                        } else { 
+                            this.src = '${noImage}';
+                        }
+                     ">
+            `;
 
             return `
             <div class="cart-item-row d-flex align-items-center border-bottom py-3">
@@ -333,12 +425,12 @@ const ModuloPortal = {
                 </div>
 
                 <div class="d-flex flex-column align-items-end ms-3">
-                    <div class="quantity-control d-flex align-items-center bg-white border rounded-pill px-1 mb-2 shadow-sm" style="height: 32px;">
-                        <button class="btn btn-sm text-secondary border-0 p-0 px-2" onclick="ModuloPortal.cambiarCantidad(${idx}, -1)">
+                    <div class="quantity-control d-flex align-items-center bg-white border rounded-pill px-1 mb-2 shadow-sm" style="height: 38px;">
+                        <button class="btn btn-sm text-secondary border-0 p-0 px-3 h-100" onclick="ModuloPortal.cambiarCantidad(${idx}, -1)">
                             <i class="fas fa-minus small"></i>
                         </button>
-                        <input type="text" class="form-control border-0 text-center p-0 fw-bold text-dark bg-transparent" value="${item.cantidad}" readonly style="width: 30px; height: 30px; font-size: 0.9rem;">
-                        <button class="btn btn-sm text-primary border-0 p-0 px-2" onclick="ModuloPortal.cambiarCantidad(${idx}, 1)">
+                        <input type="text" class="form-control border-0 text-center p-0 fw-bold text-dark bg-transparent" value="${item.cantidad}" readonly style="width: 60px; height: 100%; font-size: 1rem;">
+                        <button class="btn btn-sm text-primary border-0 p-0 px-3 h-100" onclick="ModuloPortal.cambiarCantidad(${idx}, 1)">
                             <i class="fas fa-plus small"></i>
                         </button>
                     </div>

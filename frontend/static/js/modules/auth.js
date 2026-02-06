@@ -143,20 +143,15 @@ const AuthModule = {
     },
 
     toggleClientForms: function () {
-        const loginForm = document.getElementById('client-login-form');
-        const regForm = document.getElementById('client-register-form');
-        const title = document.getElementById('auth-title');
-
-        if (loginForm.style.display === 'none') {
-            loginForm.style.display = 'block';
-            regForm.style.display = 'none';
-            title.textContent = 'Bienvenido Cliente';
-        } else {
-            loginForm.style.display = 'none';
-            regForm.style.display = 'block';
-            title.textContent = 'Registro de Cuenta';
-        }
+        // Disabled public registration
+        // const loginForm = document.getElementById('client-login-form');
+        // ...
+        return;
     },
+
+    // =================================================================
+    // LÓGICA DE CLIENTE (Auth)
+    // =================================================================
 
     // =================================================================
     // LÓGICA DE CLIENTE (Auth)
@@ -183,9 +178,14 @@ const AuthModule = {
             const data = await response.json();
 
             if (data.success) {
-                this.setCurrentUser(data.user);
-                this.closeClientAuth();
-                this.hideLandingScreen();
+                if (data.requires_password_change) {
+                    this.closeClientAuth();
+                    this.showChangePasswordModal(email, password); // Pass current creds
+                } else {
+                    this.setCurrentUser(data.user);
+                    this.closeClientAuth();
+                    this.hideLandingScreen();
+                }
             } else {
                 this.mostrarNotificacion(data.message || "Error de inicio de sesión", 'error');
             }
@@ -198,42 +198,98 @@ const AuthModule = {
         }
     },
 
-    handleClientRegister: async function () {
-        const nit = document.getElementById('reg-nit').value;
-        const nombre = document.getElementById('reg-nombre').value;
-        const email = document.getElementById('reg-email').value;
-        const password = document.getElementById('reg-password').value;
-        const btn = document.querySelector('#client-register-form button');
-
-        if (!nit || !nombre || !email || !password) return alert("Todos los campos son obligatorios");
-
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registrando...';
-
-        try {
-            const response = await fetch('/api/auth/client/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nit, nombre, email, password })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.mostrarNotificacion("Registro exitoso. Iniciando sesión...", 'success');
-                this.toggleClientForms();
-                // Opcional: Auto-login aquí si se desea
-            } else {
-                this.mostrarNotificacion(data.message || "Error al registrar", 'error');
-            }
-        } catch (e) {
-            console.error(e);
-            this.mostrarNotificacion("Error de conexión al registrar", 'error');
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = 'Registrarse <i class="fas fa-check ms-2"></i>';
+    showChangePasswordModal: function (email, oldPassword) {
+        let modal = document.getElementById('change-pass-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'change-pass-modal';
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.85); z-index: 20000;
+                display: flex; align-items: center; justify-content: center;
+                backdrop-filter: blur(5px);
+            `;
+            modal.innerHTML = `
+                <div class="bg-white rounded-3 shadow-lg p-4" style="width: 100%; max-width: 400px; animation: slideIn 0.3s ease;">
+                    <div class="text-center mb-4">
+                        <i class="fas fa-key fa-3x text-warning mb-3"></i>
+                        <h4 class="fw-bold">Cambio de Contraseña</h4>
+                        <p class="text-muted small">Por seguridad, debes actualizar tu contraseña temporal.</p>
+                    </div>
+                    <form id="change-pass-form">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Nueva Contraseña</label>
+                            <input type="password" id="new-pass-1" class="form-control" required minlength="6">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small">Confirmar Contraseña</label>
+                            <input type="password" id="new-pass-2" class="form-control" required minlength="6">
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary fw-bold">Actualizar Contraseña</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(modal);
         }
+
+        // Reset inputs
+        if (document.getElementById('new-pass-1')) document.getElementById('new-pass-1').value = '';
+        if (document.getElementById('new-pass-2')) document.getElementById('new-pass-2').value = '';
+
+        modal.style.display = 'flex';
+
+        const form = document.getElementById('change-pass-form');
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const p1 = document.getElementById('new-pass-1').value;
+            const p2 = document.getElementById('new-pass-2').value;
+
+            if (p1 !== p2) return alert("Las contraseñas no coinciden");
+            if (p1.length < 6) return alert("La contraseña debe tener al menos 6 caracteres");
+
+            // Call API
+            try {
+                const btn = form.querySelector('button');
+                const orig = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = 'Actualizando...';
+
+                const res = await fetch('/api/auth/client/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: email,
+                        old_password: oldPassword,
+                        new_password: p1
+                    })
+                });
+
+                const d = await res.json();
+                if (d.success) {
+                    alert("Contraseña actualizada correctamente. Ingresa de nuevo.");
+                    modal.style.display = 'none';
+                    this.openClientAuth(); // Re-open logic
+                    // Pre-fill email?
+                    const emailInput = document.getElementById('client-email');
+                    if (emailInput) emailInput.value = email;
+                    const passInput = document.getElementById('client-password');
+                    if (passInput) passInput.value = ''; // Force them to type new pass
+                } else {
+                    alert(d.message || "Error al actualizar");
+                }
+                btn.disabled = false;
+                btn.innerHTML = orig;
+
+            } catch (err) {
+                console.error(err);
+                alert("Error de conexión");
+            }
+        };
     },
+
+    // handleClientRegister REMOVED - Public registration disabled
 
     // =================================================================
     // LÓGICA DE STAFF (Responsables)
@@ -442,7 +498,7 @@ const AuthModule = {
             const modulosAdmin = ['almacen', 'pedidos', 'historial', 'reportes', 'inventario', 'dashboard'];
             modulosAdmin.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
-        if (userNameUpper === 'PAOLA') {
+        if (userNameUpper.includes('PAOLA')) {
             const modulosExtra = ['pulido', 'ensamble', 'historial', 'almacen'];
             modulosExtra.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }

@@ -191,6 +191,8 @@ def login_client():
         records = ws_users.get_all_records()
         user_found = None
         
+        # Necesitamos el indice para actualizar después si fuera necesario (aunque gspread usa base 1)
+        # Lo buscaremos de nuevo en change-password si es necesario
         for row in records:
             if str(row.get('EMAIL')).lower() == email:
                 user_found = row
@@ -201,40 +203,114 @@ def login_client():
              
         # Verificar Hash
         stored_hash = user_found.get('PASSWORD_HASH')
+        password_ok = False
+        
         try:
             if check_password_hash(stored_hash, password):
-                if user_found.get('ESTADO') != 'ACTIVO':
-                     return jsonify({"success": False, "message": "Cuenta inactiva."}), 403
-                     
-                return jsonify({
-                    "success": True,
-                    "user": {
-                        "nombre": user_found.get('NOMBRE_EMPRESA'), # Para mostrar en UI
-                        "nombre_contacto": user_found.get('NOMBRE_CONTACTO'),
-                        "email": email,
-                        "nit": user_found.get('NIT_EMPRESA'),
-                        "rol": "Cliente",
-                        "tipo": "CLIENTE"
-                    }
-                })
-            else:
-                return jsonify({"success": False, "message": "Usuario o contraseña incorrectos"}), 401
+                password_ok = True
         except Exception:
-             # Fallback por si la pass no era hash (migracion o error manual)
+             # Fallback texto plano
              if stored_hash == password:
-                  return jsonify({
-                    "success": True,
-                    "user": {
-                        "nombre": user_found.get('NOMBRE_EMPRESA'),
-                        "nombre_contacto": user_found.get('NOMBRE_CONTACTO'),
-                        "email": email,
-                        "nit": user_found.get('NIT_EMPRESA'),
-                        "rol": "Cliente",
-                        "tipo": "CLIENTE"
-                    }
-                })
-             return jsonify({"success": False, "message": "Error de autenticación."}), 401
+                  password_ok = True
+
+        if not password_ok:
+            return jsonify({"success": False, "message": "Usuario o contraseña incorrectos"}), 401
+
+        if user_found.get('ESTADO') != 'ACTIVO':
+                return jsonify({"success": False, "message": "Cuenta inactiva."}), 403
+
+        # Chequear flag de cambio de clave
+        # Puede ser TRUE, "TRUE", "SI", "1", etc.
+        cambiar_clave_val = str(user_found.get('CAMBIAR_CLAVE', '')).upper()
+        requires_change = cambiar_clave_val in ['TRUE', 'SI', '1', 'VERDADERO']
+
+        return jsonify({
+            "success": True,
+            "requires_password_change": requires_change,
+            "user": {
+                "nombre": user_found.get('NOMBRE_EMPRESA'), 
+                "nombre_contacto": user_found.get('NOMBRE_CONTACTO'),
+                "email": email,
+                "nit": user_found.get('NIT_EMPRESA'),
+                "rol": "Cliente",
+                "tipo": "CLIENTE"
+            }
+        })
 
     except Exception as e:
         logger.error(f"Error in client login: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@auth_bp.route('/api/auth/client/change-password', methods=['POST'])
+def change_password_client():
+    try:
+        data = request.json
+        email = str(data.get('email', '')).strip().lower()
+        old_password = str(data.get('old_password', '')).strip()
+        new_password = str(data.get('new_password', '')).strip()
+
+        if not new_password:
+             return jsonify({"success": False, "message": "La nueva contraseña es obligatoria"}), 400
+
+        ws_users = sheets_client.get_worksheet("USUARIOS_CLIENTES")
+        if not ws_users:
+             return jsonify({"success": False, "message": "Sistema de clientes no disponible"}), 500
+             
+        records = ws_users.get_all_records()
+        user_row_index = -1
+        user_found = None
+        
+        for i, row in enumerate(records):
+            if str(row.get('EMAIL')).lower() == email:
+                user_found = row
+                # gspread update usa index 1-based, y records tiene headers
+                # row index 0 en 'records' es la fila 2 en el sheet
+                user_row_index = i + 2 
+                break
+        
+        if not user_found:
+             return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
+
+        # Verificar old password nuevamente por seguridad
+        stored_hash = user_found.get('PASSWORD_HASH')
+        password_ok = False
+        try:
+            if check_password_hash(stored_hash, old_password):
+                password_ok = True
+        except Exception:
+             if stored_hash == old_password:
+                  password_ok = True
+        
+        if not password_ok:
+             return jsonify({"success": False, "message": "La contraseña actual es incorrecta"}), 401
+
+        # Actualizar contraseña
+        new_hashed = generate_password_hash(new_password)
+        
+        # Buscar columnas. Asumimos que existen. Si no, las agregamos al final?
+        # Mejor buscar el indice de la columna por nombre
+        headers = ws_users.row_values(1)
+        
+        try:
+            col_pass_idx = headers.index('PASSWORD_HASH') + 1
+        except ValueError:
+            return jsonify({"success": False, "message": "Error schema: No existe col PASSWORD_HASH"}), 500
+            
+        try:
+            col_cambiar_idx = headers.index('CAMBIAR_CLAVE') + 1
+        except ValueError:
+            # Si no existe la columna CAMBIAR_CLAVE, no podemos actualizarla, pero si la pass
+             col_cambiar_idx = None
+
+        # Actualizar Pass
+        ws_users.update_cell(user_row_index, col_pass_idx, new_hashed)
+        
+        # Actualizar Flag a FALSE
+        if col_cambiar_idx:
+            ws_users.update_cell(user_row_index, col_cambiar_idx, "FALSE")
+
+        return jsonify({"success": True, "message": "Contraseña actualizada correctamente."})
+
+    except Exception as e:
+        logger.error(f"Error updating password: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
