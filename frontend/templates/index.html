@@ -2,7 +2,8 @@
 <html lang="es">
 
 <head>
-    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/static/img/logo_friparts.png" type="image/png">
+    <link rel="apple-touch-icon" href="/static/img/logo_friparts.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -329,6 +330,14 @@
 
                     <!-- VISTA: MIS PEDIDOS -->
                     <div id="portal-tab-mis-pedidos" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3 pt-2">
+                            <h5 class="mb-0 text-dark fw-bold"><i class="fas fa-history me-2 text-primary"></i> Mis
+                                Pedidos</h5>
+                            <button class="btn btn-sm btn-outline-primary fw-bold"
+                                onclick="ModuloPortal.cargarMisPedidos()">
+                                <i class="fas fa-sync-alt me-1"></i> Actualizar
+                            </button>
+                        </div>
                         <div id="client-orders-container">
                             <div class="text-center w-100 py-5 text-muted">No hay pedidos recientes.</div>
                         </div>

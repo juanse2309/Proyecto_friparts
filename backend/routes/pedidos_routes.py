@@ -526,3 +526,83 @@ def actualizar_alistamiento():
     except Exception as e:
         logger.error(f"Error actualizando alistamiento: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+@pedidos_bp.route('/api/pedidos/cliente', methods=['GET'])
+def obtener_pedidos_cliente():
+    """
+    Retorna el historial de pedidos de un cliente basado en su NIT.
+    """
+    try:
+        nit = request.args.get('nit')
+        # También podrías aceptar 'cliente' (nombre) como fallback si el NIT no está presente en todos los registros
+        
+        if not nit:
+             return jsonify({"success": False, "error": "NIT requerido"}), 400
+
+        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        registros = ws.get_all_records()
+        
+        # Filtrar por NIT
+        # Normalizar NIT input
+        nit_str = str(nit).strip().upper()
+
+        # Re-dict para sumar bien
+        calc_dict = {}
+        
+        for r in registros:
+            # Normalizar NIT en registro
+            r_nit = str(r.get("NIT", "")).strip().upper()
+            
+            # Comparación robusta
+            if r_nit == nit_str:
+                id_p = r.get("ID PEDIDO")
+                # Si el NIT coincide, procesamos
+                if id_p not in calc_dict:
+                    calc_dict[id_p] = {
+                        "id": id_p,
+                        "fecha": r.get("FECHA"),
+                        "estado": r.get("ESTADO"),
+                        "progreso": str(r.get("PROGRESO", "0%")).replace('%', ''),
+                        "total_dinero": 0.0,
+                        "items_count": 0
+                    }
+                
+                # Sumar Dinero (TOTAL es por item en la hoja)
+                try:
+                    raw_total = str(r.get("TOTAL", 0)).replace(',','').replace('$','')
+                    val_total = float(raw_total) if raw_total else 0
+                except:
+                    val_total = 0
+                
+                # Sumar items
+                try:
+                    val_cant = float(r.get("CANTIDAD", 0))
+                except:
+                    val_cant = 0
+                    
+                calc_dict[id_p]["total_dinero"] += val_total
+                calc_dict[id_p]["items_count"] += val_cant
+
+        # Convertir a lista y formatear
+        final_list = []
+        for pid, data in calc_dict.items():
+            final_list.append({
+                "id": data["id"],
+                "fecha": data["fecha"],
+                "estado": data["estado"],
+                "progreso": float(data["progreso"]) if data["progreso"] else 0,
+                "items": int(data["items_count"]),
+                "total": data["total_dinero"] # Frontend format currency
+            })
+            
+        # Ordenar por fecha desc (o ID desc)
+        final_list.sort(key=lambda x: x["id"], reverse=True)
+
+        return jsonify({
+            "success": True, 
+            "pedidos": final_list
+        })
+
+    except Exception as e:
+        logger.error(f"Error cargando pedidos cliente: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

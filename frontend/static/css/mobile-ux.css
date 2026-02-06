@@ -277,7 +277,8 @@ textarea.is-valid {
     /* Bootstrap & Custom Modals */
     .modal-content-custom,
     .modal-content,
-    .custom-modal-content {
+    .custom-modal-content,
+    .confirmation-modal-pro {
         width: 95% !important;
         max-width: none !important;
         margin: 10px auto !important;

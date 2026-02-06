@@ -4,7 +4,10 @@
 const ModuloPortal = {
     productos: [],
     carrito: [],
+    carrito: [],
     pedidos: [],
+    pollingInterval: null,
+    POLLING_DELAY: 15000, // 15 segundos
 
     init: async function () {
         console.log("🛒 Inicializando Portal de Clientes...");
@@ -22,6 +25,33 @@ const ModuloPortal = {
         // 4. Renderizar Vista Inicial
         // (El loader se encargará de ocultarse al terminar cargarCatalogo)
         this.renderizarBotonFlotante();
+
+        // 5. Listener Global para "Enter" (Navegación Rápida)
+        document.addEventListener('keydown', (e) => {
+            // Solo si estamos en el tab Catálogo y es un input numérico
+            if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type === 'number' && e.target.id.startsWith('qty-')) {
+                e.preventDefault();
+
+                // 1. Agregar al carrito
+                const code = e.target.id.replace('qty-', '');
+                if (code) {
+                    this.agregarAlCarrito(code);
+                }
+
+                // 2. Mover foco al siguiente input visible
+                // Buscamos todos los inputs visibles en la tabla
+                const allInputs = Array.from(document.querySelectorAll('#product-grid input[type="number"]'));
+                const currentIndex = allInputs.indexOf(e.target);
+
+                if (currentIndex !== -1 && currentIndex < allInputs.length - 1) {
+                    const nextInput = allInputs[currentIndex + 1];
+                    nextInput.focus();
+                    nextInput.select();
+                    // Scroll suave si es necesario para mantenerlo visible
+                    nextInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        });
 
         console.log("✅ Portal Listo");
     },
@@ -81,17 +111,45 @@ const ModuloPortal = {
     // =================================================================
     // GESTIÓN DE PESTAÑAS
     // =================================================================
+    // GESTIÓN DE PESTAÑAS
     switchTab: function (tabName) {
-        // Update nav
-        document.querySelectorAll('#portal-tabs .nav-link').forEach(btn => btn.classList.remove('active'));
-        const btn = document.querySelector(`#portal-tabs button[onclick*="${tabName}"]`);
-        if (btn) btn.classList.add('active');
+        // Update nav buttons
+        const btnCatalogo = document.querySelector('#portal-tabs button[onclick*="catalogo"]');
+        const btnPedidos = document.querySelector('#portal-tabs button[onclick*="mis-pedidos"]');
 
-        // Update content
-        document.getElementById('portal-tab-catalogo').style.display = 'none';
-        document.getElementById('portal-tab-mis-pedidos').style.display = 'none';
+        // Reset styles (Outline by default)
+        [btnCatalogo, btnPedidos].forEach(btn => {
+            if (btn) {
+                btn.className = 'btn btn-outline-primary rounded-pill px-4 fw-bold shadow-sm';
+                btn.style.borderWidth = '2px';
+            }
+        });
 
-        document.getElementById(`portal-tab-${tabName}`).style.display = 'block';
+        // Activate selected (Solid Blue)
+        const activeBtn = tabName === 'catalogo' ? btnCatalogo : btnPedidos;
+        if (activeBtn) {
+            activeBtn.className = 'btn btn-primary rounded-pill px-4 fw-bold shadow';
+        }
+
+        // Update content visibility
+        const contentCatalogo = document.getElementById('portal-tab-catalogo');
+        const contentPedidos = document.getElementById('portal-tab-mis-pedidos');
+
+        if (contentCatalogo) contentCatalogo.style.display = 'none';
+        if (contentPedidos) contentPedidos.style.display = 'none';
+
+        if (tabName === 'catalogo' && contentCatalogo) {
+            contentCatalogo.style.display = 'block';
+            // Scroll to top of catalog
+            // contentCatalogo.scrollIntoView({ behavior: 'smooth' }); 
+        }
+        if (tabName === 'mis-pedidos' && contentPedidos) {
+            contentPedidos.style.display = 'block';
+            this.cargarMisPedidos(); // Reload data when switching
+            this.startPolling(); // Iniciar auto-refresh
+        } else {
+            this.stopPolling(); // Detener si salimos del tab
+        }
     },
 
     // =================================================================
@@ -181,7 +239,7 @@ const ModuloPortal = {
 
         const tableHeader = `
             <div class="table-responsive">
-                <table class="table table-hover align-middle shadow-sm rounded-3 overflow-hidden" style="background: white;">
+                <table class="table table-hover align-middle shadow-sm rounded-3 overflow-hidden responsive-mobile" style="background: white;">
                     <thead class="bg-light text-secondary small text-uppercase">
                         <tr>
                             <th scope="col" class="ps-4" style="width: 80px;">Img</th>
@@ -201,7 +259,7 @@ const ModuloPortal = {
 
             return `
             <tr>
-                <td class="ps-4">
+                <td class="ps-4" data-label="Imagen">
                     <div class="position-relative bg-white rounded border d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
                         <img src="${localImage}" 
                              alt="${p.codigo}"
@@ -219,19 +277,19 @@ const ModuloPortal = {
                              ">
                     </div>
                 </td>
-                <td>
+                <td data-label="Producto">
                     <div class="fw-bold text-dark mb-1" style="font-size: 0.95rem;">${p.descripcion}</div>
                     <div class="d-flex align-items-center">
                         <span class="badge bg-light text-secondary border fw-normal me-2">${p.codigo}</span>
                     </div>
                 </td>
-                <td class="text-center">
+                <td class="text-center" data-label="Stock">
                    ${this.getStockBadge(p.stock)}
                 </td>
-                <td class="text-end fw-bold text-dark">
+                <td class="text-end fw-bold text-dark" data-label="Precio">
                     ${p.precio > 0 ? '$' + p.precio.toLocaleString() : '<span class="text-muted small">Consultar</span>'}
                 </td>
-                <td>
+                <td data-label="Solicitar">
                      <div class="d-flex align-items-center justify-content-end gap-2">
                         <input type="number" id="qty-${p.codigo}" class="form-control form-control-sm text-center fw-bold" value="1" min="1" style="width: 60px;">
                         <button class="btn btn-primary btn-sm px-3 fw-bold shadow-sm" onclick="ModuloPortal.agregarAlCarrito('${p.codigo}')">
@@ -800,7 +858,7 @@ const ModuloPortal = {
     // PEDIDOS / TRACKING
     // =================================================================
 
-    cargarMisPedidos: async function () {
+    cargarMisPedidos: async function (silent = false) {
         const container = document.getElementById('client-orders-container');
         if (!container) return;
 
@@ -808,19 +866,18 @@ const ModuloPortal = {
         const user = window.AuthModule?.currentUser;
         if (!user || user.rol !== 'Cliente') return;
 
-        container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin"></i> Cargando historial...</div>';
+        if (!silent) {
+            container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin"></i> Cargando historial...</div>';
+        }
 
         try {
-            // Simulamos datos o fetch real si existiera endpoint
-            // const res = await fetch(`/api/pedidos/cliente?nit=${user.nit}`); 
+            // Fetch Real
+            const res = await fetch(`/api/pedidos/cliente?nit=${user.nit}`);
+            const data = await res.json();
 
-            // Mock Data
-            const pedidosMock = [
-                { id: 'PED-1001', fecha: '2023-10-01', estado: 'En Proceso', items: 5, progreso: 60 },
-                { id: 'PED-0988', fecha: '2023-09-20', estado: 'Entregado', items: 12, progreso: 100 },
-            ];
+            if (!data.success) throw new Error(data.message);
 
-            this.pedidos = pedidosMock;
+            this.pedidos = data.pedidos || [];
 
             if (this.pedidos.length === 0) {
                 container.innerHTML = '<div class="text-center py-5 text-muted">No tienes pedidos registrados.</div>';
@@ -857,6 +914,33 @@ const ModuloPortal = {
         } catch (e) {
             console.error(e);
             container.innerHTML = '<div class="text-danger">Error cargando pedidos.</div>';
+        }
+    },
+
+    // ===================================
+    // AUTO-REFRESH (POLLING)
+    // ===================================
+    startPolling: function () {
+        if (this.pollingInterval) return; // Ya está corriendo
+        console.log('🔄 Iniciando auto-refresh de pedidos...');
+
+        this.pollingInterval = setInterval(() => {
+            // Solo si el tab es visible
+            const contentPedidos = document.getElementById('portal-tab-mis-pedidos');
+            if (contentPedidos && contentPedidos.style.display !== 'none') {
+                console.log('🔄 Auto-refreshing pedidos...');
+                this.cargarMisPedidos(true); // true = silent mode (sin spinner global si lo hubiera)
+            } else {
+                this.stopPolling();
+            }
+        }, this.POLLING_DELAY);
+    },
+
+    stopPolling: function () {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
+            console.log('⏹️ Auto-refresh detenido.');
         }
     }
 };

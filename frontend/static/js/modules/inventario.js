@@ -376,6 +376,19 @@ function inicializarInventario() {
     console.log('🔧 Inicializando módulo de Inventario...');
     configurarEventosInventario();
     cargarProductos();
+
+    // Re-renderizar al redimensionar (Debounce)
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            if (window.AppState.productosData) {
+                const prods = window.AppState.productosFiltrados || window.AppState.productosData;
+                renderizarTablaProductos(prods, false);
+            }
+        }, 200);
+    });
+
     console.log('✅ Módulo de Inventario inicializado');
 }
 

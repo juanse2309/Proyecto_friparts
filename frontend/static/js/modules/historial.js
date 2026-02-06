@@ -163,7 +163,7 @@
                                 <th style="width: 100px;">Máquina</th>
                                 <th>Detalle</th>
                                 <th class="text-center" style="width: 80px;">Cant.</th>
-                                ${(window.AppState.user.nombre === 'Paola' || window.AppState.user.rol === 'Administración') ? '<th class="text-center" style="width: 50px;"></th>' : ''}
+                                ${(window.AppState.user.nombre === 'Paola' || window.AppState.user.nombre.includes('Zoenia') || window.AppState.user.rol === 'Administración') ? '<th class="text-center" style="width: 50px;"></th>' : ''}
                             </tr>
                         </thead>
                         <tbody>
@@ -206,7 +206,7 @@
                         <td><small>${maquina || '-'}</small></td>
                         <td><small class="text-muted">${r.Detalle || '-'}</small></td>
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
-                        ${(window.AppState.user.nombre === 'Paola' || window.AppState.user.rol === 'Administración') ?
+                        ${(window.AppState.user.nombre === 'Paola' || window.AppState.user.nombre.includes('Zoenia') || window.AppState.user.rol === 'Administración') ?
                         `<td class="text-center">
                                 <button class="btn btn-sm btn-link text-primary p-0" onclick="window.ModuloHistorial.editarRegistro(${h_datos.indexOf(r)})">
                                     <i class="fas fa-pencil-alt"></i>
@@ -295,6 +295,16 @@
                 dInput.value = d.toISOString().split('T')[0];
             }
             cargarHistorial();
+
+            // Re-renderizar al cambiar tamaño de ventana (Debounce simple)
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    renderizarTablaHistorial();
+                }, 200);
+            });
+
         } catch (e) {
             console.error('❌ Error en initHistorial:', e);
         }

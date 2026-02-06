@@ -11,7 +11,7 @@ window.addEventListener('unhandledrejection', event => {
 
 window.AppState = {
     paginaActual: 'dashboard',
-    POWER_BI_URL: 'https://app.powerbi.com/view?r=eyJrIjoiZTBlYzc0MmUtNmVmZS00NDVjLWIwNTctMDY4NDA5MjEwNjk2IiwidCI6ImMwNmZiNTU5LTFiNjgtNGI4NC1hMTRmLTQ3ZDBkODM3YTVhYiIsImMiOjR9',
+    POWER_BI_URL: 'https://app.powerbi.com/view?r=eyJrIjoiZTBlYzc0MmUtNmVmZS00NDVjLWIwNTctMDY4NDA5MjEwNjk2IiwidCI6ImMwNmZiNTU5LTFiNjgtNGI4NC1hMTRmLTQ3ZDBkODM3YTVhYiIsImMiOjR9&pageName=baaf08bf7027114dad16',
     sharedData: {
         responsables: [],
         clientes: [],
@@ -304,7 +304,10 @@ async function inicializarAplicacion() {
 
         // CORRECCIÓN CRÍTICA: Si AuthModule ya activó una página (ej. Portal Cliente), no sobreescribir.
         if (document.querySelector('.page.active')) {
-            console.log("🚀 Página ya activa por AuthModule. Omitiendo carga por defecto de App.js.");
+            console.log("🚀 Página ya activa. Asegurando inicialización de módulo...");
+            const activePage = document.querySelector('.page.active');
+            const pageId = activePage.id.replace('-page', '');
+            inicializarModulo(pageId);
             console.log('✅ Aplicación inicializada correctamente (Ruta preservada)');
             return;
         }

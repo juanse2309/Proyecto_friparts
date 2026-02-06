@@ -498,7 +498,7 @@ const AuthModule = {
             const modulosAdmin = ['almacen', 'pedidos', 'historial', 'reportes', 'inventario', 'dashboard'];
             modulosAdmin.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
-        if (userNameUpper.includes('PAOLA')) {
+        if (userNameUpper.includes('PAOLA') || userNameUpper.includes('ZOENIA')) {
             const modulosExtra = ['pulido', 'ensamble', 'historial', 'almacen'];
             modulosExtra.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
