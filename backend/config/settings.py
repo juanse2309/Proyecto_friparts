@@ -51,6 +51,7 @@ class Hojas:
     FACTURACION = "FACTURACION"
     CLIENTES = "CLIENTES"
     PEDIDOS = "PEDIDOS"
+    DB_PRODUCTOS = "DB_Productos"
 
 
 class Almacenes:

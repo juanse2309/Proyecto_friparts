@@ -1,34 +1,76 @@
 
-// auth.js - Manejo de Autenticación y Permisos
+// auth.js - Manejo de Autenticación, Permisos y Portal B2B
 
 const AuthModule = {
     currentUser: null,
 
     // Matriz de Permisos
-    // Roles: 'Administración', 'Comercial', 'Auxiliar Inventario', 'Inyección', 'Pulido', 'Ensamble'
     permissions: {
         'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen'],
-        'Comercial': ['pedidos'],  // Solo acceso a Pedidos
+        'Comercial': ['pedidos', 'dashboard', 'inventario'],
         'Auxiliar Inventario': ['inventario', 'inyeccion', 'pnc', 'historial', 'almacen'],
         'Inyección': ['inyeccion', 'mezcla'],
         'Pulido': ['pulido'],
         'Ensamble': ['ensamble'],
-        'Alistamiento': ['almacen', 'historial'], // Las colaboradoras ven almacen e historial
+        'Alistamiento': ['almacen', 'historial'],
+        // NUEVO ROL CLIENTE
+        'Cliente': ['portal-cliente'],
         // Fallback
         'Invitado': []
     },
 
+    // Notificación Visual
+    mostrarNotificacion: function (msg, tipo = 'info') {
+        const div = document.createElement('div');
+        div.className = 'custom-toast';
+        div.innerHTML = `<i class="fas ${tipo === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} me-2"></i> ${msg}`;
+
+        let bgColor = '#3b82f6'; // Info
+        if (tipo === 'success') bgColor = '#10b981';
+        if (tipo === 'error') bgColor = '#ef4444';
+
+        div.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background-color: ${bgColor};
+            color: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            z-index: 30000;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            animation: slideInRight 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            font-size: 0.95rem;
+        `;
+
+        // Add animation keyframes if not exists
+        if (!document.getElementById('toast-style')) {
+            const style = document.createElement('style');
+            style.id = 'toast-style';
+            style.textContent = `@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }`;
+            document.head.appendChild(style);
+        }
+
+        document.body.appendChild(div);
+
+        setTimeout(() => {
+            div.style.transition = 'all 0.4s ease';
+            div.style.transform = 'translateX(100%)';
+            div.style.opacity = '0';
+            setTimeout(() => div.remove(), 400);
+        }, 3000);
+    },
+
     init: async function () {
-        console.log("🔐 Inicializando Módulo de Autenticación...");
+        console.log("🔐 Inicializando Módulo de Autenticación Avancado...");
 
-        // 1. Crear Modal de Login si no existe (lo inyectamos dinámicamente o esperamos que esté en HTML)
-        // Check HTML presence, if not, wait or create. 
-        // For consistency, I will assume HTML is added to index.html as per plan.
-
-        // 2. Cargar lista de responsables
+        // 1. Cargar lista de responsables (solo si es necesario, lazy load idealmente pero aqui eager)
         await this.loadResponsables();
 
-        // 3. Setup Listeners
+        // 2. Listeners Staff Logic
         const loginForm = document.getElementById('login-form');
         if (loginForm) {
             loginForm.addEventListener('submit', (e) => this.handleLogin(e));
@@ -36,15 +78,166 @@ const AuthModule = {
 
         const passwordInput = document.getElementById('login-password');
         if (passwordInput) {
-            // "Validación de Contraseña: El campo de contraseña solo debe permitir caracteres numéricos"
             passwordInput.addEventListener('input', function (e) {
                 this.value = this.value.replace(/[^0-9]/g, '');
             });
         }
 
-        // 4. Bloquear interfaz si no hay usuario
+        // 3. Bloquear interfaz o mostrar Landing
         this.checkSession();
     },
+
+    // =================================================================
+    // GESTIÓN DE PANTALLAS (Landing / Modales)
+    // =================================================================
+
+    showLandingScreen: function () {
+        const landing = document.getElementById('landing-screen');
+        if (landing) {
+            landing.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+        // Cerrar otros modales por si acaso
+        this.closeLoginModal();
+        this.closeClientAuth();
+    },
+
+    hideLandingScreen: function () {
+        const landing = document.getElementById('landing-screen');
+        if (landing) {
+            landing.style.setProperty('display', 'none', 'important'); // Forzar ocultamiento
+            document.body.style.overflow = 'auto';
+        }
+    },
+
+    openStaffLogin: function () {
+        const modal = document.getElementById('login-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+    },
+
+    closeLoginModal: function () {
+        const modal = document.getElementById('login-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    },
+
+    openClientAuth: function () {
+        const modal = document.getElementById('client-auth-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            // Reset forms
+            document.getElementById('client-login-form').style.display = 'block';
+            document.getElementById('client-register-form').style.display = 'none';
+            document.getElementById('auth-title').textContent = 'Bienvenido Cliente';
+        }
+    },
+
+    closeClientAuth: function () {
+        const modal = document.getElementById('client-auth-modal');
+        if (modal) modal.style.display = 'none';
+    },
+
+    toggleClientForms: function () {
+        const loginForm = document.getElementById('client-login-form');
+        const regForm = document.getElementById('client-register-form');
+        const title = document.getElementById('auth-title');
+
+        if (loginForm.style.display === 'none') {
+            loginForm.style.display = 'block';
+            regForm.style.display = 'none';
+            title.textContent = 'Bienvenido Cliente';
+        } else {
+            loginForm.style.display = 'none';
+            regForm.style.display = 'block';
+            title.textContent = 'Registro de Cuenta';
+        }
+    },
+
+    // =================================================================
+    // LÓGICA DE CLIENTE (Auth)
+    // =================================================================
+
+    handleClientLogin: async function () {
+        const email = document.getElementById('client-email').value;
+        const password = document.getElementById('client-password').value;
+        const btn = document.querySelector('#client-login-form button');
+
+        if (!email || !password) return alert("Complete los campos");
+
+        btn.disabled = true;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando...';
+
+        try {
+            const response = await fetch('/api/auth/client/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.setCurrentUser(data.user);
+                this.closeClientAuth();
+                this.hideLandingScreen();
+            } else {
+                this.mostrarNotificacion(data.message || "Error de inicio de sesión", 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            this.mostrarNotificacion("Error de conexión", 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    },
+
+    handleClientRegister: async function () {
+        const nit = document.getElementById('reg-nit').value;
+        const nombre = document.getElementById('reg-nombre').value;
+        const email = document.getElementById('reg-email').value;
+        const password = document.getElementById('reg-password').value;
+        const btn = document.querySelector('#client-register-form button');
+
+        if (!nit || !nombre || !email || !password) return alert("Todos los campos son obligatorios");
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registrando...';
+
+        try {
+            const response = await fetch('/api/auth/client/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nit, nombre, email, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.mostrarNotificacion("Registro exitoso. Iniciando sesión...", 'success');
+                this.toggleClientForms();
+                // Opcional: Auto-login aquí si se desea
+            } else {
+                this.mostrarNotificacion(data.message || "Error al registrar", 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            this.mostrarNotificacion("Error de conexión al registrar", 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = 'Registrarse <i class="fas fa-check ms-2"></i>';
+        }
+    },
+
+    // =================================================================
+    // LÓGICA DE STAFF (Responsables)
+    // =================================================================
 
     loadResponsables: async function () {
         try {
@@ -57,17 +250,11 @@ const AuthModule = {
             const users = await response.json();
 
             if (users.error) {
-                alert('Error cargando usuarios: ' + users.error);
-                return;
+                // alert('Error cargando usuarios: ' + users.error);
+                return; // Silent fail in landing mode
             }
 
-            // FILTRO FRONTEND: Solo usuarios activos
-            const usuariosActivos = users.filter(user => {
-                // El backend ya filtra, pero doble verificación
-                return user.nombre && user.nombre.trim() !== '';
-            });
-
-            console.log(`🔐 Usuarios activos cargados: ${usuariosActivos.length}`);
+            const usuariosActivos = users.filter(user => user.nombre && user.nombre.trim() !== '');
 
             select.innerHTML = '<option value="">Seleccione su nombre...</option>';
             usuariosActivos.forEach(user => {
@@ -80,7 +267,6 @@ const AuthModule = {
 
         } catch (e) {
             console.error("Error fetching responsables:", e);
-            document.getElementById('login-usuario').innerHTML = '<option value="">Error de conexión</option>';
         }
     },
 
@@ -93,14 +279,13 @@ const AuthModule = {
         const errorMsg = document.getElementById('login-error-msg');
 
         const nombre = usuarioSelect.value;
-        const password = passwordInput.value; // Documento
+        const password = passwordInput.value;
 
         if (!nombre || !password) {
             this.showError("Por favor complete todos los campos.");
             return;
         }
 
-        // UI Loading
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verificando...';
         errorMsg.style.display = 'none';
@@ -115,13 +300,11 @@ const AuthModule = {
             const data = await response.json();
 
             if (data.success) {
-                // Login Exitoso
                 this.setCurrentUser(data.user);
                 this.closeLoginModal();
-                // Limpiar password
+                this.hideLandingScreen(); // Crucial
                 passwordInput.value = '';
             } else {
-                // Error
                 this.showError(data.message);
             }
 
@@ -144,69 +327,55 @@ const AuthModule = {
         }
     },
 
+    // =================================================================
+    // GESTIÓN DE SESIÓN
+    // =================================================================
+
     setCurrentUser: function (user) {
         this.currentUser = user;
-
-        // Persistir en sessionStorage
         sessionStorage.setItem('friparts_user', JSON.stringify(user));
 
-        // CRÍTICO: Guardar en window.AppState para acceso global
         if (!window.AppState) window.AppState = {};
         window.AppState.user = {
             name: user.nombre,
-            nombre: user.nombre, // Compatibilidad
+            nombre: user.nombre,
             rol: user.rol,
+            tipo: user.tipo || 'STAFF',
+            nit: user.nit || null,
+            email: user.email || null,
             fullData: user
         };
 
         console.log(`👤 Usuario Logueado: ${user.nombre} (${user.rol})`);
-        console.log(`📦 AppState.user actualizado:`, window.AppState.user);
 
-        // Actualizar UI
         this.updateProfileUI();
-
-        // Aplicar Permisos
         this.applyPermissions();
 
-        // Mensaje de bienvenida personalizado
-        this.showWelcomeMessage(user);
+        // Si es cliente, mostrar mensaje diferente o nada
+        if (user.rol !== 'Cliente') {
+            this.showWelcomeMessage(user);
+            this.autoFillForms();
+        }
 
-        // Auto-rellenar selects de responsables en la app
-        this.autoFillForms();
-
-        // CRÍTICO: Re-inicializar el módulo actual si ya estamos en una página
-        // Esto soluciona el problema de race condition donde el módulo intenta inicializarse antes del login
+        // Re-iniciar modulo
         if (window.AppState?.paginaActual && window.AppState.paginaActual !== 'dashboard') {
-            console.log(`🔄 [Auth] Re-inicializando módulo actual: ${window.AppState.paginaActual}`);
-            setTimeout(() => {
-                if (typeof inicializarModulo === 'function') {
-                    inicializarModulo(window.AppState.paginaActual);
-                }
-            }, 100); // Pequeño delay para asegurar que todo esté listo
+            // Si el modulo actual NO esta permitido, applyPermissions lo redirigirá.
+            // Si está permitido, lo re-init.
+            // Pero para cliente, normalmente entra a portal-cliente-page por defecto.
+            // Dejaremos que navigateTo maneje la redireccion inicial.
         }
     },
 
     showWelcomeMessage: function (user) {
         const mensajes = {
-            'Inyección': `¡Hola ${user.nombre}! Listo para la producción de inyección.`,
-            'Pulido': `¡Buen turno, ${user.nombre}! Estación de trabajo lista.`,
-            'Ensamble': `¡Buen turno, ${user.nombre}! Estación de trabajo lista.`,
-            'Administración': `Bienvenido al Centro de Control FriTech.`,
-            'Comercial': `¡Bienvenido ${user.nombre}! Acceso habilitado para el módulo de Pedidos.`,
-            'Auxiliar Inventario': `¡Buen turno, ${user.nombre}! Estación de trabajo lista.`
+            'Inyección': `¡Hola ${user.nombre}! Listo para la producción.`,
+            'Pulido': `¡Hola ${user.nombre}! Lista para pulir.`,
+            'Administración': `Bienvenido al Centro de Control.`,
+            'Comercial': `Bienvenido al Módulo de Pedidos.`,
+            'Cliente': `Bienvenido a su Portal FriParts.`
         };
-
         const mensaje = mensajes[user.rol] || `¡Bienvenido ${user.nombre}!`;
-
-        console.log(`👋 MENSAJE DE BIENVENIDA: ${mensaje}`);
-
-        // Mostrar notificación si existe la función
-        if (typeof mostrarNotificacion === 'function') {
-            mostrarNotificacion(mensaje, 'success');
-        } else {
-            // Fallback: alert temporal
-            setTimeout(() => alert(mensaje), 500);
-        }
+        this.mostrarNotificacion(mensaje, 'success');
     },
 
     checkSession: function () {
@@ -214,70 +383,49 @@ const AuthModule = {
         if (stored) {
             try {
                 const user = JSON.parse(stored);
-                // Restaurar sesión
                 this.currentUser = user;
-
-                // CRÍTICO: Restaurar AppState también
                 if (!window.AppState) window.AppState = {};
                 window.AppState.user = {
                     name: user.nombre,
-                    nombre: user.nombre, // Compatibilidad
+                    nombre: user.nombre,
                     rol: user.rol,
+                    tipo: user.tipo || 'STAFF',
+                    nit: user.nit,
                     fullData: user
                 };
 
-                console.log(`🔄 Sesión restaurada: ${user.nombre} (${user.rol})`);
-                console.log(`📦 AppState.user restaurado:`, window.AppState.user);
-
+                this.hideLandingScreen(); // Ocultar landing
                 this.closeLoginModal();
                 this.updateProfileUI();
-                this.applyPermissions();
-                this.autoFillForms();
+                this.applyPermissions(); // Esto redirigira a la pagina correcta si la actual no es valida
+
+                if (user.tipo === 'STAFF') {
+                    this.autoFillForms();
+                }
+
             } catch (e) {
                 console.error("Error parsing session:", e);
                 this.logout();
             }
         } else {
-            // Mostrar Login
-            this.openLoginModal();
+            // MOSTRAR LANDING SCREEN
+            this.showLandingScreen();
         }
     },
 
     logout: function () {
         this.currentUser = null;
         sessionStorage.removeItem('friparts_user');
-        this.openLoginModal();
-        // Recargar para limpiar estados si es necesario
-        window.location.reload();
-    },
-
-    openLoginModal: function () {
-        const modal = document.getElementById('login-modal');
-        if (modal) {
-            modal.style.display = 'flex'; // Flex para centrar
-            document.body.style.overflow = 'hidden'; // Bloquear scroll
-        }
-    },
-
-    closeLoginModal: function () {
-        const modal = document.getElementById('login-modal');
-        if (modal) {
-            modal.style.display = 'none';
-            document.body.style.overflow = 'auto'; // Restaurar scroll
-        }
+        // Mostrar Landing
+        this.showLandingScreen();
+        // Recargar para limpiar estados
+        setTimeout(() => window.location.reload(), 200);
     },
 
     updateProfileUI: function () {
         if (!this.currentUser) return;
-
-        // Sidebar footer update
-        // "En la sección inferior donde aparece la fecha, muestra dinámicamente: [NOMBRE] y debajo [DEPARTAMENTO]"
-        // Sidebar format:
-        // <div class="user-details"> <span class="user-name">Administrador</span> <span class="user-role">Supervisor</span> </div>
-
         const userNameEl = document.querySelector('.user-name');
         const userRoleEl = document.querySelector('.user-role');
-
         if (userNameEl) userNameEl.textContent = this.currentUser.nombre;
         if (userRoleEl) userRoleEl.textContent = this.currentUser.rol;
     },
@@ -288,106 +436,105 @@ const AuthModule = {
         const role = this.currentUser.rol;
         let allowedPages = [...(this.permissions[role] || [])];
 
-        // EXCEPCIÓN ESPECIAL: Natalia/Nathalia es la jefa de Alistamiento, requiere permisos de administración en este flujo
+        // LOGICA EXCEPCIONES STAFF (Paola, Natalia)
         const userNameUpper = this.currentUser.nombre.toUpperCase();
         if (userNameUpper.includes('NATALIA') || userNameUpper.includes('NATHALIA')) {
             const modulosAdmin = ['almacen', 'pedidos', 'historial', 'reportes', 'inventario', 'dashboard'];
-            modulosAdmin.forEach(m => {
-                if (!allowedPages.includes(m)) allowedPages.push(m);
-            });
-            console.log("🔓 Permisos de Jefa aplicados para Natalia");
+            modulosAdmin.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
-
-        // EXCEPCIÓN ESPECIAL: Paola requiere acceso a Pulido y Ensamble independientemente de su rol
-        if (this.currentUser.nombre.toUpperCase() === 'PAOLA') {
+        if (userNameUpper === 'PAOLA') {
             const modulosExtra = ['pulido', 'ensamble', 'historial', 'almacen'];
-            modulosExtra.forEach(m => {
-                if (!allowedPages.includes(m)) allowedPages.push(m);
-            });
-            console.log("🔓 Permisos extendidos aplicados para Paola");
+            modulosExtra.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
 
-        // 1. Sidebar Links
+        // 1. Mostrar/Ocultar Menú Sidebar
         const menuItems = document.querySelectorAll('.sidebar-menu .menu-item');
         let firstAllowed = null;
 
         menuItems.forEach(item => {
             const pageName = item.getAttribute('data-page');
+
+            // Si es Cliente, ocultar TODO el sidebar standard? 
+            // O mostrar solo lo relevante?
+            // Actualmente portal-cliente no está en el sidebar.
+            // Asi que ocultamos todo para 'Cliente' si 'portal-cliente' no esta en la lista.
+
             if (allowedPages.includes(pageName)) {
-                item.style.display = 'block'; // Show
+                item.style.display = 'block';
                 if (!firstAllowed) firstAllowed = pageName;
             } else {
-                item.style.display = 'none'; // Hide
+                item.style.display = 'none';
             }
         });
 
-        // 2. BLINDAJE: Redirección forzada si está en página no autorizada
+        // 2. Redirección Forzada
         const activePage = document.querySelector('.page.active');
+        // Si estamos en dashboard (default) pero usuario es Cliente -> Redirigir a Portal
+        // Si no hay pagina activa conocida, o no permitida -> Redirigir
+
+        // Determinar destino ideal
+        let targetPage = 'dashboard'; // Default staff
+        if (role === 'Cliente') targetPage = 'portal-cliente';
+        else if (role === 'Comercial') targetPage = 'pedidos';
+        else if (firstAllowed) targetPage = firstAllowed;
+
         if (activePage) {
             const pageId = activePage.id.replace('-page', '');
             if (!allowedPages.includes(pageId)) {
-                console.warn(`🛑 ACCESO DENEGADO a ${pageId} para rol ${role}. Redirigiendo...`);
-
-                // CRÍTICO: Ocultar contenido inmediatamente
-                const mainContent = document.querySelector('.main-content');
-                if (mainContent) {
-                    mainContent.style.visibility = 'hidden';
-                }
-
-                // Determinar página de destino según rol
-                let targetPage;
-                if (role === 'Comercial') {
-                    // Comercial siempre va a Pedidos
-                    targetPage = 'pedidos';
-                } else if (allowedPages.includes('dashboard')) {
-                    targetPage = 'dashboard';
-                } else if (firstAllowed) {
-                    targetPage = firstAllowed;
-                } else {
-                    alert("No tienes acceso a ningún módulo. Contacta al administrador.");
-                    this.logout();
-                    return;
-                }
-
-                // Redirección forzada
-                console.log(`🔀 Redirigiendo a: ${targetPage}`);
+                console.warn(`🛑 ACCESO DENEGADO a ${pageId} para rol ${role}. Redirigiendo a ${targetPage}...`);
                 this.navigateTo(targetPage);
-
-                // Restaurar visibilidad después de redirección
-                setTimeout(() => {
-                    if (mainContent) mainContent.style.visibility = 'visible';
-                }, 300);
             }
+        } else {
+            // Si no hay pagina activa (carga inicial), ir a target
+            this.navigateTo(targetPage);
         }
     },
 
     navigateTo: function (pageName) {
-        // Implementación simple compatible con el router existente (si existe)
-        // O simular clic en el menú
-        const link = document.querySelector(`.menu-item[data-page="${pageName}"] a`);
-        if (link) {
-            link.click();
+        // Lógica de navegación. 
+        // Si es Portal Cliente (que no está en sidebar), hacerlo manualmente.
+
+        if (pageName === 'portal-cliente') {
+            // Ocultar todas las paginas
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+
+            // Mostrar Portal
+            const portalPage = document.getElementById('portal-cliente-page');
+            if (portalPage) portalPage.classList.add('active');
+
+            // Sidebar: Desactivar todo o ocultar sidebar entero?
+            // Mejor ocultar sidebar para Clientes para dar look de App
+            if (this.currentUser.rol === 'Cliente') {
+                const sidebar = document.querySelector('.sidebar');
+                if (sidebar) sidebar.style.display = 'none';
+                const main = document.querySelector('.main-content');
+                if (main) main.style.marginLeft = '0'; // Full width
+            }
+
+            // Cargar datos iniciales del portal si existe Modulo
+            if (window.ModuloPortal && typeof window.ModuloPortal.init === 'function') {
+                window.ModuloPortal.init();
+            }
+
         } else {
-            console.error("No navigation link found for", pageName);
+            // Navegación standard via clic en sidebar
+            const link = document.querySelector(`.menu-item[data-page="${pageName}"] a`);
+            if (link) {
+                link.click();
+            } else {
+                console.error("No navigation link found for", pageName);
+            }
         }
     },
 
     autoFillForms: function () {
         if (!this.currentUser) return;
 
-        // "Persistencia: el nombre elegido debe viajar automáticamente como vendedor..."
-        // Buscar todos los selects de responsables
+        // Bloquear selects para que nadie registre a nombre de otros
         const selects = document.querySelectorAll('select[id^="responsable-"]');
         selects.forEach(select => {
-            // Llenar si está vacío (lo cual debería ser, porque cargan por JS)
-            // O agregar la opción del usuario actual y seleccionarla.
-            // Primero asegurarnos que tiene la opción.
-
-            // Wait, logic in Utils or other modules might populate this dropdown too.
-            // If they are empty, I populate them.
-            // If they are populated, I select the user.
-
-            // Hack: Force option
+            // Asegurar opcion
             let exists = false;
             for (let i = 0; i < select.options.length; i++) {
                 if (select.options[i].value === this.currentUser.nombre) {
@@ -396,7 +543,6 @@ const AuthModule = {
                     break;
                 }
             }
-
             if (!exists) {
                 const opt = document.createElement('option');
                 opt.value = this.currentUser.nombre;
@@ -404,34 +550,21 @@ const AuthModule = {
                 select.appendChild(opt);
                 select.value = this.currentUser.nombre;
             }
-
-            // Lock logic? Wait, user requirement: "viajar automáticamente...". 
-            // Doesn't explicitly say lock, but implies automation. 
-            // I'll leave it selectable but pre-selected.
+            // Bloquear (opcional, usuario pidio "persistencia", no explícitamente "bloqueo", pero es mas seguro)
+            // select.disabled = true; 
         });
 
-        // Soporte para INPUTS (Readonly o Smart Search) 
         const inputs = document.querySelectorAll('input[id^="responsable-"]');
         inputs.forEach(input => {
             if (input.type === 'text' || input.type === 'search') {
                 input.value = this.currentUser.nombre;
-                // Si es readonly, ya cumple "auto-fill y bloqueo" si se desea
             }
         });
-
-        // Facturación
-        const vendedorInput = document.getElementById('vendedor-facturacion'); // If exists
-        // Need to check specific IDs for other forms based on index.html analysis
-        // Pulido: responsable-pulido
-        // Ensamble: responsable-ensamble
-        // Inyeccion: responsable-inyeccion
     }
 };
 
-// Export global
 window.AuthModule = AuthModule;
 
-// Auto-init on load
 document.addEventListener('DOMContentLoaded', () => {
     AuthModule.init();
 });

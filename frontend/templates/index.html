@@ -98,10 +98,109 @@
         .form-group {
             position: relative;
         }
+
+        /* Utility Animations & Glassmorphism */
+        .animate-fade-in-up {
+            animation: fadeInUp 0.8s ease-out forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hover-scale {
+            transition: transform 0.3s ease;
+        }
+
+        .hover-scale:hover {
+            transform: scale(1.05);
+        }
+
+        .backdrop-blur {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .cursor-pointer {
+            cursor: pointer;
+        }
+
+        .hover-lift {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .hover-lift:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1) !important;
+        }
+
+        .animate-bounce {
+            animation: bounce 0.5s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-10px);
+            }
+        }
     </style>
 </head>
 
-<body> <!-- Loading Overlay -->
+<body>
+    <!-- LANDING SCREEN (Acceso Dual) -->
+    <div id="landing-screen"
+        style="position: fixed; inset: 0; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;">
+        <div class="text-center mb-5 animate-fade-in-up">
+            <i class="fas fa-industry fa-4x mb-3 text-secondary"></i>
+            <h1 style="font-size: 3rem; font-weight: 800; letter-spacing: -1px;">FriTech <span
+                    class="text-secondary">Portal</span></h1>
+            <p class="text-white-50">Sistema Integral de Producción y Gestión B2B</p>
+        </div>
+
+        <div class="d-flex gap-4 flex-wrap justify-content-center animate-fade-in-up" style="animation-delay: 0.2s;">
+            <!-- Opción Cliente -->
+            <div class="card bg-white bg-opacity-10 backdrop-blur border-0 hover-scale cursor-pointer"
+                onclick="AuthModule.openClientAuth()" style="width: 280px; padding: 2rem; border-radius: 20px;">
+                <div class="text-center">
+                    <div class="bg-primary bg-opacity-20 rounded-circle d-inline-flex p-4 mb-4">
+                        <i class="fas fa-shopping-bag fa-3x text-info"></i>
+                    </div>
+                    <h3 class="h4 fw-bold mb-2">Portal Clientes</h3>
+                    <p class="small text-white-50">Realizar pedidos, ver catálogo y seguimiento</p>
+                    <button class="btn btn-outline-light rounded-pill px-4 mt-3 w-100">Ingresar</button>
+                </div>
+            </div>
+
+            <!-- Opción Staff -->
+            <div class="card bg-white bg-opacity-10 backdrop-blur border-0 hover-scale cursor-pointer"
+                onclick="AuthModule.openStaffLogin()" style="width: 280px; padding: 2rem; border-radius: 20px;">
+                <div class="text-center">
+                    <div class="bg-danger bg-opacity-20 rounded-circle d-inline-flex p-4 mb-4">
+                        <i class="fas fa-users-cog fa-3x text-warning"></i>
+                    </div>
+                    <h3 class="h4 fw-bold mb-2">Acceso Staff</h3>
+                    <p class="small text-white-50">Operarios, Administrativos y Logística</p>
+                    <button class="btn btn-outline-light rounded-pill px-4 mt-3 w-100">Ingresar</button>
+                </div>
+            </div>
+        </div>
+
+        <footer class="position-absolute bottom-0 w-100 text-center p-4 text-white-50 small">
+            &copy; 2026 FriParts S.A.S. - Todos los derechos reservados
+        </footer>
+    </div>
+    <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay" style="display: none;">
         <div class="loading-spinner"></div>
         <div class="loading-text">Cargando...</div>
@@ -164,7 +263,81 @@
 
 
 
+
+            <!-- PORTAL CLIENTE (Nuevo) -->
+            <div id="portal-cliente-page" class="page">
+                <header class="top-bar">
+                    <div class="page-title">
+                        <h1><i class="fas fa-store"></i> Showroom Digital</h1>
+                        <p class="subtitle">Catálogo de productos y seguimiento de pedidos</p>
+                    </div>
+                    <div class="top-controls d-flex align-items-center gap-2">
+                        <button class="btn btn-primary position-relative me-2" onclick="ModuloPortal.verCarrito()">
+                            <i class="fas fa-shopping-cart"></i> Ver Carrito
+                            <span id="cart-badge"
+                                class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                                style="display: none;">0</span>
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="AuthModule.logout()" title="Cerrar Sesión">
+                            <i class="fas fa-sign-out-alt"></i> Salir
+                        </button>
+                    </div>
+                </header>
+
+                <div class="portal-container" style="padding: 20px;">
+                    <!-- Bummers / Promo -->
+                    <div id="showroom-carrusel" class="mb-5 rounded-4 overflow-hidden shadow-lg position-relative"
+                        style="height: 300px; background: #e2e8f0;">
+                        <!-- Placeholder Carrusel -->
+                        <div class="d-flex align-items-center justify-content-center h-100 bg-dark text-white text-center p-5"
+                            style="background: linear-gradient(45deg, #2563eb, #7c3aed);">
+                            <div>
+                                <h2 class="display-4 fw-bold">Nuevos Bujes Reforzados</h2>
+                                <p class="lead">Calidad Premium para maquinaria pesada</p>
+                                <button class="btn btn-light rounded-pill px-4 fw-bold mt-2">Ver Catálogo</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grid TABS -->
+                    <ul class="nav nav-pills mb-4" id="portal-tabs">
+                        <li class="nav-item">
+                            <button class="nav-link active" onclick="ModuloPortal.switchTab('catalogo')"><i
+                                    class="fas fa-th"></i> Catálogo</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" onclick="ModuloPortal.switchTab('mis-pedidos')"><i
+                                    class="fas fa-box-open"></i> Mis Pedidos</button>
+                        </li>
+                    </ul>
+
+                    <!-- VISTA: CATALOGO -->
+                    <div id="portal-tab-catalogo">
+                        <div class="mb-4">
+                            <div class="search-box">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="portal-search" placeholder="Buscar referencia..."
+                                    onkeyup="ModuloPortal.filtrarProductos()">
+                            </div>
+                        </div>
+                        <div id="product-grid"
+                            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px;">
+                            <!-- Cards se inyectan via JS -->
+                            <div class="text-center w-100 py-5 text-muted">Cargando productos...</div>
+                        </div>
+                    </div>
+
+                    <!-- VISTA: MIS PEDIDOS -->
+                    <div id="portal-tab-mis-pedidos" style="display: none;">
+                        <div id="client-orders-container">
+                            <div class="text-center w-100 py-5 text-muted">No hay pedidos recientes.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Dashboard (Power BI) -->
+
             <div id="dashboard-page" class="page active">
                 <header class="top-bar">
                     <button class="btn-icon d-lg-none" id="toggle-sidebar-dashboard">
@@ -308,6 +481,11 @@
                                     required> </div> <!-- Fila 5 -->
                             <div class="form-group"> <label for="cantidad-inyeccion"><i class="fas fa-bolt"></i>
                                     Disparos</label> <input type="number" id="cantidad-inyeccion" min="1" required>
+                            </div>
+                            <div class="form-group"> <label for="cantidad-real-inyeccion"><i
+                                        class="fas fa-check-double"></i>
+                                    Cant. Real</label> <input type="number" id="cantidad-real-inyeccion" min="0"
+                                    placeholder="Manual...">
                             </div>
                             <div class="form-group"> <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i>
                                     PNC</label>
@@ -1311,9 +1489,10 @@
     <!-- ELIMINADO: Modal Defectos Compartido (Ahora es específico por proceso) -->
 
 
-    <!-- Login Modal -->
+    <!-- MODAL PRINCIPAL (Autenticación / Selección de Usuario) -->
+    <!-- Por defecto display: none para evitar flash -->
     <div id="login-modal" class="modal-custom"
-        style="display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.95); z-index: 10000;">
+        style="display: none; z-index: 20000; align-items: center; justify-content: center;">
         <div class="login-card"
             style="background: white; padding: 40px; border-radius: 20px; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
             <div class="brand-logo mb-4">
@@ -1706,6 +1885,80 @@
         </div>
     </div>
 
+
+    <!-- MODAL AUTENTICACION CLIENTE -->
+    <div id="client-auth-modal" class="modal-custom" style="z-index: 20000;">
+        <div class="modal-content-custom" style="max-width: 450px;">
+            <div class="text-center mb-4">
+                <div class="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-3 mb-3">
+                    <i class="fas fa-user-circle fa-3x text-primary"></i>
+                </div>
+                <h3 class="mt-2" id="auth-title">Bienvenido Cliente</h3>
+                <p class="text-muted small">Ingresa tus credenciales para acceder</p>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <form id="client-login-form">
+                <div class="mb-3">
+                    <div class="form-group">
+                        <label class="form-label fw-bold small">Correo Electrónico</label>
+                        <input type="email" id="client-email" class="form-control" required
+                            placeholder="correo@empresa.com">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <div class="form-group">
+                        <label class="form-label fw-bold small">Contraseña</label>
+                        <input type="password" id="client-password" class="form-control" required placeholder="******">
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary w-100 py-2 fw-bold rounded-pill"
+                    onclick="AuthModule.handleClientLogin()">
+                    Inicia Sesión <i class="fas fa-arrow-right ms-2"></i>
+                </button>
+                <div class="text-center mt-3">
+                    <a href="#" onclick="AuthModule.toggleClientForms()" class="small text-decoration-none">¿No tienes
+                        cuenta? <span class="fw-bold">Regístrate aquí</span></a>
+                </div>
+            </form>
+
+            <!-- REGISTER FORM (Hidden) -->
+            <form id="client-register-form" style="display: none;">
+                <div class="mb-2">
+                    <label class="form-label small fw-bold">NIT o Cédula (Sin digito verif.)</label>
+                    <input type="text" id="reg-nit" class="form-control" required placeholder="Ej: 900123456">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-bold">Nombre Empresa / Persona</label>
+                    <input type="text" id="reg-nombre" class="form-control" required placeholder="Razón Social">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-bold">Correo Electrónico</label>
+                    <input type="email" id="reg-email" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Crear Contraseña</label>
+                    <input type="password" id="reg-password" class="form-control" required minlength="6">
+                </div>
+                <button type="button" class="btn btn-success w-100 py-2 fw-bold rounded-pill"
+                    onclick="AuthModule.handleClientRegister()">
+                    Registrarse <i class="fas fa-check ms-2"></i>
+                </button>
+                <div class="text-center mt-3">
+                    <a href="#" onclick="AuthModule.toggleClientForms()" class="small text-decoration-none">¿Ya tienes
+                        cuenta? <span class="fw-bold">Inicia Sesión</span></a>
+                </div>
+            </form>
+
+            <div class="text-center mt-4 pt-3 border-top">
+                <button type="button" class="btn btn-link text-secondary btn-sm"
+                    onclick="AuthModule.closeClientAuth()">Cancelar / Volver</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Module Scripts -->
+    <script src="/static/js/modules/portal_client.js"></script>
 </body>
 
 </html>

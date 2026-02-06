@@ -1045,11 +1045,14 @@ def registrar_inyeccion():
         # ========================================
         try:
             # Usar float interactivo para limpiar strings como "10.0"
-            disparos = int(float(data.get('cantidad_real', 0) or 0)) 
+            disparos = int(float(data.get('disparos', 0) or 0)) 
             cavidades = int(float(data.get('no_cavidades', 1) or 1)) # Default 1 to avoid ZeroDiv
             pnc = int(float(data.get('pnc', 0) or 0))
             tomados_proceso = int(float(data.get('tomados_proceso', 0) or 0))
             
+            # Cantidad Real Manual (Lo que realmente salio)
+            cantidad_real_manual = int(float(data.get('cantidad_real', 0) or 0))
+
             # Floats
             peso_tomadas = float(data.get('peso_tomadas', 0) or 0)
             peso_vela_maquina = float(data.get('peso_vela_maquina', 0) or 0)
@@ -1094,10 +1097,16 @@ def registrar_inyeccion():
         # ========================================
         # CALCULAR PRODUCCIÓN
         # ========================================
-        cantidad_total = disparos * cavidades
-        piezas_buenas = max(0, cantidad_total - pnc)
+        cantidad_teorica = disparos * cavidades
         
-        logger.info(f" Calculado: {disparos} disparos  {cavidades} cavidades = {cantidad_total} piezas")
+        # SI se envio una cantidad real manual valida (mayor a 0), usarla. Si no, usar la teorica.
+        # El frontend enviará cantidad_real manual.
+        cantidad_final_reportada = cantidad_real_manual if cantidad_real_manual > 0 else cantidad_teorica
+        
+        # Piezas buenas = Real - PNC
+        piezas_buenas = max(0, cantidad_final_reportada - pnc)
+        
+        logger.info(f" Inyeccion: Disparos={disparos}, Cav={cavidades}, Teorica={cantidad_teorica}, RealManual={cantidad_real_manual}, Final={cantidad_final_reportada}, Buenas={piezas_buenas}")
         
         # ========================================
         # BUSCAR CODIGO SISTEMA COMPLETO (con FR-)
@@ -1134,7 +1143,7 @@ def registrar_inyeccion():
             int(disparos),           # 13 CANT. CONTADOR
             int(tomados_proceso),    # 14 TOMADOS EN PROCESO
             float(peso_tomadas),     # 15 PESO TOMADAS EN PROCESO
-            int(cantidad_total),     # 16 CANTIDAD REAL
+            int(cantidad_final_reportada), # 16 CANTIDAD REAL (Ahora puede ser manual)
             str(almacen_destino),    # 17 ALMACEN DESTINO
             str(codigo_ensamble),    # 18 CODIGO ENSAMBLE
             str(orden_produccion),   # 19 ORDEN PRODUCCION
@@ -1173,7 +1182,7 @@ def registrar_inyeccion():
             )
             
             if exito_stock:
-                logger.info(f" Stock actualizado: {codigo_sistema_completo} en {almacen_destino} (+{cantidad_total})")
+                logger.info(f" Stock actualizado: {codigo_sistema_completo} en {almacen_destino} (+{cantidad_final_reportada})")
             else:
                 logger.warning(f" No se pudo actualizar stock: {msg_stock}")
         else:
@@ -1204,7 +1213,7 @@ def registrar_inyeccion():
             'mensaje': 'Inyección guardada correctamente',
             'disparos': disparos,
             'cavidades': cavidades,
-            'piezasTotal': cantidad_total,
+            'piezasTotal': cantidad_final_reportada,
             'pnc': pnc,
             'piezasBuenas': piezas_buenas,
             'codigoProductoEntrada': codigo_producto_entrada,

@@ -186,13 +186,41 @@ function inicializarModulo(nombrePagina) {
     const modulo = modulos[nombrePagina];
 
     // Lógica especial para Dashboard (Power BI) Juan Sebastian
+    // Lógica especial para Dashboard (Power BI) Juan Sebastian
     if (nombrePagina === 'dashboard') {
         const frame = document.getElementById('powerbi-frame');
         const placeholder = document.getElementById('powerbi-placeholder');
-        if (frame && window.AppState.POWER_BI_URL && window.AppState.POWER_BI_URL !== 'https://app.powerbi.com/view?r=PLACEHOLDER') {
-            if (frame.src === 'about:blank') {
+
+        if (frame && window.AppState.POWER_BI_URL) {
+            // Si es un placeholder dummy, no intentar cargar
+            if (window.AppState.POWER_BI_URL.includes('PLACEHOLDER')) {
+                if (placeholder) placeholder.innerHTML = '<div class="text-center p-5">Dashboard no configurado. Contacte al administrador.</div>';
+                return;
+            }
+
+            // Cargar solo si está vacío
+            if (frame.src === 'about:blank' || frame.src === '') {
+                console.log('📊 Cargando Power BI iframe...');
                 frame.src = window.AppState.POWER_BI_URL;
-                frame.onload = () => { if (placeholder) placeholder.style.display = 'none'; };
+
+                // Fallback por si el onload no dispara (seguridad)
+                setTimeout(() => {
+                    if (placeholder && placeholder.style.display !== 'none') {
+                        console.log('⚠️ Power BI timeout - Ocultando placeholder forzosamente');
+                        // No ocultamos del todo por si falla, pero permitimos interacción? 
+                        // Mejor: mostramos mensaje de "Si no carga..."
+                        const msg = document.createElement('div');
+                        msg.innerHTML = `<p class="mt-3 text-muted">¿Tarda mucho? <a href="${window.AppState.POWER_BI_URL}" target="_blank">Abrir directamente en Power BI</a></p>`;
+                        if (placeholder.querySelector('.spinner-border')) {
+                            placeholder.querySelector('.text-center').appendChild(msg);
+                        }
+                    }
+                }, 5000);
+
+                frame.onload = () => {
+                    console.log('✅ Power BI iframe cargado');
+                    if (placeholder) placeholder.style.display = 'none';
+                };
             }
         }
     }
@@ -254,6 +282,15 @@ function configurarNavegacion() {
     document.addEventListener('click', handleSidebarToggle);
     document.addEventListener('touchstart', handleSidebarToggle, { passive: false });
 
+    // CORRECCIÓN: Escuchar cambios en el hash para navegación directa
+    window.addEventListener('hashchange', () => {
+        const hashPage = window.location.hash.replace('#', '');
+        console.log("🔄 Hash changed:", hashPage);
+        if (hashPage && document.getElementById(`${hashPage}-page`)) {
+            cargarPagina(hashPage);
+        }
+    });
+
     console.log('✅ Navegación configurada -', document.querySelectorAll('.menu-item').length, 'items');
 }
 
@@ -263,11 +300,21 @@ async function inicializarAplicacion() {
         configurarNavegacion();
         await cargarDatosCompartidos();
 
-        // 5. Cargar página inicial (Dashboard o Hash) Juan Sebastian
+        // 5. Cargar página inicial (Dashboard o Hash)
+
+        // CORRECCIÓN CRÍTICA: Si AuthModule ya activó una página (ej. Portal Cliente), no sobreescribir.
+        if (document.querySelector('.page.active')) {
+            console.log("🚀 Página ya activa por AuthModule. Omitiendo carga por defecto de App.js.");
+            console.log('✅ Aplicación inicializada correctamente (Ruta preservada)');
+            return;
+        }
+
         const hashPage = window.location.hash.replace('#', '');
+
         if (hashPage && document.getElementById(`${hashPage}-page`)) {
             cargarPagina(hashPage);
         } else {
+            // Fallback default
             cargarPagina('dashboard');
         }
 

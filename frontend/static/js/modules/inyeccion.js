@@ -200,7 +200,7 @@ const ModuloInyeccion = {
             };
         }
 
-        ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion'].forEach(id => {
+        ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion', 'cantidad-real-inyeccion'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => this.calculos());
         });
     },
@@ -209,28 +209,45 @@ const ModuloInyeccion = {
         const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
         const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
         const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
+        const manualReal = parseInt(document.getElementById('cantidad-real-inyeccion')?.value) || 0;
 
-        const produccionTotal = disparos * cavidades;
-        const piezasBuenas = Math.max(0, produccionTotal - pnc);
+        const produccionTeorica = disparos * cavidades;
+
+        // Si hay manual, esa es la "Real Reportada". Si no, es la teorica.
+        const produccionFinal = manualReal > 0 ? manualReal : produccionTeorica;
+        const piezasBuenas = Math.max(0, produccionFinal - pnc);
 
         const displayProduccion = document.getElementById('produccion-calculada');
         const displayFormula = document.getElementById('formula-calc');
         const displayBuenas = document.getElementById('piezas-buenas');
 
         if (displayProduccion) {
-            displayProduccion.textContent = (pnc > 0 ? piezasBuenas : produccionTotal).toLocaleString();
+            displayProduccion.textContent = piezasBuenas.toLocaleString();
         }
 
         if (displayFormula) {
-            displayFormula.textContent = `Disparos: ${disparos} × Cavidades: ${cavidades} = ${produccionTotal} piezas`;
+            if (manualReal > 0) {
+                const diff = manualReal - produccionTeorica;
+                const sign = diff >= 0 ? '+' : '';
+                const color = diff >= 0 ? '#4ade80' : '#f87171'; // Green or Red
+                displayFormula.innerHTML = `
+                    Teórica: <b>${produccionTeorica}</b> | 
+                    Real: <b>${manualReal}</b>
+                    <span style="color: ${color}; font-weight: bold; margin-left:8px;">(${sign}${diff})</span>
+                `;
+            } else {
+                displayFormula.textContent = `Disparos: ${disparos} × Cavidades: ${cavidades} = ${produccionTeorica} (Teórica)`;
+            }
         }
 
         if (displayBuenas) {
             if (pnc > 0) {
-                displayBuenas.textContent = `${produccionTotal} - PNC: ${pnc} = ${piezasBuenas} piezas buenas`;
+                displayBuenas.textContent = `${produccionFinal} (Bruto) - PNC: ${pnc} = ${piezasBuenas} piezas buenas`;
                 displayBuenas.style.display = 'block';
             } else {
-                displayBuenas.style.display = 'none';
+                // Si no hay PNC, mostramos mensaje confirmando que todas son buenas
+                displayBuenas.textContent = `${piezasBuenas} piezas buenas`;
+                displayBuenas.style.display = 'block';
             }
         }
     },
@@ -245,8 +262,16 @@ const ModuloInyeccion = {
             const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
             const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
             const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
-            const produccionBruta = disparos * cavidades;
-            const cantidadReal = Math.max(0, produccionBruta - pnc);
+            const manualReal = parseInt(document.getElementById('cantidad-real-inyeccion')?.value) || 0;
+
+            const produccionTeorica = disparos * cavidades;
+            // Si hay input manual > 0, es la verdad. Si no, usamos la teorica.
+            const cantidadRealBruta = manualReal > 0 ? manualReal : produccionTeorica;
+
+            // Cantidad Real REPORTADA al backend (para stock y reporte) es la bruta
+            // El backend resta el PNC para "piezas buenas" si es necesario, O nosotros mandamos bruto.
+            // Segun backend: piezas_buenas = max(0, cantidad_final_reportada - pnc)
+            // Asi que mandamos la bruta.
 
             const datos = {
                 fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
@@ -258,7 +283,7 @@ const ModuloInyeccion = {
                 hora_llegada: document.getElementById('hora-llegada-inyeccion')?.value || '',
                 hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
-                cantidad_real: cantidadReal,
+                cantidad_real: cantidadRealBruta, // ENVIO LA MANUAL O LA TEORICA
                 almacen_destino: document.getElementById('almacen-destino-inyeccion')?.value || '',
                 codigo_ensamble: document.getElementById('codigo-ensamble-inyeccion')?.value || '',
                 orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
@@ -290,6 +315,7 @@ const ModuloInyeccion = {
                 document.getElementById('form-inyeccion').reset();
                 document.getElementById('cavidades-inyeccion').value = 1;
                 document.getElementById('pnc-inyeccion').value = 0;
+                document.getElementById('cantidad-real-inyeccion').value = ''; // Reset Manual Input
                 this.calculos();
             } else {
                 mostrarNotificacion(resultado.error || 'Error', 'error');

@@ -1,0 +1,1711 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>🏭 Sistema de Producción - FriTech</title> <!-- CSS -->
+    <link rel="stylesheet" href="/static/css/styles.css?v=1.0.1">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=1.0.1">
+    <link rel="stylesheet" href="/static/css/mobile-ux.css?v=1.0.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Bootstrap para modales -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Estilos mínimos necesarios */
+        .modal-custom {
+            display: none;
+            position: fixed;
+            z-index: 1060;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content-custom {
+            background: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 800px;
+        }
+
+        #detalle-producto {
+            position: fixed;
+            top: 0;
+            right: -500px;
+            width: 500px;
+            height: 100vh;
+            background: white;
+            transition: right 0.3s ease;
+            z-index: 1050;
+        }
+
+        #detalle-producto.active {
+            right: 0;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 9999;
+        }
+
+        /* Autocomplete Styles */
+        .autocomplete-suggestions {
+            position: absolute;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            width: calc(100% - 2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: none;
+            margin-top: 2px;
+        }
+
+        .autocomplete-suggestions.active {
+            display: block;
+        }
+
+        .suggestion-item {
+            padding: 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .suggestion-item:hover {
+            background-color: #f0f9ff;
+        }
+
+        .suggestion-item strong {
+            color: var(--primary);
+        }
+
+        .form-group {
+            position: relative;
+        }
+    </style>
+</head>
+
+<body> <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Cargando...</div>
+    </div> <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div class="company-logo"> <i class="fas fa-industry"></i>
+                <div>
+                    <h2>FriTech</h2>
+                    <p>Sistema de Producción</p>
+                </div>
+            </div>
+        </div>
+        <ul class="sidebar-menu"> <!-- Menú items - mantener igual -->
+            <li class="menu-item active" data-page="dashboard"> <a href="#"><i
+                        class="fas fa-chart-line"></i><span>Dashboard</span></a> </li>
+            <li class="menu-item" data-page="inventario"> <a href="#"><i class="fas fa-boxes"></i><span>Productos y
+                        Existencias</span></a> </li>
+            <li class="menu-item" data-page="inyeccion"> <a href="#"><i
+                        class="fas fa-cogs"></i><span>Inyección</span></a> </li>
+            <li class="menu-item" data-page="pulido"> <a href="#"><i class="fas fa-cut"></i><span>Pulido</span></a>
+            </li>
+            <li class="menu-item" data-page="ensamble"> <a href="#"><i
+                        class="fas fa-puzzle-piece"></i><span>Ensamble</span></a> </li>
+            <li class="menu-item" data-page="pnc"> <a href="#"><i
+                        class="fas fa-exclamation-triangle"></i><span>PNC</span></a> </li>
+            <li class="menu-item" data-page="facturacion"> <a href="#"><i
+                        class="fas fa-file-invoice-dollar"></i><span>Facturación</span></a> </li>
+            <li class="menu-item" data-page="almacen"> <a href="#"><i class="fas fa-warehouse"></i><span>Gestión
+                        Almacén</span></a> </li>
+            <li class="menu-item" data-page="mezcla"> <a href="#"><i class="fas fa-vial"></i><span>Mezcla
+                        Material</span></a> </li>
+            <li class="menu-item" data-page="historial"> <a href="#"><i class="fas fa-history"></i><span>Historial
+                        Global</span></a> </li>
+            <li class="menu-item" data-page="pedidos"> <a href="#"><i
+                        class="fas fa-shopping-basket"></i><span>Pedidos</span></a> </li>
+
+        </ul>
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="user-avatar"><i class="fas fa-user"></i></div>
+                <div class="user-details"> <span class="user-name">Administrador</span> <span
+                        class="user-role">Supervisor</span> </div>
+            </div>
+            <div class="current-date" id="fecha-actual"></div>
+            <button id="btn-logout" class="btn btn-outline-danger btn-sm w-100 mt-2" onclick="AuthModule.logout()">
+                <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+            </button>
+        </div>
+    </nav> <!-- Main Content -->
+    <main class="main-content" id="main-content"> <!-- Contenido dinámico -->
+        <div id="page-content">
+            <!-- Botón Volver Global para Móviles -->
+            <div class="mobile-back-container" id="back-button-container"
+                style="padding: 10px 20px; background: white; border-bottom: 1px solid #eee; z-index: 1000;">
+                <button class="btn-back-mobile" onclick="window.volverAlDashboard()">
+                    <i class="fas fa-arrow-left"></i><span>Volver</span>
+                </button>
+            </div>
+
+
+
+            <!-- Dashboard (Power BI) -->
+            <div id="dashboard-page" class="page active">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-dashboard">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-line"></i> Dashboard Analítico</h1>
+                        <p class="subtitle">Monitoreo en tiempo real vía Power BI</p>
+                    </div>
+                </header>
+
+                <section class="powerbi-section"
+                    style="height: calc(100vh - 120px); min-height: 600px; width: 100%; position: relative; overflow: hidden; border-radius: 12px; background: #f8f9fa; margin-top: 10px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                    <div id="powerbi-placeholder"
+                        style="position: absolute; top:0; left:0; width:100%; height:100%; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; background: white;">
+                        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                            <span class="visually-hidden">Cargando...</span>
+                        </div>
+                        <h5 class="text-muted mt-3 fw-normal">Cargando Dashboard...</h5>
+                        <p class="text-muted small">Conectando con Power BI</p>
+                    </div>
+                    <iframe id="powerbi-frame" src="about:blank"
+                        style="width: 100%; height: 100%; border: none; position: relative; z-index: 5;"
+                        allowFullScreen="true"></iframe>
+                </section>
+            </div> <!-- Inventario -->
+            <div id="inventario-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-inventario">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-boxes"></i> Productos y Existencias</h1>
+                        <p class="subtitle">Gestión completa de inventario y stock</p>
+                    </div>
+                    <div class="top-controls"> <button class="btn btn-primary" id="btn-actualizar-productos"> <i
+                                class="fas fa-sync-alt"></i> Actualizar </button> <button class="btn btn-success"
+                            id="btn-nuevo-producto"> <i class="fas fa-plus"></i> Nuevo Producto </button> </div>
+                </header>
+                <div class="inventario-container"> <!-- Búsqueda -->
+                    <div class="filtros-section">
+                        <div class="search-box"> <i class="fas fa-search"></i> <input type="text" id="buscar-producto"
+                                placeholder="Buscar por código, descripción o OEM..."> </div>
+                    </div> <!-- Estadísticas -->
+                    <div class="stats-inventario">
+                        <div class="stat-card"><i class="fas fa-box"></i>
+                            <div>
+                                <h3 id="total-productos">0</h3>
+                                <p>Productos Totales</p>
+                            </div>
+                        </div>
+                        <div class="stat-card"><i class="fas fa-check-circle"></i>
+                            <div>
+                                <h3 id="productos-stock-ok">0</h3>
+                                <p>Con Stock OK</p>
+                            </div>
+                        </div>
+                        <div class="stat-card"><i class="fas fa-exclamation-triangle"></i>
+                            <div>
+                                <h3 id="productos-bajo-stock">0</h3>
+                                <p>Bajo Stock</p>
+                            </div>
+                        </div>
+                        <div class="stat-card"><i class="fas fa-times-circle"></i>
+                            <div>
+                                <h3 id="productos-agotados">0</h3>
+                                <p>Agotados</p>
+                            </div>
+                        </div>
+                    </div> <!-- Botones de filtro -->
+                    <div class="d-flex gap-2 mb-4" id="filtros-inventario"> <button type="button"
+                            class="btn btn-primary rounded-pill px-3 active">Todos</button> <button type="button"
+                            class="btn btn-light border rounded-pill px-3"> <i
+                                class="fas fa-shopping-cart text-warning"></i> Por Pedir </button> <button type="button"
+                            class="btn btn-light border rounded-pill px-3"> <i
+                                class="fas fa-check-circle text-success"></i> Stock OK </button> <button type="button"
+                            class="btn btn-light border rounded-pill px-3"> <i
+                                class="fas fa-times-circle text-danger"></i> Agotados </button> </div>
+                    <!-- Tabla de productos -->
+                    <div class="table-container">
+                        <table class="table-inventario responsive-mobile">
+                            <thead>
+                                <tr>
+                                    <th style="width: 8%;">IMAGEN</th>
+                                    <th style="width: 12%;">CÓDIGO</th>
+                                    <th style="width: 30%;">DESCRIPCIÓN</th>
+                                    <th style="width: 12%;">POR PULIR</th>
+                                    <th style="width: 12%;">TERMINADO</th>
+                                    <th style="width: 12%;">STOCK TOTAL</th>
+                                    <th style="width: 14%;">ESTADO</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-productos-body"> <!-- Los productos se cargarán aquí dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="pagination-container" class="mt-3"></div>
+                </div>
+            </div> <!-- Inyección -->
+            <div id="inyeccion-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-inyeccion">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-cogs"></i> Registro de Inyección</h1>
+                        <p class="subtitle">Registra operaciones de inyección</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-inyeccion" class="styled-form">
+                        <div class="form-grid"> <!-- Fila 1 -->
+                            <div class="form-group"> <label for="fecha-inyeccion"><i class="fas fa-calendar"></i>
+                                    Fecha</label> <input type="date" id="fecha-inyeccion" required> </div>
+                            <div class="form-group"> <label for="responsable-inyeccion"><i
+                                        class="fas fa-user-circle"></i>
+                                    Responsable</label> <input type="text" id="responsable-inyeccion"
+                                    placeholder="Buscar operario..." autocomplete="off">
+                                <div id="inyeccion-responsable-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <!-- Fila 2 -->
+                            <div class="form-group"> <label for="maquina-inyeccion"><i class="fas fa-cogs"></i>
+                                    Máquina</label> <select id="maquina-inyeccion" required></select> </div>
+                            <div class="form-group"> <label for="hora-llegada-inyeccion"><i class="fas fa-clock"></i>
+                                    Hora Llegada</label> <input type="time" id="hora-llegada-inyeccion"> </div>
+                            <!-- Fila 3 -->
+                            <div class="form-group"> <label for="hora-inicio-inyeccion"><i
+                                        class="fas fa-play-circle"></i> Hora Inicio</label> <input type="time"
+                                    id="hora-inicio-inyeccion" required> </div>
+                            <div class="form-group"> <label for="hora-termina-inyeccion"><i
+                                        class="fas fa-stop-circle"></i> Hora Termina</label> <input type="time"
+                                    id="hora-termina-inyeccion" required> </div> <!-- Fila 4 -->
+                            <div class="form-group"> <label for="codigo-producto-inyeccion"><i
+                                        class="fas fa-barcode"></i> Producto</label> <input type="text"
+                                    id="codigo-producto-inyeccion" placeholder="Buscar por código o descripción..."
+                                    autocomplete="off">
+                                <div id="inyeccion-producto-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="form-group"> <label for="cavidades-inyeccion"><i class="fas fa-cube"></i> No.
+                                    Cavidades</label> <input type="number" id="cavidades-inyeccion" min="1" value="1"
+                                    required> </div> <!-- Fila 5 -->
+                            <div class="form-group"> <label for="cantidad-inyeccion"><i class="fas fa-bolt"></i>
+                                    Disparos</label> <input type="number" id="cantidad-inyeccion" min="1" required>
+                            </div>
+                            <div class="form-group"> <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i>
+                                    PNC</label>
+                                <div style="display: flex; gap: 5px;"> <input type="number" id="pnc-inyeccion" value="0"
+                                        readonly
+                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
+                                        onclick="window.abrirModalInyeccion()"> <button type="button"
+                                        onclick="window.abrirModalInyeccion()"
+                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                        <i class="fas fa-list-ul"></i> </button> </div>
+                            </div> <!-- Fila 6 -->
+                            <div class="form-group"> <label for="almacen-destino-inyeccion"><i
+                                        class="fas fa-warehouse"></i> Almacén Destino</label> <select
+                                    id="almacen-destino-inyeccion" required>
+                                    <option value="">Seleccionar destino...</option>
+                                    <option value="POR PULIR">POR PULIR</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                </select> </div>
+                            <div class="form-group"> <label for="codigo-ensamble-inyeccion"><i class="fas fa-link"></i>
+                                    Código Ensamble</label> <input type="text" id="codigo-ensamble-inyeccion"
+                                    placeholder="Si aplica"> </div> <!-- Fila 7 -->
+                            <div class="form-group"> <label for="orden-produccion-inyeccion"><i
+                                        class="fas fa-list-ol"></i> Orden Producción</label> <input type="text"
+                                    id="orden-produccion-inyeccion" placeholder="Número de orden"> </div>
+                            <div class="form-group"> <label for="peso-vela-inyeccion"><i
+                                        class="fas fa-weight-hanging"></i> Peso Vela Máquina (kg)</label> <input
+                                    type="number" id="peso-vela-inyeccion" step="0.01" min="0" value="0"> </div>
+                            <!-- Fila 8 -->
+                            <div class="form-group"> <label for="peso-bujes-inyeccion"><i
+                                        class="fas fa-weight-hanging"></i> Peso Bujes (kg)</label> <input type="number"
+                                    id="peso-bujes-inyeccion" step="0.01" min="0" value="0"> </div>
+                            <div class="form-group full-width"> <label for="observaciones-inyeccion"><i
+                                        class="fas fa-sticky-note"></i> Observaciones</label> <textarea
+                                    id="observaciones-inyeccion" rows="3"
+                                    placeholder="Notas adicionales del proceso..."></textarea>
+                                <input type="hidden" id="criterio-pnc-hidden-inyeccion">
+                            </div>
+                            <!-- PRODUCCIÓN CALCULADA (Destacada) -->
+                            <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                       padding: 20px; 
+                                       border-radius: 12px;
+                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                                       margin: 20px 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                                    <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
+                                    <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
+                                        📊 Producción Calculada
+                                    </label>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.15); 
+                                            padding: 15px; 
+                                            border-radius: 8px;
+                                            backdrop-filter: blur(10px);">
+                                    <div id="produccion-calculada" style="font-size: 48px; 
+                                               font-weight: bold; 
+                                               color: white; 
+                                               text-align: center;
+                                               text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
+                                        0
+                                    </div>
+                                    <div id="formula-calc" style="font-size: 14px; 
+                                               color: rgba(255,255,255,0.9); 
+                                               text-align: center;
+                                               margin-top: 8px;">
+                                        Disparos: 0 × Cavidades: 1 = 0 piezas
+                                    </div>
+                                    <div id="piezas-buenas" style="font-size: 16px; 
+                                               color: #4ade80; 
+                                               text-align: center;
+                                               margin-top: 8px;
+                                               font-weight: 600;">
+                                        Total: 0 - PNC: 0 = 0 piezas buenas
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-actions"> <button type="submit" class="btn btn-primary"><i
+                                    class="fas fa-save"></i> Registrar Inyección</button> <button type="reset"
+                                class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button> </div>
+                    </form>
+                </div>
+            </div> <!-- Pulido -->
+            <div id="pulido-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-pulido">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-sparkles"></i> Registro de Pulido</h1>
+                        <p class="subtitle">Registra operaciones de pulido y acabado</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-pulido" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 1: Fecha -->
+                            <div class="form-group">
+                                <label for="fecha-pulido"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-pulido" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="responsable-pulido"><i class="fas fa-user-circle"></i> Responsable</label>
+                                <input type="text" id="responsable-pulido" placeholder="Buscar operario..."
+                                    autocomplete="off">
+                                <div id="pulido-responsable-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+
+                            <!-- Fila 2: Horas -->
+                            <div class="form-group">
+                                <label for="hora-inicio-pulido"><i class="fas fa-play-circle"></i> Hora Inicio</label>
+                                <input type="time" id="hora-inicio-pulido" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="hora-fin-pulido"><i class="fas fa-stop-circle"></i> Hora Fin</label>
+                                <input type="time" id="hora-fin-pulido" required>
+                            </div>
+
+                            <!-- Fila 3: Producto y Lote -->
+                            <div class="form-group">
+                                <label for="codigo-producto-pulido"><i class="fas fa-barcode"></i> Código
+                                    Producto</label>
+                                <input type="text" id="codigo-producto-pulido" placeholder="Buscar por código..."
+                                    autocomplete="off">
+                                <div id="pulido-producto-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="lote-pulido"><i class="fas fa-calendar-alt"></i> Lote (Fecha)</label>
+                                <input type="date" id="lote-pulido" required>
+                            </div>
+
+                            <!-- Fila 4: Orden y Cantidad Recibida -->
+                            <div class="form-group">
+                                <label for="orden-produccion-pulido"><i class="fas fa-list-ol"></i> Orden
+                                    Producción</label>
+                                <input type="text" id="orden-produccion-pulido" placeholder="OP-2026-001">
+                            </div>
+                            <div class="form-group">
+                                <label for="entrada-pulido"><i class="fas fa-sign-in-alt"></i> Cantidad Pulida</label>
+                                <input type="number" id="entrada-pulido" min="0" required>
+                            </div>
+
+                            <!-- Fila 5: Bujes Buenos y PNC -->
+                            <div class="form-group">
+                                <label for="bujes-buenos-pulido"><i class="fas fa-check-circle"></i> Bujes
+                                    Buenos</label>
+                                <input type="number" id="bujes-buenos-pulido" min="0" value="0" readonly
+                                    style="background-color: #e6fffa; font-weight: bold; color: #047857;">
+                            </div>
+                            <div class="form-group">
+                                <label for="pnc-pulido"><i class="fas fa-times-circle"></i> PNC</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <input type="text" id="pnc-pulido" value="0" readonly
+                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer; flex: 1;"
+                                        onclick="window.abrirModalPulido()" title="Click para registrar defectos">
+                                    <button type="button" onclick="window.abrirModalPulido()"
+                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;"
+                                        title="Registrar defectos">
+                                        <i class="fas fa-list-ul"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Fila 6: Observaciones -->
+                            <div class="form-group full-width">
+                                <label for="observaciones-pulido"><i class="fas fa-sticky-note"></i>
+                                    Observaciones</label>
+                                <textarea id="observaciones-pulido" rows="3"
+                                    placeholder="Notas adicionales del proceso..."></textarea>
+                                <input type="hidden" id="criterio-pnc-hidden">
+                            </div>
+
+                            <!-- PRODUCCIÓN CALCULADA (Destacada) -->
+                            <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                       padding: 20px; 
+                                       border-radius: 12px;
+                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                                       margin: 20px 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                                    <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
+                                    <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
+                                        📊 Cantidad Real (Calculada)
+                                    </label>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.15); 
+                                            padding: 15px; 
+                                            border-radius: 8px;
+                                            backdrop-filter: blur(10px);">
+                                    <div id="salida-calculada" style="font-size: 48px; 
+                                               font-weight: bold; 
+                                               color: #10b981; 
+                                               text-align: center;
+                                               text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                                               line-height: 1;">
+                                        0
+                                    </div>
+                                    <div id="formula-calc-pulido" style="color: rgba(255,255,255,0.9); 
+                                               text-align: center; 
+                                               margin-top: 10px;
+                                               font-size: 14px;">
+                                        Recibida: 0 - PNC: 0 = 0 piezas pulidas
+                                    </div>
+                                    <div id="piezas-buenas-pulido" style="color: #4ade80; 
+                                               text-align: center; 
+                                               margin-top: 5px;
+                                               font-weight: 600;
+                                               font-size: 14px;
+                                               border-top: 1px solid rgba(255,255,255,0.1);
+                                               padding-top: 5px;">
+                                        Total: 0 piezas buenas
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
+                                Pulido</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- Ensamble -->
+            <div id="ensamble-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-ensamble">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-puzzle-piece"></i> Registro de Ensamble</h1>
+                        <p class="subtitle">Registra operaciones de ensamble de productos</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-ensamble" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 1: Fecha y Responsable -->
+                            <div class="form-group">
+                                <label for="fecha-ensamble"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-ensamble" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="responsable-ensamble"><i class="fas fa-user-circle"></i> Responsable</label>
+                                <input type="text" id="responsable-ensamble" placeholder="Buscar operario..."
+                                    autocomplete="off">
+                                <div id="ensamble-responsable-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+
+                            <!-- Fila 2: Horas -->
+                            <div class="form-group">
+                                <label for="hora-inicio-ensamble"><i class="fas fa-play-circle"></i> Hora Inicio</label>
+                                <input type="time" id="hora-inicio-ensamble" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="hora-fin-ensamble"><i class="fas fa-stop-circle"></i> Hora Fin</label>
+                                <input type="time" id="hora-fin-ensamble" required>
+                            </div>
+
+                            <!-- Fila 3: Buje Componente y Código Ensamble (REFACCIONADO) -->
+                            <div class="form-group">
+                                <label for="ens-buje-componente"><i class="fas fa-cube"></i> Buje Componente
+                                    (Origen)</label>
+                                <input type="text" id="ens-buje-componente" placeholder="Buscar componente..."
+                                    autocomplete="off">
+                                <div id="ensamble-componente-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="ens-id-codigo"><i class="fas fa-box"></i> Código Ensamble (Producto
+                                    Final)</label>
+                                <input type="text" id="ens-id-codigo" placeholder="Auto-completado" readonly
+                                    style="background-color: #f0f9ff; cursor: not-allowed; font-weight: bold; color: var(--primary);">
+                            </div>
+
+                            <!-- Fila 4: QTY y Cantidad -->
+                            <div class="form-group">
+                                <label for="qty-ensamble"><i class="fas fa-calculator"></i> QTY (Bujes por
+                                    Ensamble)</label>
+                                <input type="number" id="ens-qty-bujes" min="1" value="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="cantidad-ensamble"><i class="fas fa-hashtag"></i> Cantidad a
+                                    Ensamblar</label>
+                                <input type="number" id="cantidad-ensamble" min="1" required>
+                            </div>
+
+                            <!-- Fila 5: Almacenes -->
+                            <div class="form-group">
+                                <label for="almacen-origen-ensamble"><i class="fas fa-warehouse"></i> Almacén Origen
+                                    (Bujes)</label>
+                                <select id="almacen-origen-ensamble" required>
+                                    <option value="">Seleccionar...</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="almacen-destino-ensamble"><i class="fas fa-shipping-fast"></i> Almacén
+                                    Destino (Ensambles)</label>
+                                <select id="almacen-destino-ensamble" required>
+                                    <option value="">Seleccionar...</option>
+                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                    <option value="P. TERMINADO">P. TERMINADO</option>
+                                </select>
+                            </div>
+
+                            <!-- Fila 6: OP y PNC -->
+                            <div class="form-group">
+                                <label for="op-ensamble"><i class="fas fa-list-ol"></i> Orden Producción</label>
+                                <input type="text" id="op-ensamble" placeholder="OP-2026-001">
+                            </div>
+                            <div class="form-group">
+                                <label for="pnc-ensamble"><i class="fas fa-times-circle"></i> PNC</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <input type="number" id="pnc-ensamble" value="0" readonly
+                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
+                                        onclick="window.abrirModalEnsamble()">
+                                    <button type="button" onclick="window.abrirModalEnsamble()"
+                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                        <i class="fas fa-list-ul"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Fila 7: Observaciones -->
+                            <div class="form-group full-width">
+                                <label for="observaciones-ensamble"><i class="fas fa-sticky-note"></i>
+                                    Observaciones</label>
+                                <textarea id="observaciones-ensamble" rows="3"
+                                    placeholder="Notas adicionales..."></textarea>
+                                <input type="hidden" id="criterio-pnc-hidden-ensamble">
+                            </div>
+
+                            <!-- PRODUCCIÓN CALCULADA (Destacada) -->
+                            <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                       padding: 20px; 
+                                       border-radius: 12px;
+                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                                       margin: 20px 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                                    <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
+                                    <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
+                                        📊 Resumen de Producción
+                                    </label>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.15); 
+                                            padding: 15px; 
+                                            border-radius: 8px;
+                                            backdrop-filter: blur(10px);">
+                                    <div id="produccion-calculada-ensamble" style="font-size: 48px; 
+                                               font-weight: bold; 
+                                               color: #10b981; 
+                                               text-align: center;
+                                               text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                                               line-height: 1;">
+                                        0
+                                    </div>
+                                    <div id="formula-calc-ensamble" style="color: rgba(255,255,255,0.9); 
+                                               text-align: center; 
+                                               margin-top: 10px;
+                                               font-size: 14px;">
+                                        Ensambles: 0 - PNC: 0 = 0 finales
+                                    </div>
+                                    <div id="piezas-buenas-ensamble" style="color: #4ade80; 
+                                               text-align: center; 
+                                               margin-top: 5px;
+                                               font-weight: 600;
+                                               font-size: 14px;
+                                               border-top: 1px solid rgba(255,255,255,0.1);
+                                               padding-top: 5px;">
+                                        Bujes consumidos: 0
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
+                                Ensamble</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- PNC -->
+            <div id="pnc-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-pnc">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-exclamation-triangle"></i> Control de PNC Global</h1>
+                        <p class="subtitle">Registro y análisis de productos no conformes</p>
+                    </div>
+
+                </header>
+
+                <div class="form-container">
+                    <form id="form-manual-pnc" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 1: Fecha -->
+                            <div class="form-group">
+                                <label for="pnc-manual-fecha"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="pnc-manual-fecha" required>
+                            </div>
+
+                            <!-- Fila 2: Producto -->
+                            <div class="form-group full-width">
+                                <label for="pnc-manual-producto"><i class="fas fa-barcode"></i> Producto (ID o
+                                    FR-)</label>
+                                <input type="text" id="pnc-manual-producto" placeholder="Buscar producto..."
+                                    autocomplete="off">
+                                <div id="pnc-manual-producto-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+
+                            <!-- Fila 2: Cantidad y Criterio -->
+                            <div class="form-group">
+                                <label for="pnc-manual-cantidad"><i class="fas fa-hashtag"></i> Cantidad</label>
+                                <input type="number" id="pnc-manual-cantidad" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pnc-manual-criterio"><i class="fas fa-exclamation-circle"></i> Criterio /
+                                    Defecto</label>
+                                <select id="pnc-manual-criterio" required>
+                                    <option value="">Selecciona...</option>
+                                    <option value="RECHUPE">Rechupe</option>
+                                    <option value="QUEMADO">Quemado</option>
+                                    <option value="ESCASO">Escaso</option>
+                                    <option value="CONTAMINADO">Contaminado</option>
+                                    <option value="MANCHADO">Manchado</option>
+                                    <option value="REVENTADO">Reventado</option>
+                                    <option value="OTROS">Otros</option>
+                                </select>
+                            </div>
+
+                            <!-- Fila 3: Notas/Ensamble (Ancho completo) -->
+                            <div class="form-group full-width">
+                                <label for="pnc-manual-ensamble"><i class="fas fa-sticky-note"></i> Código Ensamble /
+                                    Notas (Opcional)</label>
+                                <input type="text" id="pnc-manual-ensamble"
+                                    placeholder="ID de operación o notas adicionales">
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"
+                                style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border: none;">
+                                <i class="fas fa-save"></i> Guardar Registro PNC
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i> Limpiar Formulario
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+
+            </div>
+
+            <!-- Modal Detalle PNC -->
+            <div id="modal-detalle-pnc" class="modal-custom">
+                <div class="modal-content-custom">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h4 class="mb-0">Detalle de No Conformidad</h4>
+                        <button class="btn-close close"></button>
+                    </div>
+                    <div id="detalle-pnc-contenido">
+                        <!-- Se llena vía JS -->
+                    </div>
+                    <div class="text-end mt-4">
+                        <button class="btn btn-secondary close">Cerrar</button>
+                    </div>
+                </div>
+            </div> <!-- Facturación -->
+            <div id="facturacion-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-facturacion">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-file-invoice-dollar"></i> Facturación</h1>
+                        <p class="subtitle">Registra ventas y facturación</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-facturacion" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-facturacion"><i class="fas fa-calendar"></i> Fecha Venta</label>
+                                <input type="date" id="fecha-facturacion" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="cliente-facturacion"><i class="fas fa-user-tie"></i> Cliente</label>
+                                <input type="text" id="cliente-facturacion" placeholder="Buscar cliente..."
+                                    autocomplete="off">
+                                <div id="facturacion-cliente-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="producto-facturacion"><i class="fas fa-box-open"></i> Producto a
+                                    Vender</label>
+                                <input type="text" id="producto-facturacion" placeholder="Buscar producto..."
+                                    autocomplete="off">
+                                <div id="facturacion-producto-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="cantidad-facturacion"><i class="fas fa-sort-amount-up"></i> Cantidad</label>
+                                <input type="number" id="cantidad-facturacion" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="precio-facturacion"><i class="fas fa-dollar-sign"></i> Precio
+                                    Unitario</label>
+                                <input type="number" id="precio-facturacion" step="0.01" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="orden-compra-facturacion"><i class="fas fa-file-contract"></i> Orden Compra
+                                    (Opcional)</label>
+                                <input type="text" id="orden-compra-facturacion" placeholder="OC-1234">
+                            </div>
+
+                            <div class="form-group full-width"
+                                style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: 700; color: #166534;">TOTAL VENTA</span>
+                                    <span id="total-facturacion"
+                                        style="font-size: 24px; font-weight: 800; color: #15803d;">$ 0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-success"><i class="fas fa-check-circle"></i> Registrar
+                                Venta</button>
+                            <button type="reset" class="btn btn-light"><i class="fas fa-undo"></i> Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- Pedidos -->
+            <div id="pedidos-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-pedidos">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-shopping-basket"></i> Gestión de Pedidos</h1>
+                        <p class="subtitle">Registro de nuevos pedidos de clientes</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-pedidos" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 1 -->
+                            <div class="form-group">
+                                <label for="ped-fecha"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="ped-fecha" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="ped-vendedor"><i class="fas fa-user-tag"></i> Vendedor</label>
+                                <input type="text" id="ped-vendedor" readonly required
+                                    style="background-color: #f3f4f6; color: #555; background-color: #e2e8f0; cursor: not-allowed; font-weight: bold;">
+                            </div>
+
+                            <!-- Fila 2 -->
+                            <div class="form-group">
+                                <label for="ped-cliente"><i class="fas fa-user-tie"></i> Cliente</label>
+                                <input type="text" id="ped-cliente" placeholder="Buscar cliente..." required
+                                    autocomplete="off">
+                                <div id="ped-cliente-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="ped-nit"><i class="fas fa-id-card"></i> NIT (Opcional)</label>
+                                <input type="text" id="ped-nit" placeholder="NIT / Cédula">
+                            </div>
+
+                            <!-- Fila 3 -->
+                            <div class="form-group">
+                                <label for="ped-producto"><i class="fas fa-box-open"></i> Producto</label>
+                                <input type="text" id="ped-producto" placeholder="Buscar por código o descripción..."
+                                    autocomplete="off">
+                                <div id="ped-producto-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="ped-cantidad"><i class="fas fa-boxes"></i> Cantidad</label>
+                                <input type="number" id="ped-cantidad" min="1">
+                            </div>
+
+                            <!-- Fila 4 -->
+                            <div class="form-group">
+                                <label for="ped-precio"><i class="fas fa-dollar-sign"></i> Precio Unitario</label>
+                                <input type="number" id="ped-precio" step="0.01" min="0">
+                            </div>
+
+
+
+                            <!-- Botón Añadir Item con color distintivo -->
+                            <div class="form-group full-width" style="margin-top: 10px;">
+                                <button type="button" id="btn-agregar-item" class="btn btn-add-item"
+                                    style="width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px; font-weight: 600; font-size: 16px; border-radius: 8px; transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);">
+                                    <i class="fas fa-plus-circle"></i> Añadir al Pedido
+                                </button>
+                            </div>
+
+                            <!-- Tabla de Items -->
+                            <div class="form-group full-width" style="margin-top: 20px;">
+                                <h4 style="margin-bottom: 15px;"><i class="fas fa-list"></i> Productos en este Pedido
+                                </h4>
+                                <div class="table-container"
+                                    style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                                    <table id="tabla-items-pedido" class="table responsive-mobile"
+                                        style="width: 100%; border-collapse: collapse;">
+                                        <thead style="background: #f8f9fa;">
+                                            <tr>
+                                                <th style="padding: 10px; border: 1px solid #dee2e6;">Código</th>
+                                                <th style="padding: 10px; border: 1px solid #dee2e6;">Descripción</th>
+                                                <th style="padding: 10px; border: 1px solid #dee2e6;">Cantidad</th>
+                                                <th style="padding: 10px; border: 1px solid #dee2e6;">Precio Unit.</th>
+                                                <th style="padding: 10px; border: 1px solid #dee2e6;">Subtotal</th>
+                                                <th style="padding: 10px; border: 1px solid #dee2e6; min-width: 80px;">
+                                                    Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="items-pedido-body">
+                                            <tr class="empty-state">
+                                                <td colspan="6"
+                                                    style="text-align: center; color: #999; padding: 20px; border: 1px solid #dee2e6;">
+                                                    No hay productos agregados
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Fila de Forma de Pago y Descuento Total -->
+                            <div class="form-group">
+                                <label for="ped-pago"><i class="fas fa-credit-card"></i> Forma de Pago</label>
+                                <select id="ped-pago" required>
+                                    <option value="Contado">Contado</option>
+                                    <option value="Crédito">Crédito</option>
+                                    <option value="Transferencia">Transferencia</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="ped-descuento-global"><i class="fas fa-percentage"></i> Descuento Total
+                                    (%)</label>
+                                <input type="number" id="ped-descuento-global" min="0" max="100" value="0" step="0.01">
+                            </div>
+
+
+                            <!-- Total (Destacado) -->
+                            <div class="form-group full-width pedidos-total-container">
+                                <div class="pedidos-total-label-box">
+                                    <i class="fas fa-coins"></i>
+                                    <span class="pedidos-total-label-text">TOTAL A PAGAR</span>
+                                </div>
+                                <span id="ped-total" class="pedidos-total-value">$ 0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="form-actions d-flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-primary"
+                                style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none;">
+                                <i class="fas fa-paper-plane"></i> Registrar Pedido
+                            </button>
+                            <button type="button" id="btn-pdf-pedido" class="btn btn-info"
+                                style="background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); border: none; color: white;"
+                                disabled onclick="ModuloPedidos.generarPDF()">
+                                <i class="fas fa-file-pdf"></i> Generar PDF
+                            </button>
+                            <button type="reset" class="btn btn-secondary">Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- Reportes -->
+            <div id="reportes-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-reportes">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-bar"></i> Centro de Reportes y Análisis</h1>
+                        <p class="subtitle">Métricas de rendimiento, producción y ventas consolidadas</p>
+                    </div>
+                </header>
+
+                <div class="reportes-container">
+                    <!-- Dashboard de Métricas Rápidas -->
+                    <div class="metrics-grid mb-5"
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+                        <div class="metric-card"
+                            style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-left: 5px solid #6366f1;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted small fw-bold text-uppercase">Producción Mes</span>
+                                    <h2 id="rep-prod-mes" class="mb-0 mt-1">0</h2>
+                                </div>
+                                <i class="fas fa-industry fa-2x" style="color: #6366f1; opacity: 0.2;"></i>
+                            </div>
+                        </div>
+                        <div class="metric-card"
+                            style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-left: 5px solid #10b981;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted small fw-bold text-uppercase">Ventas Mes</span>
+                                    <h2 id="rep-ventas-mes" class="mb-0 mt-1">$ 0</h2>
+                                </div>
+                                <i class="fas fa-dollar-sign fa-2x" style="color: #10b981; opacity: 0.2;"></i>
+                            </div>
+                        </div>
+                        <div class="metric-card"
+                            style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-left: 5px solid #ef4444;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted small fw-bold text-uppercase">Tasa PNC</span>
+                                    <h2 id="rep-pnc-tasa" class="mb-0 mt-1">0%</h2>
+                                </div>
+                                <i class="fas fa-exclamation-circle fa-2x" style="color: #ef4444; opacity: 0.2;"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Generador de Reportes -->
+                    <div class="card p-4 border-0 shadow-sm rounded-4 mb-4">
+                        <h4 class="mb-3"><i class="fas fa-file-export text-primary me-2"></i>Generar Reporte Detallado
+                        </h4>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold">Tipo de Reporte</label>
+                                <select id="tipo-reporte" class="form-select">
+                                    <option value="produccion">Producción por Producto</option>
+                                    <option value="ventas">Ventas y Clientes</option>
+                                    <option value="pnc">Análisis de Defectos (PNC)</option>
+                                    <option value="mezcla">Consumo de Material</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold">Rango de Fechas</label>
+                                <select id="rango-reporte" class="form-select">
+                                    <option value="hoy">Hoy</option>
+                                    <option value="semana">Últimos 7 días</option>
+                                    <option value="mes" selected>Este Mes</option>
+                                    <option value="total">Año Completo</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold">Producto (Opcional)</label>
+                                <select id="producto-reporte" class="form-select">
+                                    <option value="">Todos los productos</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button id="btn-generar-reporte" class="btn btn-primary w-100">
+                                    <i class="fas fa-sync"></i> Generar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Resultados de Reporte -->
+                    <div id="resultado-reporte" class="bg-white p-4 rounded-4 shadow-sm min-vh-50">
+                        <div class="text-center py-5 text-muted">
+                            <i class="fas fa-chart-pie fa-4x mb-3" style="opacity: 0.1;"></i>
+                            <p>Asistente de Reportes Juan Sebastian: Selecciona los criterios y haz clic en Generar para
+                                visualizar datos.</p>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- Mezcla -->
+            <div id="mezcla-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-mezcla">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-vial"></i> Control de Mezcla</h1>
+                        <p class="subtitle">Registro de preparación de materia prima</p>
+                    </div>
+                </header>
+                <div class="form-container">
+                    <form id="form-mezcla" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-mezcla"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-mezcla" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="responsable-mezcla"><i class="fas fa-user-shield"></i> Responsable</label>
+                                <select id="responsable-mezcla" required>
+                                    <option value="">Seleccionar...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="maquina-mezcla"><i class="fas fa-industry"></i> Proceso</label>
+                                <input type="text" id="maquina-mezcla" value="GENERAL" readonly
+                                    style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
+                            <div class="form-group full-width" style="margin-bottom: 15px;">
+                                <label for="bultos-mezcla" style="font-size: 1.1rem; color: #1e40af; font-weight: 700;">
+                                    <i class="fas fa-layer-group"></i> Cantidad de Bultos (25kg c/u)
+                                </label>
+                                <input type="number" id="bultos-mezcla" step="1" min="0" placeholder="Ej: 4"
+                                    style="border: 2px solid #3b82f6; font-size: 1.2rem; height: 50px; background: #f0f7ff;">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="virgen-mezcla"><i class="fas fa-fill"></i> Kg Virgen</label>
+                                <input type="number" id="virgen-mezcla" step="0.01" min="0" readonly
+                                    style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
+                            <div class="form-group">
+                                <label for="molido-mezcla"><i class="fas fa-recycle"></i> Kg Molido (Recuperado)</label>
+                                <input type="number" id="molido-mezcla" step="0.01" min="0" readonly
+                                    style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
+                            <div class="form-group">
+                                <label for="pigmento-mezcla"><i class="fas fa-palette"></i> Pigmento (gr)</label>
+                                <input type="number" id="pigmento-mezcla" step="1" min="0" value="0" readonly
+                                    style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
+
+                            <div id="info-proporcion" class="form-group full-width"
+                                style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 8px;">
+                                <!-- Se llena vía JS -->
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="observaciones-mezcla"><i class="fas fa-comment"></i> Observaciones</label>
+                                <textarea id="observaciones-mezcla" rows="2"
+                                    placeholder="Detalles de la mezcla..."></textarea>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Guardar
+                                Mezcla</button>
+                            <button type="reset" class="btn btn-secondary">Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+            </div> <!-- Historial -->
+            <div id="historial-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-historial">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-history"></i> Historial de Movimientos</h1>
+                        <p class="subtitle">Auditoría completa de Inyección, Pulido, Ensamble y Ventas</p>
+                    </div>
+                    <div class="top-controls">
+                        <button class="btn btn-secondary" id="btn-exportar-historial">
+                            <i class="fas fa-file-excel"></i> Exportar
+                        </button>
+                    </div>
+                </header>
+
+                <div class="filtros-container"
+                    style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">Desde</label>
+                            <input type="date" id="fechaDesde" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">Hasta</label>
+                            <input type="date" id="fechaHasta" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">Proceso</label>
+                            <select id="tipoProceso" class="form-select">
+                                <option value="">Todos los Movimientos</option>
+                                <option value="INYECCION">Inyección</option>
+                                <option value="PULIDO">Pulido</option>
+                                <option value="ENSAMBLE">Ensamble</option>
+                                <option value="PNC">PNC (Defectos)</option>
+                                <option value="VENTA">Ventas / Facturación</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button onclick="filtrarHistorial()" class="btn btn-primary w-100" style="height: 38px;">
+                                <i class="fas fa-filter"></i> Aplicar Filtros
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-4 shadow-sm overflow-hidden">
+                    <div id="historial-container">
+                        <div class="text-center py-5 text-muted">
+                            <i class="fas fa-search fa-3x mb-3" style="opacity: 0.2;"></i>
+                            <p>Selecciona un rango de fechas y haz clic en Filtrar para ver resultados</p>
+                        </div>
+                    </div>
+                    <div id="pagination-container" class="p-3 border-top bg-light"></div>
+                </div>
+
+                <div class="text-end mt-2 text-muted small px-2">
+                    Total registros: <span id="total-registros-historial" class="fw-bold">0</span>. Juan Sebastian.
+                </div>
+            </div> <!-- Gestión Almacén (Alistamiento) -->
+            <div id="almacen-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-almacen">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-warehouse"></i> Gestión de Almacén</h1>
+                        <p class="subtitle">Alistamiento y preparación de pedidos pendientes</p>
+                    </div>
+                    <div class="top-controls">
+                        <button class="btn btn-dark me-2" id="btn-modo-tv" onclick="AlmacenModule.toggleModoTV()">
+                            <i class="fas fa-tv"></i> Modo TV
+                        </button>
+                        <button class="btn btn-primary" id="btn-refrescar-almacen"
+                            onclick="AlmacenModule.cargarPedidos()">
+                            <i class="fas fa-sync"></i> Actualizar
+                        </button>
+                    </div>
+                </header>
+
+                <div id="almacen-container" class="mt-4">
+                    <!-- Tarjetas de pedidos se cargarán aquí -->
+                    <div class="text-center py-5 text-muted empty-state-almacen">
+                        <i class="fas fa-clipboard-list fa-3x mb-3" style="opacity: 0.2;"></i>
+                        <p>No hay pedidos pendientes de alistamiento</p>
+                    </div>
+                </div>
+
+                <!-- Modal Checklist Almacén -->
+                <div id="modalAlistamiento" class="custom-modal-overlay"
+                    style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+                    <div class="custom-modal-content"
+                        style="background: white; border-radius: 12px; width: 95%; max-width: 650px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+                        <div
+                            style="background: #6366f1; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white; flex-shrink: 0;">
+                            <h6 style="margin: 0; font-weight: 600;" id="modal-alistamiento-titulo">Alistamiento de
+                                Pedido</h6>
+                            <button onclick="AlmacenModule.cerrarModal()"
+                                style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+                        </div>
+                        <div style="padding: 20px; overflow-y: auto; flex-grow: 1;">
+                            <div class="mb-3">
+                                <span class="badge bg-light text-dark border p-2 w-100" id="modal-alistamiento-cliente"
+                                    style="font-size: 0.9rem; text-align: left;">Cliente: -</span>
+                            </div>
+
+                            <div class="d-flex justify-content-end mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="toggle-ver-ocultos"
+                                        onchange="AlmacenModule.toggleOcultos(this.checked)" style="cursor: pointer;">
+                                    <label class="form-check-label small text-muted fw-bold" for="toggle-ver-ocultos"
+                                        style="cursor: pointer;">
+                                        <i class="fas fa-history"></i> Recuperar Enviados
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="mb-1 d-flex justify-content-between">
+                                <small class="fw-bold text-primary">Alistamiento</small>
+                                <small class="fw-bold text-success">Despacho</small>
+                            </div>
+                            <div class="progress mb-3"
+                                style="height: 25px; border-radius: 12px; background: #f1f5f9; border: 1px solid #e2e8f0; display: flex;">
+                                <div id="modal-alisado-progress"
+                                    class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                                    style="width: 0%; background: #6366f1; font-weight: bold; border-right: 1px solid white;">
+                                    0%</div>
+                                <div id="modal-enviado-progress"
+                                    class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                                    style="width: 0%; background: #10b981; font-weight: bold;">0%</div>
+                            </div>
+
+                            <div id="lista-productos-alistamiento"
+                                style="background: #f8fafc; border-radius: 8px; padding: 10px;">
+                                <!-- Checkboxes de productos -->
+                            </div>
+                        </div>
+                        <div style="padding: 15px 20px; background: #f1f5f9; text-align: right; flex-shrink: 0;">
+                            <button onclick="AlmacenModule.guardarAlistamiento()"
+                                class="btn btn-primary fw-bold w-100 py-2">
+                                <i class="fas fa-save"></i> ACTUALIZAR ALISTAMIENTO
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main> <!-- Modal para nuevo producto -->
+    <div id="modal-nuevo-producto" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header"
+                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                <h3><i class="fas fa-plus"></i> Nuevo Producto</h3> <button class="btn-icon"
+                    id="btn-cerrar-modal-producto"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-nuevo-producto">
+                    <p>Funcionalidad en desarrollo...</p>
+                </form>
+            </div>
+            <div class="modal-footer"> <button class="btn btn-secondary"
+                    id="btn-cancelar-modal-producto">Cancelar</button> <button class="btn btn-primary"
+                    id="btn-guardar-producto">Guardar Producto</button> </div>
+        </div>
+    </div> <!-- Modal para defectos (compartido) -->
+    <!-- ELIMINADO: Modal Defectos Compartido (Ahora es específico por proceso) -->
+
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal-custom"
+        style="display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.95); z-index: 10000;">
+        <div class="login-card"
+            style="background: white; padding: 40px; border-radius: 20px; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+            <div class="brand-logo mb-4">
+                <i class="fas fa-industry fa-3x" style="color: #6366f1;"></i>
+                <h2 class="mt-2 text-dark font-weight-bold">FriTech</h2>
+                <p class="text-muted">Sistema de Producción</p>
+            </div>
+
+            <form id="login-form">
+                <div class="form-group text-start mb-3">
+                    <label for="login-usuario" class="form-label fw-bold">Usuario</label>
+                    <select id="login-usuario" class="form-select" required style="padding: 10px;">
+                        <option value="">Cargando usuarios...</option>
+                    </select>
+                </div>
+
+                <div class="form-group text-start mb-4">
+                    <label for="login-password" class="form-label fw-bold">Identificación (Contraseña)</label>
+                    <input type="password" id="login-password" class="form-control"
+                        placeholder="Ingrese número de documento" maxlength="20" required
+                        style="font-size: 1.1rem; letter-spacing: 1px; padding: 10px;">
+                    <small class="text-muted d-block mt-1">Solo números permitidos</small>
+                </div>
+
+                <div id="login-error-msg" class="alert alert-danger" style="display: none; font-size: 0.9rem;"></div>
+
+                <button type="submit" id="btn-login-submit" class="btn btn-primary w-100 py-2 fw-bold text-uppercase"
+                    style="background: #6366f1; border: none; padding: 12px; font-size: 1rem;">
+                    Ingresar al Sistema
+                </button>
+            </form>
+            <div class="mt-3 text-muted" style="font-size: 0.8rem;">
+                v1.0.0 - FriParts
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts (NUEVO ORDEN CORRECTO) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Core scripts NUEVOS (agregar ANTES de los módulos) -->
+    <script src="/static/js/core/api-client.js"></script>
+    <script src="/static/js/core/defectos-manager.js"></script>
+    <script src="/static/js/core/select-utils.js"></script>
+    <!-- New Helpers -->
+    <script src="/static/js/core/form-helpers.js"></script>
+    <script src="/static/js/core/validation-helpers.js"></script>
+    <script src="/static/js/core/data-reload-helpers.js"></script>
+    <!-- Datalist para autocompletar productos -->
+    <datalist id="productos-list">
+        <!-- Se llena dinámicamente desde JavaScript -->
+    </datalist>
+
+    <!-- UTILITIES (compartidas) -->
+    <script src="/static/js/modules/utils.js?v=1769548627"></script>
+    <script src="/static/js/modules/auth.js?v=1.0.0"></script> <!-- Modules (los que ya tienes) -->
+    <!-- Mobile UX Modules -->
+    <script src="/static/js/modules/validation.js?v=1.0.0"></script>
+    <script src="/static/js/modules/touch-feedback.js?v=1.0.0"></script>
+    <!-- ... resto de módulos ... --> <!-- 1. UTILS primero (funciones compartidas) -->
+    <!-- 2. APP PRINCIPAL (antes de los módulos) -->
+    <script src="/static/js/app.js?v=1769548627"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
+    <script src="/static/js/modules/dashboard.js?v=1769548627"></script>
+    <script src="/static/js/modules/inventario.js?v=1769548627"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1769548627"></script>
+    <script src="/static/js/modules/pulido.js?v=1769548627"></script>
+    <script src="/static/js/modules/ensamble.js?v=1769548627"></script>
+    <script src="/static/js/modules/pnc.js?v=1769548627"></script>
+    <script src="/static/js/modules/facturacion.js?v=1769548627"></script>
+    <script src="/static/js/modules/reportes.js?v=1769548627"></script>
+    <script src="/static/js/modules/mezcla.js?v=1769548627"></script>
+    <script src="/static/js/modules/historial.js?v=1769548630"></script>
+    <!-- Librerías para PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+    <script src="/static/js/modules/pedidos.js?v=1.0.1"></script>
+    <script src="/static/js/modules/almacen.js?v=1.0.1"></script>
+    <!-- Script de inicialización -->
+    <script>
+        // ELIMINADO LOGICA LEGACY DE MODAL COMPARTIDO
+
+        // Inicializar fecha en sidebar
+        document.addEventListener('DOMContentLoaded', function () {
+            const fechaElement = document.getElementById('fecha-actual');
+            if (fechaElement) {
+                const hoy = new Date();
+                fechaElement.textContent = hoy.toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+        });
+    </script>
+
+    <!-- ======================================================== -->
+    <!-- MODAL DEFECTOS INYECCIÓN -->
+    <!-- ======================================================== -->
+    <div id="modalDefectosInyeccion" class="custom-modal-overlay"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="custom-modal-content"
+            style="background: white; border-radius: 12px; width: 90%; max-width: 450px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+            <div
+                style="background: #3b82f6; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
+                <h6 style="margin: 0; font-weight: 600;">Defectos Inyección</h6>
+                <button onclick="cerrarModalInyeccion()"
+                    style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="d-flex gap-2 mb-3 mobile-stack">
+                    <select id="crit-inyeccion" class="form-select">
+                        <option value="">Seleccionar Defecto...</option>
+                        <option value="RECHUPE">Rechupe</option>
+                        <option value="QUEMADO">Quemado</option>
+                        <option value="RAGUÑO">Raguño</option>
+                        <option value="CONTAMINADO">Contaminado</option>
+                        <option value="INCOMPLETO">Incompleto</option>
+                        <option value="GRASA">Grasa</option>
+                        <option value="OTROS">Otros</option>
+                    </select>
+                    <input type="number" id="cant-inyeccion" class="form-control" placeholder="Cant"
+                        style="width: 80px;">
+                    <button onclick="agregarDefectoInyeccion()" class="btn btn-primary">+</button>
+                </div>
+                <div
+                    style="max-height: 150px; overflow-y: auto; background: #f8fafc; border-radius: 8px; padding: 10px;">
+                    <ul id="lista-inyeccion" class="list-unstyled m-0"></ul>
+                </div>
+                <div class="mt-3 text-end fw-bold text-danger">Totales Malas: <span id="total-inyeccion">0</span></div>
+            </div>
+            <div style="padding: 15px 20px; background: #f1f5f9; text-align: right;">
+                <button onclick="aplicarDefectosInyeccion()" class="btn btn-success fw-bold w-100">APLICAR AL
+                    CÁLCULO</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- MODAL DEFECTOS PULIDO -->
+    <!-- ======================================================== -->
+    <div id="modalDefectosPulido" class="custom-modal-overlay"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="custom-modal-content"
+            style="background: white; border-radius: 12px; width: 90%; max-width: 450px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+            <div
+                style="background: #10b981; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
+                <h6 style="margin: 0; font-weight: 600;">Defectos Pulido</h6>
+                <button onclick="cerrarModalPulido()"
+                    style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="d-flex gap-2 mb-3 mobile-stack">
+                    <select id="crit-pulido" class="form-select">
+                        <option value="">Seleccionar Defecto...</option>
+                        <option value="ESCASO">Escaso</option>
+                        <option value="RECHUPE">Rechupe</option>
+                        <option value="CONTAMINADO">Contaminado</option>
+                        <option value="BUJE DE PRUEBA">Buje de Prueba</option>
+                    </select>
+                    <input type="number" id="cant-pulido" class="form-control" placeholder="Cant" style="width: 80px;">
+                    <button onclick="agregarDefectoPulido()" class="btn btn-success">+</button>
+                </div>
+                <div
+                    style="max-height: 150px; overflow-y: auto; background: #f8fafc; border-radius: 8px; padding: 10px;">
+                    <ul id="lista-pulido" class="list-unstyled m-0"></ul>
+                </div>
+                <div class="mt-3 text-end fw-bold text-danger">Totales Malas: <span id="total-pulido">0</span></div>
+            </div>
+            <div style="padding: 15px 20px; background: #f1f5f9; text-align: right;">
+                <button onclick="aplicarDefectosPulido()" class="btn btn-success fw-bold w-100">APLICAR AL
+                    CÁLCULO</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- MODAL DEFECTOS ENSAMBLE -->
+    <!-- ======================================================== -->
+    <div id="modalDefectosEnsamble" class="custom-modal-overlay"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="custom-modal-content"
+            style="background: white; border-radius: 12px; width: 90%; max-width: 450px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+            <div
+                style="background: #f59e0b; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
+                <h6 style="margin: 0; font-weight: 600;">Defectos Ensamble</h6>
+                <button onclick="cerrarModalEnsamble()"
+                    style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="d-flex gap-2 mb-3 mobile-stack">
+                    <select id="crit-ensamble" class="form-select">
+                        <option value="">Seleccionar Defecto...</option>
+                        <option value="MAL ENSAMBLADO">Mal Ensamblado</option>
+                        <option value="FALTA COMPONENTE">Falta Componente</option>
+                        <option value="COMPONENTE DAÑADO">Componente Dañado</option>
+                        <option value="OTROS">Otros</option>
+                    </select>
+                    <input type="number" id="cant-ensamble" class="form-control" placeholder="Cant"
+                        style="width: 80px;">
+                    <button onclick="agregarDefectoEnsamble()" class="btn btn-warning text-white">+</button>
+                </div>
+                <div
+                    style="max-height: 150px; overflow-y: auto; background: #f8fafc; border-radius: 8px; padding: 10px;">
+                    <ul id="lista-ensamble" class="list-unstyled m-0"></ul>
+                </div>
+                <div class="mt-3 text-end fw-bold text-danger">Totales Malas: <span id="total-ensamble">0</span></div>
+            </div>
+            <div style="padding: 15px 20px; background: #f1f5f9; text-align: right;">
+                <button onclick="aplicarDefectosEnsamble()" class="btn btn-success fw-bold w-100">APLICAR AL
+                    CÁLCULO</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGICA DE MODALES (INLINE PARA SEGURIDAD) -->
+    <script>
+        // --- ESTADO GLOBALES PARA MODALES ---
+        window.tmpDefectosInyeccion = [];
+        window.tmpDefectosPulido = [];
+        window.tmpDefectosEnsamble = [];
+
+        // --- INYECCION ---
+        window.abrirModalInyeccion = () => {
+            window.tmpDefectosInyeccion = [];
+            renderizarInyeccion();
+            document.getElementById('modalDefectosInyeccion').style.display = 'flex';
+        };
+        window.cerrarModalInyeccion = () => document.getElementById('modalDefectosInyeccion').style.display = 'none';
+
+        window.agregarDefectoInyeccion = () => {
+            const c = document.getElementById('crit-inyeccion').value;
+            const q = parseInt(document.getElementById('cant-inyeccion').value) || 0;
+            if (!c || q <= 0) return alert('Seleccione defecto y cantidad > 0');
+            window.tmpDefectosInyeccion.push({ criterio: c, cantidad: q });
+            document.getElementById('crit-inyeccion').value = '';
+            document.getElementById('cant-inyeccion').value = '';
+            renderizarInyeccion();
+        };
+
+        function renderizarInyeccion() {
+            const lista = document.getElementById('lista-inyeccion');
+            lista.innerHTML = window.tmpDefectosInyeccion.map((d, i) =>
+                `<li class="d-flex justify-content-between border-bottom py-2">
+                    <span>${d.criterio} x${d.cantidad}</span>
+                    <button onclick="window.tmpDefectosInyeccion.splice(${i},1); renderizarInyeccion()" class="btn btn-sm text-danger"><i class="fas fa-trash"></i></button>
+                </li>`).join('');
+            document.getElementById('total-inyeccion').innerText = window.tmpDefectosInyeccion.reduce((a, b) => a + b.cantidad, 0);
+        }
+
+        window.aplicarDefectosInyeccion = () => {
+            const total = window.tmpDefectosInyeccion.reduce((a, b) => a + b.cantidad, 0);
+            const listStr = window.tmpDefectosInyeccion.map(d => `${d.criterio} (${d.cantidad})`).join(', ');
+
+            const inputCount = document.getElementById('pnc-inyeccion');
+            const inputCrit = document.getElementById('criterio-pnc-hidden-inyeccion');
+
+            if (inputCount) {
+                inputCount.value = total;
+                inputCount.dispatchEvent(new Event('input'));
+            }
+            if (inputCrit) {
+                inputCrit.value = listStr;
+            }
+            cerrarModalInyeccion();
+        };
+
+        // --- PULIDO ---
+        window.abrirModalPulido = () => {
+            window.tmpDefectosPulido = [];
+            renderizarPulido();
+            document.getElementById('modalDefectosPulido').style.display = 'flex';
+        };
+        window.cerrarModalPulido = () => document.getElementById('modalDefectosPulido').style.display = 'none';
+
+        window.agregarDefectoPulido = () => {
+            const c = document.getElementById('crit-pulido').value;
+            const q = parseInt(document.getElementById('cant-pulido').value) || 0;
+            if (!c || q <= 0) return alert('Seleccione defecto y cantidad > 0');
+            window.tmpDefectosPulido.push({ criterio: c, cantidad: q });
+            document.getElementById('crit-pulido').value = '';
+            document.getElementById('cant-pulido').value = '';
+            renderizarPulido();
+        };
+
+        function renderizarPulido() {
+            const lista = document.getElementById('lista-pulido');
+            lista.innerHTML = window.tmpDefectosPulido.map((d, i) =>
+                `<li class="d-flex justify-content-between border-bottom py-2">
+                    <span>${d.criterio} x${d.cantidad}</span>
+                    <button onclick="window.tmpDefectosPulido.splice(${i},1); renderizarPulido()" class="btn btn-sm text-danger"><i class="fas fa-trash"></i></button>
+                </li>`).join('');
+            document.getElementById('total-pulido').innerText = window.tmpDefectosPulido.reduce((a, b) => a + b.cantidad, 0);
+        }
+
+        window.aplicarDefectosPulido = () => {
+            const total = window.tmpDefectosPulido.reduce((a, b) => a + b.cantidad, 0);
+            const listStr = window.tmpDefectosPulido.map(d => `${d.criterio} (${d.cantidad})`).join(', ');
+
+            const inputCount = document.getElementById('pnc-pulido');
+            const inputCrit = document.getElementById('criterio-pnc-hidden');
+
+            if (inputCount) {
+                inputCount.value = total;
+                inputCount.dispatchEvent(new Event('input'));
+            }
+            if (inputCrit) {
+                inputCrit.value = listStr;
+            }
+            cerrarModalPulido();
+        };
+
+        // --- ENSAMBLE ---
+        window.abrirModalEnsamble = () => {
+            window.tmpDefectosEnsamble = [];
+            renderizarEnsamble();
+            document.getElementById('modalDefectosEnsamble').style.display = 'flex';
+        };
+        window.cerrarModalEnsamble = () => document.getElementById('modalDefectosEnsamble').style.display = 'none';
+
+        window.agregarDefectoEnsamble = () => {
+            const c = document.getElementById('crit-ensamble').value;
+            const q = parseInt(document.getElementById('cant-ensamble').value) || 0;
+            if (!c || q <= 0) return alert('Seleccione defecto y cantidad > 0');
+            window.tmpDefectosEnsamble.push({ criterio: c, cantidad: q });
+            document.getElementById('crit-ensamble').value = '';
+            document.getElementById('cant-ensamble').value = '';
+            renderizarEnsamble();
+        };
+
+        function renderizarEnsamble() {
+            const lista = document.getElementById('lista-ensamble');
+            lista.innerHTML = window.tmpDefectosEnsamble.map((d, i) =>
+                `<li class="d-flex justify-content-between border-bottom py-2">
+                    <span>${d.criterio} x${d.cantidad}</span>
+                    <button onclick="window.tmpDefectosEnsamble.splice(${i},1); renderizarEnsamble()" class="btn btn-sm text-danger"><i class="fas fa-trash"></i></button>
+                </li>`).join('');
+            document.getElementById('total-ensamble').innerText = window.tmpDefectosEnsamble.reduce((a, b) => a + b.cantidad, 0);
+        }
+
+        window.aplicarDefectosEnsamble = () => {
+            const total = window.tmpDefectosEnsamble.reduce((a, b) => a + b.cantidad, 0);
+            const listStr = window.tmpDefectosEnsamble.map(d => `${d.criterio} (${d.cantidad})`).join(', ');
+
+            const inputCount = document.getElementById('pnc-ensamble');
+            const inputCrit = document.getElementById('criterio-pnc-hidden-ensamble');
+
+            if (inputCount) {
+                inputCount.value = total;
+                inputCount.dispatchEvent(new Event('input'));
+            }
+            if (inputCrit) {
+                inputCrit.value = listStr;
+            }
+            cerrarModalEnsamble();
+        };
+    </script>
+
+    <!-- Modal Edición Historial (Especial para Paola) -->
+    <div id="modalEditarHistorial" class="modal-overlay" style="display: none;">
+        <div class="modal-content"
+            style="max-width: 900px; border-radius: 12px; background-color: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
+            <div class="modal-header"
+                style="background: #1e293b; color: white; border-bottom: 2px solid var(--primary); border-radius: 12px 12px 0 0;">
+                <h5 class="mb-0"><i class="fas fa-edit me-2"></i> Corregir Registro</h5>
+                <button type="button" class="btn-close btn-close-white"
+                    onclick="ModuloHistorial.cerrarModalEdicion()"></button>
+            </div>
+            <div class="modal-body p-4" style="max-height: 70vh; overflow-y: auto; background-color: #f8fafc;">
+                <form id="form-editar-historial">
+                    <input type="hidden" id="edit-hoja">
+                    <input type="hidden" id="edit-fila">
+
+                    <div id="campos-edicion-dinamicos">
+                        <!-- Se puebla vía JS según el tipo de registro -->
+                    </div>
+
+                    <div class="mt-4 d-flex gap-2">
+                        <button type="button" class="btn btn-primary flex-grow-1"
+                            onclick="ModuloHistorial.guardarCambios()">
+                            <i class="fas fa-check me-2"></i> Guardar Cambios
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="ModuloHistorial.cerrarModalEdicion()">
+                            Cancelar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

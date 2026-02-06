@@ -105,15 +105,25 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
             const semaforoColor = p.semaforo?.color || 'gray';
             const imagenUrl = p.imagen || '';
+            const localImage = `/static/img/productos/${(p.codigo || '').trim()}.jpg`;
 
             tr.innerHTML = `
                 <td class="mobile-card-cell">
                     <div class="mobile-product-card">
                         <div class="card-image-wrapper">
-                            ${imagenUrl
-                    ? `<img src="${imagenUrl}" class="card-img" onerror="this.src='${PLACEHOLDER_SVG}';this.onerror=null;">`
-                    : `<img src="${PLACEHOLDER_SVG}" class="card-img" style="opacity: 0.7;">`
-                }
+                            <img src="${localImage}" 
+                                 class="card-img" 
+                                 onerror="
+                                    // Fallback: JPG -> PNG -> URL -> Placeholder
+                                    if (this.src.match(/\.jpg$/)) { 
+                                        this.src = this.src.replace('.jpg', '.png'); 
+                                    } else if (this.src.match(/\.png$/) && '${imagenUrl}' !== '') { 
+                                        this.src = '${imagenUrl}'; 
+                                    } else { 
+                                        this.src = '${PLACEHOLDER_SVG}';
+                                        this.onerror = null; 
+                                    }
+                                 ">
                             <span class="mobile-status-badge" style="background: ${getSemaforoColor(semaforoColor)}"></span>
                         </div>
                         
@@ -161,9 +171,25 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
             // Imagen del producto (thumbnail)
             const imagenUrl = p.imagen || '';
-            const imagenHtml = imagenUrl
-                ? `<img src="${imagenUrl}" alt="${p.codigo}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer;" onerror="this.src='${PLACEHOLDER_SVG}';this.onerror=null;" onclick="window.open('${imagenUrl}', '_blank')" title="Click para ampliar">`
-                : `<img src="${PLACEHOLDER_SVG}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; opacity: 0.6;">`;
+            const localImage = `/static/img/productos/${(p.codigo || '').trim()}.jpg`;
+
+            // Lógica de fallback en HTML string
+            const imagenHtml = `
+                <img src="${localImage}" 
+                     style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer; background: white;" 
+                     onclick="window.open(this.src, '_blank')" 
+                     title="Click para ampliar"
+                     onerror="
+                        if (this.src.match(/\.jpg$/)) { 
+                            this.src = this.src.replace('.jpg', '.png'); 
+                        } else if (this.src.match(/\.png$/) && '${imagenUrl}' !== '') { 
+                            this.src = '${imagenUrl}'; 
+                        } else { 
+                            this.src = '${PLACEHOLDER_SVG}';
+                            this.style.opacity = '0.5';
+                            this.onerror = null; 
+                        }
+                     ">`;
 
             tr.innerHTML = `
                 <td style="padding: 10px; text-align: center;">${imagenHtml}</td>

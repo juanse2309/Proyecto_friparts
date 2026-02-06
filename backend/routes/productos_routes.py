@@ -97,7 +97,8 @@ def listar_productos():
                 'imagen': p.get('IMAGEN', ''),
                 'categoria': p.get('CATEGORIA', ''),
                 'marca': p.get('MARCA', ''),
-                'unidad': p.get('UNIDAD', 'PZ')
+                'unidad': p.get('UNIDAD', 'PZ'),
+                'precio': p.get('PRECIO', 0)
             })
         
         return jsonify({

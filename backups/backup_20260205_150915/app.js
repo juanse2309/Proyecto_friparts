@@ -1,0 +1,281 @@
+﻿// Global Error Handler for random execution errors
+window.onerror = function (msg, url, lineNo, columnNo, error) {
+    console.error('🚨 Global Error:', { msg, url, lineNo, columnNo, error });
+    // Optional: Send to backend logging endpoint
+    return false;
+};
+
+window.addEventListener('unhandledrejection', event => {
+    console.error('🚨 Unhandled Promise Rejection:', event.reason);
+});
+
+window.AppState = {
+    paginaActual: 'dashboard',
+    POWER_BI_URL: 'https://app.powerbi.com/view?r=eyJrIjoiZTBlYzc0MmUtNmVmZS00NDVjLWIwNTctMDY4NDA5MjEwNjk2IiwidCI6ImMwNmZiNTU5LTFiNjgtNGI4NC1hMTRmLTQ3ZDBkODM3YTVhYiIsImMiOjR9',
+    sharedData: {
+        responsables: [],
+        clientes: [],
+        productos: [],
+        maquinas: []
+    }
+};
+
+// ... (existing code)
+
+
+
+async function cargarDatosCompartidos() {
+    try {
+        console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
+
+        const t = Date.now();
+        const [resProd, resResp, resMaq, resCli] = await Promise.all([
+            fetch(`/api/productos/listar?_t=${t}`),
+            fetch(`/api/obtener_responsables?_t=${t}`),
+            fetch(`/api/obtener_maquinas?_t=${t}`),
+            fetch(`/api/obtener_clientes?_t=${t}`)
+        ]);
+
+        // 1. Procesar productos
+        console.log('  - Respuesta productos:', resProd.status);
+        if (!resProd.ok) throw new Error(`Error HTTP productos: ${resProd.status}`);
+        const productosData = await resProd.json();
+
+        // DEBUG: Log full response structure
+        console.log('  - productosData type:', typeof productosData);
+        console.log('  - productosData.items?:', productosData.items?.length);
+        console.log('  - productosData (is array)?:', Array.isArray(productosData), productosData.length);
+
+        // Handle different response structures
+        let productosRaw = [];
+        if (productosData.items && Array.isArray(productosData.items)) {
+            productosRaw = productosData.items;
+        } else if (Array.isArray(productosData)) {
+            productosRaw = productosData;
+        } else if (productosData.productos && Array.isArray(productosData.productos)) {
+            productosRaw = productosData.productos;
+        }
+
+        console.log('  - productosRaw length:', productosRaw.length);
+        if (productosRaw.length > 0) {
+            console.log('  - Sample producto:', JSON.stringify(productosRaw[0]).substring(0, 200));
+        }
+
+        window.AppState.sharedData.productos = productosRaw.map(p => ({
+            id_codigo: p.id_codigo || p.ID_CODIGO || 0,
+            codigo_sistema: p.codigo || p.codigo_sistema || p.CODIGO || '',
+            descripcion: p.descripcion || p.DESCRIPCION || '',
+            imagen: p.imagen || '',
+            precio: p.precio || p.PRECIO || 0,
+            stock_por_pulir: p.stock_por_pulir || p.POR_PULIR || 0,
+            stock_terminado: p.stock_terminado || p.TERMINADO || 0,
+            stock_total: p.existencias_totales || p.EXISTENCIAS || 0,
+            semaforo: p.semaforo || { color: 'gray', estado: '', mensaje: '' },
+            metricas: p.metricas || { min: 0, max: 0, reorden: 0 }
+        }));
+        console.log('  ✅ Productos cargados en cache:', window.AppState.sharedData.productos.length);
+
+        // 2. Procesar responsables
+        if (resResp.ok) {
+            window.AppState.sharedData.responsables = await resResp.json();
+            console.log('  ✅ Responsables cargados:', window.AppState.sharedData.responsables.length);
+        }
+
+        // 3. Procesar máquinas
+        if (resMaq.ok) {
+            window.AppState.sharedData.maquinas = await resMaq.json();
+            console.log('  ✅ Máquinas cargadas:', window.AppState.sharedData.maquinas.length);
+        }
+
+        // 4. Procesar clientes (ahora incluye NIT)
+        if (resCli.ok) {
+            const clientesData = await resCli.json();
+            window.AppState.sharedData.clientes = clientesData; // Array de {nombre, nit}
+            console.log('  ✅ Clientes cargados:', window.AppState.sharedData.clientes.length);
+        }
+
+    } catch (error) {
+        console.error('❌ CRITICAL ERROR en cargarDatosCompartidos:', error);
+        alert('Error conectando con el servidor. Revisa la consola (F12) y asegura que el backend esté corriendo.');
+    }
+}
+
+/**
+ * Cargar una página específica
+ */
+function cargarPagina(nombrePagina, pushToHistory = true) {
+    console.log('📄 Cargando página:', nombrePagina);
+
+    // Ocultar todas las páginas
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+    const pagina = document.getElementById(`${nombrePagina}-page`);
+    if (pagina) {
+        pagina.classList.add('active');
+        console.log('✅ Página visible:', nombrePagina);
+    } else {
+        console.error('❌ Página no encontrada:', `${nombrePagina}-page`);
+        return;
+    }
+
+    // Actualizar menu items activos
+    document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));
+    const menuItem = document.querySelector(`.menu-item[data-page="${nombrePagina}"]`);
+    if (menuItem) {
+        menuItem.classList.add('active');
+    }
+
+    // Ensure overlay is removed when changing pages via any method
+    document.querySelector('.sidebar')?.classList.remove('active');
+    document.querySelector('.sidebar-overlay')?.classList.remove('active');
+
+    // Gestionar historial para el botón atrás de móviles Juan Sebastian
+    if (pushToHistory) {
+        history.pushState({ page: nombrePagina }, '', `#${nombrePagina}`);
+    }
+
+    inicializarModulo(nombrePagina);
+    window.AppState.paginaActual = nombrePagina;
+
+    // Controlar visibilidad del botón 'Volver' en móviles
+    const backBtnContainer = document.getElementById('back-button-container');
+    if (backBtnContainer) {
+        if (nombrePagina !== 'dashboard' && window.innerWidth < 991) {
+            backBtnContainer.classList.add('active');
+        } else {
+            backBtnContainer.classList.remove('active');
+        }
+    }
+}
+
+// Escuchar el botón atrás del navegador Juan Sebastian
+window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.page) {
+        cargarPagina(event.state.page, false);
+    } else {
+        cargarPagina('dashboard', false);
+    }
+});
+
+/**
+ * Función global para volver al dashboard
+ */
+window.volverAlDashboard = function () {
+    console.log('🔙 Volviendo al Dashboard...');
+    cargarPagina('dashboard');
+    document.querySelector('.sidebar')?.classList.remove('active');
+    document.querySelector('.sidebar-overlay')?.classList.remove('active');
+};
+
+function inicializarModulo(nombrePagina) {
+    const modulos = {
+        'dashboard': window.ModuloDashboard,
+        'inventario': window.ModuloInventario,
+        'productos': window.ModuloProductos,
+        'inyeccion': window.ModuloInyeccion,
+        'pulido': window.ModuloPulido,
+        'ensamble': window.ModuloEnsamble,
+        'pnc': window.ModuloPNC,
+        'facturacion': window.ModuloFacturacion,
+        'mezcla': window.ModuloMezcla,
+        'historial': window.ModuloHistorial,
+        'pedidos': window.ModuloPedidos,
+        'almacen': window.AlmacenModule
+    };
+
+    const modulo = modulos[nombrePagina];
+
+    // Lógica especial para Dashboard (Power BI) Juan Sebastian
+    if (nombrePagina === 'dashboard') {
+        const frame = document.getElementById('powerbi-frame');
+        const placeholder = document.getElementById('powerbi-placeholder');
+        if (frame && window.AppState.POWER_BI_URL && window.AppState.POWER_BI_URL !== 'https://app.powerbi.com/view?r=PLACEHOLDER') {
+            if (frame.src === 'about:blank') {
+                frame.src = window.AppState.POWER_BI_URL;
+                frame.onload = () => { if (placeholder) placeholder.style.display = 'none'; };
+            }
+        }
+    }
+
+    // CRÍTICO: Verificar que el usuario esté logueado antes de inicializar módulos
+    const userLoggedIn = window.AppState && window.AppState.user && window.AppState.user.name;
+
+    if (modulo?.inicializar) {
+        if (!userLoggedIn && nombrePagina !== 'dashboard') {
+            console.log(`ℹ️  Módulo ${nombrePagina} esperando login de usuario...`);
+            // Reintentar después de 500ms
+            setTimeout(() => {
+                const userNowLoggedIn = window.AppState && window.AppState.user && window.AppState.user.name;
+                if (userNowLoggedIn) {
+                    console.log(`🔧 Inicializando módulo (retry): ${nombrePagina}`);
+                    modulo.inicializar();
+                } else {
+                    console.warn(`⚠️  Módulo ${nombrePagina} requiere usuario logueado`);
+                }
+            }, 500);
+            return;
+        }
+        console.log('🔧 Inicializando módulo:', nombrePagina);
+        modulo.inicializar();
+    } else {
+        console.warn('⚠️  Módulo no encontrado:', nombrePagina);
+    }
+}
+
+function configurarNavegacion() {
+    // CORRECCIÓN: Escuchar clicks en .menu-item en lugar de .nav-link
+    document.querySelectorAll('.menu-item').forEach(menuItem => {
+        menuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            const pagina = menuItem.getAttribute('data-page');
+            console.log('🖱️  Click en menú:', pagina);
+            cargarPagina(pagina);
+
+            // Cerrar sidebar en móvil al hacer click en un item
+            if (window.innerWidth < 992) {
+                document.querySelector('.sidebar')?.classList.remove('active');
+                document.querySelector('.sidebar-overlay')?.classList.remove('active');
+            }
+        });
+    });
+
+    // Configurar botones de toggle para el sidebar (hamburguesa)
+    // Configurar botones de toggle para el sidebar (hamburguesa)
+    const handleSidebarToggle = (e) => {
+        const toggleBtn = e.target.closest('[id^="toggle-sidebar"]');
+        if (toggleBtn) {
+            e.preventDefault(); // Evitar doble ejecución en algunos dispositivos
+            console.log('🍔 Toggle sidebar pulsado');
+            document.querySelector('.sidebar')?.classList.toggle('active');
+            document.querySelector('.sidebar-overlay')?.classList.toggle('active');
+        }
+    };
+
+    document.addEventListener('click', handleSidebarToggle);
+    document.addEventListener('touchstart', handleSidebarToggle, { passive: false });
+
+    console.log('✅ Navegación configurada -', document.querySelectorAll('.menu-item').length, 'items');
+}
+
+async function inicializarAplicacion() {
+    console.log('🚀 Aplicación inicializando...');
+    try {
+        configurarNavegacion();
+        await cargarDatosCompartidos();
+
+        // 5. Cargar página inicial (Dashboard o Hash) Juan Sebastian
+        const hashPage = window.location.hash.replace('#', '');
+        if (hashPage && document.getElementById(`${hashPage}-page`)) {
+            cargarPagina(hashPage);
+        } else {
+            cargarPagina('dashboard');
+        }
+
+        console.log('✅ Aplicación inicializada correctamente');
+    } catch (error) {
+        console.error('❌ Error fatal:', error);
+        alert('Error iniciando aplicación. Ver consola.');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', inicializarAplicacion);

@@ -58,14 +58,81 @@ class ProductoRepository:
             return None
     
     def listar_todos(self) -> List[Dict]:
-        """Obtiene todos los productos."""
+        """
+        Obtiene todos los productos usando la Estrategia Híbrida:
+        1. Datos Maestros (Precio, Desc): desde DB_Productos.
+        2. Stock: desde PRODUCTOS (cruce por Código).
+        """
         try:
-            ws = sheets_client.get_worksheet(self.hoja)
-            if not ws:
+            # 1. Obtener Datos Maestros (DB_Productos)
+            ws_master = sheets_client.get_worksheet(Hojas.DB_PRODUCTOS)
+            if not ws_master:
+                logger.error("No se encontró DB_Productos")
                 return []
-            return ws.get_all_records()
+            
+            master_records = ws_master.get_all_records()
+            
+            # 2. Obtener Datos Stock (PRODUCTOS)
+            ws_stock = sheets_client.get_worksheet(self.hoja)
+            stock_records = ws_stock.get_all_records() if ws_stock else []
+            
+            # 3. Indexar Stock para búsqueda rápida
+            # Clave: Código normalizado -> Registro completo
+            stock_map = {}
+            for r in stock_records:
+                # Normalizar claves posibles
+                cod = str(r.get('CODIGO SISTEMA', '')).strip().upper()
+                id_cod = str(r.get('ID CODIGO', '')).strip().upper()
+                
+                if cod: stock_map[cod] = r
+                if id_cod: stock_map[id_cod] = r
+
+            productos_finales = []
+            
+            # 4. Construir lista final basada en Master
+            for item in master_records:
+                codigo = str(item.get('CODIGO', '')).strip()
+                if not codigo: continue # Skip vacíos
+                
+                codigo_norm = codigo.upper()
+                
+                # Datos base del Master
+                producto_final = {
+                    'CODIGO SISTEMA': codigo,
+                    'ID CODIGO': codigo, # Fallback
+                    'DESCRIPCION': item.get('DESCRIPCION', 'Sin descripción'),
+                    'PRECIO': item.get('PRECIO', 0),
+                    'IMAGEN': '', # Se llenará si existe en stock o se usará local
+                    # Stocks en 0 por defecto
+                    'POR PULIR': 0,
+                    'P. TERMINADO': 0,
+                    'PRODUCTO ENSAMBLADO': 0,
+                    'STOCK MINIMO': 10
+                }
+                
+                # Buscar en Mapa de Stock
+                stock_data = stock_map.get(codigo_norm)
+                if stock_data:
+                    # Si existe en hoja de stock, cruzamos datos de inventario
+                    producto_final.update({
+                        'POR PULIR': stock_data.get('POR PULIR', 0),
+                        'P. TERMINADO': stock_data.get('P. TERMINADO', 0),
+                        'PRODUCTO ENSAMBLADO': stock_data.get('PRODUCTO ENSAMBLADO', 0) or stock_data.get('PRODUCTO ENSAMBLado', 0),
+                        'STOCK MINIMO': stock_data.get('STOCK MINIMO', 10),
+                        'IMAGEN': stock_data.get('IMAGEN', ''), # URL Legacy
+                        'MEDIDA': stock_data.get('MEDIDA', ''),
+                        'UBICACION': stock_data.get('UBICACION', '')
+                    })
+                
+                productos_finales.append(producto_final)
+                
+            logger.info(f"Hybrid Sync: {len(productos_finales)} productos procesados (Master: {len(master_records)})")
+            return productos_finales
+
         except Exception as e:
-            logger.error(f"Error listando productos: {e}")
+            logger.error(f"Error listando productos (Híbrido): {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
     
     def obtener_stock(self, codigo: str, almacen: str) -> int:
