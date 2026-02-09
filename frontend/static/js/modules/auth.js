@@ -493,13 +493,22 @@ const AuthModule = {
         let allowedPages = [...(this.permissions[role] || [])];
 
         // LOGICA EXCEPCIONES STAFF (Paola, Natalia)
+        // LOGICA EXCEPCIONES STAFF (Paola, Natalia, Zoenia)
         const userNameUpper = this.currentUser.nombre.toUpperCase();
-        if (userNameUpper.includes('NATALIA') || userNameUpper.includes('NATHALIA')) {
+
+        // Helper para normalizar (quitar tildes)
+        const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const nameNorm = normalize(userNameUpper);
+
+        if (nameNorm.includes('NATALIA') || nameNorm.includes('NATHALIA')) {
             const modulosAdmin = ['almacen', 'pedidos', 'historial', 'reportes', 'inventario', 'dashboard'];
             modulosAdmin.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
-        if (userNameUpper.includes('PAOLA') || userNameUpper.includes('ZOENIA')) {
-            const modulosExtra = ['pulido', 'ensamble', 'historial', 'almacen'];
+
+        // PAOLA y ZOENIA
+        if (nameNorm.includes('PAOLA') || nameNorm.includes('ZOENIA')) {
+            // Se agregan dashboard e inventario para mejor UX
+            const modulosExtra = ['pulido', 'ensamble', 'historial', 'almacen', 'dashboard', 'inventario'];
             modulosExtra.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
 
