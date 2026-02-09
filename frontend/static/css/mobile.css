@@ -1,0 +1,490 @@
+/* ===== MOBILE OPTIMIZATIONS ===== */
+/* Additional mobile-specific enhancements */
+
+/* Ensure no horizontal overflow */
+html,
+body {
+    overflow-x: hidden !important;
+    max-width: 100vw;
+}
+
+.main-content {
+    overflow-x: hidden !important;
+}
+
+/* ===== MOBILE TABLES ===== */
+@media (max-width: 768px) {
+
+    /* Make all tables scrollable horizontally */
+    .table-responsive {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        margin-bottom: 1rem;
+    }
+
+    table {
+        min-width: 600px;
+        /* Prevent table collapse */
+        font-size: 0.85rem;
+    }
+
+    table th,
+    table td {
+        padding: 8px !important;
+        white-space: nowrap;
+    }
+
+    /* Smaller buttons in tables */
+    table .btn-group-sm .btn {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+    }
+
+    table .btn-group-sm i {
+        font-size: 0.85rem;
+    }
+}
+
+/* ===== MOBILE FORMS ===== */
+@media (max-width: 576px) {
+    .form-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    input,
+    select,
+    textarea {
+        font-size: 16px !important;
+        /* Prevent zoom on iOS */
+        padding: 12px !important;
+    }
+
+    label {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+
+    /* Stack form buttons */
+    .form-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .form-actions .btn {
+        width: 100%;
+    }
+}
+
+/* ===== MOBILE BUTTONS & TOUCH TARGETS ===== */
+@media (max-width: 768px) {
+
+    /* Minimum touch target size: 44x44px (Apple HIG) */
+    .btn {
+        min-height: 44px;
+        padding: 12px 20px;
+    }
+
+    .btn-sm {
+        min-height: 38px;
+        padding: 8px 16px;
+    }
+
+    .btn-icon {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 10px;
+    }
+
+    /* Stack button groups on mobile */
+    .btn-group {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .btn-group .btn {
+        width: 100%;
+        border-radius: 8px !important;
+        margin-bottom: 8px;
+    }
+
+    .top-controls {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .top-controls .btn {
+        flex: 1 1 auto;
+        min-width: 120px;
+    }
+}
+
+/* ===== MOBILE MODALS ===== */
+@media (max-width: 576px) {
+    .modal-dialog {
+        margin: 0.5rem;
+        max-width: calc(100% - 1rem);
+    }
+
+    .modal-lg,
+    .modal-xl {
+        max-width: calc(100% - 1rem);
+    }
+
+    .modal-body {
+        padding: 1rem;
+    }
+
+    .modal-header {
+        padding: 1rem;
+    }
+
+    .modal-footer {
+        padding: 1rem;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .modal-footer .btn {
+        width: 100%;
+    }
+}
+
+/* ===== MOBILE CARDS ===== */
+@media (max-width: 576px) {
+    .card {
+        margin-bottom: 1rem;
+    }
+
+    .card-body {
+        padding: 1rem;
+    }
+
+    .kpi-card {
+        padding: 15px;
+    }
+
+    .kpi-icon {
+        width: 50px;
+        height: 50px;
+        font-size: 1.5rem;
+    }
+
+    .kpi-value {
+        font-size: 1.8rem;
+    }
+}
+
+/* ===== MOBILE SEARCH BOXES ===== */
+@media (max-width: 576px) {
+    .search-box {
+        width: 100%;
+        margin-bottom: 1rem;
+    }
+
+    .search-box input {
+        width: 100%;
+        font-size: 16px;
+        /* Prevent zoom */
+    }
+}
+
+/* ===== MOBILE PAGE TITLES ===== */
+@media (max-width: 576px) {
+    .page-title h1 {
+        font-size: 1.5rem;
+    }
+
+    .page-title h1 i {
+        font-size: 1.5rem;
+    }
+
+    .subtitle {
+        font-size: 0.85rem;
+    }
+}
+
+/* ===== MOBILE SIDEBAR OVERLAY ===== */
+.sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    display: none;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.active {
+    display: block;
+}
+
+@media (min-width: 992px) {
+    .sidebar-overlay {
+        display: none !important;
+    }
+}
+
+/* ===== MOBILE PRODUCT GRID (Portal Cliente) ===== */
+@media (max-width: 768px) {
+    #product-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .product-card {
+        max-width: 100%;
+    }
+
+    .product-card img {
+        max-height: 150px;
+    }
+}
+
+/* ===== MOBILE CART ===== */
+@media (max-width: 576px) {
+    .cart-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .cart-item-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .cart-summary {
+        position: static;
+        margin-top: 1rem;
+    }
+}
+
+/* ===== MOBILE ADMIN PANEL ===== */
+@media (max-width: 768px) {
+    #admin-clientes-container .table {
+        font-size: 0.8rem;
+    }
+
+    #admin-clientes-container .btn-group {
+        flex-direction: row;
+        /* Keep horizontal for icon buttons */
+        gap: 4px;
+    }
+
+    #admin-clientes-container .btn-group .btn {
+        width: auto;
+        padding: 6px 10px;
+    }
+}
+
+/* ===== MOBILE NAVIGATION FIX ===== */
+@media (max-width: 991px) {
+
+    /* Ensure sidebar doesn't push content */
+    body {
+        position: relative;
+    }
+
+    .sidebar {
+        position: fixed;
+        z-index: 1000;
+    }
+
+    .main-content {
+        margin-left: 0 !important;
+        width: 100%;
+    }
+
+    /* Prevent body scroll when sidebar is open */
+    body.sidebar-open {
+        overflow: hidden;
+    }
+}
+
+/* ===== MOBILE TEXT SIZES ===== */
+@media (max-width: 576px) {
+    body {
+        font-size: 14px;
+    }
+
+    h1 {
+        font-size: 1.75rem;
+    }
+
+    h2 {
+        font-size: 1.5rem;
+    }
+
+    h3 {
+        font-size: 1.25rem;
+    }
+
+    h4 {
+        font-size: 1.1rem;
+    }
+
+    h5 {
+        font-size: 1rem;
+    }
+
+    h6 {
+        font-size: 0.9rem;
+    }
+}
+
+/* ===== MOBILE SPACING ===== */
+@media (max-width: 576px) {
+    .container-fluid {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .row {
+        margin-left: -0.5rem;
+        margin-right: -0.5rem;
+    }
+
+    .col,
+    [class*="col-"] {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
+    .py-4 {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1.5rem !important;
+    }
+
+    .mb-4 {
+        margin-bottom: 1rem !important;
+    }
+}
+
+/* ===== PREVENT ZOOM ON DOUBLE TAP (iOS) ===== */
+button,
+a {
+    touch-action: manipulation;
+}
+
+/* ===== IMPROVE SCROLLING PERFORMANCE ===== */
+.table-responsive,
+.sidebar-menu,
+.modal-body {
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ===== MOBILE LANDING SCREEN ===== */
+@media (max-width: 576px) {
+    .landing-screen h1 {
+        font-size: 2rem;
+    }
+
+    .landing-screen .subtitle {
+        font-size: 1rem;
+    }
+
+    .auth-options {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .auth-card {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+/* ===== MOBILE PORTAL CLIENTE ===== */
+@media (max-width: 768px) {
+    .portal-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .portal-tabs .nav-link {
+        white-space: nowrap;
+        font-size: 0.9rem;
+        padding: 10px 15px;
+    }
+
+    .carrito-flotante {
+        bottom: 70px;
+        /* Avoid overlapping with mobile nav */
+        right: 15px;
+        width: 60px;
+        height: 60px;
+    }
+
+    .carrito-flotante i {
+        font-size: 1.5rem;
+    }
+}
+
+/* ===== MOBILE BACK BUTTON ===== */
+#back-button-container {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 998;
+    display: none;
+}
+
+#back-button-container.active {
+    display: block;
+}
+
+@media (min-width: 991px) {
+    #back-button-container {
+        display: none !important;
+    }
+}
+
+/* ===== MOBILE UTILITY CLASSES ===== */
+@media (max-width: 576px) {
+    .mobile-hide {
+        display: none !important;
+    }
+
+    .mobile-full-width {
+        width: 100% !important;
+    }
+
+    .mobile-text-center {
+        text-align: center !important;
+    }
+}
+
+/* ===== FIX HORIZONTAL SCROLL ISSUES ===== */
+* {
+    max-width: 100%;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* ===== MOBILE PERFORMANCE ===== */
+@media (max-width: 768px) {
+
+    /* Reduce animations on mobile for better performance */
+    * {
+        animation-duration: 0.2s !important;
+        transition-duration: 0.2s !important;
+    }
+
+    /* Disable hover effects on touch devices */
+    @media (hover: none) {
+
+        .btn:hover,
+        .menu-item a:hover,
+        .kpi-card:hover {
+            transform: none;
+        }
+    }
+}
