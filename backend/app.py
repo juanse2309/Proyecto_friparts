@@ -663,7 +663,19 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
             "PENDIENTE"
         ]
         
-        worksheet.append_row(fila_pnc)
+        # SOLUCION PARA EVITAR DESPLAZAMIENTO DE COLUMNAS (BUG REPORTADO)
+        # En lugar de append_row que a veces falla detectando la tabla, usamos update explicito
+        try:
+            # 1. Calcular siguiente fila vacia basada en columna A (ID PNC)
+            next_row = len(worksheet.col_values(1)) + 1
+            
+            # 2. Usar range explcito (A{row}) obligando a comenzar en columna A
+            # fila_pnc tiene 9 columnas (A-I)
+            worksheet.update(f"A{next_row}", [fila_pnc])
+            print(f"PNC registrado en {hoja_pnc} (Fila {next_row} Forzada): {cantidad_pnc} piezas")
+        except Exception as e_update:
+            print(f"Advertencia: Fallo update explicito ({e_update}), usando append_row...")
+            worksheet.append_row(fila_pnc)
         print(f"PNC registrado en {hoja_pnc}: {cantidad_pnc} piezas de {codigo_producto}")
         return True
         

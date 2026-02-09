@@ -510,7 +510,19 @@ def change_password_client():
         if col_cambiar_idx:
             ws_users.update_cell(user_row_index, col_cambiar_idx, "FALSE")
 
-        return jsonify({"success": True, "message": "Contraseña actualizada correctamente."})
+        # Return user info for auto-login
+        return jsonify({
+            "success": True, 
+            "message": "Contraseña actualizada correctamente.",
+            "user": {
+                "nombre": user_found.get('NOMBRE_EMPRESA'),
+                "nombre_contacto": user_found.get('NOMBRE_CONTACTO'),
+                "email": email,
+                "nit": user_found.get('NIT_EMPRESA'),
+                "rol": "Cliente",
+                "tipo": "CLIENTE"
+            }
+        })
 
     except Exception as e:
         logger.error(f"Error updating password: {e}")

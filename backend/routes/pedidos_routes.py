@@ -563,6 +563,7 @@ def obtener_pedidos_cliente():
                         "fecha": r.get("FECHA"),
                         "estado": r.get("ESTADO"),
                         "progreso": str(r.get("PROGRESO", "0%")).replace('%', ''),
+                        "progreso_despacho": str(r.get("PROGRESO_DESPACHO", "0%")).replace('%', ''),
                         "total_dinero": 0.0,
                         "items_count": 0
                     }
@@ -591,6 +592,7 @@ def obtener_pedidos_cliente():
                 "fecha": data["fecha"],
                 "estado": data["estado"],
                 "progreso": float(data["progreso"]) if data["progreso"] else 0,
+                "progreso_despacho": float(data["progreso_despacho"]) if data.get("progreso_despacho") else 0,
                 "items": int(data["items_count"]),
                 "total": data["total_dinero"] # Frontend format currency
             })

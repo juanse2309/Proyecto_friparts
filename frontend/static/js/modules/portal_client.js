@@ -231,7 +231,92 @@ const ModuloPortal = {
         const listaPagina = listaTotal.slice(start, end);
         const totalPages = Math.ceil(listaTotal.length / this.itemsPerPage);
 
-        // VISTA LISTA (Tabla)
+        // Detectar viewport móvil
+        const isMobile = window.innerWidth <= 768;
+
+        if (isMobile) {
+            this.renderizarProductosMobile(grid, listaPagina, totalPages);
+        } else {
+            this.renderizarProductosDesktop(grid, listaPagina, totalPages, listaTotal, start, end);
+        }
+    },
+
+    renderizarProductosMobile: function (grid, listaPagina, totalPages) {
+        grid.className = 'w-100';
+        grid.style.display = 'block';
+
+        const cards = listaPagina.map(p => {
+            const localImage = `/static/img/productos/${p.codigo.trim()}.jpg`;
+            const noImage = '/static/img/no-image.svg';
+
+            const stockBadge = p.stock > 50
+                ? `<span class="badge bg-success text-white">Disponible (${p.stock})</span>`
+                : p.stock > 0
+                    ? `<span class="badge bg-warning text-dark">Pocas unidades (${p.stock})</span>`
+                    : `<span class="badge bg-secondary">Bajo Pedido</span>`;
+
+            return `
+                <div class="product-card-mobile">
+                    <img src="${localImage}" 
+                         alt="${p.codigo}"
+                         class="product-image"
+                         onclick="window.open(this.src, '_blank')"
+                         onerror="if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png')}else{this.onerror=null;this.src='${noImage}'}">
+                    <div class="product-info">
+                        <div class="product-name">${p.descripcion}</div>
+                        <div class="product-code">${p.codigo}</div>
+                        <div class="d-flex align-items-center gap-2 mt-1">
+                            ${stockBadge}
+                        </div>
+                        <div class="product-price mt-2">
+                            ${p.precio > 0 ? '$' + p.precio.toLocaleString() : '<span class="text-muted small">Consultar</span>'}
+                        </div>
+                        <div class="quantity-selector">
+                            <button class="btn btn-outline-secondary" onclick="
+                                const input = document.getElementById('qty-${p.codigo}');
+                                if (input.value > 1) input.value = parseInt(input.value) - 1;
+                            ">
+                                <i class="fas fa-minus"></i>
+                            </button>
+                            <input type="number" id="qty-${p.codigo}" class="form-control" value="1" min="1">
+                            <button class="btn btn-outline-secondary" onclick="
+                                const input = document.getElementById('qty-${p.codigo}');
+                                input.value = parseInt(input.value) + 1;
+                            ">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <button class="btn btn-primary add-to-cart-btn" onclick="ModuloPortal.agregarAlCarrito('${p.codigo}')">
+                            <i class="fas fa-shopping-cart me-2"></i>Agregar al Carrito
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        const paginationControls = totalPages > 1 ? `
+            <div class="d-flex justify-content-center gap-2 mt-4 mb-3">
+                <button class="btn btn-outline-secondary btn-sm" 
+                    ${this.currentPage <= 1 ? 'disabled' : ''} 
+                    onclick="ModuloPortal.cambiarPagina(-1)">
+                    <i class="fas fa-chevron-left"></i> Anterior
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" disabled>
+                    ${this.currentPage} / ${totalPages}
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" 
+                    ${this.currentPage >= totalPages ? 'disabled' : ''} 
+                    onclick="ModuloPortal.cambiarPagina(1)">
+                    Siguiente <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        ` : '';
+
+        grid.innerHTML = cards + paginationControls;
+    },
+
+    renderizarProductosDesktop: function (grid, listaPagina, totalPages, listaTotal, start, end) {
+        // VISTA LISTA (Tabla) - Desktop
         grid.className = 'w-100';
         grid.style.display = 'block';
         grid.style.gridTemplateColumns = 'none';
@@ -254,27 +339,18 @@ const ModuloPortal = {
 
         const tableBody = listaPagina.map(p => {
             const localImage = `/static/img/productos/${p.codigo.trim()}.jpg`;
-            const fallbackImage = p.imagen && p.imagen.length > 5 ? p.imagen : '';
-            const noImage = '/static/img/no-image.png';
+            const noImage = '/static/img/no-image.svg';
 
             return `
             <tr>
                 <td class="ps-4" data-label="Imagen">
                     <div class="position-relative bg-white rounded border d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
-                        <img src="${localImage}" 
+                         <img src="${localImage}" 
                              alt="${p.codigo}"
                              class="rounded"
                              style="width: 100%; height: 100%; object-fit: contain; cursor: pointer;"
                              onclick="window.open(this.src, '_blank')"
-                             onerror="
-                                if (this.src.endsWith('.jpg')) { 
-                                    this.src = this.src.replace('.jpg', '.png'); 
-                                } else if (this.src.endsWith('.png') && '${fallbackImage}' !== '') { 
-                                    this.src = '${fallbackImage}'; 
-                                } else { 
-                                    this.src = '${noImage}';
-                                }
-                             ">
+                             onerror="if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png')}else{this.onerror=null;this.src='${noImage}'}">
                     </div>
                 </td>
                 <td data-label="Producto">
@@ -446,7 +522,7 @@ const ModuloPortal = {
             // Fallback robusto de imagen (Igual que en renderizarProductos)
             const localImage = `/static/img/productos/${item.codigo.trim()}.jpg`;
             const fallbackImage = prod && prod.imagen && prod.imagen.length > 5 ? prod.imagen : '';
-            const noImage = '/static/img/no-image.png';
+            const noImage = '/static/img/no-image.svg';
 
             const subtotal = item.cantidad * item.precio;
             totalPrecio += subtotal;

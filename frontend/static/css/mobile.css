@@ -380,111 +380,185 @@ a {
 
 /* ===== MOBILE LANDING SCREEN ===== */
 @media (max-width: 576px) {
-    .landing-screen h1 {
-        font-size: 2rem;
+    #landing-screen h1 {
+        font-size: 2.2rem !important;
+        /* Slightly smaller for general mobile */
+        line-height: 1.2;
+        display: flex;
+        flex-direction: column;
+        /* Force wrap if needed */
+        align-items: center;
+        width: 100%;
+        padding: 0 15px;
+        word-break: break-word;
     }
 
-    .landing-screen .subtitle {
-        font-size: 1rem;
+    #landing-screen .text-secondary {
+        color: var(--success) !important;
+        text-shadow: 0 0 15px rgba(76, 201, 240, 0.4);
+        font-size: 0.9em;
+        /* Scale down the Portal part slightly */
     }
 
-    .auth-options {
+    @media (max-width: 420px) {
+
+        /* Fits S20 Ultra (412px) and smaller */
+        #landing-screen h1 {
+            font-size: 1.8rem !important;
+        }
+    }
+
+    #landing-screen .subtitle {
+        font-size: 0.95rem;
+        padding: 0 20px;
+    }
+
+    #landing-screen .auth-options {
         flex-direction: column;
         gap: 15px;
+        width: 100%;
+        max-width: 320px;
     }
 
-    .auth-card {
+    #landing-screen .auth-card {
         width: 100%;
         max-width: 100%;
     }
 }
 
-/* ===== MOBILE PORTAL CLIENTE ===== */
+/* ===== MOBILE PRODUCT CARDS (CLIENT PORTAL) ===== */
 @media (max-width: 768px) {
-    .portal-tabs {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+    .product-grid-mobile {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 10px;
     }
 
-    .portal-tabs .nav-link {
+    .product-card-mobile {
+        background: white !important;
+        border-radius: 12px !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05) !important;
+        margin-bottom: 0 !important;
+        padding: 12px !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: flex-start !important;
+        gap: 15px !important;
+        border: 1px solid #f1f5f9 !important;
+        height: auto;
+    }
+
+    .product-card-mobile .product-image {
+        width: 90px !important;
+        height: 90px !important;
+        object-fit: contain !important;
+        background: #fff !important;
+        border-radius: 8px !important;
+        padding: 4px;
+        flex-shrink: 0;
+        border: 1px solid #e2e8f0;
+        align-self: center;
+    }
+
+    .product-card-mobile .product-info {
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 4px !important;
+        min-width: 0;
+    }
+
+    .product-card-mobile .product-name {
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+        line-height: 1.2 !important;
+        color: #0f172a !important;
+        margin-bottom: 2px;
+        width: 100%;
         white-space: nowrap;
-        font-size: 0.9rem;
-        padding: 10px 15px;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
-    .carrito-flotante {
-        bottom: 70px;
-        /* Avoid overlapping with mobile nav */
-        right: 15px;
-        width: 60px;
-        height: 60px;
+    .product-card-mobile .product-code {
+        font-size: 0.75rem !important;
+        color: #64748b !important;
+        background: #f1f5f9;
+        padding: 2px 8px;
+        border-radius: 4px;
+        display: inline-block;
+        width: fit-content;
     }
 
-    .carrito-flotante i {
-        font-size: 1.5rem;
-    }
-}
-
-/* ===== MOBILE BACK BUTTON ===== */
-#back-button-container {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    z-index: 998;
-    display: none;
-}
-
-#back-button-container.active {
-    display: block;
-}
-
-@media (min-width: 991px) {
-    #back-button-container {
-        display: none !important;
-    }
-}
-
-/* ===== MOBILE UTILITY CLASSES ===== */
-@media (max-width: 576px) {
-    .mobile-hide {
-        display: none !important;
+    .product-card-mobile .product-price {
+        font-size: 1.1rem !important;
+        font-weight: 800 !important;
+        color: var(--primary) !important;
+        margin: 4px 0;
     }
 
-    .mobile-full-width {
-        width: 100% !important;
+    /* Improved Quantity Selector */
+    .product-card-mobile .quantity-selector {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin-bottom: 8px;
+        width: fit-content;
     }
 
-    .mobile-text-center {
+    .product-card-mobile .quantity-selector button {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        padding: 0 !important;
+        border-radius: 8px !important;
+        background: #f1f5f9 !important;
+        border: 1px solid #e2e8f0 !important;
+        color: #334155 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 1rem !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .product-card-mobile .quantity-selector input {
+        width: 40px !important;
+        height: 32px !important;
         text-align: center !important;
-    }
-}
-
-/* ===== FIX HORIZONTAL SCROLL ISSUES ===== */
-* {
-    max-width: 100%;
-}
-
-img {
-    max-width: 100%;
-    height: auto;
-}
-
-/* ===== MOBILE PERFORMANCE ===== */
-@media (max-width: 768px) {
-
-    /* Reduce animations on mobile for better performance */
-    * {
-        animation-duration: 0.2s !important;
-        transition-duration: 0.2s !important;
+        font-size: 1rem !important;
+        font-weight: 700 !important;
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        color: #0f172a !important;
     }
 
-    /* Disable hover effects on touch devices */
-    @media (hover: none) {
+    .product-card-mobile .add-to-cart-btn {
+        height: 36px !important;
+        border-radius: 8px !important;
+        background: var(--primary) !important;
+        color: white !important;
+        font-size: 0.9rem !important;
+        border: none !important;
+        padding: 0 !important;
+        width: 100% !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-weight: 600;
+    }
 
-        .btn:hover,
-        .menu-item a:hover,
-        .kpi-card:hover {
-            transform: none;
-        }
+    /* Banner Compact */
+    .friparts-banner {
+        max-height: 100px !important;
+        margin-bottom: 1rem !important;
+    }
+    
+    #portal-search {
+        padding: 10px 15px !important;
+        font-size: 14px !important;
     }
 }

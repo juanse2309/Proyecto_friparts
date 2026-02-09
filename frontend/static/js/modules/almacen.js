@@ -142,6 +142,12 @@ const AlmacenModule = {
         }
 
         pendientesReales.forEach(pedido => {
+            // Validación robusta: Omitir pedidos "fantasma" sin datos mínimos
+            if (!pedido || !pedido.id_pedido || !pedido.cliente || pedido.cliente === 'undefined') {
+                console.warn('⚠️ [Almacen] Omitiendo pedido inválido/vacío:', pedido);
+                return;
+            }
+
             const progresoAlisado = parseInt(pedido.progreso) || 0;
             const progresoEnviado = parseInt(pedido.progreso_despacho) || 0;
 
@@ -216,6 +222,9 @@ const AlmacenModule = {
                                 </div>
                             </div>
                             ` : ''}
+                            
+                            <!-- Mensaje Solo Lectura para Comercial -->
+                            ${currentUser?.rol === 'Comercial' ? '<div class="mt-2 text-center"><span class="badge bg-secondary text-white small" style="opacity:0.8"><i class="fas fa-eye"></i> Solo Lectura</span></div>' : ''}
                         </div>
                     </div>
                 </div>
@@ -267,6 +276,32 @@ const AlmacenModule = {
         this.actualizarProgresoVisual();
 
         document.getElementById('modalAlistamiento').style.display = 'flex';
+
+        // MODO LECTURA: Si es Comercial, deshabilitar TODO dentro del modal
+        const user = window.AppState?.user;
+        const isReadOnly = user?.rol === 'Comercial';
+
+        const modalContainer = document.getElementById('modalAlistamiento');
+        const inputs = modalContainer.querySelectorAll('input, button:not(.btn-close):not(#btn-cerrar-modal)');
+
+        if (isReadOnly) {
+            // Deshabilitar controles de edición
+            inputs.forEach(el => {
+                // Permitir cerrar y escrolear, bloquear acciones
+                if (!el.classList.contains('close') && el.id !== 'modal-cancelar') {
+                    el.disabled = true;
+                    el.style.opacity = '0.6';
+                    el.style.pointerEvents = 'none';
+                }
+            });
+            // Ocultar botón Guardar si existe y mostrar aviso
+            const btnGuardar = document.getElementById('btn-guardar-alistamiento');
+            if (btnGuardar) btnGuardar.style.display = 'none';
+        } else {
+            // Restaurar si se reutiliza el modal
+            const btnGuardar = document.getElementById('btn-guardar-alistamiento');
+            if (btnGuardar) btnGuardar.style.display = 'block';
+        }
     },
 
     /**
@@ -320,62 +355,68 @@ const AlmacenModule = {
             // ID único para el checkbox
             const checkId = `check-despacho-${index}`;
 
+            // Progress width for visual feedback within the card background or border
+            const progress = (prod.cant_lista / prod.cantidad) * 100;
+            const progressColor = progress >= 100 ? '#10b981' : '#6366f1';
+
             html += `
-                <div class="product-row-item p-3 mb-3 bg-white border rounded shadow-sm" id="row-prod-${index}" 
-                     style="transition: all 0.5s ease; opacity: 1;">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <div class="fw-bold" style="color: #1e293b; font-size: 1.1rem;">${prod.codigo}</div>
-                            <div class="text-muted small">${prod.descripcion}</div>
-                        </div>
-                        <div class="text-end">
-                            <span class="badge" style="font-size: 1.1rem; background-color: #fef08a; color: #854d0e; border: 1px solid #fde047; padding: 5px 12px; border-radius: 8px;">
-                                <i class="fas fa-list-ol me-1"></i> Cantidad: ${prod.cantidad}
-                            </span>
-                        </div>
+            <div class="product-row-item p-4 mb-4 bg-white shadow-sm border-0 rounded-4 position-relative overflow-hidden" id="row-prod-${index}" 
+                 style="transition: all 0.4s ease; transform: scale(1);">
+                 
+                <!-- Visual Progress Bar at Bottom -->
+                <div style="position: absolute; bottom: 0; left: 0; height: 6px; width: ${progress}%; background: ${progressColor}; transition: width 0.3s ease;"></div>
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div style="max-width: 60%;">
+                        <span class="badge bg-light text-dark border fw-bold mb-1" style="font-size: 0.8rem; letter-spacing: 1px;">CÓDIGO: ${prod.codigo}</span>
+                        <h6 class="text-muted mb-0 fw-normal" style="font-size: 0.8rem; line-height: 1.2;">${prod.descripcion}</h6>
                     </div>
-                    
-                    <div class="row g-3 align-items-center">
-                        <!-- Control de Alistamiento (Caja) -->
-                        <div class="col-7">
-                            <div class="p-2 rounded" style="background: #f0f7ff; border: 1px solid #dbeafe;">
-                                <label class="small fw-bold text-primary mb-1 d-block"><i class="fas fa-box"></i> Alistamiento</label>
-                                <div class="input-group input-group-lg">
-                                    <button class="btn btn-white border" type="button" 
-                                        onclick="AlmacenModule.ajustarCantidad(${index}, -1, 'cant_lista')"
-                                        style="min-width: 48px;">-</button>
-                                    <input type="number" class="form-control text-center fw-bold" 
-                                        value="${prod.cant_lista}" 
-                                        onchange="AlmacenModule.cambiarCantidad(${index}, this.value, 'cant_lista')"
-                                        style="font-size: 1.2rem; border-color: #6366f1;">
-                                    <button class="btn btn-white border" type="button" 
-                                        onclick="AlmacenModule.ajustarCantidad(${index}, 1, 'cant_lista')"
-                                        style="min-width: 48px;">+</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Checkbox de Despacho Simplificado -->
-                        <div class="col-5">
-                            <div class="p-2 rounded d-flex flex-column align-items-center justify-content-center h-100 ${!isCompletoAlisado ? 'opacity-50' : ''}" 
-                                style="background: ${bgClass}; border: 1px solid ${borderClass}; transition: all 0.3s; position: relative;">
-                                
-                                <label class="small fw-bold mb-2 d-block text-center" style="${labelStyle} transition: color 0.3s;">
-                                    ${iconHtml}
-                                </label>
-
-                                <div class="form-check form-switch d-flex justify-content-center">
-                                    <input class="form-check-input scale-125" type="checkbox" role="switch" id="${checkId}"
-                                        ${prod.despachado ? 'checked' : ''}
-                                        ${!isCompletoAlisado ? 'disabled' : ''}
-                                        onchange="AlmacenModule.toggleDespacho(${index}, this.checked)"
-                                        style="width: 3.5rem; height: 1.75rem; cursor: pointer; ${isReadyToDispatch ? 'border-color: #fdba74; background-color: #fed7aa;' : ''}">
-                                </div>
-                            </div>
-                        </div>
+                    <div class="text-end">
+                        <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 1px;">Solicitado</small>
+                        <div class="fw-bold text-primary" style="font-size: 2.5rem; line-height: 1; letter-spacing: -1px;">${prod.cantidad}</div>
                     </div>
                 </div>
-            `;
+
+                <!-- Big Input Control Area -->
+                <div class="d-flex align-items-center justify-content-between bg-light rounded-4 p-2 mb-4 border inner-shadow">
+                    <button class="btn btn-white shadow-sm rounded-circle d-flex align-items-center justify-content-center border-0" 
+                        onclick="AlmacenModule.ajustarCantidad(${index}, -1, 'cant_lista')"
+                        style="width: 60px; height: 60px; font-size: 1.5rem; color: #ef4444; transition: transform 0.1s;"
+                        onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    
+                    <div class="flex-grow-1 px-3 text-center">
+                        <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px;">Empacado</small>
+                        <input type="number" class="form-control border-0 bg-transparent text-center fw-bold p-0" 
+                            value="${prod.cant_lista}" 
+                            onchange="AlmacenModule.cambiarCantidad(${index}, this.value, 'cant_lista')"
+                            style="font-size: 2.5rem; color: #1e293b; height: auto; box-shadow: none;">
+                    </div>
+
+                    <button class="btn btn-white shadow-sm rounded-circle d-flex align-items-center justify-content-center border-0" 
+                         onclick="AlmacenModule.ajustarCantidad(${index}, 1, 'cant_lista')"
+                         style="width: 60px; height: 60px; font-size: 1.5rem; color: #10b981; transition: transform 0.1s;"
+                         onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+
+                <!-- Status Toggle Actions -->
+                <div class="d-flex align-items-center justify-content-end gap-3 border-top pt-3">
+                    <span class="text-muted small fw-bold ${isReadyToDispatch ? 'text-orange-500' : ''}" style="transition: color 0.3s; ${isReadyToDispatch ? 'color: #f97316;' : ''}">
+                         ${isReadyToDispatch ? '<i class="fas fa-exclamation-circle me-1"></i> LISTO PARA CERRAR' : (prod.despachado ? '<i class="fas fa-check-circle me-1"></i> DESPACHADO' : 'PENDIENTE')}
+                    </span>
+                    
+                    <div class="form-check form-switch custom-switch-lg">
+                        <input class="form-check-input" type="checkbox" role="switch" id="${checkId}"
+                            ${prod.despachado ? 'checked' : ''}
+                            ${!isCompletoAlisado ? 'disabled' : ''}
+                            onchange="AlmacenModule.toggleDespacho(${index}, this.checked)"
+                            style="width: 3.5rem; height: 2rem; cursor: pointer;">
+                    </div>
+                </div>
+            </div>`;
         });
 
         if (itemsVisibles === 0) {
@@ -759,7 +800,7 @@ const AlmacenModule = {
                 console.log('🔄 [Almacen] Auto-refresco de fondo...');
                 this.cargarPedidos(false);
             }
-        }, 15000);
+        }, 8000); // 8 segundos para mayor rapidez
     },
 
     /**

@@ -7,12 +7,12 @@ const AuthModule = {
     // Matriz de Permisos
     permissions: {
         'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes'],
-        'Comercial': ['pedidos', 'dashboard', 'inventario', 'admin-clientes'],
-        'Auxiliar Inventario': ['inventario', 'inyeccion', 'pnc', 'historial', 'almacen'],
+        'Comercial': ['pedidos', 'almacen'],
+        'Auxiliar Inventario': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial'],
         'Inyección': ['inyeccion', 'mezcla'],
         'Pulido': ['pulido'],
         'Ensamble': ['ensamble'],
-        'Alistamiento': ['almacen', 'historial'],
+        'Alistamiento': ['almacen'],
         // NUEVO ROL CLIENTE
         'Cliente': ['portal-cliente'],
         // Fallback
@@ -268,14 +268,20 @@ const AuthModule = {
 
                 const d = await res.json();
                 if (d.success) {
-                    alert("Contraseña actualizada correctamente. Ingresa de nuevo.");
                     modal.style.display = 'none';
-                    this.openClientAuth(); // Re-open logic
-                    // Pre-fill email?
-                    const emailInput = document.getElementById('client-email');
-                    if (emailInput) emailInput.value = email;
-                    const passInput = document.getElementById('client-password');
-                    if (passInput) passInput.value = ''; // Force them to type new pass
+
+                    // Auto-login with new password
+                    this.setCurrentUser(d.user); // Backend should return user info
+                    this.closeClientAuth();
+                    this.hideLandingScreen();
+
+                    // Show success message
+                    this.mostrarNotificacion('Contraseña actualizada correctamente', 'success');
+
+                    // Initialize portal
+                    if (window.ModuloPortal && typeof window.ModuloPortal.init === 'function') {
+                        await window.ModuloPortal.init();
+                    }
                 } else {
                     alert(d.message || "Error al actualizar");
                 }
@@ -283,7 +289,7 @@ const AuthModule = {
                 btn.innerHTML = orig;
 
             } catch (err) {
-                console.error(err);
+                console.error("Error changing password:", err);
                 alert("Error de conexión");
             }
         };
@@ -492,24 +498,28 @@ const AuthModule = {
         const role = this.currentUser.rol;
         let allowedPages = [...(this.permissions[role] || [])];
 
-        // LOGICA EXCEPCIONES STAFF (Paola, Natalia)
-        // LOGICA EXCEPCIONES STAFF (Paola, Natalia, Zoenia)
+        // LOGICA EXCEPCIONES STAFF
         const userNameUpper = this.currentUser.nombre.toUpperCase();
 
         // Helper para normalizar (quitar tildes)
         const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const nameNorm = normalize(userNameUpper);
 
-        if (nameNorm.includes('NATALIA') || nameNorm.includes('NATHALIA')) {
-            const modulosAdmin = ['almacen', 'pedidos', 'historial', 'reportes', 'inventario', 'dashboard'];
-            modulosAdmin.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
+        // WILMER NOVOA -> Ver Ensamble ademas de Inyeccion
+        if (nameNorm.includes('WILMER') && nameNorm.includes('NOVOA')) {
+            if (!allowedPages.includes('ensamble')) allowedPages.push('ensamble');
         }
 
-        // PAOLA y ZOENIA
+        // NATALIA LOPEZ -> Alistamiento (Ya tiene 'almacen' por rol)
+        // Solo asegurar que pueda delegar (se maneja en almacen.js)
+
+        // PAOLA y ZOENIA -> Bloquear Dashboard, Almacen, Facturacion y Mezcla
         if (nameNorm.includes('PAOLA') || nameNorm.includes('ZOENIA')) {
-            // Se agregan dashboard e inventario para mejor UX
-            const modulosExtra = ['pulido', 'ensamble', 'historial', 'almacen', 'dashboard', 'inventario'];
-            modulosExtra.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
+            // Remover explícitamente si existen
+            allowedPages = allowedPages.filter(p => !['dashboard', 'almacen', 'facturacion', 'mezcla'].includes(p));
+            // Asegurar acceso a edición global (sin facturacion ni mezcla)
+            const extras = ['inventario', 'historial', 'inyeccion', 'pulido', 'ensamble', 'pnc'];
+            extras.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
         }
 
         // 1. Mostrar/Ocultar Menú Sidebar
