@@ -11,7 +11,7 @@ const ModuloEnsamble = {
         await this.cargarDatos();
         this.configurarEventos();
         this.initAutocompleteComponente();
-        // this.initAutocompleteResponsable(); // Eliminado por solicitud de usuario (Auto-fill simple)
+        this.initAutocompleteResponsable();
     },
 
     // Alias para compatibilidad con app.js
