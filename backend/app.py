@@ -731,77 +731,48 @@ def registrar_log_operacion(hoja, fila):
         return False
 
 def obtener_buje_origen_y_qty(codigo_producto):
-    """Obtiene el buje origen y qty unitaria desde la ficha tecnica - VERSIN DEBUGGEABLE"""
+    """
+    Obtiene el buje origen y qty unitaria desde la ficha tecnica.
+    NUEVA LOGICA BIDIRECCIONAL:
+    - Si codigo_producto es el PRODUCTO FINAL, devuelve su buje y qty.
+    - Si codigo_producto es el BUJE, busca el producto que lo usa.
+    """
     try:
-        logger.info(f" Iniciando busqueda de buje para: {codigo_producto}")
-        
+        logger.info(f" [Mapeo] Buscando relacion para: {codigo_producto}")
         ss = get_spreadsheet()
         
-        # 1. Buscar ID CODIGO en PRODUCTOS
-        logger.info(f" Buscando en hoja PRODUCTOS...")
-        ws_productos = ss.worksheet(Hojas.PRODUCTOS)
-        registros_productos = ws_productos.get_all_records()
+        # 1. Normalizar codigo para busqueda
+        codigo_sis_real = obtener_codigo_sistema_real(codigo_producto) # ej: 9430
         
-        logger.info(f"Total registros en PRODUCTOS: {len(registros_productos)}")
-        
-        id_codigo = None
-        for idx, r in enumerate(registros_productos):
-            codigo_sistema = str(r.get('CODIGO SISTEMA', '')).strip()
-            id_codigo_temp = str(r.get('ID CODIGO', '')).strip()
-            
-            logger.debug(f"  Fila {idx}: CODIGO SISTEMA='{codigo_sistema}', ID CODIGO='{id_codigo_temp}'")
-            
-            if codigo_sistema == codigo_producto:
-                id_codigo = id_codigo_temp
-                logger.info(f" Encontrado: CODIGO SISTEMA '{codigo_producto}'  ID CODIGO '{id_codigo}'")
-                break
-        
-        if not id_codigo:
-            logger.warning(f" No se encontro ID CODIGO para CODIGO SISTEMA '{codigo_producto}'")
-            logger.warning(f"    Devolviendo codigo original como buje")
-            return codigo_producto, 1.0
-        
-        # 2. Buscar la ficha en FICHAS
-        logger.info(f" Buscando en hoja FICHAS...")
+        # 2. Cargar FICHAS
         ws_fichas = ss.worksheet(Hojas.FICHAS)
         registros_fichas = ws_fichas.get_all_records()
         
-        logger.info(f"Total registros en FICHAS: {len(registros_fichas)}")
+        # BUSQUEDA 1: ¿Es el producto final? (FICHAS[ID CODIGO] == codigo)
+        for r in registros_fichas:
+            id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
+            if id_cod_ficha == codigo_sis_real:
+                buje = str(r.get('BUJE ENSAMBLE', '')).strip()
+                qty = float(r.get('QTY', 1) or 1)
+                logger.info(f" [Mapeo] Encontrado como PRODUCTO: {codigo_sis_real} utiliza buje {buje}")
+                return buje, qty, id_cod_ficha
         
-        ficha_encontrada = None
-        for idx, r in enumerate(registros_fichas):
-            id_codigo_ficha = str(r.get('ID CODIGO', '')).strip()
-            
-            logger.debug(f"  Fila {idx}: ID CODIGO='{id_codigo_ficha}'")
-            
-            if id_codigo_ficha == id_codigo:
-                ficha_encontrada = r
-                logger.info(f" Ficha encontrada en fila {idx}")
-                break
-        
-        if ficha_encontrada:
-            buje_ficha = str(ficha_encontrada.get('BUJE ENSAMBLE', '')).strip()
-            qty_str = ficha_encontrada.get('QTY', '1')
-            
-            logger.info(f"   BUJE ENSAMBLE: '{buje_ficha}'")
-            logger.info(f"   QTY: '{qty_str}'")
-            
-            # NO extraer, usar el valor completo
-            buje_real = buje_ficha
-            qty_unitaria = float(qty_str) if qty_str and qty_str != '' else 1.0
-            
-            logger.info(f" Ficha procesada: Buje='{buje_real}', QTY={qty_unitaria}")
-            return buje_real, qty_unitaria
-        else:
-            logger.warning(f" No se encontro ficha para ID CODIGO '{id_codigo}'")
-            logger.warning(f"    Devolviendo codigo original como buje")
-            return codigo_producto, 1.0
+        # BUSQUEDA 2: ¿Es el componente? (FICHAS[BUJE ENSAMBLE] == codigo)
+        for r in registros_fichas:
+            buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
+            if buje_ficha == codigo_sis_real:
+                prod_final = str(r.get('ID CODIGO', '')).strip()
+                qty = float(r.get('QTY', 1) or 1)
+                logger.info(f" [Mapeo] Encontrado como COMPONENTE: {codigo_sis_real} es buje para {prod_final}")
+                return buje_ficha, qty, prod_final
+
+        # Fallback: No se encontro en FICHAS
+        logger.warning(f" [Mapeo] No hay ficha tecnica para {codigo_producto}")
+        return codigo_producto, 1.0, "NO DEFINIDO"
         
     except Exception as e:
-        logger.error(f" Error en obtener_buje_origen_y_qty: {type(e).__name__}: {str(e)}")
-        logger.error(f"   Devolviendo fallback: {codigo_producto}, 1.0")
-        traceback.print_exc()
-        return codigo_producto, 1.0
+        logger.error(f" Error en mapeo ensamble: {str(e)}")
+        return codigo_producto, 1.0, "ERROR"
 
 
 def validate_form(data, tipo_proceso="inyeccion"):
@@ -1276,13 +1247,14 @@ def obtener_ensamble_desde_producto():
         # Normalizar a CODIGO SISTEMA real (ej: FR-9304 -> 9304)
         codigo_sistema = obtener_codigo_sistema_real(codigo_entrada)
 
-        # Usar la misma logica que ensamble
-        buje_ensamble, qty_unitaria = obtener_buje_origen_y_qty(codigo_sistema)
+        # Usar la misma logica que ensamble (Bidireccional)
+        buje_ensamble, qty_unitaria, codigo_resultado = obtener_buje_origen_y_qty(codigo_sistema)
 
         return jsonify({
             'success': True,
             'codigo_sistema': codigo_sistema,
-            'codigo_ensamble': buje_ensamble,
+            'codigo_ensamble': codigo_resultado, # El "otro" codigo
+            'buje_origen': buje_ensamble,
             'qty': qty_unitaria
         }), 200
     except Exception as e:
@@ -1481,9 +1453,9 @@ def handle_ensamble():
             return error_response("Codigo de producto requerido")
         
         # ========================================
-        # OBTENER INFORMACIN DE BUJE ORIGEN
+        # OBTENER INFORMACÍN DE BUJE ORIGEN (Soporte Bidireccional)
         # ========================================
-        buje_origen_id, qty_calculada = obtener_buje_origen_y_qty(codigo_sis)
+        buje_origen_id, qty_calculada, producto_final_id = obtener_buje_origen_y_qty(codigo_sis)
         
         # PRIORIZAR QTY ENVIADO POR EL CLIENTE (Frontend)
         qty_unitaria = float(data.get('qty_unitaria', qty_calculada))
@@ -1567,8 +1539,8 @@ def handle_ensamble():
             data.get('hora_fin', ''),                  # 8. HORA FIN
             buje_origen_id,                            # 9. BUJE ENSAMBLE (ID sin FR-)
             qty_unitaria,                              # 10. QTY
-            'P. TERMINADO',                            # 11. ALMACEN PARA DESCARGAR
-            'PRODUCTO ENSAMBLADO'                      # 12. ALMACEN DESTINO
+            almacen_origen,                            # 11. ALMACEN PARA DESCARGAR
+            almacen_destino                            # 12. ALMACEN DESTINO
             # NOTA: Ya no incluimos campo "LOTE" aqui
         ]
         
