@@ -1,0 +1,49 @@
+\u003c!-- ADMIN CLIENTES PAGE --\u003e
+\u003cdiv id="admin-clientes-page" class="page"\u003e
+\u003cheader class="top-bar"\u003e
+\u003cbutton class="btn-icon d-lg-none" id="toggle-sidebar-admin-clientes"\u003e
+\u003ci class="fas fa-bars"\u003e\u003c/i\u003e
+\u003c/button\u003e
+\u003cdiv class="page-title"\u003e
+\u003ch1\u003e\u003ci class="fas fa-users-cog"\u003e\u003c/i\u003e Gestión de Clientes B2B\u003c/h1\u003e
+\u003cp class="subtitle"\u003eAdministración de cuentas del portal de clientes\u003c/p\u003e
+\u003c/div\u003e
+\u003cdiv class="top-controls"\u003e
+\u003cbutton class="btn btn-success" onclick="ModuloAdminClientes.mostrarModalCrear()"\u003e
+\u003ci class="fas fa-user-plus"\u003e\u003c/i\u003e Crear Cuenta
+\u003c/button\u003e
+\u003cbutton class="btn btn-primary" onclick="ModuloAdminClientes.cargarClientes()"\u003e
+\u003ci class="fas fa-sync-alt"\u003e\u003c/i\u003e Actualizar
+\u003c/button\u003e
+\u003c/div\u003e
+\u003c/header\u003e
+
+\u003cdiv class="container-fluid py-4"\u003e
+\u003c!-- Search Bar --\u003e
+\u003cdiv class="row mb-4"\u003e
+\u003cdiv class="col-md-6"\u003e
+\u003cdiv class="search-box"\u003e
+\u003ci class="fas fa-search"\u003e\u003c/i\u003e
+\u003cinput type="text" id="admin-clientes-search"
+placeholder="Buscar por NIT, empresa o email..."\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+
+\u003c!-- Table Container --\u003e
+\u003cdiv class="row"\u003e
+\u003cdiv class="col-12"\u003e
+\u003cdiv class="card border-0 shadow-sm"\u003e
+\u003cdiv class="card-body p-0"\u003e
+\u003cdiv id="admin-clientes-container"\u003e
+\u003cdiv class="text-center py-5"\u003e
+\u003ci class="fas fa-spinner fa-spin fa-2x text-primary"\u003e\u003c/i\u003e
+\u003cp class="mt-3 text-muted"\u003eCargando...\u003c/p\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+\u003c/div\u003e
+\u003c/div\u003e

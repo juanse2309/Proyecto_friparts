@@ -942,6 +942,96 @@ const ModuloPortal = {
             this.pollingInterval = null;
             console.log('⏹️ Auto-refresh detenido.');
         }
+    },
+
+    // =================================================================
+    // EXPORTAR CATÁLOGO
+    // =================================================================
+    exportarCatalogo: function () {
+        if (this.productos.length === 0) {
+            alert('No hay productos para exportar');
+            return;
+        }
+
+        // Crear CSV
+        let csv = 'Código,Descripción,Stock Disponible,Precio\n';
+        this.productos.forEach(p => {
+            const stock = p.stock_terminado || 0;
+            const precio = p.precio || 0;
+            csv += `"${p.codigo}","${p.descripcion}",${stock},${precio}\n`;
+        });
+
+        // Descargar
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `catalogo_friparts_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+
+        if (window.AuthModule) {
+            window.AuthModule.mostrarNotificacion('Catálogo exportado', 'success');
+        }
+    },
+
+    // =================================================================
+    // MÉTRICAS DEL CLIENTE
+    // =================================================================
+    mostrarMetricas: function () {
+        const totalPedidos = this.pedidos.length;
+        const pedidosPendientes = this.pedidos.filter(p => p.estado === 'PENDIENTE').length;
+        const pedidosCompletados = this.pedidos.filter(p => p.estado === 'Entregado').length;
+
+        const html = `
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-body text-center">
+                            <i class="fas fa-shopping-cart fa-2x text-primary mb-2"></i>
+                            <h3 class="fw-bold">${totalPedidos}</h3>
+                            <p class="text-muted small mb-0">Total Pedidos</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-body text-center">
+                            <i class="fas fa-clock fa-2x text-warning mb-2"></i>
+                            <h3 class="fw-bold">${pedidosPendientes}</h3>
+                            <p class="text-muted small mb-0">Pendientes</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-body text-center">
+                            <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                            <h3 class="fw-bold">${pedidosCompletados}</h3>
+                            <p class="text-muted small mb-0">Completados</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-body text-center">
+                            <i class="fas fa-box fa-2x text-info mb-2"></i>
+                            <h3 class="fw-bold">${this.productos.length}</h3>
+                            <p class="text-muted small mb-0">Productos Disponibles</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Insertar antes del contenido de pedidos
+        const container = document.getElementById('portal-tab-mis-pedidos');
+        if (container) {
+            const existingMetrics = container.querySelector('.row.mb-4');
+            if (existingMetrics) {
+                existingMetrics.outerHTML = html;
+            } else {
+                container.insertAdjacentHTML('afterbegin', html);
+            }
+        }
     }
 };
 

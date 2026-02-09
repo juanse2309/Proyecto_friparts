@@ -240,6 +240,144 @@ def crear_cuenta_cliente():
         logger.error(f"Error creando cuenta de cliente: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+@auth_bp.route('/api/admin/clientes/listar', methods=['GET'])
+def listar_clientes():
+    """
+    ADMIN: Lista todos los clientes registrados en USUARIOS_CLIENTES
+    """
+    try:
+        ws_users = sheets_client.get_worksheet("USUARIOS_CLIENTES")
+        if not ws_users:
+            return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
+        
+        registros = ws_users.get_all_records()
+        
+        clientes = []
+        for r in registros:
+            clientes.append({
+                "nit": r.get("NIT_EMPRESA", ""),
+                "nombre_empresa": r.get("NOMBRE_EMPRESA", ""),
+                "email": r.get("EMAIL", ""),
+                "nombre_contacto": r.get("NOMBRE_CONTACTO", ""),
+                "telefono": r.get("TELEFONO", ""),
+                "direccion": r.get("DIRECCION", ""),
+                "ciudad": r.get("CIUDAD", ""),
+                "estado": r.get("ESTADO", "ACTIVO"),
+                "fecha_registro": r.get("FECHA_REGISTRO", ""),
+                "cambiar_clave": r.get("CAMBIAR_CLAVE", "FALSE")
+            })
+        
+        return jsonify({"success": True, "clientes": clientes})
+        
+    except Exception as e:
+        logger.error(f"Error listando clientes: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@auth_bp.route('/api/admin/clientes/reset-password', methods=['POST'])
+def reset_password_admin():
+    """
+    ADMIN: Resetea la contraseña de un cliente a una temporal
+    """
+    try:
+        data = request.json
+        email = str(data.get('email', '')).strip().lower()
+        
+        if not email:
+            return jsonify({"success": False, "message": "Email requerido"}), 400
+        
+        ws_users = sheets_client.get_worksheet("USUARIOS_CLIENTES")
+        if not ws_users:
+            return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
+        
+        registros = ws_users.get_all_records()
+        user_row_index = None
+        user_nit = None
+        
+        for i, r in enumerate(registros):
+            if str(r.get('EMAIL', '')).lower() == email:
+                user_row_index = i + 2  # +2 porque row 1 es header y enumerate empieza en 0
+                user_nit = str(r.get('NIT_EMPRESA', '')).strip()
+                break
+        
+        if not user_row_index:
+            return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
+        
+        # Generar nueva contraseña temporal
+        import datetime
+        password_temporal = f"{user_nit}-{datetime.datetime.now().year}"
+        hashed_pw = generate_password_hash(password_temporal)
+        
+        # Obtener índices de columnas
+        headers = ws_users.row_values(1)
+        try:
+            col_pass_idx = headers.index('PASSWORD_HASH') + 1
+            col_cambiar_idx = headers.index('CAMBIAR_CLAVE') + 1
+        except ValueError:
+            return jsonify({"success": False, "message": "Error en estructura de hoja"}), 500
+        
+        # Actualizar
+        ws_users.update_cell(user_row_index, col_pass_idx, hashed_pw)
+        ws_users.update_cell(user_row_index, col_cambiar_idx, "TRUE")
+        
+        logger.info(f"✅ Contraseña reseteada para {email}")
+        
+        return jsonify({
+            "success": True,
+            "message": "Contraseña reseteada",
+            "password_temporal": password_temporal,
+            "nit": user_nit
+        })
+        
+    except Exception as e:
+        logger.error(f"Error reseteando contraseña: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@auth_bp.route('/api/admin/clientes/toggle-estado', methods=['POST'])
+def toggle_estado_cliente():
+    """
+    ADMIN: Activa/Desactiva una cuenta de cliente
+    """
+    try:
+        data = request.json
+        email = str(data.get('email', '')).strip().lower()
+        nuevo_estado = str(data.get('estado', 'ACTIVO')).strip().upper()
+        
+        if not email or nuevo_estado not in ['ACTIVO', 'INACTIVO']:
+            return jsonify({"success": False, "message": "Datos inválidos"}), 400
+        
+        ws_users = sheets_client.get_worksheet("USUARIOS_CLIENTES")
+        if not ws_users:
+            return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
+        
+        registros = ws_users.get_all_records()
+        user_row_index = None
+        
+        for i, r in enumerate(registros):
+            if str(r.get('EMAIL', '')).lower() == email:
+                user_row_index = i + 2
+                break
+        
+        if not user_row_index:
+            return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
+        
+        # Obtener índice de columna ESTADO
+        headers = ws_users.row_values(1)
+        try:
+            col_estado_idx = headers.index('ESTADO') + 1
+        except ValueError:
+            return jsonify({"success": False, "message": "Error en estructura de hoja"}), 500
+        
+        # Actualizar
+        ws_users.update_cell(user_row_index, col_estado_idx, nuevo_estado)
+        
+        logger.info(f"✅ Estado actualizado para {email}: {nuevo_estado}")
+        
+        return jsonify({"success": True, "message": f"Cuenta {nuevo_estado.lower()}da"})
+        
+    except Exception as e:
+        logger.error(f"Error actualizando estado: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
 @auth_bp.route('/api/auth/client/login', methods=['POST'])
 def login_client():
     try:

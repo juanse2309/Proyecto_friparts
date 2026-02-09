@@ -6,8 +6,8 @@ const AuthModule = {
 
     // Matriz de Permisos
     permissions: {
-        'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen'],
-        'Comercial': ['pedidos', 'dashboard', 'inventario'],
+        'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes'],
+        'Comercial': ['pedidos', 'dashboard', 'inventario', 'admin-clientes'],
         'Auxiliar Inventario': ['inventario', 'inyeccion', 'pnc', 'historial', 'almacen'],
         'Inyección': ['inyeccion', 'mezcla'],
         'Pulido': ['pulido'],

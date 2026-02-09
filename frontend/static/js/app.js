@@ -180,7 +180,8 @@ function inicializarModulo(nombrePagina) {
         'mezcla': window.ModuloMezcla,
         'historial': window.ModuloHistorial,
         'pedidos': window.ModuloPedidos,
-        'almacen': window.AlmacenModule
+        'almacen': window.AlmacenModule,
+        'admin-clientes': window.ModuloAdminClientes
     };
 
     const modulo = modulos[nombrePagina];
