@@ -48,6 +48,25 @@ def get_responsables():
         logger.error(f"Error fetching responsables: {e}")
         return jsonify({"error": str(e)}), 500
 
+# ====================================================================
+# HELPER: Credential Normalization
+# ====================================================================
+def normalize_credential(value):
+    """
+    Normaliza una credencial (documento o password) para comparacion robusta.
+    Maneja el caso comun de Excel/Sheets donde '12345' viene como 12345.0
+    """
+    if value is None:
+        return ""
+    
+    s_val = str(value).strip()
+    
+    # Si termina en .0, quitarlo (ej: "1003456789.0" -> "1003456789")
+    if s_val.endswith(".0"):
+        return s_val[:-2]
+        
+    return s_val
+
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
     """Login para Staff (Operarios/Admin)"""
@@ -75,27 +94,33 @@ def login():
              return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
 
         # Verificacion Híbrida (Hash o Texto Plano)
-        doc_real = str(user_found.get("DOCUMENTO", "")).strip()
-        pwd_input = str(password).strip()
+        # Normalizamos TODAS las entradas para evitar fallos por formatos numericos
+        pwd_input_norm = normalize_credential(password)
         
-        # Intentar obtener columna CONTRASEÑA, si no existe o vacia, usar DOCUMENTO
-        stored_password = str(user_found.get("CONTRASEÑA", "")).strip()
-        if not stored_password:
-            stored_password = doc_real
+        # 1. Obtener "contraseña almacenada"
+        stored_password_raw = user_found.get("CONTRASEÑA", "")
+        # 2. Si esta vacía, el fallback es el DOCUMENTO
+        if not str(stored_password_raw).strip():
+            stored_password_raw = user_found.get("DOCUMENTO", "")
+            
+        stored_password_norm = normalize_credential(stored_password_raw)
         
         auth_success = False
         
-        # 1. Intentar verificar como Hash
-        if stored_password.startswith('scrypt:') or stored_password.startswith('pbkdf2:'):
-            if check_password_hash(stored_password, pwd_input):
+        # A. Intentar verificar como Hash (solo si tiene formato hash)
+        if stored_password_norm.startswith('scrypt:') or stored_password_norm.startswith('pbkdf2:'):
+            # Para check_password_hash, usamos el input tal cual (string), 
+            # ya que el hash se genero sobre un string especifico.
+            # Sin embargo, si el hash se genero sobre "12345" y pasamos "12345", funca.
+            if check_password_hash(stored_password_norm, pwd_input_norm):
                 auth_success = True
-        # 2. Fallback: Texto plano (Documento/Pass)
-        elif stored_password == pwd_input:
+        # B. Comparacion Directa (Texto plano / Documento normalizado)
+        elif stored_password_norm == pwd_input_norm:
             auth_success = True
             
         if auth_success:
              rol = user_found.get("DEPARTAMENTO", "Invitado")
-             print(f"🔐 Login Staff Index: {usuario_nombre} - Rol: {rol}")
+             print(f"🔐 Login Staff Index OK: {usuario_nombre} - Rol: {rol}")
              return jsonify({
                  "success": True, 
                  "user": {
@@ -105,7 +130,7 @@ def login():
                  }
              })
         else:
-             print(f"🔐 Fallo login Staff: {usuario_nombre}")
+             print(f"🔐 Fallo login Staff: {usuario_nombre} | Input: '{pwd_input_norm}' vs Stored: '{stored_password_norm}'")
              return jsonify({
                  "success": False, 
                  "message": "Credenciales incorrectas."
