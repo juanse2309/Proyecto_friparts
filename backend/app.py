@@ -290,9 +290,14 @@ def obtener_stock(codigo_sistema, almacen):
             return 0
         
         stock = datos.get(columna, 0)
+        # Usar helper to_int o casting robusto
         try:
-            return int(stock) if stock != '' else 0
-        except:
+            if isinstance(stock, (int, float)):
+                return int(stock)
+            val_str = str(stock).strip().replace(',', '')
+            if not val_str: return 0
+            return int(float(val_str))
+        except Exception:
             return 0
             
     except Exception as e:
