@@ -1934,29 +1934,13 @@
 
             <!-- REGISTER FORM (Hidden) -->
             <form id="client-register-form" style="display: none;">
-                <div class="mb-2">
-                    <label class="form-label small fw-bold">NIT o Cédula (Sin digito verif.)</label>
-                    <input type="text" id="reg-nit" class="form-control" required placeholder="Ej: 900123456">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label small fw-bold">Nombre Empresa / Persona</label>
-                    <input type="text" id="reg-nombre" class="form-control" required placeholder="Razón Social">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label small fw-bold">Correo Electrónico</label>
-                    <input type="email" id="reg-email" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label small fw-bold">Crear Contraseña</label>
-                    <input type="password" id="reg-password" class="form-control" required minlength="6">
-                </div>
-                <button type="button" class="btn btn-success w-100 py-2 fw-bold rounded-pill"
-                    onclick="AuthModule.handleClientRegister()">
-                    Registrarse <i class="fas fa-check ms-2"></i>
-                </button>
-                <div class="text-center mt-3">
-                    <a href="#" onclick="AuthModule.toggleClientForms()" class="small text-decoration-none">¿Ya tienes
-                        cuenta? <span class="fw-bold">Inicia Sesión</span></a>
+                <!-- Removed: Public Registration -->
+                <div class="text-center py-4 px-3 bg-light rounded-3 border" style="margin-top: 20px;">
+                    <i class="fas fa-info-circle text-primary fa-2x mb-3"></i>
+                    <h6 class="fw-bold mb-2">¿No tienes cuenta?</h6>
+                    <p class="text-muted small mb-0">
+                        Contacta a nuestro equipo de ventas para obtener tus credenciales de acceso.
+                    </p>
                 </div>
             </form>
 

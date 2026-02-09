@@ -144,62 +144,100 @@ def login():
 # CLIENT AUTH (Portal B2B)
 # ====================================================================
 
-@auth_bp.route('/api/auth/client/register', methods=['POST'])
-def register_client():
+@auth_bp.route('/api/admin/clientes/crear', methods=['POST'])
+def crear_cuenta_cliente():
+    """
+    SOLO ADMIN/VENTAS: Crea cuenta de cliente con contraseña temporal.
+    El cliente deberá cambiarla en el primer login.
+    """
     try:
         data = request.json
-        nit = str(data.get('nit', '')).strip()
-        email = str(data.get('email', '')).strip().lower()
-        password = str(data.get('password', '')).strip()
-        nombre_contacto = str(data.get('nombre', '')).strip()
-
-        if not nit or not email or not password:
-            return jsonify({"success": False, "message": "NIT, Email y Contraseña son obligatorios"}), 400
-
-        # 1. (ELIMINADO) Ya no se valida contra la hoja CLIENTES estricta, se confía en el registro.
-        # Se usará el nombre ingresado como Nombre Empresa.
-        nombre_empresa = nombre_contacto
         
-        # 2. Verificar si ya tiene cuenta en USUARIOS_CLIENTES
+        # Extraer datos
+        nit = str(data.get('nit', '')).strip()
+        nombre_empresa = str(data.get('nombre_empresa', '')).strip()
+        email = str(data.get('email', '')).strip().lower()
+        nombre_contacto = str(data.get('nombre_contacto', '')).strip()
+        telefono = str(data.get('telefono', '')).strip()
+        direccion = str(data.get('direccion', '')).strip()
+        ciudad = str(data.get('ciudad', '')).strip()
+        
+        # Validaciones
+        if not nit or not email or not nombre_empresa:
+            return jsonify({"success": False, "message": "NIT, Email y Nombre de Empresa son obligatorios"}), 400
+        
+        # Verificar que el NIT exista en la lista maestra de CLIENTES
+        ws_clientes_master = sheets_client.get_worksheet("CLIENTES")
+        if ws_clientes_master:
+            clientes_master = ws_clientes_master.get_all_records()
+            nit_valido = any(str(c.get('NIT', '')).strip() == nit for c in clientes_master)
+            
+            if not nit_valido:
+                return jsonify({
+                    "success": False, 
+                    "message": f"El NIT {nit} no está en la lista de clientes autorizados."
+                }), 403
+            
+            # Auto-completar datos desde la lista maestra si no se proporcionaron
+            cliente_data = next((c for c in clientes_master if str(c.get('NIT', '')).strip() == nit), None)
+            if cliente_data and not nombre_empresa:
+                nombre_empresa = cliente_data.get('CLIENTE', nombre_empresa)
+        
+        # Verificar si ya existe una cuenta con este email o NIT
         ws_users = sheets_client.get_worksheet("USUARIOS_CLIENTES")
         if not ws_users:
             return jsonify({"success": False, "message": "Error interno: Hoja de usuarios no configurada."}), 500
-            
+        
         users_records = ws_users.get_all_records()
         for u in users_records:
-            if str(u.get('EMAIL')).lower() == email:
-                return jsonify({"success": False, "message": "El correo ya está registrado."}), 400
-            if str(u.get('NIT_EMPRESA') or u.get('NIT')) == nit: # Chequear nombres de columna
-                # Opcional: permitir multiples cuentas por NIT? Por ahora NO.
-                return jsonify({"success": False, "message": "Este NIT ya tiene una cuenta registrada."}), 400
-
-        # 3. Crear usuario
-        hashed_pw = generate_password_hash(password)
+            if str(u.get('EMAIL', '')).lower() == email:
+                return jsonify({"success": False, "message": "Ya existe una cuenta con este correo."}), 400
+            if str(u.get('NIT_EMPRESA', '')).strip() == nit:
+                return jsonify({"success": False, "message": "Ya existe una cuenta para este NIT."}), 400
+        
+        # Generar contraseña temporal: NIT + año actual
+        import datetime
+        password_temporal = f"{nit}-{datetime.datetime.now().year}"
+        hashed_pw = generate_password_hash(password_temporal)
+        
+        # Crear usuario
         new_id = str(uuid.uuid4())
         fecha_registro = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Columnas esperadas en USUARIOS_CLIENTES:
-        # ID, NIT_EMPRESA, NOMBRE_EMPRESA, EMAIL, PASSWORD_HASH, ESTADO, FECHA_REGISTRO, NOMBRE_CONTACTO
+        
+        # Columnas: ID, NIT_EMPRESA, NOMBRE_EMPRESA, EMAIL, PASSWORD_HASH, ESTADO, 
+        #           FECHA_REGISTRO, NOMBRE_CONTACTO, CAMBIAR_CLAVE, TELEFONO, DIRECCION, CIUDAD
         new_user_row = [
-            new_id,          # ID
-            nit,             # NIT_EMPRESA
-            nombre_empresa,  # NOMBRE_EMPRESA
-            email,           # EMAIL
-            hashed_pw,       # PASSWORD_HASH
-            "ACTIVO",        # ESTADO
-            fecha_registro,  # FECHA_REGISTRO
-            nombre_contacto  # NOMBRE_CONTACTO
+            new_id,
+            nit,
+            nombre_empresa,
+            email,
+            hashed_pw,
+            "ACTIVO",
+            fecha_registro,
+            nombre_contacto,
+            "TRUE",  # CAMBIAR_CLAVE - Forzar cambio en primer login
+            telefono,
+            direccion,
+            ciudad
         ]
         
         ws_users.append_row(new_user_row)
         
+        logger.info(f"✅ Cuenta creada para {nombre_empresa} (NIT: {nit})")
+        
         return jsonify({
             "success": True,
-            "message": "Registro exitoso. Ya puede iniciar sesión."
+            "message": "Cuenta creada exitosamente",
+            "credenciales": {
+                "nit": nit,
+                "email": email,
+                "password_temporal": password_temporal,
+                "nombre_empresa": nombre_empresa
+            }
         })
-
+        
     except Exception as e:
-        logger.error(f"Error registering client: {e}")
+        logger.error(f"Error creando cuenta de cliente: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 @auth_bp.route('/api/auth/client/login', methods=['POST'])
