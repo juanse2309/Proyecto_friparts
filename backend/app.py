@@ -176,6 +176,31 @@ def get_worksheet(nombre_hoja):
     ss = get_spreadsheet()
     return ss.worksheet(nombre_hoja)
 
+def obtener_precio_db(codigo):
+    """
+    Obtiene el precio de un producto desde DB_Productos.
+    Retorna 0 si no se encuentra.
+    """
+    try:
+        ws_db = get_worksheet('DB_Productos')
+        db_productos = ws_db.get_all_records()
+        
+        codigo_buscar = str(codigo).strip().upper()
+        
+        for producto in db_productos:
+            db_codigo = str(producto.get('CODIGO', '')).strip().upper()
+            if db_codigo == codigo_buscar:
+                precio = producto.get('PRECIO', 0)
+                try:
+                    return float(precio) if precio else 0
+                except (ValueError, TypeError):
+                    return 0
+        
+        return 0
+    except Exception as e:
+        logger.warning(f"No se pudo obtener precio de DB_Productos para {codigo}: {e}")
+        return 0
+
 # ====================================================================
 # FUNCIONES DE INVENTARIO
 # ====================================================================
@@ -2525,10 +2550,9 @@ def obtener_clientes():
                 }
                 clientes.append(cliente_obj)
         
-        # Eliminar duplicados basados en nombre
-        clientes_unicos = {c["nombre"]: c for c in clientes}.values()
-        
-        return jsonify(sorted(list(clientes_unicos), key=lambda x: x["nombre"]))
+        # NO eliminar duplicados - Queremos mostrar todas las sedes
+        # Cada combinación de nombre+dirección+ciudad es una sede diferente
+        return jsonify(sorted(clientes, key=lambda x: (x["nombre"], x["ciudad"] or "", x["direccion"] or "")))
 
     except Exception as e:
         logger.error(f"❌ ERROR en obtener_clientes: {str(e)}")
@@ -2711,7 +2735,7 @@ def listar_productos():
                     'stock_por_pulir': stock_por_pulir,
                     'stock_terminado': stock_term,
                     'existencias_totales': stock_total,  # Cambiar a 'existencias_totales'
-                    'precio': r.get('PRECIO', 0),
+                    'precio': r.get('PRECIO', 0),  # Temporalmente de PRODUCTOS
                     'stock_minimo': stock_minimo,
                     'punto_reorden': punto_reorden,
                     'imagen': corregir_url_imagen(r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or ''),

@@ -125,7 +125,7 @@ const ModuloPedidos = {
                 data-ciudad="${cliente.ciudad || ''}">
                 <strong>${cliente.nombre}</strong>
                 ${cliente.nit ? `<br><small>NIT: ${cliente.nit}</small>` : ''}
-                ${cliente.ciudad ? `<small> - ${cliente.ciudad}</small>` : ''}
+                <br><small style="color: #6b7280;"><i class="fas fa-map-marker-alt"></i> ${cliente.direccion || 'Sin dirección'} - ${cliente.ciudad || 'Sin ciudad'}</small>
             </div>
         `).join('');
 
@@ -150,7 +150,9 @@ const ModuloPedidos = {
         this.clienteSeleccionado = cliente;
         document.getElementById('ped-cliente').value = cliente.nombre;
         document.getElementById('ped-nit').value = cliente.nit || '';
-        console.log("🔄 Cliente seleccionado con datos detallados:", cliente);
+        document.getElementById('ped-direccion').value = cliente.direccion || '';
+        document.getElementById('ped-ciudad').value = cliente.ciudad || '';
+        console.log("🔄 Cliente seleccionado con sede:", cliente);
     },
 
     inicializarAutocompleteProducto: function () {
@@ -396,6 +398,8 @@ const ModuloPedidos = {
                 vendedor: document.getElementById('ped-vendedor').value,
                 cliente: this.clienteSeleccionado.nombre,
                 nit: this.clienteSeleccionado.nit || '',
+                direccion: this.clienteSeleccionado.direccion || '',
+                ciudad: this.clienteSeleccionado.ciudad || '',
                 forma_pago: document.getElementById('ped-pago').value,
                 descuento_global: descuentoGlobal,
                 productos: this.listaProductos.map(item => ({

@@ -47,6 +47,8 @@ def registrar_pedido():
         vendedor = data.get('vendedor')
         cliente = data.get('cliente')
         nit = data.get('nit', '')
+        direccion = data.get('direccion', '')  # OPCIONAL - Compatible con frontend antiguo
+        ciudad = data.get('ciudad', '')        # OPCIONAL - Compatible con frontend antiguo
         forma_pago = data.get('forma_pago', 'Contado')
         descuento_global = data.get('descuento_global', 0)
         productos = data.get('productos', [])
@@ -56,6 +58,8 @@ def registrar_pedido():
         logger.info(f"   Vendedor: {vendedor}")
         logger.info(f"   Cliente: {cliente}")
         logger.info(f"   NIT: {nit}")
+        logger.info(f"   Dirección: {direccion}")
+        logger.info(f"   Ciudad: {ciudad}")
         logger.info(f"   Forma de pago: {forma_pago}")
         logger.info(f"   Descuento global: {descuento_global}%")
         logger.info(f"   Total productos: {len(productos)}")
@@ -89,7 +93,7 @@ def registrar_pedido():
         existing_headers = ws.row_values(1)
         expected_headers = [
             "ID PEDIDO", "FECHA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
-            "CLIENTE", "NIT", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
+            "CLIENTE", "NIT", "DIRECCION", "CIUDAD", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
             "ESTADO", "CANTIDAD", "PRECIO UNITARIO", "PROGRESO", "CANT_ALISTADA",
             "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A"
         ]
@@ -147,6 +151,8 @@ def registrar_pedido():
                 vendedor,
                 cliente,
                 nit,
+                direccion,
+                ciudad,
                 forma_pago,
                 f"{descuento_global}%",  # Descuento global para todos
                 0,  # Total se calculará después
