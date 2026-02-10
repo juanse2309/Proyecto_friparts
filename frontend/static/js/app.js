@@ -137,6 +137,13 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
     inicializarModulo(nombrePagina);
     window.AppState.paginaActual = nombrePagina;
 
+    // Guardar en localStorage para persistencia al recargar
+    try {
+        localStorage.setItem('friparts_last_page', nombrePagina);
+    } catch (e) {
+        console.warn('No se pudo guardar página en localStorage:', e);
+    }
+
     // Controlar visibilidad del botón 'Volver' en móviles
     const backBtnContainer = document.getElementById('back-button-container');
     if (backBtnContainer) {
@@ -315,8 +322,26 @@ async function inicializarAplicacion() {
 
         const hashPage = window.location.hash.replace('#', '');
 
+        // Intentar restaurar última página visitada desde localStorage
+        let pageToLoad = null;
+
         if (hashPage && document.getElementById(`${hashPage}-page`)) {
-            cargarPagina(hashPage);
+            pageToLoad = hashPage;
+            console.log('📍 Cargando desde hash:', hashPage);
+        } else {
+            try {
+                const lastPage = localStorage.getItem('friparts_last_page');
+                if (lastPage && document.getElementById(`${lastPage}-page`)) {
+                    pageToLoad = lastPage;
+                    console.log('💾 Restaurando última página visitada:', lastPage);
+                }
+            } catch (e) {
+                console.warn('No se pudo leer localStorage:', e);
+            }
+        }
+
+        if (pageToLoad) {
+            cargarPagina(pageToLoad);
         } else {
             // Fallback default
             cargarPagina('dashboard');

@@ -105,23 +105,33 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
             const semaforoColor = p.semaforo?.color || 'gray';
             const imagenUrl = p.imagen || '';
-            const localImage = `/static/img/productos/${(p.codigo || '').trim()}.jpg`;
+            const localImageJpg = `/static/img/productos/${(p.codigo || '').trim()}.jpg`;
+            const localImagePng = `/static/img/productos/${(p.codigo || '').trim()}.png`;
 
             tr.innerHTML = `
                 <td class="mobile-card-cell">
                     <div class="mobile-product-card">
                         <div class="card-image-wrapper">
-                            <img src="${localImage}" 
+                            <img src="${localImageJpg}" 
                                  class="card-img" 
+                                 data-png-src="${localImagePng}"
+                                 data-url-src="${imagenUrl}"
+                                 data-placeholder="${PLACEHOLDER_SVG}"
+                                 data-attempt="0"
                                  onerror="
-                                    // Fallback: JPG -> PNG -> URL -> Placeholder
-                                    if (this.src.match(/\.jpg$/)) { 
-                                        this.src = this.src.replace('.jpg', '.png'); 
-                                    } else if (this.src.match(/\.png$/) && '${imagenUrl}' !== '') { 
-                                        this.src = '${imagenUrl}'; 
-                                    } else { 
-                                        this.src = '${PLACEHOLDER_SVG}';
-                                        this.onerror = null; 
+                                    const attempt = parseInt(this.dataset.attempt || '0');
+                                    this.dataset.attempt = (attempt + 1).toString();
+                                    
+                                    if (attempt === 0) {
+                                        // First fail: JPG -> PNG
+                                        this.src = this.dataset.pngSrc;
+                                    } else if (attempt === 1 && this.dataset.urlSrc) {
+                                        // Second fail: PNG -> URL
+                                        this.src = this.dataset.urlSrc;
+                                    } else {
+                                        // Final fallback: Placeholder
+                                        this.src = this.dataset.placeholder;
+                                        this.onerror = null;
                                     }
                                  ">
                             <span class="mobile-status-badge" style="background: ${getSemaforoColor(semaforoColor)}"></span>
@@ -171,23 +181,34 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
             // Imagen del producto (thumbnail)
             const imagenUrl = p.imagen || '';
-            const localImage = `/static/img/productos/${(p.codigo || '').trim()}.jpg`;
+            const localImageJpg = `/static/img/productos/${(p.codigo || '').trim()}.jpg`;
+            const localImagePng = `/static/img/productos/${(p.codigo || '').trim()}.png`;
 
             // Lógica de fallback en HTML string
             const imagenHtml = `
-                <img src="${localImage}" 
+                <img src="${localImageJpg}" 
                      style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer; background: white;" 
                      onclick="window.open(this.src, '_blank')" 
                      title="Click para ampliar"
+                     data-png-src="${localImagePng}"
+                     data-url-src="${imagenUrl}"
+                     data-placeholder="${PLACEHOLDER_SVG}"
+                     data-attempt="0"
                      onerror="
-                        if (this.src.match(/\.jpg$/)) { 
-                            this.src = this.src.replace('.jpg', '.png'); 
-                        } else if (this.src.match(/\.png$/) && '${imagenUrl}' !== '') { 
-                            this.src = '${imagenUrl}'; 
-                        } else { 
-                            this.src = '${PLACEHOLDER_SVG}';
+                        const attempt = parseInt(this.dataset.attempt || '0');
+                        this.dataset.attempt = (attempt + 1).toString();
+                        
+                        if (attempt === 0) {
+                            // First fail: JPG -> PNG
+                            this.src = this.dataset.pngSrc;
+                        } else if (attempt === 1 && this.dataset.urlSrc) {
+                            // Second fail: PNG -> URL
+                            this.src = this.dataset.urlSrc;
+                        } else {
+                            // Final fallback: Placeholder
+                            this.src = this.dataset.placeholder;
                             this.style.opacity = '0.5';
-                            this.onerror = null; 
+                            this.onerror = null;
                         }
                      ">`;
 
