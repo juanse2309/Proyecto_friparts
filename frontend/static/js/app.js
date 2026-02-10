@@ -310,13 +310,13 @@ async function inicializarAplicacion() {
 
         // 5. Cargar página inicial (Dashboard o Hash)
 
-        // CORRECCIÓN CRÍTICA: Si AuthModule ya activó una página (ej. Portal Cliente), no sobreescribir.
-        if (document.querySelector('.page.active')) {
-            console.log("🚀 Página ya activa. Asegurando inicialización de módulo...");
-            const activePage = document.querySelector('.page.active');
+        // CORRECCIÓN CRÍTICA: Si AuthModule ya activó portal-cliente, no sobreescribir.
+        const activePage = document.querySelector('.page.active');
+        if (activePage && activePage.id === 'portal-cliente-page') {
+            console.log("🚀 Portal Cliente ya activo. Preservando...");
             const pageId = activePage.id.replace('-page', '');
             inicializarModulo(pageId);
-            console.log('✅ Aplicación inicializada correctamente (Ruta preservada)');
+            console.log('✅ Aplicación inicializada correctamente (Portal Cliente preservado)');
             return;
         }
 
