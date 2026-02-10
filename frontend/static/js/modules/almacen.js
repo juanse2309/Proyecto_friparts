@@ -359,6 +359,14 @@ const AlmacenModule = {
             const progress = (prod.cant_lista / prod.cantidad) * 100;
             const progressColor = progress >= 100 ? '#10b981' : '#6366f1';
 
+            // Verificar permisos para eliminar (solo Andrés y Admins)
+            const currentUser = window.AppState?.user;
+            const puedeEliminar = (currentUser?.rol === 'Administración') ||
+                (currentUser?.name && (
+                    currentUser.name.toUpperCase().includes('ANDRES') ||
+                    currentUser.name.toUpperCase().includes('ANDRÉS')
+                ));
+
             html += `
             <div class="product-row-item p-4 mb-4 bg-white shadow-sm border-0 rounded-4 position-relative overflow-hidden" id="row-prod-${index}" 
                  style="transition: all 0.4s ease; transform: scale(1);">
@@ -366,14 +374,24 @@ const AlmacenModule = {
                 <!-- Visual Progress Bar at Bottom -->
                 <div style="position: absolute; bottom: 0; left: 0; height: 6px; width: ${progress}%; background: ${progressColor}; transition: width 0.3s ease;"></div>
 
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex justify-content-between align-items-start mb-3">
                     <div style="max-width: 60%;">
                         <span class="badge bg-light text-dark border fw-bold mb-1" style="font-size: 0.8rem; letter-spacing: 1px;">CÓDIGO: ${prod.codigo}</span>
                         <h6 class="text-muted mb-0 fw-normal" style="font-size: 0.8rem; line-height: 1.2;">${prod.descripcion}</h6>
                     </div>
-                    <div class="text-end">
-                        <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 1px;">Solicitado</small>
-                        <div class="fw-bold text-primary" style="font-size: 2.5rem; line-height: 1; letter-spacing: -1px;">${prod.cantidad}</div>
+                    <div class="d-flex align-items-start gap-2">
+                        <div class="text-end">
+                            <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 1px;">Solicitado</small>
+                            <div class="fw-bold text-primary" style="font-size: 2.5rem; line-height: 1; letter-spacing: -1px;">${prod.cantidad}</div>
+                        </div>
+                        ${puedeEliminar && !prod.despachado ? `
+                        <button class="btn btn-sm btn-outline-danger rounded-circle" 
+                                onclick="AlmacenModule.eliminarProducto(${index})"
+                                title="Eliminar producto del pedido"
+                                style="width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-trash" style="font-size: 0.75rem;"></i>
+                        </button>
+                        ` : ''}
                     </div>
                 </div>
 
@@ -623,6 +641,67 @@ const AlmacenModule = {
             }
         } catch (error) {
             console.error('Error guardando:', error);
+            mostrarNotificacion('Error de conexión', 'error');
+        } finally {
+            mostrarLoading(false);
+        }
+    },
+
+    /**
+     * Eliminar un producto del pedido
+     */
+    eliminarProducto: async function (index) {
+        if (!this.pedidoActual) return;
+
+        const producto = this.pedidoActual.productos[index];
+        if (!producto) return;
+
+        // Verificar si ya fue despachado
+        if (producto.despachado) {
+            mostrarNotificacion('No se puede eliminar un producto que ya fue despachado', 'error');
+            return;
+        }
+
+        // Confirmación
+        const confirmar = await this.mostrarConfirmacion(
+            'Eliminar Producto',
+            `¿Estás seguro de eliminar <b>${producto.codigo} - ${producto.descripcion}</b> del pedido?<br><br>` +
+            `<small class="text-muted">La cantidad (${producto.cantidad}) se devolverá automáticamente al inventario.</small>`
+        );
+
+        if (!confirmar) return;
+
+        try {
+            mostrarLoading(true);
+            const response = await fetch('/api/pedidos/eliminar-producto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id_pedido: this.pedidoActual.id_pedido,
+                    codigo: producto.codigo
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                mostrarNotificacion(data.message, 'success');
+
+                // Si el pedido quedó vacío, cerrar modal y recargar
+                if (data.pedido_vacio) {
+                    this.cerrarModal();
+                    this.cargarPedidos();
+                } else {
+                    // Eliminar del array local y re-renderizar
+                    this.pedidoActual.productos.splice(index, 1);
+                    this.renderizarProductosChecklist();
+                    this.actualizarProgresoVisual();
+                }
+            } else {
+                mostrarNotificacion(data.error || 'Error al eliminar producto', 'error');
+            }
+        } catch (error) {
+            console.error('Error eliminando producto:', error);
             mostrarNotificacion('Error de conexión', 'error');
         } finally {
             mostrarLoading(false);

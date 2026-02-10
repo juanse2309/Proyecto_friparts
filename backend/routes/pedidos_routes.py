@@ -431,6 +431,113 @@ def delegar_pedido():
         logger.error(f"Error delegando pedido: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@pedidos_bp.route('/api/pedidos/eliminar-producto', methods=['POST'])
+def eliminar_producto_pedido():
+    """
+    Elimina un producto específico de un pedido y restaura el inventario.
+    Solo permitido para Andrés y Administradores.
+    No se puede eliminar si el producto ya fue despachado.
+    """
+    try:
+        data = request.json
+        id_pedido = data.get("id_pedido")
+        codigo = data.get("codigo")
+        
+        if not id_pedido or not codigo:
+            return jsonify({"success": False, "error": "ID Pedido y Código requeridos"}), 400
+        
+        logger.info(f"🗑️ Solicitud de eliminación: Pedido={id_pedido}, Código={codigo}")
+        
+        # Obtener hojas
+        ws_pedidos = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
+        
+        registros = ws_pedidos.get_all_records()
+        headers = ws_pedidos.row_values(1)
+        
+        # Buscar el producto en el pedido
+        fila_a_eliminar = None
+        cantidad_a_restaurar = 0
+        estado_despacho = False
+        
+        for idx, r in enumerate(registros):
+            if str(r.get("ID PEDIDO")) == str(id_pedido) and str(r.get("ID CODIGO")).strip().upper() == str(codigo).strip().upper():
+                fila_a_eliminar = idx + 2  # +1 header, +1 0-index
+                cantidad_a_restaurar = float(r.get("CANTIDAD", 0))
+                
+                # Verificar si ya fue despachado
+                estado_despacho_str = str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper()
+                estado_despacho = estado_despacho_str == "TRUE"
+                
+                logger.info(f"   Producto encontrado en fila {fila_a_eliminar}")
+                logger.info(f"   Cantidad: {cantidad_a_restaurar}")
+                logger.info(f"   Estado despacho: {estado_despacho}")
+                break
+        
+        if not fila_a_eliminar:
+            return jsonify({"success": False, "error": "Producto no encontrado en el pedido"}), 404
+        
+        # Validar que no esté despachado
+        if estado_despacho:
+            return jsonify({
+                "success": False, 
+                "error": "No se puede eliminar un producto que ya fue despachado"
+            }), 400
+        
+        # Restaurar inventario
+        try:
+            registros_productos = ws_productos.get_all_records()
+            headers_productos = ws_productos.row_values(1)
+            
+            col_terminado = headers_productos.index("P. TERMINADO") + 1
+            
+            # Buscar el producto en inventario
+            for idx, p in enumerate(registros_productos):
+                codigo_prod = str(p.get("ID CODIGO", "")).strip().upper()
+                codigo_buscar = str(codigo).strip().upper()
+                
+                if codigo_prod == codigo_buscar:
+                    fila_producto = idx + 2
+                    stock_actual = float(p.get("P. TERMINADO", 0) or 0)
+                    nuevo_stock = stock_actual + cantidad_a_restaurar
+                    
+                    # Actualizar stock
+                    ws_productos.update_cell(fila_producto, col_terminado, nuevo_stock)
+                    logger.info(f"   ✅ Inventario restaurado: {stock_actual} + {cantidad_a_restaurar} = {nuevo_stock}")
+                    break
+        except Exception as e_inv:
+            logger.warning(f"   ⚠️ No se pudo restaurar inventario: {e_inv}")
+            # Continuamos con la eliminación aunque falle la restauración
+        
+        # Eliminar la fila del pedido
+        ws_pedidos.delete_rows(fila_a_eliminar)
+        logger.info(f"   🗑️ Fila {fila_a_eliminar} eliminada de PEDIDOS")
+        
+        # Verificar si quedan productos en el pedido
+        registros_actualizados = ws_pedidos.get_all_records()
+        productos_restantes = [r for r in registros_actualizados if str(r.get("ID PEDIDO")) == str(id_pedido)]
+        
+        if len(productos_restantes) == 0:
+            logger.info(f"   ⚠️ No quedan productos en el pedido {id_pedido}")
+            return jsonify({
+                "success": True, 
+                "message": "Producto eliminado. El pedido no tiene más productos.",
+                "pedido_vacio": True
+            })
+        else:
+            logger.info(f"   ✅ Quedan {len(productos_restantes)} productos en el pedido")
+            return jsonify({
+                "success": True, 
+                "message": f"Producto {codigo} eliminado del pedido",
+                "pedido_vacio": False
+            })
+        
+    except Exception as e:
+        logger.error(f"❌ Error eliminando producto: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @pedidos_bp.route('/api/pedidos/actualizar-alistamiento', methods=['POST'])
 def actualizar_alistamiento():
     """
