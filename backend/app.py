@@ -27,6 +27,7 @@ CORS(app)
 from backend.routes.auth_routes import auth_bp
 from backend.routes.pedidos_routes import pedidos_bp
 from backend.routes.imagenes_routes import imagenes_bp
+from backend.repositories.producto_repository import producto_repo
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -2655,7 +2656,7 @@ def listar_productos():
         ahora = time.time()
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         
-        # Cache (si no hay force_refresh Juan Sebastian)
+        # Cache (si no hay force_refresh)
         if not force_refresh and (PRODUCTOS_CACHE["data"] is not None and 
             (ahora - PRODUCTOS_CACHE["timestamp"]) < PRODUCTOS_CACHE_TTL):
             print(" Cache HIT!")
@@ -2665,24 +2666,13 @@ def listar_productos():
             print(" 🔄 FORCE REFRESH: Saltando cache de productos...")
             invalidar_cache_productos()
         
-        # Leer directo del sheet (igual que clientes/productos)
-        ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet("PRODUCTOS")
-        
-        registros = ws.get_all_records()
+        # Usar repositorio que obtiene precios de DB_Productos
+        productos_data = producto_repo.listar_todos()
         
         productos = []
-        for r in registros:
-            # Prioridad ID CODIGO segun solicitud Juan Sebastian
-            codigo = str(
-                r.get('ID CODIGO', '') or
-                r.get('CODIGO SISTEMA', '') or 
-                r.get('CODIGO', '') or
-                r.get("REFERENCIA", '') 
-                or ""
-            ).strip()    
-               
-
+        for r in productos_data:
+            codigo = r.get('CODIGO SISTEMA', '') or r.get('ID CODIGO', '')
+            
             if codigo:
                 stock_por_pulir = int(r.get('POR PULIR', 0) or 0)
                 stock_term = int(r.get('P. TERMINADO', 0) or 0)
@@ -2690,11 +2680,7 @@ def listar_productos():
                 stock_minimo = int(r.get('STOCK MINIMO', 10) or 10)
                 punto_reorden = int(r.get('PUNTO REORDEN', 0) or 0) or int(stock_minimo * 0.75)
                 
-                # Calcular semáforo (Lógica Saneada Juan Sebastian)
-                # Rojo: Agotado (<= 0)
-                # Amarillo: Por Pedir (<= Reorden y > 0)
-                # Verde: Stock OK (> Reorden)
-                
+                # Calcular semáforo
                 if stock_total <= 0:
                     semaforo_color = 'red'
                     semaforo_estado = 'AGOTADO'
@@ -2705,16 +2691,16 @@ def listar_productos():
                     semaforo_color = 'green'
                     semaforo_estado = 'STOCK OK'
                 
-            productos.append({
-                    'codigo': codigo,  # Cambiar a 'codigo' para coincidir con frontend
+                productos.append({
+                    'codigo': codigo,
                     'descripcion': r.get('DESCRIPCION', ''),
                     'stock_por_pulir': stock_por_pulir,
                     'stock_terminado': stock_term,
-                    'existencias_totales': stock_total,  # Cambiar a 'existencias_totales'
-                    'precio': r.get('PRECIO', 0),
+                    'existencias_totales': stock_total,
+                    'precio': r.get('PRECIO', 0),  # Ahora viene de DB_Productos
                     'stock_minimo': stock_minimo,
                     'punto_reorden': punto_reorden,
-                    'imagen': corregir_url_imagen(r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or ''),
+                    'imagen': corregir_url_imagen(r.get('IMAGEN', '')),
                     'semaforo': {
                         'color': semaforo_color,
                         'estado': semaforo_estado,
@@ -2734,7 +2720,7 @@ def listar_productos():
         PRODUCTOS_CACHE["data"] = resultado
         PRODUCTOS_CACHE["timestamp"] = ahora
         
-        print(f" ✅ {len(productos)} productos cargados")
+        print(f" ✅ {len(productos)} productos cargados (precios desde DB_Productos)")
         return jsonify(resultado), 200
 
     except Exception as e:
@@ -2870,6 +2856,23 @@ def detalle_producto_new(codigo_sistema):
             print(f" Producto no encontrado: {codigo_sistema} (normalizado: {codigo_normalizado})")
             return jsonify({'status': 'error', 'message': f'Producto {codigo_sistema} no encontrado'}), 404
 
+        # Obtener precios desde DB_Productos
+        precios = {'PRECIO': 0, 'PRECIO VENTA': 0, 'PRECIO VENTA SUGERIDO': 0}
+        try:
+            ws_db = ss.worksheet('DB_Productos')
+            db_productos = ws_db.get_all_records()
+            codigo_buscar = producto.get('CODIGO SISTEMA', '') or producto.get('ID CODIGO', '')
+            
+            for db_prod in db_productos:
+                db_codigo = str(db_prod.get('CODIGO', '')).strip()
+                if db_codigo == codigo_buscar or db_codigo == codigo_normalizado:
+                    precios['PRECIO'] = db_prod.get('PRECIO', 0)
+                    precios['PRECIO VENTA'] = db_prod.get('PRECIO VENTA', 0)
+                    precios['PRECIO VENTA SUGERIDO'] = db_prod.get('PRECIO VENTA SUGERIDO', 0)
+                    break
+        except Exception as e:
+            print(f" Advertencia: No se pudieron obtener precios de DB_Productos: {e}")
+
         # Obtener informacion de ficha tecnica
         ficha_info = {}
         try:
@@ -2931,9 +2934,9 @@ def detalle_producto_new(codigo_sistema):
                 'material': producto.get('MATERIAL', ''),
                 'color': producto.get('COLOR', ''),
                 'oem': producto.get('OEM', ''),
-                'precio_compra': producto.get('PRECIO', 0),
-                'precio_venta': producto.get('PRECIO VENTA', 0),
-                'precio_venta_sugerido': producto.get('PRECIO VENTA SUGERIDO', 0),
+                'precio_compra': precios['PRECIO'],  # Desde DB_Productos
+                'precio_venta': precios['PRECIO VENTA'],  # Desde DB_Productos
+                'precio_venta_sugerido': precios['PRECIO VENTA SUGERIDO'],  # Desde DB_Productos
                 'utilidad_esperada': producto.get('UTILIDAD ESPERADA', 0),
                 'dolares': producto.get('DOLARES', 0),
                 'stock_total': stock_total,
