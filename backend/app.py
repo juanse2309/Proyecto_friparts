@@ -2700,18 +2700,25 @@ def listar_productos():
             ws_db = ss.worksheet("DB_Productos")
             db_productos = ws_db.get_all_records()
             
-            # Crear diccionario de precios {CODIGO: PRECIO}
+            # Crear diccionario de precios con MÚLTIPLES claves
             precios_db = {}
             for item in db_productos:
-                codigo = str(item.get('CODIGO', '')).strip().upper()
-                if codigo:
-                    try:
-                        precio = float(item.get('PRECIO', 0) or 0)
-                        precios_db[codigo] = precio
-                    except (ValueError, TypeError):
-                        precios_db[codigo] = 0
+                try:
+                    precio = float(item.get('PRECIO', 0) or 0)
+                except (ValueError, TypeError):
+                    precio = 0
+                
+                # Guardar con CODIGO (ej: "FR-5000")
+                codigo_sistema = str(item.get('CODIGO', '')).strip().upper()
+                if codigo_sistema:
+                    precios_db[codigo_sistema] = precio
+                
+                # Guardar con ID CODIGO (ej: "7012")  
+                id_codigo = str(item.get('ID CODIGO', '')).strip().upper()
+                if id_codigo:
+                    precios_db[id_codigo] = precio
             
-            print(f"✅ Precios cargados de DB_Productos: {len(precios_db)} productos")
+            print(f"✅ Precios cargados de DB_Productos: {len(precios_db)} entradas")
         except Exception as e:
             logger.warning(f"No se pudo cargar DB_Productos: {e}")
             precios_db = {}
@@ -2756,7 +2763,12 @@ def listar_productos():
                     'stock_por_pulir': stock_por_pulir,
                     'stock_terminado': stock_term,
                     'existencias_totales': stock_total,  # Cambiar a 'existencias_totales'
-                    'precio': precios_db.get(codigo.upper(), 0),  # Desde DB_Productos (lookup en memoria)
+                    'precio': (
+                        precios_db.get(str(r.get('ID CODIGO', '')).strip().upper(), None) or
+                        precios_db.get(str(r.get('CODIGO SISTEMA', '')).strip().upper(), None) or
+                        precios_db.get(codigo.upper(), None) or
+                        r.get('PRECIO', 0)
+                    ),  # Intenta ID CODIGO, CODIGO SISTEMA, luego fallback a PRODUCTOS
                     'stock_minimo': stock_minimo,
                     'punto_reorden': punto_reorden,
                     'imagen': corregir_url_imagen(r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or ''),

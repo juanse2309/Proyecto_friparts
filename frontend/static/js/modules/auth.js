@@ -410,6 +410,13 @@ const AuthModule = {
 
         console.log(`👤 Usuario Logueado: ${user.nombre} (${user.rol})`);
 
+        // REDIRECCIÓN INMEDIATA para clientes (antes de cargar dashboard)
+        if (user.rol === 'Cliente') {
+            console.log('🔄 Cliente detectado - Redirigiendo a portal-cliente...');
+            this.navigateTo('portal-cliente');
+            return; // No ejecutar el resto
+        }
+
         this.updateProfileUI();
         this.applyPermissions();
 
