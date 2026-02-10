@@ -426,12 +426,27 @@ const AuthModule = {
             this.autoFillForms();
         }
 
-        // Re-iniciar modulo
+        // Re-iniciar modulo actual después del login
         if (window.AppState?.paginaActual && window.AppState.paginaActual !== 'dashboard') {
-            // Si el modulo actual NO esta permitido, applyPermissions lo redirigirá.
-            // Si está permitido, lo re-init.
-            // Pero para cliente, normalmente entra a portal-cliente-page por defecto.
-            // Dejaremos que navigateTo maneje la redireccion inicial.
+            const currentModule = window.AppState.paginaActual;
+            const modulos = {
+                'inventario': window.ModuloInventario,
+                'inyeccion': window.ModuloInyeccion,
+                'pulido': window.ModuloPulido,
+                'ensamble': window.ModuloEnsamble,
+                'pnc': window.ModuloPNC,
+                'facturacion': window.ModuloFacturacion,
+                'mezcla': window.ModuloMezcla,
+                'historial': window.ModuloHistorial,
+                'pedidos': window.ModuloPedidos,
+                'almacen': window.AlmacenModule
+            };
+
+            const modulo = modulos[currentModule];
+            if (modulo?.inicializar) {
+                console.log(`🔄 Re-inicializando módulo ${currentModule} después del login...`);
+                modulo.inicializar();
+            }
         }
     },
 
