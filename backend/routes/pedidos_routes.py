@@ -340,7 +340,7 @@ def obtener_pedidos_pendientes():
             rol_norm = str(rol_actual).upper() if rol_actual else ""
             user_norm = str(usuario_actual).upper() if usuario_actual else ""
             
-            es_admin = "ADMIN" in rol_norm or "NATALIA" in user_norm or "NATHALIA" in user_norm
+            es_admin = "ADMIN" in rol_norm or "NATALIA" in user_norm or "NATHALIA" in user_norm or "ANDRES" in user_norm or "ANDRÉS" in user_norm
             
             if not es_admin:
                 # Si no es admin/Natalia, solo ve lo que tiene expresamente asignado

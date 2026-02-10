@@ -363,11 +363,22 @@
 
                     <!-- VISTA: CATALOGO -->
                     <div id="portal-tab-catalogo">
-                        <div class="mb-4">
-                            <div class="search-box">
+                        <div class="mb-4 d-flex gap-3 align-items-center">
+                            <div class="search-box flex-grow-1">
                                 <i class="fas fa-search"></i>
                                 <input type="text" id="portal-search" placeholder="Buscar referencia..."
                                     onkeyup="ModuloPortal.filtrarProductos()">
+                            </div>
+                            <div class="btn-group shadow-sm">
+                                <button class="btn btn-outline-primary active"
+                                    onclick="ModuloPortal.setViewMode('list')" id="btn-view-list"
+                                    title="Vista de Lista">
+                                    <i class="fas fa-list"></i>
+                                </button>
+                                <button class="btn btn-outline-primary" onclick="ModuloPortal.setViewMode('grid')"
+                                    id="btn-view-grid" title="Vista de Cuadrícula">
+                                    <i class="fas fa-th-large"></i>
+                                </button>
                             </div>
                         </div>
                         <div id="product-grid"
@@ -1477,7 +1488,7 @@
                             style="background: #6366f1; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white; flex-shrink: 0;">
                             <h6 style="margin: 0; font-weight: 600;" id="modal-alistamiento-titulo">Alistamiento de
                                 Pedido</h6>
-                            <button onclick="AlmacenModule.cerrarModal()"
+                            <button id="btn-cerrar-modal" onclick="AlmacenModule.cerrarModal()"
                                 style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
                         </div>
                         <div style="padding: 20px; overflow-y: auto; flex-grow: 1;">

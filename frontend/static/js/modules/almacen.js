@@ -800,7 +800,7 @@ const AlmacenModule = {
                 console.log('🔄 [Almacen] Auto-refresco de fondo...');
                 this.cargarPedidos(false);
             }
-        }, 8000); // 8 segundos para mayor rapidez
+        }, 15000); // 15s poll
     },
 
     /**
