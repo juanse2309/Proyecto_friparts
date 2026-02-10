@@ -385,11 +385,11 @@ const AlmacenModule = {
                             <div class="fw-bold text-primary" style="font-size: 2.5rem; line-height: 1; letter-spacing: -1px;">${prod.cantidad}</div>
                         </div>
                         ${puedeEliminar && !prod.despachado ? `
-                        <button class="btn btn-sm btn-outline-danger rounded-circle" 
-                                onclick="AlmacenModule.eliminarProducto(${index})"
+                        <button class="btn btn-sm btn-outline-danger rounded-circle btn-eliminar-producto" 
+                                onclick="event.stopPropagation(); AlmacenModule.eliminarProducto(${index})"
                                 title="Eliminar producto del pedido"
-                                style="width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center;">
-                            <i class="fas fa-trash" style="font-size: 0.75rem;"></i>
+                                style="width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; z-index: 10; position: relative; background: white;">
+                            <i class="fas fa-trash" style="font-size: 0.9rem;"></i>
                         </button>
                         ` : ''}
                     </div>
@@ -651,10 +651,17 @@ const AlmacenModule = {
      * Eliminar un producto del pedido
      */
     eliminarProducto: async function (index) {
-        if (!this.pedidoActual) return;
+        console.log(`🗑️ Intentando eliminar producto en índice: ${index}`);
+        if (!this.pedidoActual) {
+            console.error('❌ No hay pedido actual');
+            return;
+        }
 
         const producto = this.pedidoActual.productos[index];
-        if (!producto) return;
+        if (!producto) {
+            console.error('❌ Producto no encontrado en índice:', index);
+            return;
+        }
 
         // Verificar si ya fue despachado
         if (producto.despachado) {
