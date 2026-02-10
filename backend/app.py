@@ -2695,6 +2695,27 @@ def listar_productos():
         
         registros = ws.get_all_records()
         
+        # NUEVO: Cargar DB_Productos UNA SOLA VEZ para precios
+        try:
+            ws_db = ss.worksheet("DB_Productos")
+            db_productos = ws_db.get_all_records()
+            
+            # Crear diccionario de precios {CODIGO: PRECIO}
+            precios_db = {}
+            for item in db_productos:
+                codigo = str(item.get('CODIGO', '')).strip().upper()
+                if codigo:
+                    try:
+                        precio = float(item.get('PRECIO', 0) or 0)
+                        precios_db[codigo] = precio
+                    except (ValueError, TypeError):
+                        precios_db[codigo] = 0
+            
+            print(f"✅ Precios cargados de DB_Productos: {len(precios_db)} productos")
+        except Exception as e:
+            logger.warning(f"No se pudo cargar DB_Productos: {e}")
+            precios_db = {}
+        
         productos = []
         for r in registros:
             # Prioridad ID CODIGO segun solicitud Juan Sebastian
@@ -2735,7 +2756,7 @@ def listar_productos():
                     'stock_por_pulir': stock_por_pulir,
                     'stock_terminado': stock_term,
                     'existencias_totales': stock_total,  # Cambiar a 'existencias_totales'
-                    'precio': r.get('PRECIO', 0),  # Temporalmente de PRODUCTOS
+                    'precio': precios_db.get(codigo.upper(), 0),  # Desde DB_Productos (lookup en memoria)
                     'stock_minimo': stock_minimo,
                     'punto_reorden': punto_reorden,
                     'imagen': corregir_url_imagen(r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or ''),
