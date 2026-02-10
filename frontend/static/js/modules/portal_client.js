@@ -203,6 +203,7 @@ const ModuloPortal = {
     currentPage: 1,
     itemsPerPage: 50,
     currentFilteredProducts: [], // Para mantener estado de busqueda + paginacion
+    viewMode: 'list', // 'list' | 'grid'
 
     renderizarProductos: function (productos) {
         const grid = document.getElementById('product-grid');
@@ -237,8 +238,89 @@ const ModuloPortal = {
         if (isMobile) {
             this.renderizarProductosMobile(grid, listaPagina, totalPages);
         } else {
-            this.renderizarProductosDesktop(grid, listaPagina, totalPages, listaTotal, start, end);
+            if (this.viewMode === 'grid') {
+                this.renderizarProductosGrid(grid, listaPagina, totalPages);
+            } else {
+                this.renderizarProductosDesktop(grid, listaPagina, totalPages, listaTotal, start, end);
+            }
         }
+    },
+
+    setViewMode: function (mode) {
+        this.viewMode = mode;
+        const btnList = document.getElementById('btn-view-list');
+        const btnGrid = document.getElementById('btn-view-grid');
+
+        if (btnList) btnList.classList.toggle('active', mode === 'list');
+        if (btnGrid) btnGrid.classList.toggle('active', mode === 'grid');
+
+        this.renderizarProductos();
+    },
+
+    renderizarProductosGrid: function (grid, listaPagina, totalPages) {
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
+        grid.style.gap = '20px';
+        grid.className = '';
+
+        const cards = listaPagina.map(p => {
+            const localImage = `/static/img/productos/${p.codigo.trim()}.jpg`;
+            const noImage = '/static/img/no-image.svg';
+
+            return `
+                <div class="card h-100 shadow-sm hover-lift border-0">
+                    <div class="position-relative bg-white rounded-top" style="height: 180px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                        <img src="${localImage}" 
+                             alt="${p.codigo}"
+                             style="max-height: 100%; max-width: 100%; object-fit: contain; padding: 1rem;" 
+                             onerror="if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png')}else{this.onerror=null;this.src='${noImage}'}"
+                             onclick="window.open(this.src, '_blank')"
+                             class="cursor-pointer">
+                         <div class="position-absolute top-0 end-0 p-2">
+                             ${this.getStockBadge(p.stock)}
+                         </div>
+                    </div>
+                    <div class="card-body d-flex flex-column bg-light bg-opacity-10">
+                        <h6 class="card-title fw-bold text-dark mb-1 text-truncate" title="${p.descripcion}" style="font-size: 0.95rem;">${p.descripcion}</h6>
+                        <small class="text-muted mb-3 d-block font-monospace">${p.codigo}</small>
+                        
+                        <div class="mt-auto">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <span class="h5 mb-0 text-primary fw-bold">${p.precio > 0 ? '$' + p.precio.toLocaleString() : '<small>Consultar</small>'}</span>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <input type="number" id="qty-${p.codigo}" class="form-control text-center fw-bold" value="1" min="1" style="max-width: 60px;">
+                                <button class="btn btn-primary flex-grow-1" onclick="ModuloPortal.agregarAlCarrito('${p.codigo}')">
+                                    <i class="fas fa-cart-plus"></i> <span class="small">Agregar</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        const paginationControls = `
+            <div class="col-12 mt-4">
+                <div class="d-flex justify-content-center gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" 
+                        ${this.currentPage <= 1 ? 'disabled' : ''} 
+                        onclick="ModuloPortal.cambiarPagina(-1)">
+                        <i class="fas fa-chevron-left"></i> Anterior
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" disabled>
+                        ${this.currentPage} / ${totalPages}
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" 
+                        ${this.currentPage >= totalPages ? 'disabled' : ''} 
+                        onclick="ModuloPortal.cambiarPagina(1)">
+                        Siguiente <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        grid.innerHTML = cards + paginationControls;
     },
 
     renderizarProductosMobile: function (grid, listaPagina, totalPages) {
