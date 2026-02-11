@@ -28,9 +28,12 @@ from backend.routes.auth_routes import auth_bp
 from backend.routes.pedidos_routes import pedidos_bp
 from backend.routes.imagenes_routes import imagenes_bp
 
+from backend.routes.facturacion_routes import facturacion_bp
+
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
 app.register_blueprint(imagenes_bp, url_prefix='/imagenes')
+app.register_blueprint(facturacion_bp)
 
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
@@ -688,20 +691,25 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
             "PENDIENTE"
         ]
         
-        # SOLUCION PARA EVITAR DESPLAZAMIENTO DE COLUMNAS (BUG REPORTADO)
-        # En lugar de append_row que a veces falla detectando la tabla, usamos update explicito
+        # SOLUCION ROBUSTA PARA EVITAR DESPLAZAMIENTO DE COLUMNAS
         try:
-            # 1. Calcular siguiente fila vacia basada en columna A (ID PNC)
-            next_row = len(worksheet.col_values(1)) + 1
+            # 1. Calcular siguiente fila vacía basada en la primera columna que tenga datos
+            # Usamos col_values(1) porque ID PNC (Col A) siempre debe tener datos
+            all_ids = worksheet.col_values(1)
+            next_row = len(all_ids) + 1
             
-            # 2. Usar range explcito (A{row}) obligando a comenzar en columna A
-            # fila_pnc tiene 9 columnas (A-I)
-            worksheet.update(f"A{next_row}", [fila_pnc])
-            print(f"PNC registrado en {hoja_pnc} (Fila {next_row} Forzada): {cantidad_pnc} piezas")
+            # 2. Definir el rango exacto (A-I para las 9 columnas)
+            # Esto obliga a Google Sheets a colocar los datos en las columnas correctas
+            rango_celdas = f"A{next_row}:I{next_row}"
+            
+            worksheet.update(rango_celdas, [fila_pnc], value_input_option='USER_ENTERED')
+            print(f"✅ PNC registrado exitosamente en {hoja_pnc} | Fila: {next_row} | Rango: {rango_celdas}")
+            
         except Exception as e_update:
-            print(f"Advertencia: Fallo update explicito ({e_update}), usando append_row...")
-            worksheet.append_row(fila_pnc)
-        print(f"PNC registrado en {hoja_pnc}: {cantidad_pnc} piezas de {codigo_producto}")
+            print(f"⚠️ Advertencia: Fallo update explícito ({e_update}), usando append_row como respaldo...")
+            # Como respaldo, usamos append_row pero intentando que no se desplace
+            worksheet.append_row(fila_pnc, value_input_option='USER_ENTERED')
+            
         return True
         
     except Exception as e:

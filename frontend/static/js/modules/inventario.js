@@ -3,7 +3,7 @@
 // ============================================
 
 // Configuración de paginación
-const getItemsPerPage = () => window.innerWidth < 992 ? 10 : 50;
+const getItemsPerPage = () => window.innerWidth < 992 ? 20 : 50;
 let paginaActual = 1;
 
 // Placeholder premium de FriTech (SVG en base64 para evitar peticiones extra)
@@ -171,8 +171,9 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
     } else {
         // MODO DESKTOP: TABLA NORMAL
-        productosPagina.forEach(p => {
+        productosPagina.forEach((p, idx) => {
             const tr = document.createElement('tr');
+            tr.className = `animate-on-scroll delay-${(idx % 4) + 1}`; // Efecto cascada continuo
             tr.style.borderBottom = '1px solid #f0f0f0';
 
             // Obtener semáforo
@@ -369,23 +370,20 @@ function actualizarEstadisticasInventario(productos) {
     // Agotados: Incluye 'red' (Critico) y 'dark' (Agotado <= 0)
     const agotados = productos.filter(p => p.semaforo?.color === 'red' || p.semaforo?.color === 'dark' || p.semaforo?.estado === 'AGOTADO').length;
 
-    // Actualizar elementos del HTML
-    const el_total = document.getElementById('total-productos');
-    const el_stockOk = document.getElementById('productos-stock-ok');
-    const el_bajoStock = document.getElementById('productos-bajo-stock');
-    const el_agotados = document.getElementById('productos-agotados');
+    // Actualizar elementos del HTML (Soporta IDs viejos y nuevos de Premium UI)
+    const el_total = document.getElementById('val-total-prod') || document.getElementById('total-productos');
+    const el_stockOk = document.getElementById('val-stock-ok') || document.getElementById('productos-stock-ok');
+    const el_bajoStock = document.getElementById('val-bajo-stock') || document.getElementById('productos-bajo-stock');
+    const el_agotados = document.getElementById('val-agotados') || document.getElementById('productos-agotados');
 
-    if (el_total) el_total.textContent = totalProductos;
-    if (el_stockOk) el_stockOk.textContent = stockOK;
+    if (el_total) el_total.textContent = formatNumber(totalProductos);
+    if (el_stockOk) el_stockOk.textContent = formatNumber(stockOK);
 
     if (el_bajoStock) {
-        el_bajoStock.textContent = porPedir;
-        // Actualizar etiqueta si es necesario
-        const label = el_bajoStock.nextElementSibling;
-        if (label) label.textContent = 'Por Pedir';
+        el_bajoStock.textContent = formatNumber(porPedir || 0);
     }
 
-    if (el_agotados) el_agotados.textContent = agotados;
+    if (el_agotados) el_agotados.textContent = formatNumber(agotados);
 
     console.log(`📊 Estadísticas: Total=${totalProductos}, OK=${stockOK}, PorPedir=${porPedir}, Agotados=${agotados}`);
 }

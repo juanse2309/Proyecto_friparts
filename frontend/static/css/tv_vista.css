@@ -4,6 +4,15 @@ body.tv-mode {
     background: #0f172a !important;
     /* Fondo muy oscuro para contraste */
     color: #f1f5f9 !important;
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE/Edge */
+}
+
+/* Chrome, Safari, Opera */
+body.tv-mode::-webkit-scrollbar {
+    display: none;
 }
 
 body.tv-mode .sidebar {
@@ -33,30 +42,89 @@ body.tv-mode .page-title p {
 }
 
 /* Tarjetas de Pedido en Modo TV */
-body.tv-mode .order-card {
+body.tv-mode .almacen-card-pro {
     background: #1e293b !important;
     border: 2px solid #334155 !important;
-    margin-bottom: 1.5vh !important;
+    margin-bottom: 2vh !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5) !important;
 }
 
-body.tv-mode .order-title {
-    font-size: 2rem !important;
+body.tv-mode .almacen-card-pro [style*="background: #f8fafc"] {
+    background: #0f172a !important;
+    /* Header de la tarjeta más oscuro */
+    border-bottom: 1px solid #334155 !important;
 }
 
-body.tv-mode .order-client {
-    font-size: 1.4rem !important;
-    color: #cbd5e1 !important;
+body.tv-mode .almacen-card-pro .text-primary.order-id-ref {
+    font-size: 1.5rem !important;
+    /* ID del pedido (Ajustado) */
+    color: #38bdf8 !important;
+    max-width: none !important;
+    overflow: visible !important;
 }
 
-body.tv-mode .badge {
-    font-size: 1.2rem !important;
+body.tv-mode .almacen-card-pro .card-title {
+    font-size: 2.2rem !important;
+    /* Nombre del Cliente (Ajustado balance) */
+    color: #f1f5f9 !important;
+    margin-top: 5px !important;
+}
+
+body.tv-mode .almacen-card-pro .text-muted {
+    font-size: 1.1rem !important;
+    /* Fecha y Vendedor */
+    color: #94a3b8 !important;
+}
+
+/* Info de Alistador destacado en TV (Footer de la tarjeta) */
+body.tv-mode .delegation-section {
+    background: #0f172a !important;
+    /* Fondo más oscuro para el footer en TV */
+    padding: 1.5vh 1.5vw !important;
+    border-radius: 0 0 12px 12px !important;
+    margin: 0 !important;
+    border-top: 2px solid #334155 !important;
+}
+
+body.tv-mode .delegate-label {
+    font-size: 1rem !important;
+    color: #38bdf8 !important;
+    opacity: 1 !important;
+}
+
+body.tv-mode .alistador-tv-display {
+    display: block !important;
+    font-size: 1.8rem !important;
+    color: #f1f5f9 !important;
+    margin-top: 5px !important;
+}
+
+body.tv-mode .delegation-controls {
+    display: none !important;
+    /* Ocultar controles de edición en TV */
+}
+
+body.tv-mode .almacen-card-pro .badge {
+    font-size: 1.1rem !important;
     padding: 0.5rem 1rem !important;
 }
 
-/* Barras de Progreso Gigantes */
-body.tv-mode .progress {
-    height: 4vh !important;
+/* Etiquetas de progreso */
+body.tv-mode .almacen-card-pro .small.fw-bold.text-muted {
+    font-size: 1.2rem !important;
+    /* "Alistado", "Despachado" */
+    color: #cbd5e1 !important;
+}
+
+body.tv-mode .almacen-card-pro .small.fw-bold:not(.text-muted) {
     font-size: 1.5rem !important;
+    /* Porcentaje % */
+}
+
+/* Barras de Progreso Gigantes */
+body.tv-mode .progress.progress-modern {
+    height: 3.5vh !important;
+    background: #334155 !important;
 }
 
 /* Animación para situaciones Urgentes */

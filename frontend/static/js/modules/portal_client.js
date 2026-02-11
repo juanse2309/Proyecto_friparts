@@ -201,7 +201,7 @@ const ModuloPortal = {
 
     // PAGINACIÓN
     currentPage: 1,
-    itemsPerPage: 50,
+    itemsPerPage: 100,
     currentFilteredProducts: [], // Para mantener estado de busqueda + paginacion
     viewMode: 'list', // 'list' | 'grid'
 

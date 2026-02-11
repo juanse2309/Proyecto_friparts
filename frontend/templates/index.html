@@ -9,7 +9,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>🏭 Sistema de Producción - FriTech</title> <!-- CSS -->
+    <title>FriTech - 🏭 Sistema de Producción</title> <!-- CSS -->
     <link rel="stylesheet" href="/static/css/styles.css?v=1.0.1">
     <link rel="stylesheet" href="/static/css/dashboard.css?v=1.0.1">
     <link rel="stylesheet" href="/static/css/mobile-ux.css?v=1.0.0">
@@ -18,6 +18,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Bootstrap para modales -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         /* Estilos mínimos necesarios */
         .modal-custom {
@@ -230,7 +232,7 @@
             <li class="menu-item" data-page="pnc"> <a href="#"><i
                         class="fas fa-exclamation-triangle"></i><span>PNC</span></a> </li>
             <li class="menu-item" data-page="facturacion"> <a href="#"><i
-                        class="fas fa-file-invoice-dollar"></i><span>Facturación</span></a> </li>
+                        class="fas fa-file-invoice-dollar"></i><span>Generación WO</span></a> </li>
             <li class="menu-item" data-page="almacen"> <a href="#"><i class="fas fa-warehouse"></i><span>Gestión
                         Almacén</span></a> </li>
             <li class="menu-item" data-page="mezcla"> <a href="#"><i class="fas fa-vial"></i><span>Mezcla
@@ -451,32 +453,41 @@
                         <div class="search-box"> <i class="fas fa-search"></i> <input type="text" id="buscar-producto"
                                 placeholder="Buscar por código, descripción o OEM..."> </div>
                     </div> <!-- Estadísticas -->
-                    <div class="stats-inventario">
-                        <div class="stat-card"><i class="fas fa-box"></i>
-                            <div>
-                                <h3 id="total-productos">0</h3>
-                                <p>Productos Totales</p>
+                    <div class="kpi-grid mb-4">
+                        <div class="kpi-card kpi-primary animate-on-scroll delay-1" id="kpi-stock-ok">
+                            <div class="kpi-icon"><i class="fas fa-check-circle"></i></div>
+                            <div class="kpi-content">
+                                <h3>Stock OK</h3>
+                                <div class="kpi-value" id="val-stock-ok">0</div>
+                                <div class="kpi-subtext">Productos suficientes</div>
                             </div>
                         </div>
-                        <div class="stat-card"><i class="fas fa-check-circle"></i>
-                            <div>
-                                <h3 id="productos-stock-ok">0</h3>
-                                <p>Con Stock OK</p>
+                        <div class="kpi-card kpi-warning animate-on-scroll delay-2" id="kpi-bajo-stock">
+                            <div class="kpi-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                            <div class="kpi-content">
+                                <h3>Agotados</h3>
+                                <div class="kpi-value" id="val-bajo-stock">0</div>
+                                <div class="kpi-subtext">Requieren atención</div>
                             </div>
                         </div>
-                        <div class="stat-card"><i class="fas fa-exclamation-triangle"></i>
-                            <div>
-                                <h3 id="productos-bajo-stock">0</h3>
-                                <p>Bajo Stock</p>
+                        <div class="kpi-card kpi-danger animate-on-scroll delay-3" id="kpi-agotados">
+                            <div class="kpi-icon"><i class="fas fa-times-circle"></i></div>
+                            <div class="kpi-content">
+                                <h3>Por Pedir</h3>
+                                <div class="kpi-value" id="val-agotados">0</div>
+                                <div class="kpi-subtext">Sin existencias</div>
                             </div>
                         </div>
-                        <div class="stat-card"><i class="fas fa-times-circle"></i>
-                            <div>
-                                <h3 id="productos-agotados">0</h3>
-                                <p>Agotados</p>
+                        <div class="kpi-card kpi-success animate-on-scroll delay-4" id="kpi-total-prod">
+                            <div class="kpi-icon"><i class="fas fa-boxes"></i></div>
+                            <div class="kpi-content">
+                                <h3>Total Items</h3>
+                                <div class="kpi-value" id="val-total-prod">0</div>
+                                <div class="kpi-subtext">En portafolio</div>
                             </div>
                         </div>
-                    </div> <!-- Botones de filtro -->
+                    </div>
+                    <!-- Botones de filtro -->
                     <div class="d-flex gap-2 mb-4" id="filtros-inventario"> <button type="button"
                             class="btn btn-primary rounded-pill px-3 active">Todos</button> <button type="button"
                             class="btn btn-light border rounded-pill px-3"> <i
@@ -1015,7 +1026,7 @@
 
             <!-- Modal Detalle PNC -->
             <div id="modal-detalle-pnc" class="modal-custom">
-                <div class="modal-content-custom">
+                <div class="modal-content-custom glass-panel">
                     <div class="d-flex justify-content-between align-items-center mb-4">
                         <h4 class="mb-0">Detalle de No Conformidad</h4>
                         <button class="btn-close close"></button>
@@ -1027,69 +1038,82 @@
                         <button class="btn btn-secondary close">Cerrar</button>
                     </div>
                 </div>
-            </div> <!-- Facturación -->
+            </div> <!-- Generación WO -->
             <div id="facturacion-page" class="page">
                 <header class="top-bar">
                     <button class="btn-icon d-lg-none" id="toggle-sidebar-facturacion">
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="page-title">
-                        <h1><i class="fas fa-file-invoice-dollar"></i> Facturación</h1>
-                        <p class="subtitle">Registra ventas y facturación</p>
+                        <h1><i class="fas fa-file-excel"></i> Generación World Office</h1>
+                        <p class="subtitle">Exportación de pedidos pendientes para World Office</p>
                     </div>
                 </header>
-                <div class="form-container">
-                    <form id="form-facturacion" class="styled-form">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="fecha-facturacion"><i class="fas fa-calendar"></i> Fecha Venta</label>
-                                <input type="date" id="fecha-facturacion" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="cliente-facturacion"><i class="fas fa-user-tie"></i> Cliente</label>
-                                <input type="text" id="cliente-facturacion" placeholder="Buscar cliente..."
-                                    autocomplete="off">
-                                <div id="facturacion-cliente-suggestions" class="autocomplete-suggestions"></div>
-                            </div>
-                            <div class="form-group">
-                                <label for="producto-facturacion"><i class="fas fa-box-open"></i> Producto a
-                                    Vender</label>
-                                <input type="text" id="producto-facturacion" placeholder="Buscar producto..."
-                                    autocomplete="off">
-                                <div id="facturacion-producto-suggestions" class="autocomplete-suggestions"></div>
-                            </div>
-                            <div class="form-group">
-                                <label for="cantidad-facturacion"><i class="fas fa-sort-amount-up"></i> Cantidad</label>
-                                <input type="number" id="cantidad-facturacion" min="1" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="precio-facturacion"><i class="fas fa-dollar-sign"></i> Precio
-                                    Unitario</label>
-                                <input type="number" id="precio-facturacion" step="0.01" min="0" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="orden-compra-facturacion"><i class="fas fa-file-contract"></i> Orden Compra
-                                    (Opcional)</label>
-                                <input type="text" id="orden-compra-facturacion" placeholder="OC-1234">
-                            </div>
 
-                            <div class="form-group full-width"
-                                style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-weight: 700; color: #166534;">TOTAL VENTA</span>
-                                    <span id="total-facturacion"
-                                        style="font-size: 24px; font-weight: 800; color: #15803d;">$ 0.00</span>
-                                </div>
+                <div class="content-container p-3 p-lg-4">
+                    <div class="card shadow rounded-4 border-0 overflow-hidden">
+                        <div
+                            class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div>
+                                <h5 class="mb-1 fw-bold text-dark"><i
+                                        class="fas fa-list-check text-primary me-2"></i>Pedidos Pendientes</h5>
+                                <small class="text-muted">Seleccione los pedidos para generar el archivo. Estado:
+                                    <strong>PENDIENTE</strong></small>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-outline-primary"
+                                    onclick="ModuloFacturacion.cargarPedidosPendientes()">
+                                    <i class="fas fa-sync-alt"></i> Actualizar
+                                </button>
+                                <button class="btn btn-success fw-bold px-4 shadow-sm"
+                                    onclick="ModuloFacturacion.iniciarExportacion()">
+                                    <i class="fas fa-file-download me-2"></i> Generar Archivo
+                                </button>
                             </div>
                         </div>
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-success"><i class="fas fa-check-circle"></i> Registrar
-                                Venta</button>
-                            <button type="reset" class="btn btn-light"><i class="fas fa-undo"></i> Limpiar</button>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0" id="tabla-pedidos-exportar">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th style="width: 50px;" class="text-center">
+                                                <div class="form-check d-flex justify-content-center">
+                                                    <input class="form-check-input" type="checkbox" id="check-all-wo"
+                                                        onchange="ModuloFacturacion.toggleSelectAll(this)"
+                                                        style="cursor: pointer;">
+                                                </div>
+                                            </th>
+                                            <th>Pedido</th>
+                                            <th>Cliente</th>
+                                            <th>Fecha</th>
+                                            <th>Vendedor</th>
+                                            <th class="text-center">Items</th>
+                                            <th class="text-end pe-4">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody-pedidos-exportar">
+                                        <tr>
+                                            <td colspan="7" class="text-center py-5 text-muted"><i
+                                                    class="fas fa-spinner fa-spin fa-2x mb-2"></i><br>Cargando
+                                                pedidos...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </form>
+                        <div
+                            class="card-footer bg-light border-0 py-3 d-flex justify-content-between align-items-center">
+                            <small class="text-muted"><i class="fas fa-info-circle me-1"></i> Mostrando solo pedidos con
+                                estado DESPACHADO.</small>
+                            <div id="wo-selection-count" class="fw-bold text-primary" style="display: none;">
+                                <i class="fas fa-check-circle me-1"></i> <span id="wo-count-val">0</span> pedidos
+                                seleccionados
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div> <!-- Pedidos -->
+            </div>
+            <!-- Pedidos -->
             <div id="pedidos-page" class="page">
                 <header class="top-bar">
                     <button class="btn-icon d-lg-none" id="toggle-sidebar-pedidos">
@@ -1636,7 +1660,7 @@
     <!-- 2. APP PRINCIPAL (antes de los módulos) -->
     <script src="/static/js/app.js?v=1769548627"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
     <script src="/static/js/modules/dashboard.js?v=1769548627"></script>
-    <script src="/static/js/modules/inventario.js?v=1769548627"></script>
+    <script src="/static/js/modules/inventario.js?v=20240211_02"></script>
     <script src="/static/js/modules/inyeccion.js?v=1769548627"></script>
     <script src="/static/js/modules/pulido.js?v=1769548627"></script>
     <script src="/static/js/modules/ensamble.js?v=1769548627"></script>
@@ -2022,7 +2046,7 @@
     </div>
 
     <!-- Module Scripts -->
-    <script src="/static/js/modules/portal_client.js"></script>
+    <script src="/static/js/modules/portal_client.js?v=20240211_02"></script>
     <script src="/static/js/modules/admin_clientes.js"></script>
 </body>
 

@@ -9,6 +9,7 @@ const AlmacenModule = {
     pedidoActual: null,
     tvInterval: null,
     autoRefreshInterval: null,
+    scrollInterval: null,
     isTVMode: false,
 
     /**
@@ -103,6 +104,11 @@ const AlmacenModule = {
         } finally {
             if (showLoading) mostrarLoading(false);
             console.log('📦 [Almacen] cargarPedidos() finalizado');
+
+            // Si está en modo TV, reiniciar el scroll después de cargar nuevos datos
+            if (this.isTVMode) {
+                this.iniciarAutoScroll();
+            }
         }
     },
 
@@ -168,7 +174,7 @@ const AlmacenModule = {
                         style="transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); border-radius: 12px; overflow: hidden; border-left: 5px solid ${colorStatus} !important; background: #fff; min-height: 280px; display: flex; flex-direction: column;">
                         <div style="background: #f8fafc; padding: 12px 15px; border-bottom: 1px solid #edf2f7; cursor: pointer;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                                <span class="fw-bold text-primary" style="font-size: 0.9rem; white-space: nowrap; letter-spacing: -0.5px; overflow: hidden; text-overflow: ellipsis; max-width: 120px;">${pedido.id_pedido}</span>
+                                <span class="fw-bold text-primary order-id-ref" style="font-size: 0.9rem; white-space: nowrap; letter-spacing: -0.5px;">${pedido.id_pedido}</span>
                                 <div class="d-flex flex-wrap gap-1 align-items-center justify-content-end" style="flex: 1;">
                                     ${esParaMi ? '<span class="badge bg-info" style="font-size: 0.6rem; padding: 4px 6px; font-weight: 700; border-radius: 4px;"><i class="fas fa-user-check me-1"></i>MÍO</span>' : ''}
                                     <span class="badge" style="background: ${colorStatus}; font-size: 0.6rem; padding: 4px 6px; text-transform: uppercase; font-weight: 700; border-radius: 4px;">${pedido.estado}</span>
@@ -200,13 +206,22 @@ const AlmacenModule = {
                                 </div>
                             </div>
 
-                            ${puedeDelegar ? `
-                            <div class="mt-3 pt-3 border-top" style="border-top: 1px dashed #e2e8f0 !important;">
-                                <label class="small fw-bold text-muted mb-2 d-block text-uppercase" style="letter-spacing: 0.5px; font-size: 0.6rem; opacity: 0.7;">Delegar Alistamiento</label>
-                                <div class="input-group input-group-sm">
-                                    <select class="form-select select-delegar" id="select-delegar-${pedido.id_pedido}" style="border-radius: 6px 0 0 6px; font-size: 0.75rem; border-color: #e2e8f0; background-color: #f8fafc;">
-                                        <option value="">Sin asignar</option>
-                                        ${(window.AppState.sharedData.responsables || [])
+                            <div class="mt-3 pt-3 border-top delegation-section" style="border-top: 1px dashed #e2e8f0 !important; ${pedido.delegado_a || puedeDelegar ? '' : 'display:none;'}">
+                                <label class="small fw-bold text-muted mb-2 d-block text-uppercase delegate-label" style="letter-spacing: 0.5px; font-size: 0.6rem; opacity: 0.7;">
+                                    ${pedido.delegado_a ? 'Alistador Asignado' : 'Delegar Alistamiento'}
+                                </label>
+                                
+                                <!-- Nombre visible solo en TV Mode -->
+                                <div class="alistador-tv-display" style="display: none; font-weight: 800; color: #6366f1; text-transform: uppercase;">
+                                    ${pedido.delegado_a || 'Sin asignar'}
+                                </div>
+
+                                <div class="delegation-controls">
+                                    ${puedeDelegar ? `
+                                    <div class="input-group input-group-sm">
+                                        <select class="form-select select-delegar" id="select-delegar-${pedido.id_pedido}" style="border-radius: 6px 0 0 6px; font-size: 0.75rem; border-color: #e2e8f0; background-color: #f8fafc;">
+                                            <option value="">Sin asignar</option>
+                                            ${(window.AppState.sharedData.responsables || [])
                         .filter(r => {
                             const depto = (typeof r === 'object' ? r.departamento : '').toUpperCase();
                             return depto.includes('ALISTAMIENTO');
@@ -215,13 +230,18 @@ const AlmacenModule = {
                             const nome = typeof r === 'object' ? r.nombre : r;
                             return `<option value="${nome}" ${pedido.delegado_a === nome ? 'selected' : ''}>${nome}</option>`;
                         }).join('')}
-                                    </select>
-                                    <button class="btn btn-primary" onclick="AlmacenModule.delegarPedido('${pedido.id_pedido}')" style="border-radius: 0 6px 6px 0; padding: 0 12px; background: #4f46e5; border: none;">
-                                        <i class="fas fa-user-plus" style="font-size: 0.8rem;"></i>
-                                    </button>
+                                        </select>
+                                        <button class="btn btn-primary" onclick="AlmacenModule.delegarPedido('${pedido.id_pedido}')" style="border-radius: 0 6px 6px 0; padding: 0 12px; background: #4f46e5; border: none;">
+                                            <i class="fas fa-user-plus" style="font-size: 0.8rem;"></i>
+                                        </button>
+                                    </div>
+                                    ` : `
+                                    <div class="text-muted" style="font-size: 0.75rem;">
+                                        <i class="fas fa-user-circle me-1"></i> ${pedido.delegado_a || 'Sin asignar'}
+                                    </div>
+                                    `}
                                 </div>
                             </div>
-                            ` : ''}
                             
                             <!-- Mensaje Solo Lectura para Comercial -->
                             ${currentUser?.rol === 'Comercial' ? '<div class="mt-2 text-center"><span class="badge bg-secondary text-white small" style="opacity:0.8"><i class="fas fa-eye"></i> Solo Lectura</span></div>' : ''}
@@ -754,6 +774,9 @@ const AlmacenModule = {
             }, 30000);
 
             mostrarNotificacion('Modo TV Activado: Auto-refresco cada 30s', 'info');
+
+            // Iniciar auto-scroll
+            this.iniciarAutoScroll();
         } else {
             console.log('📺 [Almacen] Desactivando Modo TV...');
             document.body.classList.remove('tv-mode');
@@ -773,6 +796,65 @@ const AlmacenModule = {
                 clearInterval(this.tvInterval);
                 this.tvInterval = null;
             }
+
+            // Detener auto-scroll
+            this.detenerAutoScroll();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    },
+
+    /**
+     * Lógica de Auto-Scroll para Modo TV (Airport Effect)
+     */
+    iniciarAutoScroll: function () {
+        this.detenerAutoScroll();
+        if (!this.isTVMode) return;
+
+        console.log('📜 [Almacen] Configurando Auto-Scroll...');
+
+        // Pequeño delay inicial para que el renderizado de tarjetas termine
+        setTimeout(() => {
+            const scrollStep = 1; // Pixeles por paso
+            const delayAtBottom = 10000; // 10 segundos de pausa al final
+
+            this.scrollInterval = setInterval(() => {
+                const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex' ||
+                    document.getElementById('modalAlistamiento')?.style.display === 'block';
+
+                if (modalAbierto) return; // Pausar si están editando algo
+
+                const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
+                const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+
+                // Si no hay suficiente contenido para scroll, no hacer nada
+                if (maxScroll <= 10) return;
+
+                if (currentScroll < maxScroll - 5) {
+                    window.scrollBy(0, scrollStep);
+                } else {
+                    // Llegamos al final: Pausa larga y reset
+                    console.log('📜 [Almacen] Fin del scroll alcanzado, pausando...');
+                    this.detenerAutoScroll();
+
+                    setTimeout(() => {
+                        if (this.isTVMode) {
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                            // Reiniciar después de que el smooth scroll termine (2s aprox)
+                            setTimeout(() => this.iniciarAutoScroll(), 2000);
+                        }
+                    }, delayAtBottom);
+                }
+            }, 50); // 20fps aprox para suavidad
+        }, 2000);
+    },
+
+    /**
+     * Detener el auto-scroll
+     */
+    detenerAutoScroll: function () {
+        if (this.scrollInterval) {
+            clearInterval(this.scrollInterval);
+            this.scrollInterval = null;
         }
     },
 

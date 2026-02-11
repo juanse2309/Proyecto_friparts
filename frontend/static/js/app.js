@@ -354,4 +354,32 @@ async function inicializarAplicacion() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', inicializarAplicacion);
+/**
+ * Configurar animaciones de entrada (Scroll Reveal)
+ */
+function configurarAnimacionesEntrada() {
+    const observerOptions = {
+        threshold: 0.1,
+        rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('reveal');
+                // Una vez revelado, no necesitamos observarlo más
+                observer.unobserve(entry.target);
+            }
+        });
+    }, observerOptions);
+
+    // Observar elementos con clase .animate-on-scroll
+    document.querySelectorAll('.animate-on-scroll').forEach(el => {
+        observer.observe(el);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    inicializarAplicacion();
+    configurarAnimacionesEntrada();
+});
