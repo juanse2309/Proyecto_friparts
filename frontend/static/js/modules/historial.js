@@ -116,7 +116,7 @@
                                 <span class="badge ${badgeClass}">${r.Tipo}</span>
                                 <div class="d-flex align-items-center gap-2">
                                     <small class="text-muted fw-bold">${r.Fecha}</small>
-                                    ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.rol === 'Administración') ?
+                                    ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.nombre?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.rol === 'Administración') ?
                         `<button class="btn btn-sm btn-outline-primary p-1" onclick="window.ModuloHistorial.editarRegistro(${h_datos.indexOf(r)})" style="line-height: 1;">
                                             <i class="fas fa-pencil-alt" style="font-size: 0.8rem;"></i>
                                         </button>` : ''}
@@ -206,7 +206,7 @@
                         <td><small>${maquina || '-'}</small></td>
                         <td><small class="text-muted">${r.Detalle || '-'}</small></td>
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
-                        ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.rol === 'Administración') ?
+                        ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.nombre?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.rol === 'Administración') ?
                         `<td class="text-center">
                                 <button class="btn btn-sm btn-link text-primary p-0" onclick="window.ModuloHistorial.editarRegistro(${h_datos.indexOf(r)})">
                                     <i class="fas fa-pencil-alt"></i>
