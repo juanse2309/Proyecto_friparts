@@ -187,15 +187,15 @@ def registrar_pedido():
         if subtotal_general > 0:
             logger.info(f"\n🔢 Calculando totales proporcionales por item...")
             for i, row in enumerate(rows_to_append):
-                cantidad = float(row[11])  # CANTIDAD
-                precio_unitario = float(row[12])  # PRECIO UNITARIO
+                cantidad = float(row[13])  # CANTIDAD
+                precio_unitario = float(row[14])  # PRECIO UNITARIO
                 subtotal_item = cantidad * precio_unitario
                 
                 # Total proporcional con descuento global
                 total_item = subtotal_item * (1 - desc_float)
                 total_item = round(total_item, 2)
                 
-                row[9] = total_item  # Actualizar TOTAL
+                row[11] = total_item  # Actualizar TOTAL
                 logger.info(f"   Item {i+1}: ${subtotal_item} → ${total_item} (con {descuento_global}% desc)")
         
         # Append all rows
