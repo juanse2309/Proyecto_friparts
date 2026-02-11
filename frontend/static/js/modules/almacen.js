@@ -182,7 +182,8 @@ const AlmacenModule = {
                             </div>
                         </div>
                         <div class="card-body" style="padding: 15px; flex: 1; display: flex; flex-direction: column;">
-                            <h6 class="card-title fw-bold mb-1" style="color: #1e293b; cursor: pointer; font-size: 0.85rem; line-height: 1.3; margin-bottom: 8px !important;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">${pedido.cliente}</h6>
+                            <h6 class="card-title fw-bold mb-1" style="color: #1e293b; cursor: pointer; font-size: 0.85rem; line-height: 1.3; margin-bottom: 4px !important;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">${pedido.cliente}</h6>
+                            <p class="text-muted mb-1" style="font-size: 0.7rem; margin-bottom: 4px !important;"><i class="fas fa-map-marker-alt me-1"></i> ${pedido.direccion || 'S/D'} - ${pedido.ciudad || 'S/C'}</p>
                             <p class="text-muted mb-3" style="font-size: 0.7rem; margin-bottom: 12px !important;"><i class="fas fa-calendar-alt me-1"></i> ${pedido.fecha} | <i class="fas fa-user me-1"></i> ${pedido.vendedor}</p>
                             
                             <!-- Barra Doble de Progreso -->

@@ -95,7 +95,7 @@ def registrar_pedido():
             "ID PEDIDO", "FECHA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
             "CLIENTE", "NIT", "DIRECCION", "CIUDAD", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
             "ESTADO", "CANTIDAD", "PRECIO UNITARIO", "PROGRESO", "CANT_ALISTADA",
-            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A"
+            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A", "ESTADO_DESPACHO"
         ]
         
         if not existing_headers:
@@ -155,7 +155,7 @@ def registrar_pedido():
                 ciudad,
                 forma_pago,
                 f"{descuento_global}%",  # Descuento global para todos
-                0,  # Total se calculará después
+                0,  # Total se calculará después (index 11)
                 estado,
                 cantidad,
                 precio_unitario,
@@ -163,7 +163,8 @@ def registrar_pedido():
                 0,    # CANT_ALISTADA inicial
                 "0%", # PROGRESO_DESPACHO inicial
                 0,    # CANT_ENVIADA inicial
-                ""    # DELEGADO_A inicial
+                "",   # DELEGADO_A inicial
+                "FALSE" # ESTADO_DESPACHO inicial
             ]
             
             rows_to_append.append(row)
@@ -366,6 +367,8 @@ def obtener_pedidos_pendientes():
                         "estado": estado,
                         "progreso": r.get("PROGRESO", "0%"),
                         "vendedor": r.get("VENDEDOR"),
+                        "direccion": r.get("DIRECCION", ""),
+                        "ciudad": r.get("CIUDAD", ""),
                         "delegado_a": delegado_a,
                         "productos": []
                     }
@@ -376,6 +379,7 @@ def obtener_pedidos_pendientes():
                     "cantidad": r.get("CANTIDAD"),
                     "cant_lista": r.get("CANT_ALISTADA", 0),
                     "cant_enviada": r.get("CANT_ENVIADA", 0),
+                    "total": r.get("TOTAL", 0),
                     # Leer estado booleano de despacho (convertir string 'TRUE'/'FALSE' a bool)
                     "despachado": str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper() == "TRUE"
                 })
