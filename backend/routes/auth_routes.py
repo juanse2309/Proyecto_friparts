@@ -63,7 +63,10 @@ def normalize_credential(value):
     
     # Si termina en .0, quitarlo (ej: "1003456789.0" -> "1003456789")
     if s_val.endswith(".0"):
-        return s_val[:-2]
+        s_val = s_val[:-2]
+
+    # Quitar puntos y comas para comparacion agnostica de formato (1.234.567 == 1234567)
+    s_val = s_val.replace(".", "").replace(",", "")
         
     return s_val
 

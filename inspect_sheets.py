@@ -4,13 +4,13 @@ import json
 
 def inspect_headers():
     try:
-        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        ws = sheets_client.get_worksheet(Hojas.PULIDO)
         headers = ws.row_values(1)
-        print("HEADERS_PEDIDOS:" + json.dumps(headers))
+        print("HEADERS_PULIDO:" + json.dumps(headers))
         
         # Also check first row of data
         first_row = ws.row_values(2)
-        print("DATA_PEDIDOS:" + json.dumps(first_row))
+        print("DATA_PULIDO:" + json.dumps(first_row))
     except Exception as e:
         print(f"ERROR: {str(e)}")
 

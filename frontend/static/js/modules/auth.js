@@ -410,6 +410,9 @@ const AuthModule = {
 
         console.log(`👤 Usuario Logueado: ${user.nombre} (${user.rol})`);
 
+        // DISPATCH EVENT: User Ready (Fix Race Condition)
+        window.dispatchEvent(new CustomEvent('user-ready', { detail: user }));
+
         // REDIRECCIÓN INMEDIATA para clientes (antes de cargar dashboard)
         if (user.rol === 'Cliente') {
             console.log('🔄 Cliente detectado - Redirigiendo a portal-cliente...');

@@ -14,244 +14,141 @@ logger = logging.getLogger(__name__)
 def obtener_hoja(nombre_hoja):
     return sheets_client.get_or_create_worksheet(nombre_hoja)
 
-@facturacion_bp.route('/api/exportar/world-office', methods=['POST'])
-def exportar_world_office():
+
+def procesar_datos_wo(ids_filter=None):
+    """Lógica centralizada para filtrar, cruzar y formatear datos WO v2.
+       ids_filter: Lista opcional de 'ID PEDIDO' para exportar solo esos.
     """
-    Genera un archivo Excel compatible con World Office a partir de pedidos pendientes.
-    """
+    # 1. Obtener Datos
+    ws_pedidos = obtener_hoja(Hojas.PEDIDOS)
+    registros_pedidos = ws_pedidos.get_all_records()
+    
+    # Filtro: ESTADO == 'PENDIENTE'
+    pedidos_pendientes = [r for r in registros_pedidos if str(r.get('ESTADO', '')).strip().upper() == 'PENDIENTE']
+    
+    # Filtro adicional por selección de usuario
+    if ids_filter and len(ids_filter) > 0:
+        ids_set = set(str(x) for x in ids_filter)
+        pedidos_pendientes = [r for r in pedidos_pendientes if str(r.get('ID PEDIDO', '')) in ids_set]
+    
+    if not pedidos_pendientes:
+        return pd.DataFrame()
+
+    # 2. Obtener Maestros (Clientes y Productos)
     try:
-        data = request.json
-        consecutivo_inicio = int(data.get('consecutivo', 0))
-        pedidos_ids = data.get('pedidos', []) # Lista de ID PEDIDO
+        ws_clientes = obtener_hoja(Hojas.CLIENTES)
+        registros_clientes = ws_clientes.get_all_records()
+        mapa_clientes = {str(c.get('CLIENTE', '')).strip().upper(): str(c.get('NIT', '')).strip() for c in registros_clientes}
+    except Exception as e:
+        logger.error(f"Error leyendo Clientes: {e}")
+        mapa_clientes = {}
 
-        if not consecutivo_inicio or not pedidos_ids:
-            return jsonify({'success': False, 'error': 'Faltan datos requeridos (consecutivo o pedidos)'}), 400
-
-        logger.info(f"📄 Iniciando exportación WO. Consecutivo: {consecutivo_inicio}, Pedidos: {len(pedidos_ids)}")
-
-        # 1. Obtener Datos
-        ws_pedidos = obtener_hoja(Hojas.PEDIDOS)
-        registros_pedidos = ws_pedidos.get_all_records()
-        
-        # Filtrar solo los pedidos seleccionados (Robustez con strip)
-        pedidos_filtrados = [r for r in registros_pedidos if str(r.get('ID PEDIDO', '')).strip() in pedidos_ids]
-        
-        if not pedidos_filtrados:
-            return jsonify({'success': False, 'error': 'No se encontraron los pedidos seleccionados'}), 404
-
-        # Obtener Productos (para cruzar códigos) y Responsables (para vendedores)
-        # Usamos cache si está disponible o fetch directo
+    try:
         ws_productos = obtener_hoja(Hojas.PRODUCTOS)
-        productos_raw = ws_productos.get_all_records()
-        
-        ws_responsables = obtener_hoja(Hojas.RESPONSABLES)
-        responsables_raw = ws_responsables.get_all_records()
-
-        # Crear diccionarios de cruce
-        # Mapa: ID CODIGO -> CODIGO SISTEMA
+        registros_productos = ws_productos.get_all_records()
         mapa_productos = {}
-        for p in productos_raw:
-            id_cod = str(p.get('ID CODIGO', '')).strip().upper()
-            cod_sistema = str(p.get('CODIGO SISTEMA', '') or p.get('CODIGO', '')).strip().upper()
+        for p in registros_productos:
+            id_cod = str(p.get('ID CODIGO', '')).strip()
             if id_cod:
-                mapa_productos[id_cod] = cod_sistema
-        
-        # Mapa: NOMBRE VENDEDOR -> DOCUMENTO
-        mapa_vendedores = {}
-        for r in responsables_raw:
-            nombre = str(r.get('RESPONSABLE', '')).strip().upper()  # CORREGIDO: era 'NOMBRE', ahora 'RESPONSABLE'
-            doc = str(r.get('DOCUMENTO', '')).strip()
-            if nombre:
-                mapa_vendedores[nombre] = doc
-
-        # 2. Procesar Datos
-        wo_rows = []
-        
-        # Agrupar por Pedido para asignar consecutivos
-        # Importante: Mantener el orden de pedidos_ids para asignar consecutivos en orden
-        # O agrupar por ID PEDIDO primero
-        
-        # Crear un dict de pedidos para acceso rápido
-        pedidos_dict = {}
-        for r in pedidos_filtrados:
-            id_p = str(r.get('ID PEDIDO', '')).strip() # Corregido: strip() aquí también
-            if id_p not in pedidos_dict:
-                pedidos_dict[id_p] = []
-            pedidos_dict[id_p].append(r)
-            
-        consecutivo_actual = consecutivo_inicio
-        
-        for id_p in pedidos_ids: # Iterar en el orden enviado por el frontend
-            # Asegurar que id_p busqueda tambien este limpio (aunque deberia venir limpio)
-            id_p_clean = str(id_p).strip()
-            
-            if id_p_clean not in pedidos_dict:
-                continue
-                
-            items_pedido = pedidos_dict[id_p_clean]
-            
-            # Datos de cabecera (tomados del primer item)
-            primer_item = items_pedido[0]
-            fecha_original = str(primer_item.get('FECHA', '')).strip()
-            
-            # Formatear fecha a DD/MM/YYYY
-            fecha_wo = fecha_original
-            try:
-                # Intenta parsear ISO YYYY-MM-DD
-                if '-' in fecha_original:
-                    dt = datetime.strptime(fecha_original, '%Y-%m-%d')
-                    fecha_wo = dt.strftime('%d/%m/%Y')
-            except ValueError:
-                # Si falla, intenta mantener original o loggear
-                pass
-            
-            # Vendedor -> Tercero Interno (Documento)
-            vendedor_nombre = str(primer_item.get('VENDEDOR', '')).strip().upper()
-            tercero_interno = mapa_vendedores.get(vendedor_nombre, vendedor_nombre) 
-            
-            # Debug log
-            if tercero_interno == vendedor_nombre:
-                logger.warning(f"⚠️ NO MATCH VENDEDOR. Buscado: '{vendedor_nombre}'. Disponibles: {list(mapa_vendedores.keys())[:5]}...")
-            else:
-                logger.info(f"✅ Match Vendedor: '{vendedor_nombre}' -> '{tercero_interno}'")
-
-            # Cliente (NIT)
-            nit_cliente = str(primer_item.get('NIT', '')).strip()
-            nit_limpio = ''.join(filter(str.isdigit, nit_cliente))
-            nombre_cliente = str(primer_item.get('CLIENTE', '')).strip().upper()
-            
-            doc_numero = consecutivo_actual
-            logger.info(f"📋 Procesando pedido {id_p_clean} → Consecutivo: {doc_numero}")
-            consecutivo_actual += 1
-            
-            for item in items_pedido:
-                # Datos de detalle
-                id_codigo = str(item.get('ID CODIGO', '')).strip().upper()
-                codigo_sistema = mapa_productos.get(id_codigo, f"NO-MAP-{id_codigo}")
-                
-                cantidad = item.get('CANTIDAD', 0)
-                try:
-                    cantidad = float(cantidad)
-                except:
-                    cantidad = 0
-                    
-                # Precio
-                precio_raw = item.get('PRECIO UNITARIO', 0) or item.get('PRECIO', 0)
-                if isinstance(precio_raw, str):
-                    precio_limpio = precio_raw.replace('$', '').replace(',', '').strip()
-                    try: 
-                        precio = float(precio_limpio)
-                    except: 
-                        precio = 0
-                else:
-                    precio = float(precio_raw)
-                
-                row = {
-                    'Encab: Empresa': nombre_cliente, # Petición usuario: Nombre Cliente en Empresa
-                    'Encab: Tipo Documento': 'PED',
-                    'Encab: Prefijo': 'PED',
-                    'Encab: Documento Número': doc_numero,
-                    'Encab: Fecha': fecha_wo,
-                    'Encab: Tercero Interno': tercero_interno,
-                    'Encab: Tercero Externo': nit_limpio,
-                    'Encab: Nota': 'Pedido',
-                    'Encab: FormaPago': 'Credito',
-                    'Detalle: Producto': codigo_sistema,
-                    'Detalle: Bodega': 'Principal',
-                    'Detalle: UnidadDeMedida': 'Und.',
-                    'Detalle: Cantidad': cantidad,
-                    'Detalle: IVA': '0,19',
-                    'Detalle: Valor Unitario': precio,
-                    'Detalle: Vencimiento': fecha_wo
+                mapa_productos[id_cod] = {
+                    'PRECIO': p.get('PRECIO', 0),
+                    'DESCRIPCION': p.get('DESCRIPCION', '')
                 }
-                wo_rows.append(row)
-        
-        # 3. Generar Excel usando Plantilla
-        
-        # Ruta absoluta al archivo de plantilla
-        from flask import current_app
+    except Exception as e:
+        logger.error(f"Error leyendo Productos: {e}")
+        mapa_productos = {}
 
-        # 3. Generar Excel usando Plantilla
+    # 3. Procesar Filas
+    rows_finales = []
+    
+    # Mapeo de columnas Template WO (DocumentosVentasEncabezadosMovimientoInventarioWO.xls)
+    # Columnas fijas requeridas
+    # A=0, ..., K=10 (Personalizado 1), ... AF=31 (Detalle: Bodega)
+    
+    # 1. Encabezados (A-K)
+    cols_headers = [
+        'Encab: Documento Número', 'Encab: Fecha', 'Encab: Tercero Externo', 'Encab: Vendedor Externo', 
+        'Encab: Nota', 'Encab: Forma Pago', 'Encab: Descuento', 'Encab: IVA', 'Encab: Retención', 
+        'Encab: Tipo Documento', 'Encab: Personalizado 1'
+    ]
+    
+    # 2. Padding (L - AE) -> 20 columnas vacías (Indices 11 a 30)
+    # Nombres ficticios para mantener posición, WO los ignorará si no están mapeados en su importador,
+    # pero es vital que existan en el excel.
+    cols_padding = [f'Encab: Personalizado {i}' for i in range(2, 22)] 
+    # range(2, 22) genera 2, 3... 21.  Total 20 items.
+    # 11 + 20 = 31 columnas. La siguiente será la 32 (Indice 31, col AF).
+    
+    # 3. Detalle (AF en adelante)
+    cols_detalle = [
+        'Detalle: Bodega', 'Detalle: Producto', 'Detalle: Cantidad', 
+        'Detalle: Valor Unitario', 'Detalle: Valor Total', 
+        'Detalle: Descripción', 'Detalle: Unidad Medida', 'Detalle: Centro Costo'
+    ]
+    
+    columnas_plantilla = cols_headers + cols_padding + cols_detalle
+    
+    for p in pedidos_pendientes:
+        # Cruce Cliente
+        nombre_cliente = str(p.get('CLIENTE', '')).strip().upper()
+        nit_cliente = mapa_clientes.get(nombre_cliente, p.get('NIT', '')) # Fallback a NIT del pedido
         
-        # Ruta absoluta al archivo de plantilla
-        from flask import current_app
-        import os
+        # Cruce Producto
+        id_codigo = str(p.get('ID CODIGO', '')).strip()
+        data_prod = mapa_productos.get(id_codigo, {})
+        precio_venta = data_prod.get('PRECIO', p.get('PRECIO UNITARIO', 0)) # Fallback a precio pedido
+        descripcion = data_prod.get('DESCRIPCION', p.get('PRODUCTO', ''))
         
-        # Asumiendo estructura de proyecto:
-        # /backend/routes/facturacion_routes.py
-        # /frontend/static/docs/...
-        
-        # current_app.root_path apunta a /backend (generalmente)
-        PROJECT_ROOT = os.path.dirname(current_app.root_path) 
-        TEMPLATE_PATH = os.path.join(PROJECT_ROOT, 'frontend', 'static', 'docs', 'DocumentosComprasEncabezadosMovimientoInventarioWO.xls')
-        
-        if not os.path.exists(TEMPLATE_PATH):
-            raise FileNotFoundError(f"No se encontró la plantilla en: {TEMPLATE_PATH}")
+        # Formatos
+        try:
+            fecha_raw = p.get('FECHA', '')
+            fecha_fmt = pd.to_datetime(fecha_raw).strftime('%d/%m/%Y') if fecha_raw else datetime.now().strftime('%d/%m/%Y')
+        except:
+            fecha_fmt = datetime.now().strftime('%d/%m/%Y')
             
-        # Leer columnas de la plantilla (requiere xlrd)
-        df_template = pd.read_excel(TEMPLATE_PATH)
-        columnas_plantilla = list(df_template.columns)
+        cantidad = p.get('CANTIDAD', 0)
         
-        # Ajustar nombres de columnas de filas generadas para coincidir EXACTAMENTE con plantilla
-        # Mapeo de mis campos internos -> campos de plantilla
-        mapa_columnas = {
-            'Encab: Empresa': 'Encab: Empresa',
-            'Encab: Tipo Documento': 'Encab: Tipo Documento',
-            'Encab: Prefijo': 'Encab: Prefijo',
-            'Encab: Documento Número': 'Encab: Documento Número',
-            'Encab: Fecha': 'Encab: Fecha',
-            'Encab: Tercero Interno': 'Encab: Tercero Interno',
-            'Encab: Tercero Externo': 'Encab: Tercero Externo',
-            'Encab: Nota': 'Encab: Nota',
-            'Encab: FormaPago': 'Encab: FormaPago',
-            'Detalle: Producto': 'Detalle: Producto',
-            'Detalle: Bodega': 'Detalle: Bodega',
-            'Detalle: UnidadDeMedida': 'Detalle: UnidadDeMedida',
-            'Detalle: Cantidad': 'Detalle: Cantidad',
-            'Detalle: IVA': 'Detalle: IVA',
-            'Detalle: Valor Unitario': 'Detalle: Valor Unitario',
-            'Detalle: Vencimiento': 'Detalle: Vencimiento'
+        row = {
+            'Encab: Tipo Documento': 'PED',
+            'Encab: Tercero Externo': nit_cliente,
+            'Encab: Fecha': fecha_fmt,
+            'Encab: Nota': 'Carga Automática App Manufactura',
+            'Encab: Personalizado 1': str(p.get('ID PEDIDO', '')), # ID Pedido para rastreo
+            'Detalle: Bodega': '01',
+            'Detalle: Producto': id_codigo,
+            'Detalle: Descripción': descripcion,
+            'Detalle: Cantidad': cantidad,
+            'Detalle: Valor Unitario': precio_venta,
+            'Encab: Vendedor Externo': p.get('VENDEDOR', ''),
+             # Campos vacíos requeridos por estructura
+            'Encab: Documento Número': '', # Dejar vacío para consecutivo automático WO? O usar el del pedido? WO suele asignar.
+            'Encab: Forma Pago': '', 
+            'Encab: Descuento': 0,
+            'Encab: IVA': 0,
+            'Encab: Retención': 0,
+            'Detalle: Valor Total': 0, # WO recalcula
+            'Detalle: Unidad Medida': '',
+            'Detalle: Centro Costo': ''
         }
         
-        rows_finales = []
-        for row_data in wo_rows:
-            new_row = {}
-            # Inicializar todas las columnas de la plantilla con vacío
-            for col in columnas_plantilla:
-                new_row[col] = "" # O None
+        # Rellenar padding con vacíos explicitamente en el row (opcional si se hace en dataframe, pero mejor asegurar)
+        for col_pad in cols_padding:
+            row[col_pad] = ""
             
-            # Llenar datos conocidos
-            for key, val in row_data.items():
-                if key in mapa_columnas:
-                    target_col = mapa_columnas[key]
-                    if target_col in new_row:
-                        new_row[target_col] = val
+        rows_finales.append(row)
+        
+    df = pd.DataFrame(rows_finales)
+    
+    # Asegurar columnas de plantilla
+    for col in columnas_plantilla:
+        if col not in df.columns:
+            df[col] = "" # Rellenar vacías
             
-            # Defaults fijos si la plantilla lo requiere
-            if 'Encab: Estado' in new_row: new_row['Encab: Estado'] = 'Aprobado' # Ejemplo
-            
-            rows_finales.append(new_row)
-            
-        df = pd.DataFrame(rows_finales, columns=columnas_plantilla)
+    # Reordenar
+    if not df.empty:
+        df = df[columnas_plantilla]
         
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='ImportarWO')
-        
-        output.seek(0)
-        
-        filename = f"Export_WO_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        
-        return send_file(
-            output,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=filename
-        )
-
-    except Exception as e:
-        logger.error(f"❌ Error exportando WO: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+    return df
 
 @facturacion_bp.route('/api/facturacion/pedidos-pendientes', methods=['GET'])
 def obtener_pedidos_pendientes():
@@ -304,4 +201,62 @@ def obtener_pedidos_pendientes():
 
     except Exception as e:
         logger.error(f"❌ Error obteniendo pedidos pendientes: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@facturacion_bp.route('/api/exportar/world-office', methods=['POST'])
+def exportar_world_office():
+    """
+    Genera el archivo Excel para World Office (v2).
+    Acepta 'ids' en el body para filtrar.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        ids_filter = data.get('ids', None) # Lista de IDs seleccionados
+        
+        df = procesar_datos_wo(ids_filter)
+        
+        if df.empty:
+            return jsonify({'success': False, 'error': 'No hay datos válidos para exportar (verifique el estado PENDIENTE)'}), 400
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='ImportarWO')
+        
+        output.seek(0)
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'Import_WO_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error Exportando WO: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@facturacion_bp.route('/api/exportar/world-office/preview', methods=['POST'])
+def preview_world_office():
+    """
+    Retorna JSON con los datos que se exportarían para vista previa.
+    Acepta 'ids' en el body para filtrar.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        ids_filter = data.get('ids', None)
+        
+        df = procesar_datos_wo(ids_filter)
+        
+        if df.empty:
+            return jsonify({'success': True, 'data': []})
+            
+        # Convertir a dict para JSON
+        # Reemplazar NaN con null o string vacío
+        preview_data = df.fillna('').head(50).to_dict(orient='records')
+        
+        return jsonify({'success': True, 'data': preview_data})
+        
+    except Exception as e:
+        logger.error(f"Error generando preview WO: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500

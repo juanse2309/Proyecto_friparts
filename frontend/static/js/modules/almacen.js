@@ -10,6 +10,7 @@ const AlmacenModule = {
     tvInterval: null,
     autoRefreshInterval: null,
     scrollInterval: null,
+    scrollTimeout: null, // Timeout para el delay del scroll
     isTVMode: false,
 
     /**
@@ -746,6 +747,14 @@ const AlmacenModule = {
             console.log('📺 [Almacen] Activando Modo TV...');
             document.body.classList.add('tv-mode');
 
+            // Salir con ESCAPE
+            this._escHandler = (e) => {
+                if (e.key === 'Escape' && this.isTVMode) {
+                    this.toggleModoTV();
+                }
+            };
+            window.addEventListener('keydown', this._escHandler);
+
             // Intentar poner en pantalla completa si el navegador lo permite
             try {
                 if (document.documentElement.requestFullscreen) {
@@ -782,6 +791,11 @@ const AlmacenModule = {
             console.log('📺 [Almacen] Desactivando Modo TV...');
             document.body.classList.remove('tv-mode');
 
+            // Remover listener de ESC
+            if (this._escHandler) {
+                window.removeEventListener('keydown', this._escHandler);
+            }
+
             // Salir de pantalla completa
             try {
                 if (document.fullscreenElement) {
@@ -813,39 +827,36 @@ const AlmacenModule = {
 
         console.log('📜 [Almacen] Configurando Auto-Scroll...');
 
-        // Pequeño delay inicial para que el renderizado de tarjetas termine
-        setTimeout(() => {
-            const scrollStep = 1; // Pixeles por paso
-            const delayAtBottom = 10000; // 10 segundos de pausa al final
+        // Guardar el timeout para poder cancelarlo
+        this.scrollTimeout = setTimeout(() => {
+            const scrollStep = 1;
+            const delayAtBottom = 10000;
 
             this.scrollInterval = setInterval(() => {
                 const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex' ||
                     document.getElementById('modalAlistamiento')?.style.display === 'block';
 
-                if (modalAbierto) return; // Pausar si están editando algo
+                if (modalAbierto) return;
 
                 const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
                 const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
 
-                // Si no hay suficiente contenido para scroll, no hacer nada
                 if (maxScroll <= 10) return;
 
                 if (currentScroll < maxScroll - 5) {
                     window.scrollBy(0, scrollStep);
                 } else {
-                    // Llegamos al final: Pausa larga y reset
                     console.log('📜 [Almacen] Fin del scroll alcanzado, pausando...');
                     this.detenerAutoScroll();
 
-                    setTimeout(() => {
+                    this.scrollTimeout = setTimeout(() => {
                         if (this.isTVMode) {
                             window.scrollTo({ top: 0, behavior: 'smooth' });
-                            // Reiniciar después de que el smooth scroll termine (2s aprox)
-                            setTimeout(() => this.iniciarAutoScroll(), 2000);
+                            this.scrollTimeout = setTimeout(() => this.iniciarAutoScroll(), 2000);
                         }
                     }, delayAtBottom);
                 }
-            }, 50); // 20fps aprox para suavidad
+            }, 50);
         }, 2000);
     },
 
@@ -857,6 +868,22 @@ const AlmacenModule = {
             clearInterval(this.scrollInterval);
             this.scrollInterval = null;
         }
+        if (this.scrollTimeout) {
+            clearTimeout(this.scrollTimeout);
+            this.scrollTimeout = null;
+        }
+    },
+
+    /**
+     * Desactivar procesos del módulo al salir de la página
+     */
+    desactivar: function () {
+        console.log('🔌 [Almacen] Desactivando procesos de fondo...');
+        if (this.isTVMode) {
+            this.toggleModoTV(); // Apaga el modo TV limpiamente
+        }
+        this.detenerAutoRefresco();
+        this.detenerAutoScroll();
     },
 
     /**

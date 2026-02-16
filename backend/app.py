@@ -29,11 +29,13 @@ from backend.routes.pedidos_routes import pedidos_bp
 from backend.routes.imagenes_routes import imagenes_bp
 
 from backend.routes.facturacion_routes import facturacion_bp
+from backend.routes.inventario_routes import inventario_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
 app.register_blueprint(imagenes_bp, url_prefix='/imagenes')
 app.register_blueprint(facturacion_bp)
+app.register_blueprint(inventario_bp)
 
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
@@ -1239,7 +1241,12 @@ def registrar_inyeccion():
             'piezasBuenas': piezas_buenas,
             'codigoProductoEntrada': codigo_producto_entrada,
             'codigoProductoSistema': codigo_producto,
-            'filaGuardada': fila_guardada if 'fila_guardada' in locals() else None
+            'filaGuardada': fila_guardada if 'fila_guardada' in locals() else None,
+            'undo_meta': {
+                'hoja': Hojas.INYECCION,
+                'fila': fila_guardada if 'fila_guardada' in locals() else None,
+                'tipo': 'INYECCION'
+            }
         }), 200
         
     except Exception as e:
@@ -1442,12 +1449,22 @@ def handle_pulido():
         # ========================================
         # RESPUESTA EXITOSA
         # ========================================
+        try:
+            last_row = len(ws.col_values(1)) 
+        except:
+            last_row = 0
+
         return jsonify({
             'success': True,
             'mensaje': ' Pulido registrado correctamente',
             'id_pulido': id_pulido,
             'cantidad_real': cantidad_real,
-            'pnc': pnc
+            'pnc': pnc,
+            'undo_meta': {
+                'hoja': Hojas.PULIDO,
+                'fila': last_row,
+                'tipo': 'PULIDO'
+            }
         }), 200
         
     except Exception as e:
@@ -1640,6 +1657,11 @@ def handle_ensamble():
         if pnc > 0:
             mensaje += f" (con {pnc} PNC)"
         
+        try:
+            last_row = len(ws.col_values(1)) 
+        except:
+            last_row = 0
+
         return jsonify({
             "success": True,
             "mensaje": mensaje,
@@ -1647,7 +1669,12 @@ def handle_ensamble():
             "cantidad_real": cantidad_real,
             "pnc": pnc,
             "buje_consumido": buje_codigo_sistema,
-            "total_consumo": total_consumo
+            "total_consumo": total_consumo,
+            "undo_meta": {
+                "hoja": Hojas.ENSAMBLES,
+                "fila": last_row,
+                "tipo": "ENSAMBLE"
+            }
         }), 200
         
     except Exception as e:
@@ -2031,24 +2058,29 @@ def obtener_historial_global():
                     
                     procesados += 1
                     # Usar los encabezados reales de la hoja para mayor precisión Juan Sebastian
+                    # Lógica robusta para encontrar el responsable Juan Sebastian
+                    responsable_val = str(safe_get_ignore_case(reg, 'RESPONSABLE', safe_get_ignore_case(reg, 'OPERARIO', safe_get_ignore_case(reg, 'USUARIO'))))
+
                     movimientos.append({
                         'Fecha': fecha_reg.strftime('%d/%m/%Y'),
                         'Tipo': 'PULIDO',
                         'Producto': str(safe_get_ignore_case(reg, 'CODIGO', safe_get_ignore_case(reg, 'ID CODIGO'))),
-                        'RESPONSABLE': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
+                        'RESPONSABLE': responsable_val,
                         'ORDEN PRODUCCION': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')),
                         'CANTIDAD REAL': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL'))),
                         # Normalizados para compatibilidad
-                        'Responsable': str(safe_get_ignore_case(reg, 'RESPONSABLE')),
-                        'Cant': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL'))),
+                        'Responsable': responsable_val,
+                        # FIX: Usuario quiere ver CANTIDAD RECIBIDA (Total) en la tabla, no solo los buenos
+                        'Cant': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD RECIBIDA', safe_get_ignore_case(reg, 'CANTIDAD_RECIBIDA', safe_get_ignore_case(reg, 'BUJES BUENOS')))),
                         'Orden': str(safe_get_ignore_case(reg, 'FECHA', safe_get_ignore_case(reg, 'LOTE'))), # Priorizar FECHA sobre LOTE Juan Sebastian
                         'Detalle': str(safe_get_ignore_case(reg, 'OBSERVACIONES')),
                         'Extra': str(safe_get_ignore_case(reg, 'ORDEN PRODUCCION')), # Mover OP a Extra (Maquina) Juan Sebastian
                         'hoja': Hojas.PULIDO,
                         'fila': idx + 2,
-                        # Campos adicionales
-                        'RECIBIDOS': safe_get_ignore_case(reg, 'BUJES RECIBIDOS'),
-                        'PNC': safe_get_ignore_case(reg, 'PNC')
+                        # Campos adicionales validos
+                        'RECIBIDOS': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD RECIBIDA', safe_get_ignore_case(reg, 'BUJES RECIBIDOS'))),
+                        'PNC': to_int_seguro(safe_get_ignore_case(reg, 'PNC')),
+                        'BUENOS': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL')))
                     })
                 
                 logger.info(f" PULIDO: {procesados} procesados, {saltados} saltados de {len(registros_pul)} totales")
@@ -2059,16 +2091,31 @@ def obtener_historial_global():
         # ========================================
         # 3. FACTURACIN / VENTAS
         # ========================================
+        # ========================================
+        # 3. FACTURACIÓN / VENTAS (Desde PEDIDOS)
+        # ========================================
         if not tipo or tipo in ['VENTA', 'FACTURACION']:
             try:
-                ws_fac = ss.worksheet(Hojas.FACTURACION)
-                registros_fac = ws_fac.get_all_records()
-                logger.info(f" FACTURACIN: {len(registros_fac)} registros totales")
+                # CAMBIO CRÍTICO: Leer de PEDIDOS en lugar de FACTURACION (que no se usa)
+                ws_ped = ss.worksheet(Hojas.PEDIDOS)
+                registros_ped = ws_ped.get_all_records()
+                logger.info(f" VENTAS (desde Pedidos): {len(registros_ped)} registros totales encontrados")
                 
                 procesados = 0
                 saltados = 0
                 
-                for reg in registros_fac:
+                for reg in registros_ped:
+                    # Filtro 1: Estado de Despacho
+                    estado = str(reg.get('ESTADO', '')).strip().upper()
+                    estado_despacho = str(reg.get('ESTADO_DESPACHO', '')).strip().upper()
+                    
+                    # Consideramos venta si está marcado como despachado o si el estado global implica envío
+                    es_venta = (estado_despacho == 'TRUE') or (estado in ['COMPLETADO', 'ENVIADO', 'DESPACHADO', 'ENTREGADO'])
+                    
+                    if not es_venta:
+                        continue
+
+                    # Filtro 2: Fecha
                     fecha_str = str(reg.get('FECHA', ''))
                     
                     if not fecha_str or fecha_str == '' or fecha_str == 'None':
@@ -2086,21 +2133,32 @@ def obtener_historial_global():
                         continue
                     
                     procesados += 1
+                    
+                    # Mapeo de campos para el historial unificado
+                    id_pedido = str(reg.get('ID PEDIDO', ''))
+                    cliente = str(reg.get('CLIENTE', ''))
+                    vendedor = str(reg.get('VENDEDOR', ''))
+                    
                     movimientos.append({
                         'Fecha': fecha_reg.strftime('%d/%m/%Y'),
                         'Tipo': 'VENTA',
-                        'Producto': str(reg.get('ID CODIGO', reg.get('CODIGO', ''))),
+                        'Producto': str(reg.get('ID CODIGO', '')),
                         'Cant': to_int_seguro(reg.get('CANTIDAD', 0)),
-                        'Responsable': str(reg.get('CLIENTE', '')),
-                        'Detalle': f"Factura: {reg.get('ID FACTURA', '')}",
-                        'Orden': str(reg.get('ORDEN', reg.get('ID FACTURA', ''))),
-                        'Extra': ''
+                        'Responsable': cliente,
+                        'Detalle': f"Pedido: {id_pedido} ({vendedor})",
+                        'Orden': id_pedido,
+                        'Extra': str(reg.get('DESCRIPCION', '')),
+                        'hoja': Hojas.PEDIDOS,
+                        'fila': 0 # No es relevante para edición directa en historial
                     })
                 
-                logger.info(f" FACTURACIN: {procesados} procesados, {saltados} saltados de {len(registros_fac)} totales")
+                logger.info(f" VENTAS: {procesados} procesados como ventas reales")
+                
                 
             except Exception as e:
-                logger.error(f" Error en FACTURACIN: {e}")
+                logger.error(f" Error en VENTAS (Pedidos): {e}")
+                
+
 
         # ========================================
         # 4. ENSAMBLES
@@ -2535,32 +2593,37 @@ def obtener_clientes():
         ws = ss.worksheet(Hojas.CLIENTES) 
         
         datos = ws.get_all_values()
-        encabezados = datos[0]
-        filas = datos[1:]
+        if not encabezados:
+             logger.warning("⚠️ Hoja CLIENTES vacía o sin encabezados")
+             return jsonify([])
+
+        # Buscar índices de columnas (Flexible)
+        idx_nombre = next((encabezados.index(h) for h in ["NOMBRE", "CLIENTE", "RAZON SOCIAL"] if h in encabezados), -1)
+        idx_nit = next((encabezados.index(h) for h in ["IDENTIFICACION", "NIT", "RUT"] if h in encabezados), -1)
+        idx_dir = next((encabezados.index(h) for h in ["DIRECCION", "DIRECCIÓN"] if h in encabezados), -1)
+        idx_tel = next((encabezados.index(h) for h in ["TELEFONOS", "TELEFONO", "CELULAR"] if h in encabezados), -1)
+        idx_ciu = next((encabezados.index(h) for h in ["CIUDAD", "MUNICIPIO"] if h in encabezados), -1)
         
-        clientes = []
-        
-        # Buscar índices de columnas (Soporte para CLIENTES y DB_Clientes)
-        idx_nombre = next((encabezados.index(h) for h in ["NOMBRE", "CLIENTE"] if h in encabezados), 0)
-        idx_nit = next((encabezados.index(h) for h in ["IDENTIFICACION", "NIT"] if h in encabezados), -1)
-        idx_dir = encabezados.index("DIRECCION") if "DIRECCION" in encabezados else -1
-        idx_tel = encabezados.index("TELEFONOS") if "TELEFONOS" in encabezados else -1
-        idx_ciu = encabezados.index("CIUDAD") if "CIUDAD" in encabezados else -1
+        logger.info(f"📊 Índices Clientes: Nombre={idx_nombre}, NIT={idx_nit}")
 
         for fila in filas:
-            if len(fila) > idx_nombre and fila[idx_nombre].strip():
-                cliente_obj = {
-                    "nombre": fila[idx_nombre].strip(),
-                    "nit": fila[idx_nit].strip() if idx_nit >= 0 and len(fila) > idx_nit else "",
-                    "direccion": fila[idx_dir].strip() if idx_dir >= 0 and len(fila) > idx_dir else "",
-                    "telefonos": fila[idx_tel].strip() if idx_tel >= 0 and len(fila) > idx_tel else "",
-                    "ciudad": fila[idx_ciu].strip() if idx_ciu >= 0 and len(fila) > idx_ciu else ""
-                }
-                clientes.append(cliente_obj)
+            # Si no hay nombre, saltamos
+            if idx_nombre == -1 or len(fila) <= idx_nombre or not fila[idx_nombre].strip():
+                continue
+                
+            cliente_obj = {
+                "nombre": fila[idx_nombre].strip(),
+                "nit": fila[idx_nit].strip() if idx_nit >= 0 and len(fila) > idx_nit else "",
+                "direccion": fila[idx_dir].strip() if idx_dir >= 0 and len(fila) > idx_dir else "",
+                "telefonos": fila[idx_tel].strip() if idx_tel >= 0 and len(fila) > idx_tel else "",
+                "ciudad": fila[idx_ciu].strip() if idx_ciu >= 0 and len(fila) > idx_ciu else ""
+            }
+            clientes.append(cliente_obj)
         
-        # NO eliminar duplicados - Queremos mostrar todas las sedes
-        # Cada combinación de nombre+dirección+ciudad es una sede diferente
-        return jsonify(sorted(clientes, key=lambda x: (x["nombre"], x["ciudad"] or "", x["direccion"] or "")))
+        logger.info(f"✅ Clientes cargados: {len(clientes)}")
+        
+        # Ordenar alfabéticamente
+        return jsonify(sorted(clientes, key=lambda x: x["nombre"]))
 
     except Exception as e:
         logger.error(f"❌ ERROR en obtener_clientes: {str(e)}")
@@ -2614,11 +2677,16 @@ def listar_productos_v2():
                 # --- D. Stocks Fisicos ---
                 por_pulir = to_int(fila.get('POR PULIR', 0))
                 terminado = to_int(fila.get('P. TERMINADO', 0))
+                comprometido = to_int(fila.get('COMPROMETIDO', 0))
+                stock_disponible = terminado - comprometido
+                
                 # Puedes sumar ensamblado aqui si quieres
                 stock_total = por_pulir + terminado
 
                 # --- E. Logica de Semaforo (Centralizada) ---
-                semaforo = calcular_metricas_semaforo(stock_total, p_min, p_reorden, p_max)
+                # Usamos stock_global para el semforo (Produccin)
+                stock_global = (terminado + por_pulir) - comprometido
+                semaforo = calcular_metricas_semaforo(stock_global, p_min, p_reorden, p_max)
 
                 # --- F. Objeto Final ---
                 item = {
@@ -2627,6 +2695,8 @@ def listar_productos_v2():
                     "imagen": corregir_url_imagen(str(fila.get('IMAGEN', ''))),
                     "stock_por_pulir": por_pulir,
                     "stock_terminado": terminado,
+                    "stock_comprometido": comprometido,
+                    "stock_disponible": stock_disponible,
                     "existencias_totales": stock_total,
                     "metricas": { "min": p_min, "max": p_max, "reorden": p_reorden },
                     "semaforo": semaforo
@@ -2746,6 +2816,8 @@ def listar_productos():
             if codigo:
                 stock_por_pulir = int(r.get('POR PULIR', 0) or 0)
                 stock_term = int(r.get('P. TERMINADO', 0) or 0)
+                stock_comp = int(r.get('COMPROMETIDO', 0) or 0)
+                stock_disponible = stock_term - stock_comp
                 stock_total = stock_por_pulir + stock_term
                 stock_minimo = int(r.get('STOCK MINIMO', 10) or 10)
                 punto_reorden = int(r.get('PUNTO REORDEN', 0) or 0) or int(stock_minimo * 0.75)
@@ -2755,43 +2827,40 @@ def listar_productos():
                 # Amarillo: Por Pedir (<= Reorden y > 0)
                 # Verde: Stock OK (> Reorden)
                 
-                if stock_total <= 0:
-                    semaforo_color = 'red'
-                    semaforo_estado = 'AGOTADO'
-                elif stock_total <= punto_reorden:
-                    semaforo_color = 'yellow'
-                    semaforo_estado = 'POR PEDIR'
-                else:
-                    semaforo_color = 'green'
-                    semaforo_estado = 'STOCK OK'
-                
-            productos.append({
-                    'codigo': codigo,  # Cambiar a 'codigo' para coincidir con frontend
-                    'descripcion': r.get('DESCRIPCION', ''),
+                # Nueva lógica: El semáforo depende del stock global (Producción)
+                stock_global = (stock_term + stock_por_pulir) - stock_comp
+                p_reorden = int(r.get('PUNTO REORDEN', 0) or 0)
+                p_max = int(r.get('STOCK MAXIMO', 999999) or 999999)
+                semaforo = calcular_metricas_semaforo(stock_global, stock_minimo, p_reorden, p_max)
+
+                # Precios: Buscar por varias claves de forma robusta
+                codigo_sis_up = str(r.get('CODIGO SISTEMA', '')).strip().upper()
+                id_cod_up = str(r.get('ID CODIGO', '')).strip().upper()
+                precio = precios_db.get(codigo_sis_up) or precios_db.get(id_cod_up) or 0
+
+                item = {
+                    'codigo': codigo,
+                    'codigo_sistema': r.get('CODIGO SISTEMA', ''),
+                    'id_codigo': r.get('ID CODIGO', ''),
+                    'descripcion': str(r.get('DESCRIPCION', '')),
                     'stock_por_pulir': stock_por_pulir,
                     'stock_terminado': stock_term,
-                    'existencias_totales': stock_total,  # Cambiar a 'existencias_totales'
-                    'precio': (
-                        precios_db.get(str(r.get('ID CODIGO', '')).strip().upper(), None) or
-                        precios_db.get(str(r.get('CODIGO SISTEMA', '')).strip().upper(), None) or
-                        precios_db.get(codigo.upper(), None) or
-                        r.get('PRECIO', 0)
-                    ),  # Intenta ID CODIGO, CODIGO SISTEMA, luego fallback a PRODUCTOS
+                    'stock_comprometido': stock_comp,
+                    'stock_disponible': stock_disponible,
+                    'stock_total': stock_total,
+                    'existencias_totales': stock_total,
+                    'stock': stock_disponible, # Alias para portal Juan Sebastian
                     'stock_minimo': stock_minimo,
-                    'punto_reorden': punto_reorden,
-                    'imagen': corregir_url_imagen(r.get('IMAGEN', '') or r.get('Imagen', '') or r.get('imagen', '') or r.get('FOTO', '') or r.get('Foto', '') or ''),
-                    'semaforo': {
-                        'color': semaforo_color,
-                        'estado': semaforo_estado,
-                        'configurado': True,
-                        'mensaje': f'Reorden: {punto_reorden} | Mínimo: {stock_minimo}' if stock_total < stock_minimo else ''
-                    },
+                    'precio': precio,
+                    'imagen': corregir_url_imagen(str(r.get('IMAGEN', ''))),
+                    'semaforo': semaforo,
                     'metricas': {
                         'min': stock_minimo,
                         'reorden': punto_reorden,
-                        'max': int(r.get('STOCK MAXIMO', 0) or 0)
+                        'max': p_max
                     }
-                })
+                }
+                productos.append(item)
 
         # Guardar en cache
         resultado = {'items': productos}
@@ -2834,6 +2903,8 @@ def detalle_producto(codigo_sistema):
 
         stock_por_pulir = int(producto.get('POR PULIR', 0) or 0)
         stock_terminado = int(producto.get('P. TERMINADO', 0) or 0)
+        stock_comprometido = int(producto.get('COMPROMETIDO', 0) or 0)
+        stock_disponible = stock_terminado - stock_comprometido
         stock_total = stock_por_pulir + stock_terminado
 
         return jsonify({
@@ -2847,6 +2918,8 @@ def detalle_producto(codigo_sistema):
                 'stock_total': stock_total,
                 'stock_por_pulir': stock_por_pulir,
                 'stock_terminado': stock_terminado,
+                'stock_comprometido': stock_comprometido,
+                'stock_disponible': stock_disponible,
                 'stock_minimo': int(producto.get('STOCK MINIMO', 10) or 10),
                 'imagen': producto.get('IMAGEN', ''),
                 'activo': True
@@ -5184,6 +5257,48 @@ def serve_static(path):
 # ========================================
 # INICIAR SERVIDOR FLASK
 # ========================================
+@app.route('/api/undo', methods=['POST'])
+def undo_last_action():
+    """
+    Deshace la última acción eliminando la fila creada.
+    IMPORTANTE: Esto NO revierte automáticamente el inventario sumado/restado
+    porque requeriría lógica inversa compleja. 
+    SIN EMBARGO, como la fuente de verdad es el Sheet, si borramos la fila
+    y el usuario "recalcula" o la auditoria nocturna corre, se corrige.
+    
+    Para v1.3: Borrado de Fila + Advertencia
+    """
+    try:
+        data = request.json
+        hoja_nombre = data.get('hoja')
+        fila = data.get('fila')
+        
+        if not hoja_nombre or not fila:
+            return jsonify({"success": False, "error": "Datos incompletos"}), 400
+            
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws = ss.worksheet(hoja_nombre)
+        
+        # Verificar que la fila tenga datos recientes (seguridad básica)
+        # Leer columna 1 (Fecha)
+        fecha_celda = ws.cell(fila, 1).value
+        if not fecha_celda:
+             return jsonify({"success": False, "error": "Fila ya vacía o inexistente"}), 400
+             
+        # Borrar la fila
+        ws.delete_rows(fila)
+        
+        # Opcional: Escribir en log de auditoria que se borró
+        logger.info(f" ↩️ UNDO: Se eliminó fila {fila} de {hoja_nombre}")
+        
+        # TODO: Implementar reversión de Stock en v2 si es necesario
+        
+        return jsonify({"success": True, "message": "Registro eliminado confirmadamente"}), 200
+        
+    except Exception as e:
+        logger.error(f" Error en UNDO: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 if __name__ == '__main__':
     print("\n" + "="*50)
     print("🚀 INICIANDO SERVIDOR FLASK (PUERTO 5005)")

@@ -36,6 +36,52 @@ const ModuloMezcla = {
             option.textContent = val;
             select.appendChild(option);
         });
+
+        // INTENTO DE AUTO-SELECCION (Fix Race Condition)
+        this.intentarSeleccionarResponsable(select);
+    },
+
+    intentarSeleccionarResponsable: function (select) {
+        let nombreUsuario = null;
+
+        if (window.AppState?.user?.name) {
+            nombreUsuario = window.AppState.user.name;
+        } else if (window.AuthModule?.currentUser?.nombre) {
+            nombreUsuario = window.AuthModule.currentUser.nombre;
+        }
+
+        if (nombreUsuario) {
+            const options = Array.from(select.options);
+            const matchingOption = options.find(opt => opt.value === nombreUsuario);
+            if (matchingOption) {
+                select.value = nombreUsuario;
+                console.log(`✅ [Mezcla] Responsable auto-seleccionado: ${nombreUsuario}`);
+                // Bloquear para evitar cambios accidentales (opcional, como en Pedidos)
+                // select.disabled = true; 
+            }
+        } else {
+            console.log('⏳ [Mezcla] Esperando usuario para auto-selección...');
+
+            // Listener único
+            const handler = (e) => {
+                console.log("👤 [Mezcla] Evento user-ready recibido");
+                this.intentarSeleccionarResponsable(select);
+                window.removeEventListener('user-ready', handler);
+            };
+            window.addEventListener('user-ready', handler);
+
+            // Polling fallback
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                if (window.AppState?.user?.name) {
+                    this.intentarSeleccionarResponsable(select);
+                    clearInterval(interval);
+                    window.removeEventListener('user-ready', handler);
+                }
+                if (attempts > 10) clearInterval(interval);
+            }, 500);
+        }
     },
 
     /**

@@ -158,96 +158,141 @@ const ModuloFacturacion = {
     /**
      * Iniciar proceso de exportación
      */
-    iniciarExportacion: async function () {
-        if (this.pedidosSeleccionados.size === 0) {
-            // Usar SweetAlert si está disponible, sino alert nativo
+    /**
+     * Iniciar proceso de exportación (V2 con Preview)
+     */
+    abrirPreviewWO: function () {
+        const ids = Array.from(this.pedidosSeleccionados);
+
+        if (ids.length === 0) {
+            // Si no hay selección, preguntar si exportar todo
             if (typeof Swal !== 'undefined') {
                 Swal.fire({
-                    icon: 'warning',
-                    title: 'Sin selección',
-                    text: 'Seleccione al menos un pedido para exportar',
-                    confirmButtonColor: '#3085d6'
+                    title: '¿Exportar todo?',
+                    text: "No ha seleccionado pedidos específicos. ¿Desea exportar TODOS los pedidos pendientes?",
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonColor: '#3085d6',
+                    cancelButtonColor: '#d33',
+                    confirmButtonText: 'Sí, exportar todo'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        this.mostrarModalPreview([]); // Array vacío = Todo
+                    }
                 });
             } else {
-                alert('Seleccione al menos un pedido para exportar');
-            }
-            return;
-        }
-
-        // Verificar SweetAlert
-        if (typeof Swal === 'undefined') {
-            alert('Error: SweetAlert2 no está cargado. Recargue la página.');
-            return;
-        }
-
-        const { value: consecutivo } = await Swal.fire({
-            title: 'Exportar a World Office',
-            text: 'Ingrese el número de documento inicial (Consecutivo):',
-            input: 'number',
-            inputValue: 9430,
-            showCancelButton: true,
-            confirmButtonText: 'Generar Excel',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#10b981',
-            cancelButtonColor: '#d33',
-            showLoaderOnConfirm: true,
-            preConfirm: (consecutivo) => {
-                if (!consecutivo) {
-                    Swal.showValidationMessage('El consecutivo es requerido');
+                if (confirm("No ha seleccionado pedidos. ¿Desea exportar TODOS los pendientes?")) {
+                    this.mostrarModalPreview([]);
                 }
-                return consecutivo;
             }
-        });
-
-        if (consecutivo) {
-            try {
-                mostrarLoading(true);
-
-                // Convertir Set a Array
-                const pedidosArray = Array.from(this.pedidosSeleccionados);
-
-                const response = await fetch('/api/exportar/world-office', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        consecutivo: consecutivo,
-                        pedidos: pedidosArray
-                    })
-                });
-
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `Export_WO_${new Date().toISOString().slice(0, 10)}.xlsx`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-
-                    Swal.fire({
-                        icon: 'success',
-                        title: '¡Archivo Generado!',
-                        text: 'La descarga comenzará automáticamente.',
-                        timer: 2000,
-                        showConfirmButton: false
-                    });
-                } else {
-                    const data = await response.json();
-                    throw new Error(data.error || 'Error al generar archivo');
-                }
-            } catch (error) {
-                console.error('Error exportación:', error);
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Error',
-                    text: error.message
-                });
-            } finally {
-                mostrarLoading(false);
-            }
+        } else {
+            this.mostrarModalPreview(ids);
         }
+    },
+
+    mostrarModalPreview: function (ids) {
+        const modal = document.getElementById('modal-preview-wo');
+        if (modal) {
+            modal.style.display = 'flex'; // Usar FLEX para mantener el centrado
+            this.cargarPreviewWO(ids);
+
+            // Guardar IDs para la descarga final
+            modal.dataset.idsToExport = JSON.stringify(ids);
+
+            // Helpers para asignar eventos (evita cloneNode que puede fallar con referencias)
+            // YA NO ES NECESARIO: Se asignó onclick directamente en HTML para mayor robustez
+        }
+    },
+
+    cerrarPreviewWO: function () {
+        const modal = document.getElementById('modal-preview-wo');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.dataset.idsToExport = ''; // Limpiar
+            const tbody = document.querySelector('#tabla-preview-wo tbody');
+            if (tbody) tbody.innerHTML = '';
+        }
+    },
+
+    cargarPreviewWO: async function (ids) {
+        const tbody = document.querySelector('#tabla-preview-wo tbody');
+        const thead = document.querySelector('#tabla-preview-wo thead');
+
+        if (!tbody || !thead) return;
+
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center"><i class="fas fa-spinner fa-spin"></i> Cargando vista previa...</td></tr>';
+
+        try {
+            const response = await fetch('/api/exportar/world-office/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids })
+            });
+            const result = await response.json();
+
+            if (result.success && result.data.length > 0) {
+                // Render Headers
+                const firstRow = result.data[0];
+                const columns = Object.keys(firstRow);
+                thead.innerHTML = '<tr>' + columns.map(col => `<th>${col}</th>`).join('') + '</tr>';
+
+                // Render Rows
+                tbody.innerHTML = result.data.map(row => {
+                    return '<tr>' + columns.map(col => `<td>${row[col] !== null ? row[col] : ''}</td>`).join('') + '</tr>';
+                }).join('');
+
+            } else {
+                tbody.innerHTML = '<tr><td colspan="10" class="text-center text-warning"><i class="fas fa-exclamation-triangle"></i> No hay datos para exportar con los filtros seleccionados.</td></tr>';
+            }
+        } catch (error) {
+            console.error("Error cargando preview:", error);
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger">Error: ${error.message}</td></tr>`;
+        }
+    },
+
+    descargarExcelWO: function () {
+        const modal = document.getElementById('modal-preview-wo');
+        const ids = modal ? JSON.parse(modal.dataset.idsToExport || '[]') : [];
+
+        const btn = document.getElementById('btn-confirmar-exportar-wo');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
+        btn.disabled = true;
+
+        fetch('/api/exportar/world-office', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: ids })
+        })
+            .then(response => {
+                if (response.ok) return response.blob();
+                return response.json().then(err => Promise.reject(err));
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `Export_WO_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                if (typeof mostrarNotificacion === 'function') mostrarNotificacion('✅ Archivo generado correctamente.', 'success');
+                else alert('Archivo generado');
+
+                this.cerrarPreviewWO();
+            })
+            .catch(error => {
+                console.error("Error descarga WO:", error);
+                if (typeof Swal !== 'undefined') Swal.fire('Error', error.message || error.error, 'error');
+                else alert('Error: ' + error.message);
+            })
+            .finally(() => {
+                if (btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            });
     }
 };
 

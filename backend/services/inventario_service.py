@@ -182,6 +182,8 @@ class InventarioService:
             stock_por_pulir = producto_repo.obtener_stock(codigo, "POR PULIR")
             stock_terminado = producto_repo.obtener_stock(codigo, "P. TERMINADO")
             stock_ensamblado = producto_repo.obtener_stock(codigo, "PRODUCTO ENSAMBLADO")
+            stock_comprometido = to_int(producto.get("COMPROMETIDO", 0))
+            stock_disponible = stock_terminado - stock_comprometido
             stock_cliente = producto_repo.obtener_stock(codigo, "CLIENTE")
             
             stock_total = stock_por_pulir + stock_terminado + stock_ensamblado
@@ -198,6 +200,8 @@ class InventarioService:
                     "stock_total": stock_total,
                     "stock_por_pulir": stock_por_pulir,
                     "stock_terminado": stock_terminado,
+                    "stock_comprometido": stock_comprometido,
+                    "stock_disponible": stock_disponible,
                     "stock_ensamblado": stock_ensamblado,
                     "stock_cliente": stock_cliente,
                     "stock_minimo": int(producto.get("STOCK MINIMO", 10) or 10),

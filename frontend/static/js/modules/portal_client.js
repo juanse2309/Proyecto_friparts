@@ -176,12 +176,11 @@ const ModuloPortal = {
                 else if (data.items && Array.isArray(data.items)) items = data.items;
                 else if (data.productos && Array.isArray(data.productos)) items = data.productos;
 
-                // Mapeo robusto
                 this.productos = items.map(p => ({
                     id: p.id_codigo || p.ID_CODIGO || p.ID || 0,
                     codigo: p.codigo || p.codigo_sistema || p.CODIGO || '',
                     descripcion: p.descripcion || p.DESCRIPCION || '',
-                    stock: p.existencias_totales || p.EXISTENCIAS || p.stock_total || 0,
+                    stock: p.stock_disponible ?? p.existencias_totales ?? p.stock_total ?? 0,
                     precio: p.precio || p.PRECIO || 0,
                     imagen: p.imagen || '/static/img/no-image.png'
                 }));
@@ -335,7 +334,9 @@ const ModuloPortal = {
                 ? `<span class="badge bg-success text-white">Disponible (${p.stock})</span>`
                 : p.stock > 0
                     ? `<span class="badge bg-warning text-dark">Pocas unidades (${p.stock})</span>`
-                    : `<span class="badge bg-secondary">Bajo Pedido</span>`;
+                    : p.stock <= 0
+                        ? `<span class="badge bg-secondary">Bajo Pedido</span>`
+                        : `<span class="badge bg-danger">Agotado</span>`;
 
             return `
                 <div class="product-card-mobile">
@@ -1189,6 +1190,17 @@ const ModuloPortal = {
             } else {
                 container.insertAdjacentHTML('afterbegin', html);
             }
+        }
+    },
+
+    /**
+     * Desactivar procesos del módulo al salir
+     */
+    desactivar: function () {
+        console.log('🔌 [Portal] Deteniendo polling y procesos...');
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
         }
     }
 };

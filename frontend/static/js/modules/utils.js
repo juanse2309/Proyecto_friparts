@@ -27,7 +27,7 @@ function renderProductSuggestions(container, items, onSelect) {
         const codigo = prod.codigo_sistema || prod.codigo || 'N/A';
         const descripcion = prod.descripcion || 'Sin descripción';
         const precio = prod.precio || 0;
-        const stock = prod.stock_total || prod.stock || 0;
+        const stock = prod.stock_disponible ?? prod.stock_total ?? prod.stock ?? 0;
 
         return `
             <div class="suggestion-item product-suggestion-pro" 
@@ -66,7 +66,12 @@ function renderProductSuggestions(container, items, onSelect) {
 /**
  * Mostrar notificación visual
  */
-function mostrarNotificacion(mensaje, tipo = 'info') {
+function mostrarNotificacion(mensaje, tipo = 'info', undoData = null) {
+    // 1. Reproducir sonido (Gamificación v1.3)
+    if (window.ModuloUX && window.ModuloUX.playSound) {
+        window.ModuloUX.playSound(tipo);
+    }
+
     // Definir colores de borde según tipo
     const colors = {
         'success': '#10b981', // Green
@@ -86,36 +91,83 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
 
     const notificationDiv = document.createElement('div');
 
-    // Estilos profesionales: Fondo blanco, sombra, centrado top
+    // Estilos profesionales
     notificationDiv.style.cssText = `
         position: fixed;
         top: 20px;
         left: 50%;
-        transform: translateX(-50%); /* Centrado horizontal */
+        transform: translateX(-50%);
         background-color: #ffffff;
         color: #333333;
         padding: 16px 24px;
         border-radius: 12px;
         font-weight: 500;
         font-size: 0.95rem;
-        z-index: 10005; /* Encima de todo */
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); /* Sombra suave pero visible */
+        z-index: 10005;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
         display: flex;
         align-items: center;
         gap: 15px;
         max-width: 90%;
-        width: 400px;
+        width: git 420px;
         border-left: 6px solid ${iconColor};
         animation: slideInDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     `;
 
+    // Botón Undo (si hay datos)
+    let undoHtml = '';
+    if (undoData && undoData.hoja && undoData.fila) {
+        undoHtml = `
+            <button id="btn-undo-action" class="btn btn-sm btn-outline-danger ms-auto" 
+                style="border-radius: 20px; padding: 2px 10px; font-size: 0.8rem; white-space: nowrap;">
+                <i class="fas fa-undo"></i> DESHACER
+            </button>
+        `;
+    }
+
     notificationDiv.innerHTML = `
         <div style="flex-shrink: 0;">${icon}</div>
         <span style="flex-grow: 1; line-height: 1.4;">${mensaje}</span>
-        <i class="fas fa-times" style="color: #9ca3af; cursor: pointer; font-size: 0.9rem;" onclick="this.parentElement.remove()"></i>
+        ${undoHtml}
+        <i class="fas fa-times" style="color: #9ca3af; cursor: pointer; font-size: 0.9rem; margin-left: 10px;" onclick="this.parentElement.remove()"></i>
     `;
 
     document.body.appendChild(notificationDiv);
+
+    // Handler para Undo
+    if (undoData) {
+        const btnUndo = notificationDiv.querySelector('#btn-undo-action');
+        if (btnUndo) {
+            btnUndo.addEventListener('click', async () => {
+                // Feedback inmediato
+                btnUndo.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
+                btnUndo.disabled = true;
+
+                try {
+                    const res = await fetch('/api/undo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(undoData)
+                    });
+                    const data = await res.json();
+
+                    if (data.success) {
+                        notificationDiv.remove();
+                        mostrarNotificacion('Acción deshecha correctamente. Verifica el stock si es necesario.', 'warning');
+                        // Opcional: Recargar módulo actual
+                        const pagina = window.AppState.paginaActual;
+                        if (window[`Modulo${pagina.charAt(0).toUpperCase() + pagina.slice(1)}`]?.cargarDatos) {
+                            window[`Modulo${pagina.charAt(0).toUpperCase() + pagina.slice(1)}`].cargarDatos();
+                        }
+                    } else {
+                        mostrarNotificacion('No se pudo deshacer: ' + data.error, 'error');
+                    }
+                } catch (e) {
+                    mostrarNotificacion('Error de conexión al deshacer', 'error');
+                }
+            });
+        }
+    }
 
     // Animaciones
     if (!document.querySelector('style#notification-animations')) {
@@ -134,7 +186,7 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
         document.head.appendChild(style);
     }
 
-    // Auto eliminar
+    // Auto eliminar (5s para dar tiempo al Undo)
     setTimeout(() => {
         if (notificationDiv.parentNode) {
             notificationDiv.style.animation = 'fadeOutUp 0.5s forwards';
@@ -142,7 +194,7 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
                 if (notificationDiv.parentNode) notificationDiv.remove();
             }, 500);
         }
-    }, 4000); // 4 segundos
+    }, 5000);
 }
 
 /**

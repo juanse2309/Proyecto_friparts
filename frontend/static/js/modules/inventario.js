@@ -147,16 +147,20 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                             
                             <div class="card-stats-grid">
                                 <div class="stat-item">
+                                    <span class="stat-label">DISPONIBLE</span>
+                                    <span class="stat-value success">${formatNumber(p.stock_disponible || 0)}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">P. TERMINADO</span>
+                                    <span class="stat-value">${formatNumber(p.stock_terminado || 0)}</span>
+                                </div>
+                                <div class="stat-item">
                                     <span class="stat-label">TOTAL</span>
-                                    <span class="stat-value">${formatNumber(p.existencias_totales || 0)}</span>
+                                    <span class="stat-value" style="color: #6366f1;">${formatNumber(p.existencias_totales || 0)}</span>
                                 </div>
                                 <div class="stat-item">
-                                    <span class="stat-label">PULIR</span>
-                                    <span class="stat-value secondary">${formatNumber(p.stock_por_pulir || 0)}</span>
-                                </div>
-                                <div class="stat-item">
-                                    <span class="stat-label">OK</span>
-                                    <span class="stat-value success">${formatNumber(p.stock_terminado || 0)}</span>
+                                    <span class="stat-label">COMPR.</span>
+                                    <span class="stat-value secondary">${formatNumber(p.stock_comprometido || 0)}</span>
                                 </div>
                             </div>
                         </div>
@@ -219,7 +223,9 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                 <td style="padding: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.descripcion || '-'}</td>
                 <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_por_pulir || 0)}</td>
                 <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_terminado || 0)}</td>
-                <td style="padding: 10px; text-align: right; font-weight: bold;">${formatNumber(p.existencias_totales || 0)}</td>
+                <td style="padding: 10px; text-align: right; color: #6366f1; font-weight: 500;">${formatNumber(p.existencias_totales || 0)}</td>
+                <td style="padding: 10px; text-align: right; color: #ef4444;">${formatNumber(p.stock_comprometido || 0)}</td>
+                <td style="padding: 10px; text-align: right; font-weight: bold; color: #10b981;">${formatNumber(p.stock_disponible || 0)}</td>
                 <td style="padding: 10px; text-align: center;">
                     <span style="background: ${getSemaforoColor(semaforoColor)}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">
                         ${semaforoEstado}
@@ -475,8 +481,136 @@ function configurarEventosInventario() {
         btnActualizar.addEventListener('click', () => {
             console.log('🔄 Recargando productos (Forzando actualización)...');
             mostrarNotificacion('Actualizando inventario desde la nube...', 'info');
-            cargarProductos(true); // Pasar true para forzar refresh
+            cargarProductos(true);
         });
+    }
+
+    // Botón Conteo / Auditoría
+    const btnConteo = document.getElementById('btn-conteo-inventario');
+    if (btnConteo) {
+        btnConteo.addEventListener('click', () => {
+            abrirModalConteo();
+        });
+    }
+
+    // Formulario de Conteo
+    const formConteo = document.getElementById('form-conteo-inventario');
+    if (formConteo) {
+        formConteo.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const data = {
+                codigo: document.getElementById('conteo-producto').value,
+                cantidad: parseInt(document.getElementById('conteo-cantidad').value),
+                responsable: document.getElementById('conteo-responsable').value,
+                observaciones: document.getElementById('conteo-observaciones').value
+            };
+            registrarConteo(data);
+        });
+    }
+}
+
+/**
+ * Lógica de Auditoría / Conteo
+ */
+function abrirModalConteo() {
+    const modal = document.getElementById('modalConteoInventario');
+    const selectProd = document.getElementById('conteo-producto');
+    const selectResp = document.getElementById('conteo-responsable');
+    const inputBusqueda = document.getElementById('conteo-buscador-producto');
+
+    if (!modal) return;
+
+    // Resetear buscador y select
+    if (inputBusqueda) inputBusqueda.value = '';
+
+    // Función para renderizar opciones de productos
+    const renderizarOpcionesProductos = (filtro = '') => {
+        if (!selectProd) return;
+
+        // Guardar valor actual
+        const valorActual = selectProd.value;
+
+        // Limpiar excepto el placeholder
+        selectProd.innerHTML = '<option value="">Seleccione un producto...</option>';
+
+        const productos = window.AppState.productosData || [];
+        const filtrados = productos.filter(p => {
+            const text = `${p.codigo} ${p.descripcion}`.toLowerCase();
+            return text.includes(filtro.toLowerCase());
+        });
+
+        filtrados.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.codigo || p.id_codigo;
+            opt.textContent = `${p.codigo} - ${p.descripcion}`;
+            selectProd.appendChild(opt);
+        });
+
+        // Restaurar valor si aún existe en los filtrados
+        if (valorActual) selectProd.value = valorActual;
+    };
+
+    // Inicializar productos
+    renderizarOpcionesProductos();
+
+    // Evento de búsqueda
+    if (inputBusqueda) {
+        inputBusqueda.oninput = (e) => renderizarOpcionesProductos(e.target.value);
+    }
+
+    // Poblar responsables (Corregido: r es un objeto {nombre, departamento})
+    if (selectResp && selectResp.options.length <= 1) {
+        const responsables = window.AppState.sharedData?.responsables || [];
+        console.log('👥 Poblando responsables en modal:', responsables);
+
+        responsables.forEach(r => {
+            const nombre = typeof r === 'object' ? r.nombre : r;
+            const opt = document.createElement('option');
+            opt.value = nombre;
+            opt.textContent = nombre;
+            selectResp.appendChild(opt);
+        });
+    }
+
+    modal.style.display = 'flex';
+    document.getElementById('form-conteo-inventario')?.reset();
+}
+
+function cerrarModalConteo() {
+    const modal = document.getElementById('modalConteoInventario');
+    if (modal) modal.style.display = 'none';
+}
+
+async function registrarConteo(data) {
+    try {
+        console.log('📤 Enviando conteo:', data);
+        mostrarLoading(true);
+
+        const response = await fetch('/api/conteo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        console.log('📥 Respuesta servidor:', result);
+
+        if (result.success) {
+            if (result.mensaje.includes('Discrepancia')) {
+                mostrarNotificacion(result.mensaje, 'warning');
+            } else {
+                mostrarNotificacion(result.mensaje, 'success');
+                cerrarModalConteo();
+                cargarProductos(true); // Refrescar para ver cambios si hubo ajuste
+            }
+        } else {
+            mostrarNotificacion(result.error || 'Error al registrar conteo', 'error');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        mostrarNotificacion('Error de conexión', 'error');
+    } finally {
+        mostrarLoading(false);
     }
 }
 
@@ -485,7 +619,8 @@ function configurarEventosInventario() {
 // ============================================
 window.ModuloInventario = {
     inicializar: inicializarInventario,
-    cambiarPagina: cambiarPagina
+    cambiarPagina: cambiarPagina,
+    cerrarModalConteo: cerrarModalConteo
 };
 
 

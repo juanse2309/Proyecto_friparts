@@ -12,6 +12,7 @@ const ModuloInyeccion = {
         this.configurarEventos();
         this.initAutocompleteProducto();
         this.initAutocompleteResponsable();
+        this.intentarAutoSeleccionarResponsable();
 
         // Inicializar fecha
         const fechaHoy = new Date().toISOString().split('T')[0];
@@ -63,6 +64,43 @@ const ModuloInyeccion = {
                 opt.textContent = item;
                 select.appendChild(opt);
             });
+        }
+    },
+
+    intentarAutoSeleccionarResponsable: function () {
+        const input = document.getElementById('responsable-inyeccion');
+        if (!input) return;
+
+        let nombreUsuario = null;
+
+        if (window.AppState?.user?.name) {
+            nombreUsuario = window.AppState.user.name;
+        } else if (window.AuthModule?.currentUser?.nombre) {
+            nombreUsuario = window.AuthModule.currentUser.nombre;
+        }
+
+        if (nombreUsuario) {
+            input.value = nombreUsuario;
+            console.log(`✅ [Inyeccion] Responsable auto-asignado: ${nombreUsuario}`);
+        } else {
+            console.log('⏳ [Inyeccion] Esperando usuario para auto-asignación...');
+            const handler = () => {
+                this.intentarAutoSeleccionarResponsable();
+                window.removeEventListener('user-ready', handler);
+            };
+            window.addEventListener('user-ready', handler);
+
+            // Polling fallback
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                if (window.AppState?.user?.name) {
+                    this.intentarAutoSeleccionarResponsable();
+                    clearInterval(interval);
+                    window.removeEventListener('user-ready', handler);
+                }
+                if (attempts > 10) clearInterval(interval);
+            }, 500);
         }
     },
 
@@ -311,7 +349,7 @@ const ModuloInyeccion = {
             const resultado = await response.json();
 
             if (response.ok && resultado.success) {
-                mostrarNotificacion('Registro exitoso', 'success');
+                mostrarNotificacion('Registro exitoso', 'success', resultado.undo_meta);
                 document.getElementById('form-inyeccion').reset();
                 document.getElementById('cavidades-inyeccion').value = 1;
                 document.getElementById('pnc-inyeccion').value = 0;

@@ -12,6 +12,7 @@ const ModuloPulido = {
         this.configurarEventos();
         this.initAutocompleteProducto();
         this.initAutocompleteResponsable();
+        this.intentarAutoSeleccionarResponsable();
 
         // Inicializar Lote con fecha de hoy
         const loteInput = document.getElementById('lote-pulido');
@@ -46,6 +47,43 @@ const ModuloPulido = {
         } catch (error) {
             console.error('Error [Pulido] cargarDatos:', error);
             mostrarLoading(false);
+        }
+    },
+
+    intentarAutoSeleccionarResponsable: function () {
+        const input = document.getElementById('responsable-pulido');
+        if (!input) return;
+
+        let nombreUsuario = null;
+
+        if (window.AppState?.user?.name) {
+            nombreUsuario = window.AppState.user.name;
+        } else if (window.AuthModule?.currentUser?.nombre) {
+            nombreUsuario = window.AuthModule.currentUser.nombre;
+        }
+
+        if (nombreUsuario) {
+            input.value = nombreUsuario;
+            console.log(`✅ [Pulido] Responsable auto-asignado: ${nombreUsuario}`);
+        } else {
+            console.log('⏳ [Pulido] Esperando usuario para auto-asignación...');
+            const handler = () => {
+                this.intentarAutoSeleccionarResponsable();
+                window.removeEventListener('user-ready', handler);
+            };
+            window.addEventListener('user-ready', handler);
+
+            // Polling fallback
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                if (window.AppState?.user?.name) {
+                    this.intentarAutoSeleccionarResponsable();
+                    clearInterval(interval);
+                    window.removeEventListener('user-ready', handler);
+                }
+                if (attempts > 10) clearInterval(interval);
+            }, 500);
         }
     },
 
@@ -149,8 +187,9 @@ const ModuloPulido = {
 
         const entradaInput = document.getElementById('entrada-pulido');
         const pncInput = document.getElementById('pnc-pulido');
+        const bujesInput = document.getElementById('bujes-buenos-pulido');
 
-        if (entradaInput) entradaInput.oninput = () => this.actualizarCalculo();
+        if (bujesInput) bujesInput.oninput = () => this.actualizarCalculo();
         if (pncInput) pncInput.oninput = () => this.actualizarCalculo();
     },
 
@@ -159,24 +198,22 @@ const ModuloPulido = {
         const pncInput = document.getElementById('pnc-pulido');
         const buenosInput = document.getElementById('bujes-buenos-pulido');
 
-        let entrada = Number(entradaInput?.value) || 0;
+        let buenos = Number(buenosInput?.value) || 0;
         let pnc = Number(pncInput?.value) || 0;
 
-        if (pnc > entrada) {
-            mostrarNotificacion('⚠️ PNC no puede ser mayor que la cantidad pulida', 'warning');
-            pnc = entrada;
-            if (pncInput) pncInput.value = pnc;
-        }
+        // Nueva Lógica: Total Entrada = Buenos + PNC
+        const totalEntrada = buenos + pnc;
 
-        const totalReal = Math.max(0, entrada - pnc);
         const displaySalida = document.getElementById('salida-calculada');
         const formulaCalc = document.getElementById('formula-calc-pulido');
         const piezasBuenasDisplay = document.getElementById('piezas-buenas-pulido');
 
-        if (displaySalida) displaySalida.textContent = formatNumber(totalReal);
-        if (formulaCalc) formulaCalc.textContent = `Recibida: ${formatNumber(entrada)} - PNC: ${formatNumber(pnc)} = ${formatNumber(totalReal)} piezas pulidas`;
-        if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalReal)} piezas buenas`;
-        if (buenosInput) buenosInput.value = totalReal;
+        // Actualizar el campo readonly de Entrada (Total)
+        if (entradaInput) entradaInput.value = totalEntrada;
+
+        if (displaySalida) displaySalida.textContent = formatNumber(buenos);
+        if (formulaCalc) formulaCalc.textContent = `Buenas: ${formatNumber(buenos)} + PNC: ${formatNumber(pnc)} = ${formatNumber(totalEntrada)} Total Procesado`;
+        if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Total a descontar: ${formatNumber(totalEntrada)}`;
     },
 
     registrar: async function () {
@@ -189,16 +226,18 @@ const ModuloPulido = {
                 codigo_producto: document.getElementById('codigo-producto-pulido')?.value || '',
                 lote: document.getElementById('lote-pulido')?.value || '',
                 orden_produccion: document.getElementById('orden-produccion-pulido')?.value || '',
-                cantidad_recibida: document.getElementById('entrada-pulido')?.value || '0',
-                cantidad_real: document.getElementById('bujes-buenos-pulido')?.value || '0',
+                cantidad_recibida: document.getElementById('entrada-pulido')?.value || '0', // Este es el Total Calculado
+                cantidad_real: document.getElementById('bujes-buenos-pulido')?.value || '0', // Estas son las Buenas
                 pnc: document.getElementById('pnc-pulido')?.value || '0',
                 criterio_pnc: document.getElementById('criterio-pnc-hidden')?.value || '',
                 observaciones: document.getElementById('observaciones-pulido')?.value || ''
             };
 
-            const entrada = Number(datos.cantidad_recibida) || 0;
+            // Asegurar integridad de datos
+            const buenos = Number(datos.cantidad_real) || 0;
             const pnc = Number(datos.pnc) || 0;
-            datos.cantidad_real = Math.max(0, entrada - pnc).toString();
+            // Recalcular por seguridad
+            datos.cantidad_recibida = (buenos + pnc).toString();
 
             if (!datos.codigo_producto?.trim()) {
                 mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
@@ -223,7 +262,7 @@ const ModuloPulido = {
 
             const resultado = await response.json();
             if (response.ok && resultado.success) {
-                mostrarNotificacion('✅ Registro exitoso', 'success');
+                mostrarNotificacion('✅ Registro exitoso', 'success', resultado.undo_meta);
                 document.getElementById('form-pulido')?.reset();
                 window.tmpDefectosPulido = [];
                 this.actualizarCalculo();

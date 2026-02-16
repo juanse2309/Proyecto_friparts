@@ -1,6 +1,21 @@
-# Proyecto Bujes - Sistema de Gestión de Producción
+# Proyecto Bujes - Sistema de Gestión de Producción ![v1.3.0](https://img.shields.io/badge/versión-1.3.0-blue)
 
 Este proyecto es una aplicación web full-stack diseñada para gestionar la producción, inventario y facturación de una fábrica de bujes. Utiliza **Google Sheets** como base de datos en tiempo real.
+
+## ✨ Novedades Versión 1.3.0 (UX & Personalización)
+Esta versión se enfoca en mejorar la experiencia del operario, haciéndola más amigable y segura.
+
+### 🎨 Personalización
+- **Saludo Dinámico**: La barra lateral saluda según la hora del día (Buenos días/tardes).
+- **Avatar de Usuario**: Generación automática de avatar con iniciales y color único por usuario.
+
+### ↩️ Botón de Pánico (Deshacer)
+- **Seguridad Operativa**: Al registrar en Inyección, Pulido o Ensamble, aparece un botón **"DESHACER"** por 5 segundos.
+- **Corrección Inmediata**: Permite eliminar el último registro erróneo sin necesidad de soporte técnico.
+
+### 🔊 Gamificación (Sonidos)
+- **Feedback Auditivo**: Sonidos sutiles confirman acciones exitosas (chime) o alertan errores (thud).
+- **Tecnología Web Audio**: Sin dependencias de archivos externos, funciona en cualquier navegador moderno.
 
 ## 🚀 Características
 
@@ -200,4 +215,11 @@ Este es un proyecto privado para FriParts. Para contribuir:
 4. Haz push y crea un Pull Request
 
 ---
+---
+### 🆕 Novedades Versión 1.2.0
+- **Facturación**: Corrección histórica de ventas basada en pedidos despachados.
+- **Pulido**: Mejoras en el modal de edición (corrección de campos vacíos) y visualización de totales ("Cantidad Recibida").
+- **Inventario**: Sincronización automática de stock comprometido y validación de conteos cíclicos.
+- **UX Global**: Corrección de autocompletado de usuarios en todos los módulos y mejoras en el buscador de clientes (insensible a acentos).
+
 *Desarrollado con ❤️ por Juan Sebastian.*

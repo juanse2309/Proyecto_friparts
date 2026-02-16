@@ -107,6 +107,7 @@ class ProductoRepository:
                     'POR PULIR': 0,
                     'P. TERMINADO': 0,
                     'PRODUCTO ENSAMBLADO': 0,
+                    'COMPROMETIDO': 0,
                     'STOCK MINIMO': 10
                 }
                 
@@ -118,6 +119,7 @@ class ProductoRepository:
                         'POR PULIR': stock_data.get('POR PULIR', 0),
                         'P. TERMINADO': stock_data.get('P. TERMINADO', 0),
                         'PRODUCTO ENSAMBLADO': stock_data.get('PRODUCTO ENSAMBLADO', 0) or stock_data.get('PRODUCTO ENSAMBLado', 0),
+                        'COMPROMETIDO': stock_data.get('COMPROMETIDO', 0),
                         'STOCK MINIMO': stock_data.get('STOCK MINIMO', 10),
                         'IMAGEN': stock_data.get('IMAGEN', ''), # URL Legacy
                         'MEDIDA': stock_data.get('MEDIDA', ''),

@@ -12,6 +12,7 @@ const ModuloEnsamble = {
         this.configurarEventos();
         this.initAutocompleteComponente();
         this.initAutocompleteResponsable();
+        this.intentarAutoSeleccionarResponsable();
     },
 
     // Alias para compatibilidad con app.js
@@ -43,6 +44,43 @@ const ModuloEnsamble = {
         } catch (error) {
             console.error('Error cargando datos:', error);
             mostrarLoading(false);
+        }
+    },
+
+    intentarAutoSeleccionarResponsable: function () {
+        const input = document.getElementById('responsable-ensamble');
+        if (!input) return;
+
+        let nombreUsuario = null;
+
+        if (window.AppState?.user?.name) {
+            nombreUsuario = window.AppState.user.name;
+        } else if (window.AuthModule?.currentUser?.nombre) {
+            nombreUsuario = window.AuthModule.currentUser.nombre;
+        }
+
+        if (nombreUsuario) {
+            input.value = nombreUsuario;
+            console.log(`✅ [Ensamble] Responsable auto-asignado: ${nombreUsuario}`);
+        } else {
+            console.log('⏳ [Ensamble] Esperando usuario para auto-asignación...');
+            const handler = () => {
+                this.intentarAutoSeleccionarResponsable();
+                window.removeEventListener('user-ready', handler);
+            };
+            window.addEventListener('user-ready', handler);
+
+            // Polling fallback
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                if (window.AppState?.user?.name) {
+                    this.intentarAutoSeleccionarResponsable();
+                    clearInterval(interval);
+                    window.removeEventListener('user-ready', handler);
+                }
+                if (attempts > 10) clearInterval(interval);
+            }, 500);
         }
     },
 
@@ -232,7 +270,7 @@ async function registrarEnsamble() {
         console.log('📥 [Ensamble] RESPUESTA SERVIDOR:', resultado);
 
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success');
+            mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', resultado.undo_meta);
             document.getElementById('form-ensamble')?.reset();
 
             // Reset state

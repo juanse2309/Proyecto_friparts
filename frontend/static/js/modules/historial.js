@@ -99,7 +99,8 @@
                     maquina = r.MAQUINA || r.Extra;
                 } else if (r.Tipo === 'PULIDO') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    // FIX: Mostrar Cantidad Recibida (Total) en lugar de Real (Buenos)
+                    cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = 'N/A';
                 } else if (r.Tipo === 'ENSAMBLE') {
@@ -186,7 +187,8 @@
                     maquina = r.MAQUINA || r.Extra;
                 } else if (r.Tipo === 'PULIDO') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    // FIX: Mostrar Cantidad Recibida (Total) en lugar de Real (Buenos)
+                    cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = '-'; // Pulido no tiene máquina
                 } else if (r.Tipo === 'ENSAMBLE') {
@@ -385,8 +387,8 @@
                     <h6 class="section-title"><i class="fas fa-id-badge me-2"></i> Datos de Pulido</h6>
                     <div class="row g-3">
                         <div class="col-md-12">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Recibidos', r.RECIBIDOS, 'number', 'BUJES RECIBIDOS')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Buenos', r.Cant, 'number', 'BUJES BUENOS')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Recibidos', r.RECIBIDOS, 'number', 'CANTIDAD RECIBIDA')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Buenos', r.BUENOS, 'number', 'BUJES BUENOS')}</div>
                         <div class="col-md-4">${crearCampoEdicion('PNC', r.PNC, 'number', 'PNC')}</div>
                     </div>
                 </div>

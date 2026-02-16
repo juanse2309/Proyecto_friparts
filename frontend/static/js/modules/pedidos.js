@@ -104,11 +104,19 @@ const ModuloPedidos = {
         });
     },
 
+    // Helper para normalizar texto (quitar tildes y minusculas)
+    normalizeString: function (str) {
+        return (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    },
+
     buscarClientes: function (query, suggestionsDiv) {
-        const resultados = this.clientesData.filter(cliente =>
-            cliente.nombre.toLowerCase().includes(query.toLowerCase()) ||
-            (cliente.nit && cliente.nit.includes(query))
-        );
+        const queryNorm = this.normalizeString(query);
+
+        const resultados = this.clientesData.filter(cliente => {
+            const nombreNorm = this.normalizeString(cliente.nombre);
+            return nombreNorm.includes(queryNorm) ||
+                (cliente.nit && cliente.nit.includes(query));
+        });
 
         if (resultados.length === 0) {
             suggestionsDiv.innerHTML = '<div class="suggestion-item">No se encontraron clientes</div>';
@@ -186,10 +194,12 @@ const ModuloPedidos = {
     },
 
     buscarProductos: function (query, suggestionsDiv) {
-        const resultados = this.productosData.filter(prod =>
-            prod.codigo_sistema.toLowerCase().includes(query.toLowerCase()) ||
-            prod.descripcion.toLowerCase().includes(query.toLowerCase())
-        );
+        const queryNorm = this.normalizeString(query);
+        const resultados = this.productosData.filter(prod => {
+            const codigoNorm = this.normalizeString(prod.codigo_sistema);
+            const descNorm = this.normalizeString(prod.descripcion);
+            return codigoNorm.includes(queryNorm) || descNorm.includes(queryNorm);
+        });
 
         if (resultados.length === 0) {
             suggestionsDiv.innerHTML = '<div class="suggestion-item">No se encontraron productos</div>';
@@ -200,7 +210,8 @@ const ModuloPedidos = {
         renderProductSuggestions(suggestionsDiv, resultados.slice(0, 10), (item) => {
             document.getElementById('ped-producto').value = `${item.codigo_sistema} - ${item.descripcion}`;
             document.getElementById('ped-precio').value = item.precio || 0;
-            console.log("💰 Producto seleccionado:", item.codigo_sistema, "Stock:", item.stock_total);
+            this.productoSeleccionado = item; // Guardar el objeto completo
+            console.log("💰 Producto seleccionado:", item.codigo_sistema, "Stock Disponible:", item.stock_disponible);
         });
     },
 
@@ -235,6 +246,23 @@ const ModuloPedidos = {
             console.log(`✅ Vendedor asignado: ${nombreVendedor}`);
         } else {
             console.log('ℹ️  Vendedor pendiente: esperando login de usuario');
+
+            // Retry on event
+            window.addEventListener('user-ready', (e) => {
+                console.log("👤 Evento user-ready recibido en Pedidos");
+                this.actualizarVendedor();
+            });
+
+            // Polling fallback (max 5 seconds)
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                if (window.AppState?.user?.name) {
+                    this.actualizarVendedor();
+                    clearInterval(interval);
+                }
+                if (attempts > 10) clearInterval(interval);
+            }, 500);
         }
     },
 
@@ -282,7 +310,9 @@ const ModuloPedidos = {
             descripcion: descripcion || 'Sin descripción',
             cantidad: cantidad,
             precio_unitario: precioUnitario,
-            stock_disponible: 'N/A'
+            stock_disponible: (this.productoSeleccionado && this.productoSeleccionado.codigo_sistema === codigo)
+                ? this.productoSeleccionado.stock_disponible
+                : 0
         });
 
         console.log(`✅ Producto ${codigo} agregado a la lista. Total items: ${this.listaProductos.length}`);
@@ -327,12 +357,12 @@ const ModuloPedidos = {
             const subtotal = item.cantidad * item.precio_unitario;
             return `
                 <tr>
-                    <td data-label="Código">${item.codigo}</td>
-                    <td data-label="Descripción">${item.descripcion}</td>
-                    <td data-label="Cantidad">${item.cantidad}</td>
-                    <td data-label="Precio Unit.">$${formatNumber(item.precio_unitario)}</td>
-                    <td data-label="Subtotal">$${formatNumber(subtotal)}</td>
-                    <td data-label="Acciones">
+                    <td data-label="Código" style="padding: 10px; border: 1px solid #dee2e6;">${item.codigo}</td>
+                    <td data-label="Descripción" style="padding: 10px; border: 1px solid #dee2e6;">${item.descripcion}</td>
+                    <td data-label="Cantidad" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${item.cantidad}</td>
+                    <td data-label="Precio Unit." style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">$${formatNumber(item.precio_unitario)}</td>
+                    <td data-label="Subtotal" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">$${formatNumber(subtotal)}</td>
+                    <td data-label="Acciones" style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">
                         <button type="button" class="btn btn-sm btn-danger" onclick="ModuloPedidos.eliminarItemDelCarrito(${index})">
                             <i class="fas fa-trash"></i>
                         </button>
@@ -762,6 +792,94 @@ const ModuloPedidos = {
         console.log("🔧 Inicializando módulo Pedidos (desde app.js)");
         this.cargarDatosIniciales();
         this.actualizarVendedor();
+    },
+
+    // --- Lógica Exportación World Office ---
+    abrirPreviewWO: function () {
+        const modal = document.getElementById('modal-preview-wo');
+        if (modal) {
+            modal.style.display = 'block';
+            this.cargarPreviewWO();
+        }
+    },
+
+    cerrarPreviewWO: function () {
+        const modal = document.getElementById('modal-preview-wo');
+        if (modal) {
+            modal.style.display = 'none';
+            // Limpiar tabla
+            const tbody = document.querySelector('#tabla-preview-wo tbody');
+            if (tbody) tbody.innerHTML = '';
+        }
+    },
+
+    cargarPreviewWO: async function () {
+        const tbody = document.querySelector('#tabla-preview-wo tbody');
+        const thead = document.querySelector('#tabla-preview-wo thead');
+
+        if (!tbody || !thead) return;
+
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center"><i class="fas fa-spinner fa-spin"></i> Cargando vista previa...</td></tr>';
+
+        try {
+            const response = await fetch('/api/exportar/world-office/preview');
+            const result = await response.json();
+
+            if (result.success && result.data.length > 0) {
+                // Render Headers
+                const firstRow = result.data[0];
+                const columns = Object.keys(firstRow);
+                thead.innerHTML = '<tr>' + columns.map(col => `<th>${col}</th>`).join('') + '</tr>';
+
+                // Render Rows
+                tbody.innerHTML = result.data.map(row => {
+                    return '<tr>' + columns.map(col => `<td>${row[col] !== null ? row[col] : ''}</td>`).join('') + '</tr>';
+                }).join('');
+
+            } else {
+                tbody.innerHTML = '<tr><td colspan="10" class="text-center text-warning"><i class="fas fa-exclamation-triangle"></i> No hay pedidos pendientes para exportar.</td></tr>';
+            }
+        } catch (error) {
+            console.error("Error cargando preview:", error);
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger">Error: ${error.message}</td></tr>`;
+        }
+    },
+
+    descargarExcelWO: function () {
+        const btn = document.getElementById('btn-confirmar-exportar-wo');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
+        btn.disabled = true;
+
+        fetch('/api/exportar/world-office', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}) // No params needed for v2 logic
+        })
+            .then(response => {
+                if (response.ok) return response.blob();
+                return response.json().then(err => Promise.reject(err));
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `Export_WO_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                this.showToast('✅ Archivo generado correctamente.', 'success');
+                this.cerrarPreviewWO();
+            })
+            .catch(error => {
+                console.error("Error descarga WO:", error);
+                this.showToast(`Error: ${error.error || error.message}`, 'error');
+            })
+            .finally(() => {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            });
     }
 };
 

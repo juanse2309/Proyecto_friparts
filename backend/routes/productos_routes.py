@@ -40,17 +40,17 @@ def buscar_productos(query):
         
         productos_formateados = []
         for producto in resultados:
-            stock_total = (
-                int(producto.get('POR PULIR', 0) or 0) +
-                int(producto.get('P. TERMINADO', 0) or 0) +
-                int(producto.get('PRODUCTO ENSAMBLADO', 0) or 0)
-            )
+            stock_fisico = int(producto.get('P. TERMINADO', 0) or 0)
+            stock_comprometido = int(producto.get('COMPROMETIDO', 0) or 0)
+            stock_disponible = stock_fisico - stock_comprometido
             
             productos_formateados.append({
                 'codigo_sistema': producto.get('CODIGO SISTEMA', ''),
                 'id_codigo': producto.get('ID CODIGO', ''),
                 'descripcion': producto.get('DESCRIPCION', ''),
-                'stock_total': stock_total,
+                'stock_fisico': stock_fisico,
+                'stock_comprometido': stock_comprometido,
+                'stock_disponible': stock_disponible,
                 'stock_por_pulir': int(producto.get('POR PULIR', 0) or 0),
                 'stock_terminado': int(producto.get('P. TERMINADO', 0) or 0),
                 'stock_minimo': int(producto.get('STOCK MINIMO', 10) or 10),
@@ -79,17 +79,17 @@ def listar_productos():
         
         productos_formateados = []
         for p in productos:
-            stock_total = (
-                int(p.get('POR PULIR', 0) or 0) +
-                int(p.get('P. TERMINADO', 0) or 0) +
-                int(p.get('PRODUCTO ENSAMBLADO', 0) or 0)
-            )
+            stock_fisico = int(p.get('P. TERMINADO', 0) or 0)
+            stock_comprometido = int(p.get('COMPROMETIDO', 0) or 0)
+            stock_disponible = stock_fisico - stock_comprometido
             
             productos_formateados.append({
                 'codigo_sistema': p.get('CODIGO SISTEMA', ''),
                 'id_codigo': p.get('ID CODIGO', ''),
                 'descripcion': p.get('DESCRIPCION', ''),
-                'stock_total': stock_total,
+                'stock_fisico': stock_fisico,
+                'stock_comprometido': stock_comprometido,
+                'stock_disponible': stock_disponible,
                 'stock_por_pulir': int(p.get('POR PULIR', 0) or 0),
                 'stock_terminado': int(p.get('P. TERMINADO', 0) or 0),
                 'stock_ensamblado': int(p.get('PRODUCTO ENSAMBLADO', 0) or 0),

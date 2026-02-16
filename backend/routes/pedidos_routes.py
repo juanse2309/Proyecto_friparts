@@ -207,81 +207,62 @@ def registrar_pedido():
                 ws.append_row(row)
             
             # ==========================================
-            # 📉 ACTUALIZACIÓN DE INVENTARIO (STOCK)
+            # 📉 ACTUALIZACIÓN DE INVENTARIO (COMPROMETIDO)
             # ==========================================
             try:
-                logger.info("📉 Iniciando descuento de inventario (P. TERMINADO)...")
+                logger.info("📉 Iniciando aumento de COMPROMETIDO...")
                 ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
                 registros_productos = ws_productos.get_all_records()
                 headers_productos = ws_productos.row_values(1)
                 
                 try:
-                    col_idx = headers_productos.index("P. TERMINADO") + 1
+                    col_idx = headers_productos.index("COMPROMETIDO") + 1
                 except ValueError:
-                    logger.error("❌ Columna 'P. TERMINADO' no encontrada en PRODUCTOS. No se pudo descontar inventario.")
+                    logger.error("❌ Columna 'COMPROMETIDO' no encontrada en PRODUCTOS. No se pudo registrar compromiso.")
                     col_idx = None
 
                 if col_idx:
-                    # Crear mapa de código -> fila para búsqueda rápida
-                    # Normalizamos claves para mejorar coincidencia (strip + upper)
                     mapa_productos = {}
                     for idx, r in enumerate(registros_productos):
-                        # Mapeamos tanto CODIGO SISTEMA como ID CODIGO para ser flexibles
                         c_sis = str(r.get("CODIGO SISTEMA", "")).strip().upper()
                         id_cod = str(r.get("ID CODIGO", "")).strip().upper()
-                        fila_real = idx + 2 # +1 header +1 0-index
-                        
+                        fila_real = idx + 2
                         if c_sis: mapa_productos[c_sis] = fila_real
                         if id_cod: mapa_productos[id_cod] = fila_real
 
                     updates_pendientes = []
-
                     for producto in productos:
                         codigo = str(producto.get('codigo', '')).strip().upper()
-                        if " - " in codigo: # Limpiar si viene "COD - DESC"
+                        if " - " in codigo:
                              codigo = codigo.split(" - ")[0].strip()
                         
                         cantidad_venta = float(producto.get('cantidad', 0))
                         
                         if codigo in mapa_productos:
                             fila = mapa_productos[codigo]
-                            # Obtener stock actual leyendo la celda directamente para ser atómico (o confiando en records)
-                            # Usamos records para evitar N lecturas, pero idealmente deberíamos re-leer. 
-                            # Por simplicidad usamos el dato cargado.
                             item_data = registros_productos[fila - 2]
-                            stock_actual = item_data.get("P. TERMINADO", 0)
+                            comp_actual = item_data.get("COMPROMETIDO", 0)
                             
                             try:
-                                stock_val = float(stock_actual) if stock_actual != '' else 0
+                                comp_val = float(comp_actual) if comp_actual != '' else 0
                             except:
-                                stock_val = 0
+                                comp_val = 0
                                 
-                            nuevo_stock = max(0, stock_val - cantidad_venta)
+                            nuevo_comp = comp_val + cantidad_venta
                             
-                            # Agendar update
-                            # ws_productos.update_cell(fila, col_idx, nuevo_stock) # Opción lenta
                             updates_pendientes.append({
                                 'range': f"{gspread.utils.rowcol_to_a1(fila, col_idx)}",
-                                'values': [[nuevo_stock]]
+                                'values': [[nuevo_comp]]
                             })
-                            logger.info(f"   ✅ Descontado {codigo}: {stock_val} - {cantidad_venta} = {nuevo_stock}")
+                            logger.info(f"   ✅ Comprometido {codigo}: {comp_val} + {cantidad_venta} = {nuevo_comp}")
                         else:
-                            logger.warning(f"   ⚠️ Producto {codigo} no encontrado en inventario para descontar.")
+                            logger.warning(f"   ⚠️ Producto {codigo} no encontrado en inventario para comprometer.")
 
-                    # Batch update si es posible, o uno por uno
                     if updates_pendientes:
-                        try:
-                            ws_productos.batch_update(updates_pendientes)
-                            logger.info(f"   📉 Stock actualizado correctamente para {len(updates_pendientes)} productos")
-                        except Exception as e:
-                            logger.error(f"   ❌ Error en batch update de stock: {e}")
-                            # Fallback uno a uno
-                            for up in updates_pendientes:
-                                ws_productos.update(up['range'], up['values'])
-
+                        ws_productos.batch_update(updates_pendientes)
+                        logger.info(f"   📉 COMPROMETIDO actualizado correctamente para {len(updates_pendientes)} productos")
             except Exception as e_inv:
-                logger.error(f"❌ Error crítico actualizando inventario: {str(e_inv)}")
-                # No fallamos el pedido si falla el stock, pero avisamos en log
+                logger.error(f"❌ Error crítico comprometiendo inventario: {str(e_inv)}")
             
             # ==========================================
             # FIN ACTUALIZACIÓN INVENTARIO
@@ -636,6 +617,65 @@ def actualizar_alistamiento():
         
         if updates:
             ws.batch_update(updates)
+            
+            # ==========================================
+            # 📉 DESCUENTO REAL DE STOCK AL DESPACHAR
+            # ==========================================
+            # Si hay productos marcados como despachados ahora, descontar de Físico y Comprometido
+            try:
+                # Filtrar solo los productos que se acaban de marcar como despachados "TRUE"
+                # y que tienen una fila identificada en el bucle anterior.
+                # Para simplificar, buscamos los detalles que vienen en el request y tienen despachado=True
+                despachados_ahora = [d for d in detalles if d.get("despachado") == True]
+                
+                if despachados_ahora:
+                    logger.info(f"📉 Descontando stock real para {len(despachados_ahora)} items despachados...")
+                    ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
+                    registros_productos = ws_productos.get_all_records()
+                    headers_productos = ws_productos.row_values(1)
+                    
+                    col_p_term = headers_productos.index("P. TERMINADO") + 1
+                    col_comp = headers_productos.index("COMPROMETIDO") + 1
+                    
+                    mapa_productos = {}
+                    for idx, r in enumerate(registros_productos):
+                        c_sis = str(r.get("CODIGO SISTEMA", "")).strip().upper()
+                        id_cod = str(r.get("ID CODIGO", "")).strip().upper()
+                        fila_real = idx + 2
+                        if c_sis: mapa_productos[c_sis] = fila_real
+                        if id_cod: mapa_productos[id_cod] = fila_real
+
+                    updates_stock = []
+                    
+                    # Necesitamos saber la CANTIDAD original del pedido para cada producto
+                    # para saber cuánto descontar del stock físico y comprometido
+                    prod_pedido_map = {str(r.get("ID CODIGO")).strip().upper(): float(r.get("CANTIDAD", 0)) 
+                                     for r in registros if str(r.get("ID PEDIDO")) == str(id_pedido)}
+
+                    for d in despachados_ahora:
+                        cod = str(d.get("codigo")).strip().upper()
+                        qty_pedido = prod_pedido_map.get(cod, 0)
+                        
+                        if cod in mapa_productos and qty_pedido > 0:
+                            fila_p = mapa_productos[cod]
+                            item_p = registros_productos[fila_p - 2]
+                            
+                            s_fisico = float(item_p.get("P. TERMINADO", 0) or 0)
+                            s_comp = float(item_p.get("COMPROMETIDO", 0) or 0)
+                            
+                            nuevo_fisico = max(0, s_fisico - qty_pedido)
+                            nuevo_comp = max(0, s_comp - qty_pedido)
+                            
+                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_p, col_p_term), 'values': [[nuevo_fisico]]})
+                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_p, col_comp), 'values': [[nuevo_comp]]})
+                            logger.info(f"   ✅ Stock Real {cod}: Físico({s_fisico}->{nuevo_fisico}), Comprometido({s_comp}->{nuevo_comp})")
+
+                    if updates_stock:
+                        ws_productos.batch_update(updates_stock)
+
+            except Exception as e_stock:
+                logger.error(f"❌ Error actualizando stock real en despacho: {e_stock}")
+
             return jsonify({"success": True, "message": f"Pedido {id_pedido} actualizado a {estado} ({progreso})"})
         else:
             return jsonify({"success": False, "error": "Pedido no encontrado"}), 404

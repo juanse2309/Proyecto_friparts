@@ -79,17 +79,19 @@ class DashboardRepository:
             criticos = []
             
             for r in registros:
-                stock_total = (
-                    to_int(r.get('POR PULIR', 0)) +
-                    to_int(r.get('P. TERMINADO', 0))
-                )
+                stock_fisico = to_int(r.get('P. TERMINADO', 0))
+                stock_por_pulir = to_int(r.get('POR PULIR', 0))
+                stock_comprometido = to_int(r.get('COMPROMETIDO', 0))
+                
+                # Usar stock global (Producción) para métricas críticas
+                stock_global = (stock_fisico + stock_por_pulir) - stock_comprometido
                 stock_minimo = to_int(r.get('STOCK MINIMO', 10))
                 
-                if stock_total < stock_minimo:
+                if stock_global < stock_minimo:
                     criticos.append({
                         'codigo': r.get('CODIGO SISTEMA', ''),
                         'descripcion': r.get('DESCRIPCION', ''),
-                        'stock_actual': stock_total,
+                        'stock_actual': stock_global,
                         'stock_minimo': stock_minimo
                     })
             

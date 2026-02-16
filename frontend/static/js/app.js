@@ -106,6 +106,32 @@ async function cargarDatosCompartidos() {
 function cargarPagina(nombrePagina, pushToHistory = true) {
     console.log('📄 Cargando página:', nombrePagina);
 
+    // --- Limpieza de procesos del módulo anterior ---
+    const modulos = {
+        'dashboard': window.ModuloDashboard,
+        'inventario': window.ModuloInventario,
+        'productos': window.ModuloProductos,
+        'inyeccion': window.ModuloInyeccion,
+        'pulido': window.ModuloPulido,
+        'ensamble': window.ModuloEnsamble,
+        'pnc': window.ModuloPNC,
+        'facturacion': window.ModuloFacturacion,
+        'mezcla': window.ModuloMezcla,
+        'historial': window.ModuloHistorial,
+        'pedidos': window.ModuloPedidos,
+        'almacen': window.AlmacenModule,
+        'portal-cliente': window.ModuloPortal,
+        'admin-clientes': window.ModuloAdminClientes
+    };
+
+    if (window.AppState.paginaActual) {
+        const moduloAnterior = modulos[window.AppState.paginaActual];
+        if (moduloAnterior && typeof moduloAnterior.desactivar === 'function') {
+            console.log(`🔌 Limpiando procesos de: ${window.AppState.paginaActual}`);
+            moduloAnterior.desactivar();
+        }
+    }
+
     // Ocultar todas las páginas
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
@@ -254,7 +280,32 @@ function inicializarModulo(nombrePagina) {
         console.log('🔧 Inicializando módulo:', nombrePagina);
         modulo.inicializar();
     } else {
-        console.warn('⚠️  Módulo no encontrado:', nombrePagina);
+        console.warn('⚠️  Módulo no encontrado (intento 1):', nombrePagina);
+        // REINTENTO DE CARGA DE MODULO (Fix Race Condition Loading)
+        setTimeout(() => {
+            const modulosRetry = {
+                'dashboard': window.ModuloDashboard,
+                'inventario': window.ModuloInventario,
+                'productos': window.ModuloProductos,
+                'inyeccion': window.ModuloInyeccion,
+                'pulido': window.ModuloPulido,
+                'ensamble': window.ModuloEnsamble,
+                'pnc': window.ModuloPNC,
+                'facturacion': window.ModuloFacturacion,
+                'mezcla': window.ModuloMezcla,
+                'historial': window.ModuloHistorial,
+                'pedidos': window.ModuloPedidos,
+                'almacen': window.AlmacenModule,
+                'admin-clientes': window.ModuloAdminClientes
+            };
+            const moduloRetry = modulosRetry[nombrePagina];
+            if (moduloRetry?.inicializar) {
+                console.log(`✅ Módulo ${nombrePagina} encontrado en reintento.`);
+                moduloRetry.inicializar();
+            } else {
+                console.error(`❌ Error fatal: Módulo ${nombrePagina} no cargó después del reintento.`);
+            }
+        }, 800);
     }
 }
 
