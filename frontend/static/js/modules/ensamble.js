@@ -270,7 +270,42 @@ async function registrarEnsamble() {
         console.log('📥 [Ensamble] RESPUESTA SERVIDOR:', resultado);
 
         if (response.ok && resultado.success) {
-            mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', resultado.undo_meta);
+            // Preparar datos para restauración
+            const datosRestaurar = { ...datos };
+            const metaConCallback = {
+                ...resultado.undo_meta,
+                restoreCallback: () => {
+                    // Restaurar valores Ensamble
+                    document.getElementById('fecha-ensamble').value = datosRestaurar.fecha_inicio;
+                    document.getElementById('responsable-ensamble').value = datosRestaurar.responsable;
+                    document.getElementById('hora-inicio-ensamble').value = datosRestaurar.hora_inicio;
+                    document.getElementById('hora-fin-ensamble').value = datosRestaurar.hora_fin;
+                    document.getElementById('op-ensamble').value = datosRestaurar.orden_produccion;
+
+                    // Restaurar lógica de buje componente
+                    const bujeSelect = document.getElementById('ens-buje-componente');
+                    if (bujeSelect) {
+                        bujeSelect.value = datosRestaurar.buje_componente;
+                        // Trigger change manual para actualizar IDs
+                        if (typeof actualizarMapeoEnsamble === 'function') {
+                            actualizarMapeoEnsamble();
+                        }
+                    }
+
+                    // Restaurar cantidades (después de mapeo)
+                    setTimeout(() => {
+                        document.getElementById('cantidad-ensamble').value = datosRestaurar.cantidad_bolsas;
+                        document.getElementById('ens-qty-bujes').value = datosRestaurar.qty_unitaria;
+                        document.getElementById('pnc-ensamble').value = datosRestaurar.pnc;
+                        document.getElementById('criterio-pnc-hidden-ensamble').value = datosRestaurar.criterio_pnc;
+                        document.getElementById('observaciones-ensamble').value = datosRestaurar.observaciones;
+                        // Re-calcular
+                        if (typeof actualizarCalculoEnsamble === 'function') actualizarCalculoEnsamble();
+                        mostrarNotificacion('Formulario restaurado', 'info');
+                    }, 100);
+                }
+            };
+            mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', metaConCallback);
             document.getElementById('form-ensamble')?.reset();
 
             // Reset state

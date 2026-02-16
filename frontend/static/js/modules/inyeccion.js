@@ -349,7 +349,31 @@ const ModuloInyeccion = {
             const resultado = await response.json();
 
             if (response.ok && resultado.success) {
-                mostrarNotificacion('Registro exitoso', 'success', resultado.undo_meta);
+                // Preparar datos para restauración en caso de Undo
+                const datosRestaurar = { ...datos };
+                const metaConCallback = {
+                    ...resultado.undo_meta,
+                    restoreCallback: () => {
+                        // Restaurar valores
+                        document.getElementById('fecha-inyeccion').value = datosRestaurar.fecha_inicio;
+                        document.getElementById('turno-inyeccion').value = datosRestaurar.turno;
+                        document.getElementById('responsable-inyeccion').value = datosRestaurar.responsable;
+                        document.getElementById('hora-inicio-inyeccion').value = datosRestaurar.hora_inicio;
+                        document.getElementById('hora-fin-inyeccion').value = datosRestaurar.hora_fin;
+                        document.getElementById('codigo-producto-inyeccion').value = datosRestaurar.codigo_producto_sistema;
+                        document.getElementById('cavidades-inyeccion').value = datosRestaurar.cavidades;
+                        // Simular input para actualizar cálculos
+                        document.getElementById('ciclos-inyeccion').value = datosRestaurar.ciclos;
+                        document.getElementById('pnc-inyeccion').value = datosRestaurar.pnc;
+                        document.getElementById('cantidad-real-inyeccion').value = datosRestaurar.cantidad_real;
+
+                        // Re-calcular
+                        if (ModuloInyeccion.calculos) ModuloInyeccion.calculos();
+                        mostrarNotificacion('Formulario restaurado', 'info');
+                    }
+                };
+
+                mostrarNotificacion('Registro exitoso', 'success', metaConCallback);
                 document.getElementById('form-inyeccion').reset();
                 document.getElementById('cavidades-inyeccion').value = 1;
                 document.getElementById('pnc-inyeccion').value = 0;

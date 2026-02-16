@@ -262,7 +262,32 @@ const ModuloPulido = {
 
             const resultado = await response.json();
             if (response.ok && resultado.success) {
-                mostrarNotificacion('✅ Registro exitoso', 'success', resultado.undo_meta);
+                // Preparar datos para restauración
+                const datosRestaurar = { ...datos };
+                const metaConCallback = {
+                    ...resultado.undo_meta,
+                    restoreCallback: () => {
+                        // Restaurar valores Pulido
+                        document.getElementById('fecha-pulido').value = datosRestaurar.fecha_inicio;
+                        document.getElementById('responsable-pulido').value = datosRestaurar.responsable;
+                        document.getElementById('hora-inicio-pulido').value = datosRestaurar.hora_inicio;
+                        document.getElementById('hora-fin-pulido').value = datosRestaurar.hora_fin;
+                        document.getElementById('codigo-producto-pulido').value = datosRestaurar.codigo_producto;
+                        document.getElementById('lote-pulido').value = datosRestaurar.lote;
+                        document.getElementById('orden-produccion-pulido').value = datosRestaurar.orden_produccion;
+
+                        // Restaurar cantidades y calcular
+                        document.getElementById('bujes-buenos-pulido').value = datosRestaurar.cantidad_real;
+                        document.getElementById('pnc-pulido').value = datosRestaurar.pnc;
+                        document.getElementById('criterio-pnc-hidden').value = datosRestaurar.criterio_pnc;
+                        document.getElementById('observaciones-pulido').value = datosRestaurar.observaciones;
+
+                        // Re-calcular
+                        if (ModuloPulido.actualizarCalculo) ModuloPulido.actualizarCalculo();
+                        mostrarNotificacion('Formulario restaurado', 'info');
+                    }
+                };
+                mostrarNotificacion('✅ Registro exitoso', 'success', metaConCallback);
                 document.getElementById('form-pulido')?.reset();
                 window.tmpDefectosPulido = [];
                 this.actualizarCalculo();

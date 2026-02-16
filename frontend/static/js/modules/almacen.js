@@ -91,6 +91,22 @@ const AlmacenModule = {
             });
 
             if (data.success) {
+                // TV MODE: Detectar nuevos pedidos para sonido
+                if (this.isTVMode && this.pedidosPendientes.length > 0) {
+                    const nuevosCount = data.pedidos.length;
+                    const anterioresCount = this.pedidosPendientes.length;
+
+                    if (nuevosCount > anterioresCount) {
+                        try {
+                            if (window.ModuloUX && window.ModuloUX.playSound) {
+                                window.ModuloUX.playSound('new_order');
+                            }
+                        } catch (e) {
+                            console.warn('Error reproduciendo sonido TV', e);
+                        }
+                    }
+                }
+
                 this.pedidosPendientes = data.pedidos;
                 console.log('📦 [Almacen] Pedidos asignados, llamando renderizarTarjetas()...');
                 this.renderizarTarjetas();

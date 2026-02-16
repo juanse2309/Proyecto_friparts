@@ -154,6 +154,12 @@ function mostrarNotificacion(mensaje, tipo = 'info', undoData = null) {
                     if (data.success) {
                         notificationDiv.remove();
                         mostrarNotificacion('Acción deshecha correctamente. Verifica el stock si es necesario.', 'warning');
+
+                        // Callback de restauración de datos
+                        if (undoData && typeof undoData.restoreCallback === 'function') {
+                            undoData.restoreCallback();
+                        }
+
                         // Opcional: Recargar módulo actual
                         const pagina = window.AppState.paginaActual;
                         if (window[`Modulo${pagina.charAt(0).toUpperCase() + pagina.slice(1)}`]?.cargarDatos) {

@@ -39,8 +39,13 @@ const ModuloUX = (() => {
             playTone(523.25, 'sine', 0.1); // C5
             setTimeout(() => playTone(659.25, 'sine', 0.1), 100); // E5
         } else if (type === 'error') {
-            // Error (Tono bajo)
-            playTone(150, 'sawtooth', 0.3);
+            // Error Potente (Disonancia para impacto)
+            playTone(150, 'sawtooth', 0.4); // Low C#
+            playTone(110, 'square', 0.4);   // Low A (creates minor 3rd/dissonance)
+        } else if (type === 'new_order') {
+            // Campana de Pedido (Ding Dong)
+            playTone(600, 'sine', 0.1);
+            setTimeout(() => playTone(800, 'sine', 0.4), 150);
         }
     };
 

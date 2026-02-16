@@ -4432,3 +4432,56 @@ body.loaded {
     background-color: rgba(67, 97, 238, 0.03) !important;
     transform: scale(1.002);
 }
+
+/* =========================================
+   HOTFIX: MODAL SCROLLING ISSUE
+   ========================================= */
+
+/* Ensure the overlay covers screen and centers content */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.55);
+    z-index: 1055;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 15px;
+    backdrop-filter: blur(3px);
+}
+
+/* Ensure the modal content is scrollable if it exceeds viewport height */
+.modal-overlay .modal-content {
+    max-height: 85vh;
+    /* Leave some space */
+    overflow-y: auto;
+    width: 100%;
+    max-width: 500px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    /* Smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure header stays visible if possible, or just let it scroll */
+.modal-overlay .modal-header {
+    flex-shrink: 0;
+}
+
+/* Ensure body scrolls */
+.modal-overlay .modal-body {
+    overflow-y: visible;
+    /* Content handles scroll */
+    flex: 1 1 auto;
+}
+
+/* Specific fix for Auditoría de Stock */
+#modalConteoInventario .modal-content {
+    max-width: 480px;
+}
