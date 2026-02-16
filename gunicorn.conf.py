@@ -6,9 +6,11 @@ port = os.getenv('PORT', '10000')
 bind = f'0.0.0.0:{port}'
 
 # Worker configuration (standard formula: 2 * CPUs + 1)
+# NOTE: Using 'sync' instead of 'gthread' because gspread/SSL is not thread-safe 
+# when sharing the singleton client across threads.
 workers = multiprocessing.cpu_count() * 2 + 1
-worker_class = 'gthread'
-threads = 2
+worker_class = 'sync'
+# threads = 2  <-- DISABLED to prevent SSL decryption errors
 
 # Increase timeout to allow for slow initial connections (e.g. Google Sheets)
 timeout = 120
