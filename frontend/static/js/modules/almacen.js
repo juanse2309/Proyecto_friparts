@@ -841,38 +841,50 @@ const AlmacenModule = {
         this.detenerAutoScroll();
         if (!this.isTVMode) return;
 
-        console.log('📜 [Almacen] Configurando Auto-Scroll...');
+        console.log('📜 [Almacen] Configurando Auto-Scroll por filas...');
 
-        // Guardar el timeout para poder cancelarlo
+        // Esperar 2 segundos antes de comenzar
         this.scrollTimeout = setTimeout(() => {
-            const scrollStep = 3; // Aumentado de 1 a 3 para scroll más rápido
-            const delayAtBottom = 10000;
-
-            this.scrollInterval = setInterval(() => {
+            const scrollToNextRow = () => {
                 const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex' ||
                     document.getElementById('modalAlistamiento')?.style.display === 'block';
 
-                if (modalAbierto) return;
+                if (modalAbierto || !this.isTVMode) return;
 
                 const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
                 const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
 
                 if (maxScroll <= 10) return;
 
-                if (currentScroll < maxScroll - 5) {
-                    window.scrollBy(0, scrollStep);
-                } else {
-                    console.log('📜 [Almacen] Fin del scroll alcanzado, pausando...');
-                    this.detenerAutoScroll();
-
+                // Si llegamos al final, volver arriba y reiniciar
+                if (currentScroll >= maxScroll - 5) {
+                    console.log('📜 [Almacen] Fin alcanzado, volviendo arriba...');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
                     this.scrollTimeout = setTimeout(() => {
-                        if (this.isTVMode) {
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                            this.scrollTimeout = setTimeout(() => this.iniciarAutoScroll(), 2000);
-                        }
-                    }, delayAtBottom);
+                        if (this.isTVMode) scrollToNextRow();
+                    }, 5000); // Pausa de 5 segundos al volver arriba
+                    return;
                 }
-            }, 30); // Reducido de 50ms a 30ms para scroll más rápido
+
+                // Obtener altura aproximada de una fila de tarjetas (card height + gap)
+                // Las tarjetas tienen min-height: 280px + gap de Bootstrap
+                const rowHeight = 320; // Altura de tarjeta + margen
+
+                // Calcular siguiente posición (siguiente fila)
+                const nextScroll = currentScroll + rowHeight;
+                const targetScroll = Math.min(nextScroll, maxScroll);
+
+                // Hacer scroll suave a la siguiente fila
+                window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+
+                // Esperar 4 segundos para que lean, luego continuar
+                this.scrollTimeout = setTimeout(() => {
+                    if (this.isTVMode) scrollToNextRow();
+                }, 4000); // Pausa de 4 segundos para leer cada fila
+            };
+
+            // Iniciar el ciclo
+            scrollToNextRow();
         }, 2000);
     },
 
