@@ -49,7 +49,7 @@ class Hojas:
     RESPONSABLES = "RESPONSABLES"
     PULIDO = "PULIDO"
     FACTURACION = "FACTURACION"
-    CLIENTES = "CLIENTES"
+    CLIENTES = "DB_Clientes"
     PEDIDOS = "PEDIDOS"
     DB_PRODUCTOS = "DB_Productos"
 

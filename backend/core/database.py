@@ -1,44 +1,59 @@
-﻿"""
-Gestión centralizada de conexión a Google Sheets.
-Implementa patrón Singleton para evitar múltiples conexiones.
-"""
-import json
+﻿import json
 import os
 import gspread
+import threading
 from google.oauth2.service_account import Credentials
 from backend.config.settings import Settings
 import logging
 
 logger = logging.getLogger(__name__)
 
-
 class GoogleSheetsClient:
-    """Cliente singleton para Google Sheets."""
-    
+    """
+    Gestión de conexión a Google Sheets con Thread-Local Storage.
+    Permite el uso seguro con Gunicorn gthread.
+    """
     _instance = None
-    _client = None
-    _spreadsheet = None
-    
+    _lock = threading.Lock()
+    _local = threading.local()  # Almacenamiento local por hilo
+
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
         return cls._instance
-    
-    def __init__(self):
-        if self._client is None:
+
+    @property
+    def client(self):
+        """Retorna el cliente gspread exclusivo para el hilo actual."""
+        if not hasattr(self._local, 'client'):
+            logger.info(f"Iniciando nueva conexión GSheets para hilo {threading.get_ident()}")
             self._conectar()
-    
+        return self._local.client
+
+    @property
+    def spreadsheet(self):
+        """Retorna el spreadsheet exclusivo para el hilo actual."""
+        if not hasattr(self._local, 'spreadsheet'):
+            self._conectar()
+        return self._local.spreadsheet
+
     def _conectar(self):
-        """Establece conexión con Google Sheets."""
+        """Establece conexión y la guarda en el almacenamiento local del hilo."""
         try:
             creds = self._cargar_credenciales()
-            self._client = gspread.authorize(creds)
-            self._spreadsheet = self._client.open_by_key(Settings.GSHEET_KEY)
-            logger.info(f"Conectado a Google Sheets: {Settings.GSHEET_FILE_NAME}")
+            client = gspread.authorize(creds)
+            spreadsheet = client.open_by_key(Settings.GSHEET_KEY)
+            
+            # Guardar en thread-local
+            self._local.client = client
+            self._local.spreadsheet = spreadsheet
+            
+            logger.info(f"Conexión establecida para hilo {threading.get_ident()}: {Settings.GSHEET_FILE_NAME}")
         except Exception as e:
-            logger.error(f"Error conectando a Google Sheets: {e}")
+            logger.error(f"Error conectando a Google Sheets (Hilo {threading.get_ident()}): {e}")
             raise
-    
+
     def _cargar_credenciales(self) -> Credentials:
         """Carga credenciales desde variable de entorno o archivo."""
         scope = [
@@ -50,29 +65,28 @@ class GoogleSheetsClient:
         creds_json = Settings.GOOGLE_CREDENTIALS_JSON
         if creds_json:
             try:
-                logger.info("Cargando credenciales desde variable de entorno...")
+                # logger.info("Cargando credenciales desde variable de entorno...")
                 creds_info = json.loads(creds_json)
                 return Credentials.from_service_account_info(creds_info, scopes=scope)
             except json.JSONDecodeError as e:
                 logger.error(f"Error en formato JSON: {e}")
         
         # 2. Intentar desde archivo
-        logger.info("Buscando archivo de credenciales...")
+        # logger.info("Buscando archivo de credenciales...")
         for path in Settings.CREDENTIALS_PATHS:
             if os.path.exists(path):
-                logger.info(f"Credenciales encontradas en: {path}")
+                # logger.info(f"Credenciales encontradas en: {path}")
                 return Credentials.from_service_account_file(path, scopes=scope)
         
-        # 3. Error si no se encuentra
         raise FileNotFoundError(
             "No se encontraron credenciales. "
             "Configura GOOGLE_CREDENTIALS_JSON o coloca credentials_apps.json"
         )
     
     def get_worksheet(self, nombre: str):
-        """Obtiene una hoja por nombre."""
+        """Obtiene una hoja por nombre usando la conexión del hilo actual."""
         try:
-            return self._spreadsheet.worksheet(nombre)
+            return self.spreadsheet.worksheet(nombre)
         except gspread.exceptions.WorksheetNotFound:
             logger.warning(f"Hoja '{nombre}' no encontrada")
             return None
@@ -82,19 +96,10 @@ class GoogleSheetsClient:
         ws = self.get_worksheet(nombre)
         if ws is None:
             logger.info(f"Creando hoja '{nombre}'...")
-            ws = self._spreadsheet.add_worksheet(title=nombre, rows=rows, cols=cols)
+            ws = self.spreadsheet.add_worksheet(title=nombre, rows=rows, cols=cols)
         return ws
-    
-    @property
-    def client(self):
-        """Retorna el cliente de gspread."""
-        return self._client
-    
-    @property
-    def spreadsheet(self):
-        """Retorna el spreadsheet actual."""
-        return self._spreadsheet
 
 
-# Instancia singleton
+# Instancia singleton global
+# (La gestión de hilos ocurre internamente en la propiedad .client)
 sheets_client = GoogleSheetsClient()

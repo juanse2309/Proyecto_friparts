@@ -4,13 +4,15 @@ import multiprocessing
 # Bind to the port defined by the environment variable PORT, default to 10000
 port = os.getenv('PORT', '10000')
 bind = f'0.0.0.0:{port}'
+bind = "0.0.0.0:" + os.environ.get("PORT", "10000")
 
 # Worker configuration (standard formula: 2 * CPUs + 1)
 # NOTE: Using 'sync' instead of 'gthread' because gspread/SSL is not thread-safe 
 # when sharing the singleton client across threads.
 # CRITICAL: Render free tier has 512MB RAM. Multiple workers cause OOM.
 workers = 1 
-worker_class = 'sync'
+worker_class = 'gthread'
+threads = 4
 # threads = 2  <-- DISABLED to prevent SSL decryption errors
 
 # Increase timeout to allow for slow initial connections (e.g. Google Sheets)

@@ -27,7 +27,7 @@ CORS(app)
 from backend.routes.auth_routes import auth_bp
 from backend.routes.pedidos_routes import pedidos_bp
 from backend.routes.imagenes_routes import imagenes_bp
-
+from backend.routes.common_routes import common_bp
 from backend.routes.facturacion_routes import facturacion_bp
 from backend.routes.inventario_routes import inventario_bp
 
@@ -36,6 +36,7 @@ app.register_blueprint(pedidos_bp)
 app.register_blueprint(imagenes_bp, url_prefix='/imagenes')
 app.register_blueprint(facturacion_bp)
 app.register_blueprint(inventario_bp)
+app.register_blueprint(common_bp, url_prefix='/api')
 
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
@@ -2593,9 +2594,13 @@ def obtener_clientes():
         ws = ss.worksheet(Hojas.CLIENTES) 
         
         datos = ws.get_all_values()
-        if not encabezados:
-             logger.warning("⚠️ Hoja CLIENTES vacía o sin encabezados")
+        if not datos:
+             logger.warning("⚠️ Hoja CLIENTES vacía")
              return jsonify([])
+
+        encabezados = datos[0]
+        filas = datos[1:]
+        clientes = []
 
         # Buscar índices de columnas (Flexible)
         idx_nombre = next((encabezados.index(h) for h in ["NOMBRE", "CLIENTE", "RAZON SOCIAL"] if h in encabezados), -1)
