@@ -845,7 +845,7 @@ const AlmacenModule = {
 
         // Guardar el timeout para poder cancelarlo
         this.scrollTimeout = setTimeout(() => {
-            const scrollStep = 1;
+            const scrollStep = 3; // Aumentado de 1 a 3 para scroll más rápido
             const delayAtBottom = 10000;
 
             this.scrollInterval = setInterval(() => {
@@ -872,7 +872,7 @@ const AlmacenModule = {
                         }
                     }, delayAtBottom);
                 }
-            }, 50);
+            }, 30); // Reducido de 50ms a 30ms para scroll más rápido
         }, 2000);
     },
 
