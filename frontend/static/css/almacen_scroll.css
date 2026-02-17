@@ -1,0 +1,42 @@
+/* =========================================
+   ALMACÉN - SCROLL OPTIMIZATIONS
+   ========================================= */
+
+/* Faster, smoother scrolling for Almacén grid */
+#almacen-pedidos-container {
+    scroll-behavior: auto !important;
+    /* Disable smooth scroll for instant response */
+    overflow-y: scroll !important;
+    -webkit-overflow-scrolling: touch;
+    /* iOS momentum scrolling */
+    overscroll-behavior: contain;
+    /* Prevent scroll chaining */
+}
+
+/* Increase scroll speed via mouse wheel */
+#almacen-pedidos-container::-webkit-scrollbar {
+    width: 14px;
+}
+
+#almacen-pedidos-container::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 10px;
+}
+
+#almacen-pedidos-container::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #6366f1, #818cf8);
+    border-radius: 10px;
+    border: 2px solid #f1f5f9;
+    transition: background 0.2s;
+}
+
+#almacen-pedidos-container::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #4f46e5, #6366f1);
+}
+
+/* Larger order reference in Almacén cards */
+.almacen-card-pro .order-id-ref {
+    font-size: 1.4rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.3px !important;
+}

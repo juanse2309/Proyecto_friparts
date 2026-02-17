@@ -191,7 +191,7 @@ const AlmacenModule = {
                         style="transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); border-radius: 12px; overflow: hidden; border-left: 5px solid ${colorStatus} !important; background: #fff; min-height: 280px; display: flex; flex-direction: column;">
                         <div style="background: #f8fafc; padding: 12px 15px; border-bottom: 1px solid #edf2f7; cursor: pointer;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                                <span class="fw-bold text-primary order-id-ref" style="font-size: 0.9rem; white-space: nowrap; letter-spacing: -0.5px;">${pedido.id_pedido}</span>
+                                <span class="fw-bold text-primary order-id-ref" style="font-size: 1.4rem; white-space: nowrap; letter-spacing: -0.3px; font-weight: 800;">${pedido.id_pedido}</span>
                                 <div class="d-flex flex-wrap gap-1 align-items-center justify-content-end" style="flex: 1;">
                                     ${esParaMi ? '<span class="badge bg-info" style="font-size: 0.6rem; padding: 4px 6px; font-weight: 700; border-radius: 4px;"><i class="fas fa-user-check me-1"></i>MÍO</span>' : ''}
                                     <span class="badge" style="background: ${colorStatus}; font-size: 0.6rem; padding: 4px 6px; text-transform: uppercase; font-weight: 700; border-radius: 4px;">${pedido.estado}</span>
