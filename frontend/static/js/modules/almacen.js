@@ -841,7 +841,7 @@ const AlmacenModule = {
         this.detenerAutoScroll();
         if (!this.isTVMode) return;
 
-        console.log('📜 [Almacen] Configurando Auto-Scroll por filas...');
+        console.log('📜 [Almacen] Configurando Auto-Scroll suave por filas...');
 
         // Esperar 2 segundos antes de comenzar
         this.scrollTimeout = setTimeout(() => {
@@ -862,25 +862,43 @@ const AlmacenModule = {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                     this.scrollTimeout = setTimeout(() => {
                         if (this.isTVMode) scrollToNextRow();
-                    }, 5000); // Pausa de 5 segundos al volver arriba
+                    }, 8000); // Pausa de 8 segundos al volver arriba
                     return;
                 }
 
-                // Obtener altura aproximada de una fila de tarjetas (card height + gap)
-                // Las tarjetas tienen min-height: 280px + gap de Bootstrap
-                const rowHeight = 320; // Altura de tarjeta + margen
-
-                // Calcular siguiente posición (siguiente fila)
+                // Altura de una fila de tarjetas
+                const rowHeight = 320;
                 const nextScroll = currentScroll + rowHeight;
                 const targetScroll = Math.min(nextScroll, maxScroll);
 
-                // Hacer scroll suave a la siguiente fila
-                window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+                // Hacer scroll suave y continuo (no instantáneo)
+                const scrollStep = 4; // Pixels por frame
+                const scrollDuration = 1500; // 1.5 segundos para hacer el scroll
+                const frames = scrollDuration / 16; // ~60fps
+                const pixelsPerFrame = rowHeight / frames;
 
-                // Esperar 4 segundos para que lean, luego continuar
-                this.scrollTimeout = setTimeout(() => {
-                    if (this.isTVMode) scrollToNextRow();
-                }, 4000); // Pausa de 4 segundos para leer cada fila
+                let currentFrame = 0;
+                this.scrollInterval = setInterval(() => {
+                    if (!this.isTVMode || modalAbierto) {
+                        clearInterval(this.scrollInterval);
+                        return;
+                    }
+
+                    currentFrame++;
+                    const progress = currentFrame / frames;
+                    const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+                    const scrollTarget = currentScroll + (rowHeight * easeProgress);
+
+                    window.scrollTo({ top: scrollTarget, behavior: 'auto' });
+
+                    if (currentFrame >= frames) {
+                        clearInterval(this.scrollInterval);
+                        // Pausa de 8 segundos para leer la fila
+                        this.scrollTimeout = setTimeout(() => {
+                            if (this.isTVMode) scrollToNextRow();
+                        }, 8000);
+                    }
+                }, 16); // ~60fps
             };
 
             // Iniciar el ciclo
