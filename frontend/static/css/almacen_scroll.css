@@ -11,6 +11,17 @@
     /* iOS momentum scrolling */
     overscroll-behavior: contain;
     /* Prevent scroll chaining */
+    scroll-snap-type: y proximity;
+    /* Snap to cards when scrolling stops */
+    scroll-padding: 20px;
+    /* Padding for snap alignment */
+}
+
+/* Make each card a snap point */
+#almacen-pedidos-container .col-md-6 {
+    scroll-snap-align: start;
+    scroll-snap-stop: normal;
+    /* Allow fast scrolling through multiple cards */
 }
 
 /* Increase scroll speed via mouse wheel */
