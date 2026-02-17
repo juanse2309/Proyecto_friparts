@@ -8,7 +8,8 @@ bind = f'0.0.0.0:{port}'
 # Worker configuration (standard formula: 2 * CPUs + 1)
 # NOTE: Using 'sync' instead of 'gthread' because gspread/SSL is not thread-safe 
 # when sharing the singleton client across threads.
-workers = multiprocessing.cpu_count() * 2 + 1
+# CRITICAL: Render free tier has 512MB RAM. Multiple workers cause OOM.
+workers = 1 
 worker_class = 'sync'
 # threads = 2  <-- DISABLED to prevent SSL decryption errors
 

@@ -354,22 +354,39 @@ const ModuloInyeccion = {
                 const metaConCallback = {
                     ...resultado.undo_meta,
                     restoreCallback: () => {
-                        // Restaurar valores
+                        // Restaurar valores PRINCIPALES
                         document.getElementById('fecha-inyeccion').value = datosRestaurar.fecha_inicio;
-                        document.getElementById('turno-inyeccion').value = datosRestaurar.turno;
                         document.getElementById('responsable-inyeccion').value = datosRestaurar.responsable;
+                        document.getElementById('maquina-inyeccion').value = datosRestaurar.maquina; // Restaurar Maquina
+
+                        // Horarios
+                        document.getElementById('hora-llegada-inyeccion').value = datosRestaurar.hora_llegada; // Restaurar Llegada
                         document.getElementById('hora-inicio-inyeccion').value = datosRestaurar.hora_inicio;
-                        document.getElementById('hora-fin-inyeccion').value = datosRestaurar.hora_fin;
-                        document.getElementById('codigo-producto-inyeccion').value = datosRestaurar.codigo_producto_sistema;
-                        document.getElementById('cavidades-inyeccion').value = datosRestaurar.cavidades;
-                        // Simular input para actualizar cálculos
-                        document.getElementById('ciclos-inyeccion').value = datosRestaurar.ciclos;
-                        document.getElementById('pnc-inyeccion').value = datosRestaurar.pnc;
+                        document.getElementById('hora-termina-inyeccion').value = datosRestaurar.hora_termina;
+
+                        // Producto y Producción
+                        document.getElementById('codigo-producto-inyeccion').value = datosRestaurar.codigo_producto;
+                        document.getElementById('cavidades-inyeccion').value = datosRestaurar.no_cavidades;
+                        document.getElementById('cantidad-inyeccion').value = datosRestaurar.disparos;
                         document.getElementById('cantidad-real-inyeccion').value = datosRestaurar.cantidad_real;
+
+                        // PNC
+                        document.getElementById('pnc-inyeccion').value = datosRestaurar.pnc;
+                        document.getElementById('criterio-pnc-hidden-inyeccion').value = datosRestaurar.criterio_pnc;
+
+                        // Logística (Almacén, OP, Ensamble)
+                        document.getElementById('almacen-destino-inyeccion').value = datosRestaurar.almacen_destino;
+                        document.getElementById('codigo-ensamble-inyeccion').value = datosRestaurar.codigo_ensamble;
+                        document.getElementById('orden-produccion-inyeccion').value = datosRestaurar.orden_produccion;
+
+                        // Pesos
+                        document.getElementById('peso-vela-inyeccion').value = datosRestaurar.peso_vela_maquina;
+                        document.getElementById('peso-bujes-inyeccion').value = datosRestaurar.peso_bujes;
+                        document.getElementById('observaciones-inyeccion').value = datosRestaurar.observaciones;
 
                         // Re-calcular
                         if (ModuloInyeccion.calculos) ModuloInyeccion.calculos();
-                        mostrarNotificacion('Formulario restaurado', 'info');
+                        mostrarNotificacion('Formulario completo restaurado', 'info');
                     }
                 };
 

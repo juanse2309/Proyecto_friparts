@@ -274,7 +274,7 @@ async function registrarEnsamble() {
             const datosRestaurar = { ...datos };
             const metaConCallback = {
                 ...resultado.undo_meta,
-                restoreCallback: () => {
+                restoreCallback: async () => {
                     // Restaurar valores Ensamble
                     document.getElementById('fecha-ensamble').value = datosRestaurar.fecha_inicio;
                     document.getElementById('responsable-ensamble').value = datosRestaurar.responsable;
@@ -282,27 +282,29 @@ async function registrarEnsamble() {
                     document.getElementById('hora-fin-ensamble').value = datosRestaurar.hora_fin;
                     document.getElementById('op-ensamble').value = datosRestaurar.orden_produccion;
 
-                    // Restaurar lógica de buje componente
+                    // Trigger change confirmando mapeo
                     const bujeSelect = document.getElementById('ens-buje-componente');
                     if (bujeSelect) {
                         bujeSelect.value = datosRestaurar.buje_componente;
                         // Trigger change manual para actualizar IDs
                         if (typeof actualizarMapeoEnsamble === 'function') {
-                            actualizarMapeoEnsamble();
+                            await actualizarMapeoEnsamble();
                         }
                     }
 
-                    // Restaurar cantidades (después de mapeo)
-                    setTimeout(() => {
-                        document.getElementById('cantidad-ensamble').value = datosRestaurar.cantidad_bolsas;
-                        document.getElementById('ens-qty-bujes').value = datosRestaurar.qty_unitaria;
-                        document.getElementById('pnc-ensamble').value = datosRestaurar.pnc;
-                        document.getElementById('criterio-pnc-hidden-ensamble').value = datosRestaurar.criterio_pnc;
-                        document.getElementById('observaciones-ensamble').value = datosRestaurar.observaciones;
-                        // Re-calcular
-                        if (typeof actualizarCalculoEnsamble === 'function') actualizarCalculoEnsamble();
-                        mostrarNotificacion('Formulario restaurado', 'info');
-                    }, 100);
+                    // Restaurar Lógica de Negocio (Almacenes)
+                    document.getElementById('almacen-origen-ensamble').value = datosRestaurar.almacen_origen || '';
+                    document.getElementById('almacen-destino-ensamble').value = datosRestaurar.almacen_destino || '';
+
+                    // Restaurar cantidades (después de mapeo seguro)
+                    document.getElementById('cantidad-ensamble').value = datosRestaurar.cantidad_bolsas;
+                    document.getElementById('ens-qty-bujes').value = datosRestaurar.qty_unitaria; // Sobreescribe lo que traiga el mapeo si es diferente
+                    document.getElementById('pnc-ensamble').value = datosRestaurar.pnc;
+                    document.getElementById('criterio-pnc-hidden-ensamble').value = datosRestaurar.criterio_pnc;
+                    document.getElementById('observaciones-ensamble').value = datosRestaurar.observaciones;
+                    // Re-calcular
+                    if (typeof actualizarCalculoEnsamble === 'function') actualizarCalculoEnsamble();
+                    mostrarNotificacion('Formulario restaurado', 'info');
                 }
             };
             mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', metaConCallback);
