@@ -975,69 +975,79 @@ const AlmacenModule = {
         this.detenerAutoScroll();
         if (!this.isTVMode) return;
 
-        console.log('📜 [Almacen] Configurando Auto-Scroll por viewport...');
+        console.log('📜 [Almacen] Iniciando Auto-Scroll inteligente (Alineado a tarjetas)...');
 
-        const viewportHeight = window.innerHeight;
-        const docHeight = document.documentElement.scrollHeight;
-        const maxScroll = docHeight - viewportHeight;
+        const pauseDuration = 8000; // 8 segundos por página (más tiempo para leer)
 
-        // Si todo cabe en pantalla, no hacer scroll
-        if (maxScroll <= 10) {
-            console.log('📜 [Almacen] Todo cabe en pantalla, no se necesita scroll');
-            return;
-        }
+        const getNextScrollPosition = () => {
+            const viewportHeight = window.innerHeight;
+            const currentScrollY = window.scrollY;
+            const docHeight = document.documentElement.scrollHeight;
+            const maxScroll = docHeight - viewportHeight;
 
-        // --- Construir páginas: avanzar 85% del viewport cada vez ---
-        // El 85% da un pequeño overlap para que no se pierda contenido en el borde
-        const step = Math.floor(viewportHeight * 0.85);
-        const pages = [0]; // Primera página siempre arriba
-        for (let y = step; y < maxScroll; y += step) {
-            pages.push(y);
-        }
-        // SIEMPRE añadir maxScroll como última página para ver el fondo completo
-        if (pages[pages.length - 1] < maxScroll) {
-            pages.push(maxScroll);
-        }
+            if (maxScroll <= 10) return 0;
 
-        console.log(`📜 [Almacen] ${pages.length} páginas (step=${step}px, maxScroll=${maxScroll}):`, pages);
+            // Buscar todas las tarjetas visibles
+            const cards = Array.from(document.querySelectorAll('.almacen-card-pro'));
+            if (cards.length === 0) return (currentScrollY + viewportHeight * 0.8);
 
-        let currentPage = 0;
-        const pauseDuration = 6000; // 6 segundos por página
+            // Encontrar la primera tarjeta cuyo fondo (bottom) esté fuera del viewport actual
+            let nextCard = cards.find(c => {
+                const rect = c.getBoundingClientRect();
+                // rect.bottom > viewportHeight significa que la tarjeta se está cortando abajo
+                return rect.bottom > viewportHeight + 20;
+            });
 
-        const scrollToNextPage = () => {
+            if (!nextCard) return maxScroll;
+
+            // Queremos scrollear al TOP de esa tarjeta (ajustando a scroll absoluto)
+            const nextScrollY = (nextCard.getBoundingClientRect().top + window.scrollY) - 20;
+
+            return Math.min(nextScrollY, maxScroll);
+        };
+
+        const scrollToNext = () => {
             if (!this.isTVMode) return;
 
-            // Si hay un modal abierto, esperar y reintentar
-            const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex' ||
-                document.getElementById('modalAlistamiento')?.style.display === 'block';
-            if (modalAbierto) {
-                this.scrollTimeout = setTimeout(scrollToNextPage, 2000);
+            // Si hay modal, reintentar pronto
+            if (document.getElementById('modalAlistamiento')?.style.display === 'flex') {
+                this.scrollTimeout = setTimeout(scrollToNext, 2000);
                 return;
             }
 
-            currentPage++;
+            const currentY = window.scrollY;
+            const viewportHeight = window.innerHeight;
+            const docHeight = document.documentElement.scrollHeight;
 
-            if (currentPage >= pages.length) {
-                // Fin del ciclo → pausar mostrando las últimas tarjetas
-                console.log('📜 [Almacen] Última página vista, pausando 8s antes de volver arriba...');
+            // Si ya estamos muy cerca del final, volver arriba
+            if (currentY + viewportHeight >= docHeight - 50) {
+                console.log('📜 [Almacen] Fin alcanzado, volviendo al inicio...');
                 this.scrollTimeout = setTimeout(() => {
-                    if (!this.isTVMode) return;
-                    console.log('📜 [Almacen] Volviendo arriba...');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
-                    currentPage = 0;
-                    // Pausar 8s arriba antes de reiniciar
-                    this.scrollTimeout = setTimeout(scrollToNextPage, pauseDuration);
+                    this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
                 }, pauseDuration);
-            } else {
-                console.log(`📜 [Almacen] Página ${currentPage + 1}/${pages.length} (y=${pages[currentPage]})`);
-                window.scrollTo({ top: pages[currentPage], behavior: 'smooth' });
-                this.scrollTimeout = setTimeout(scrollToNextPage, pauseDuration);
+                return;
             }
+
+            const nextY = getNextScrollPosition();
+
+            if (nextY <= currentY + 10) {
+                // Si no avanzamos (ej: no hay más tarjetas), forzar scroll o volver arriba
+                console.log('📜 [Almacen] No hay más contenido claro, volviendo arriba.');
+                this.scrollTimeout = setTimeout(() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
+                }, pauseDuration);
+                return;
+            }
+
+            console.log(`📜 [Almacen] Navengando a: ${nextY}px`);
+            window.scrollTo({ top: nextY, behavior: 'smooth' });
+            this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
         };
 
-        // Empezar desde arriba, pausar 8s, luego avanzar
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        this.scrollTimeout = setTimeout(scrollToNextPage, pauseDuration);
+        // Iniciar ciclo
+        this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
     },
 
     /**

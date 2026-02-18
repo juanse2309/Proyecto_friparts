@@ -215,12 +215,10 @@ def registrar_pedido():
         for rd in rows_to_append:
             final_rows.append([rd[h] for h in expected_headers])
         
-        # Append all rows
+        # Append all rows in a single batch to avoid quota issues
         if final_rows:
-            logger.info(f"\n💾 Guardando {len(final_rows)} filas en Google Sheets...")
-            for i, row in enumerate(final_rows):
-                logger.info(f"   Guardando fila {i+1}: {row[:5]}...")  # Solo primeros 5 campos para no saturar
-                ws.append_row(row)
+            logger.info(f"\n💾 Guardando {len(final_rows)} filas en Google Sheets (Batch Append)...")
+            ws.append_rows(final_rows)
             
             # ==========================================
             # 📉 ACTUALIZACIÓN DE INVENTARIO (COMPROMETIDO)
