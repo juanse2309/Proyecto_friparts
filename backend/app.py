@@ -548,6 +548,12 @@ def normalizar_codigo(codigo):
     elif codigo.startswith('INY'):
         codigo = codigo[3:]
         logger.info(f"   Paso 4 - Quitado prefijo INY: '{codigo}'")
+    elif codigo.startswith('CB'):
+        codigo = codigo[2:]
+        logger.info(f"   Paso 4 - Quitado prefijo CB: '{codigo}'")
+    elif codigo.startswith('DE'):
+        codigo = codigo[2:]
+        logger.info(f"   Paso 4 - Quitado prefijo DE: '{codigo}'")
     
     # Trim final por si acaso
     codigo = codigo.strip()
@@ -799,7 +805,8 @@ def obtener_buje_origen_y_qty(codigo_producto):
         # BUSQUEDA 1: ¿Es el producto final? (FICHAS[ID CODIGO] == codigo)
         for r in registros_fichas:
             id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
-            if id_cod_ficha == codigo_sis_real:
+            id_cod_norm = normalizar_codigo(id_cod_ficha)
+            if id_cod_norm == codigo_sis_real:
                 buje = str(r.get('BUJE ENSAMBLE', '')).strip()
                 qty = float(r.get('QTY', 1) or 1)
                 logger.info(f" [Mapeo] Encontrado como PRODUCTO: {codigo_sis_real} utiliza buje {buje}")
@@ -808,7 +815,8 @@ def obtener_buje_origen_y_qty(codigo_producto):
         # BUSQUEDA 2: ¿Es el componente? (FICHAS[BUJE ENSAMBLE] == codigo)
         for r in registros_fichas:
             buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
-            if buje_ficha == codigo_sis_real:
+            buje_norm = normalizar_codigo(buje_ficha)
+            if buje_norm == codigo_sis_real:
                 prod_final = str(r.get('ID CODIGO', '')).strip()
                 qty = float(r.get('QTY', 1) or 1)
                 logger.info(f" [Mapeo] Encontrado como COMPONENTE: {codigo_sis_real} es buje para {prod_final}")
@@ -1291,7 +1299,8 @@ def obtener_producto(codigo):
 # ========== NUEVO ENDPOINT PARA OBTENER ENSAMBLE DESDE PRODUCTO ==========
 @app.route('/api/inyeccion/ensamble_desde_producto', methods=['GET'])
 def obtener_ensamble_desde_producto():
-    """Dado un codigo de producto (9304 o FR-9304), retorna el codigo ensamble y QTY."""
+    """Dado un codigo de producto (9304 o FR-9304), retorna el codigo ensamble y QTY.
+       Si hay múltiples opciones de componente, retorna todas en 'opciones'."""
     try:
         codigo_entrada = request.args.get('codigo', '').strip()
         if not codigo_entrada:
@@ -1300,16 +1309,63 @@ def obtener_ensamble_desde_producto():
         # Normalizar a CODIGO SISTEMA real (ej: FR-9304 -> 9304)
         codigo_sistema = obtener_codigo_sistema_real(codigo_entrada)
 
-        # Usar la misma logica que ensamble (Bidireccional)
-        buje_ensamble, qty_unitaria, codigo_resultado = obtener_buje_origen_y_qty(codigo_sistema)
-
-        return jsonify({
-            'success': True,
-            'codigo_sistema': codigo_sistema,
-            'codigo_ensamble': codigo_resultado, # El "otro" codigo
-            'buje_origen': buje_ensamble,
-            'qty': qty_unitaria
-        }), 200
+        # Buscar TODAS las opciones en FICHAS (no solo la primera)
+        ss = get_spreadsheet()
+        ws_fichas = ss.worksheet(Hojas.FICHAS)
+        registros_fichas = ws_fichas.get_all_records()
+        
+        opciones = []
+        
+        # BUSQUEDA 1: ¿Es el producto final? → buscar SUS bujes
+        for r in registros_fichas:
+            id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
+            id_cod_norm = normalizar_codigo(id_cod_ficha)
+            if id_cod_norm == codigo_sistema:
+                buje = str(r.get('BUJE ENSAMBLE', '')).strip()
+                qty = float(r.get('QTY', 1) or 1)
+                opciones.append({
+                    'codigo_ensamble': id_cod_ficha,
+                    'buje_origen': buje,
+                    'qty': qty,
+                    'tipo': 'producto'
+                })
+        
+        # BUSQUEDA 2: ¿Es el componente? → buscar productos que lo usan
+        if not opciones:
+            for r in registros_fichas:
+                buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
+                buje_norm = normalizar_codigo(buje_ficha)
+                if buje_norm == codigo_sistema:
+                    prod_final = str(r.get('ID CODIGO', '')).strip()
+                    qty = float(r.get('QTY', 1) or 1)
+                    opciones.append({
+                        'codigo_ensamble': prod_final,
+                        'buje_origen': buje_ficha,
+                        'qty': qty,
+                        'tipo': 'componente'
+                    })
+        
+        if opciones:
+            # Retornar primera opción como default + todas las opciones
+            primera = opciones[0]
+            return jsonify({
+                'success': True,
+                'codigo_sistema': codigo_sistema,
+                'codigo_ensamble': primera['codigo_ensamble'],
+                'buje_origen': primera['buje_origen'],
+                'qty': primera['qty'],
+                'opciones': opciones if len(opciones) > 1 else []
+            }), 200
+        else:
+            return jsonify({
+                'success': True,
+                'codigo_sistema': codigo_sistema,
+                'codigo_ensamble': 'NO DEFINIDO',
+                'buje_origen': codigo_entrada,
+                'qty': 1,
+                'opciones': []
+            }), 200
+            
     except Exception as e:
         logger.error(f" Error en obtener_ensamble_desde_producto: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'success': False, 'error': str(e)}), 500

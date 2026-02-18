@@ -8,6 +8,7 @@ import uuid
 import datetime
 import logging
 import json
+import pytz
 
 
 pedidos_bp = Blueprint('pedidos', __name__)
@@ -77,6 +78,14 @@ def registrar_pedido():
         id_pedido = f"PED-{str(uuid.uuid4())[:8].upper()}"
         estado = "PENDIENTE"
         
+        # Auto-capturar hora actual del servidor (Colombia UTC-5)
+        try:
+            tz_colombia = pytz.timezone('America/Bogota')
+            hora_actual = datetime.datetime.now(tz_colombia).strftime('%I:%M %p')
+        except Exception:
+            hora_actual = datetime.datetime.now().strftime('%I:%M %p')
+        logger.info(f"🕐 Hora auto-capturada: {hora_actual}")
+        
         logger.info(f"🆔 ID de pedido generado: {id_pedido}")
         logger.info(f"📊 Estado inicial: {estado}")
         
@@ -92,10 +101,10 @@ def registrar_pedido():
         # Check headers
         existing_headers = ws.row_values(1)
         expected_headers = [
-            "ID PEDIDO", "FECHA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
+            "ID PEDIDO", "FECHA", "HORA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
             "CLIENTE", "NIT", "DIRECCION", "CIUDAD", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
             "ESTADO", "CANTIDAD", "PRECIO UNITARIO", "PROGRESO", "CANT_ALISTADA",
-            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A", "ESTADO_DESPACHO"
+            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A", "ESTADO_DESPACHO", "NO_DISPONIBLE"
         ]
         
         if not existing_headers:
@@ -146,6 +155,7 @@ def registrar_pedido():
             row = [
                 id_pedido,
                 fecha,
+                hora_actual,          # HORA auto-capturada
                 codigo,
                 descripcion,
                 vendedor,
@@ -155,7 +165,7 @@ def registrar_pedido():
                 ciudad,
                 forma_pago,
                 f"{descuento_global}%",  # Descuento global para todos
-                0,  # Total se calculará después (index 11)
+                0,  # Total se calculará después (index 12)
                 estado,
                 cantidad,
                 precio_unitario,
@@ -164,7 +174,8 @@ def registrar_pedido():
                 "0%", # PROGRESO_DESPACHO inicial
                 0,    # CANT_ENVIADA inicial
                 "",   # DELEGADO_A inicial
-                "FALSE" # ESTADO_DESPACHO inicial
+                "FALSE", # ESTADO_DESPACHO inicial
+                "FALSE"  # NO_DISPONIBLE inicial
             ]
             
             rows_to_append.append(row)
@@ -188,15 +199,15 @@ def registrar_pedido():
         if subtotal_general > 0:
             logger.info(f"\n🔢 Calculando totales proporcionales por item...")
             for i, row in enumerate(rows_to_append):
-                cantidad = float(row[13])  # CANTIDAD
-                precio_unitario = float(row[14])  # PRECIO UNITARIO
+                cantidad = float(row[14])  # CANTIDAD (shifted +1 due to HORA column)
+                precio_unitario = float(row[15])  # PRECIO UNITARIO
                 subtotal_item = cantidad * precio_unitario
                 
                 # Total proporcional con descuento global
                 total_item = subtotal_item * (1 - desc_float)
                 total_item = round(total_item, 2)
                 
-                row[11] = total_item  # Actualizar TOTAL
+                row[12] = total_item  # Actualizar TOTAL (shifted +1 due to HORA column)
                 logger.info(f"   Item {i+1}: ${subtotal_item} → ${total_item} (con {descuento_global}% desc)")
         
         # Append all rows
@@ -344,6 +355,7 @@ def obtener_pedidos_pendientes():
                     pedidos_dict[id_pedido] = {
                         "id_pedido": id_pedido,
                         "fecha": r.get("FECHA"),
+                        "hora": r.get("HORA", ""),
                         "cliente": r.get("CLIENTE"),
                         "estado": estado,
                         "progreso": r.get("PROGRESO", "0%"),
@@ -362,7 +374,8 @@ def obtener_pedidos_pendientes():
                     "cant_enviada": r.get("CANT_ENVIADA", 0),
                     "total": r.get("TOTAL", 0),
                     # Leer estado booleano de despacho (convertir string 'TRUE'/'FALSE' a bool)
-                    "despachado": str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper() == "TRUE"
+                    "despachado": str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper() == "TRUE",
+                    "no_disponible": str(r.get("NO_DISPONIBLE", "FALSE")).strip().upper() == "TRUE"
                 })
             
             # Siempre intentamos obtener el progreso de despacho si existe
@@ -568,12 +581,14 @@ def actualizar_alistamiento():
         asegurar_columna("PROGRESO_DESPACHO")
         # Asegurar columna booleana para despacho
         asegurar_columna("ESTADO_DESPACHO")
+        asegurar_columna("NO_DISPONIBLE")
             
         col_estado = headers.index("ESTADO") + 1
         col_progreso = headers.index("PROGRESO") + 1
         col_cant_lista = headers.index("CANT_ALISTADA") + 1
         col_progreso_despacho = headers.index("PROGRESO_DESPACHO") + 1
         col_estado_despacho = headers.index("ESTADO_DESPACHO") + 1
+        col_no_disponible = headers.index("NO_DISPONIBLE") + 1
         
         updates = []
         for idx, r in enumerate(registros):
@@ -613,6 +628,13 @@ def actualizar_alistamiento():
                             updates.append({
                                 'range': gspread.utils.rowcol_to_a1(fila, col_estado_despacho),
                                 'values': [[val_despacho]]
+                            })
+                        # ACTUALIZACION NO_DISPONIBLE
+                        if "no_disponible" in d:
+                            val_nd = "TRUE" if d.get("no_disponible") else "FALSE"
+                            updates.append({
+                                'range': gspread.utils.rowcol_to_a1(fila, col_no_disponible),
+                                'values': [[val_nd]]
                             })
         
         if updates:

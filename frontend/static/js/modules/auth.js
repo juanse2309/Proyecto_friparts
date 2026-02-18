@@ -430,26 +430,53 @@ const AuthModule = {
         }
 
         // Re-iniciar modulo actual después del login
-        if (window.AppState?.paginaActual && window.AppState.paginaActual !== 'dashboard') {
-            const currentModule = window.AppState.paginaActual;
-            const modulos = {
-                'inventario': window.ModuloInventario,
-                'inyeccion': window.ModuloInyeccion,
-                'pulido': window.ModuloPulido,
-                'ensamble': window.ModuloEnsamble,
-                'pnc': window.ModuloPNC,
-                'facturacion': window.ModuloFacturacion,
-                'mezcla': window.ModuloMezcla,
-                'historial': window.ModuloHistorial,
-                'pedidos': window.ModuloPedidos,
-                'almacen': window.AlmacenModule
-            };
+        // Esperar a que los datos compartidos estén listos antes de re-inicializar
+        const reiniciarModulo = () => {
+            const currentPage = window.AppState?.paginaActual || 'dashboard';
+            console.log(`🔄 Re-inicializando página ${currentPage} después del login...`);
 
-            const modulo = modulos[currentModule];
-            if (modulo?.inicializar) {
-                console.log(`🔄 Re-inicializando módulo ${currentModule} después del login...`);
-                modulo.inicializar();
+            // Usar cargarPagina para re-inicializar completamente
+            if (typeof window.cargarPagina === 'function') {
+                window.cargarPagina(currentPage, false);
+            } else {
+                // Fallback: llamar inicializar directamente
+                const modulos = {
+                    'inventario': window.ModuloInventario,
+                    'inyeccion': window.ModuloInyeccion,
+                    'pulido': window.ModuloPulido,
+                    'ensamble': window.ModuloEnsamble,
+                    'pnc': window.ModuloPNC,
+                    'facturacion': window.ModuloFacturacion,
+                    'mezcla': window.ModuloMezcla,
+                    'historial': window.ModuloHistorial,
+                    'pedidos': window.ModuloPedidos,
+                    'almacen': window.AlmacenModule
+                };
+                const modulo = modulos[currentPage];
+                if (modulo?.inicializar) modulo.inicializar();
             }
+        };
+
+        // Si los datos compartidos ya están cargados, re-inicializar de inmediato
+        if (window.AppState?.sharedData?.productos?.length > 0) {
+            reiniciarModulo();
+        } else {
+            // Esperar a que cargarDatosCompartidos termine (máx 3s)
+            console.log('⏳ Esperando datos compartidos antes de re-inicializar módulo...');
+            const checkInterval = setInterval(() => {
+                if (window.AppState?.sharedData?.productos?.length > 0) {
+                    clearInterval(checkInterval);
+                    reiniciarModulo();
+                }
+            }, 300);
+            // Timeout de seguridad: re-inicializar de todos modos tras 3s
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                if (!window.AppState?.sharedData?.productos?.length) {
+                    console.warn('⚠️ Datos compartidos no cargaron en 3s, re-inicializando de todos modos...');
+                }
+                reiniciarModulo();
+            }, 3000);
         }
     },
 
@@ -489,6 +516,9 @@ const AuthModule = {
                 if (user.tipo === 'STAFF') {
                     this.autoFillForms();
                 }
+
+                // Notificar a módulos que esperan login (e.g. Almacén)
+                document.dispatchEvent(new Event('user-ready'));
 
             } catch (e) {
                 console.error("Error parsing session:", e);

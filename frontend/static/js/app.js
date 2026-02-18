@@ -106,6 +106,7 @@ async function cargarDatosCompartidos() {
 function cargarPagina(nombrePagina, pushToHistory = true) {
     console.log('📄 Cargando página:', nombrePagina);
 
+
     // --- Limpieza de procesos del módulo anterior ---
     const modulos = {
         'dashboard': window.ModuloDashboard,
@@ -352,6 +353,10 @@ function configurarNavegacion() {
 
     console.log('✅ Navegación configurada -', document.querySelectorAll('.menu-item').length, 'items');
 }
+
+// Exponer cargarPagina globalmente para que auth.js pueda re-inicializar módulos tras login
+const _cargarPaginaOriginal = cargarPagina;
+window.cargarPagina = function (page, push) { _cargarPaginaOriginal(page, push); };
 
 async function inicializarAplicacion() {
     console.log('🚀 Aplicación inicializando...');

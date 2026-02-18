@@ -14,8 +14,8 @@ const AlmacenModule = {
     isTVMode: false,
 
     /**
-     * Inicializar módulo
-     */
+ * Inicializar módulo
+ */
     inicializar: function () {
         console.log('🔧 [Almacen] Inicializando módulo...');
         console.log('🔧 [Almacen] Estado actual:', {
@@ -24,7 +24,35 @@ const AlmacenModule = {
             tvMode: this.isTVMode
         });
 
-        this.cargarPedidos();
+        // Si el usuario ya está logueado, cargar pedidos inmediatamente
+        const user = window.AppState?.user;
+        if (user && user.name) {
+            this.cargarPedidos();
+        } else {
+            // Si no hay usuario aún, intentar con sessionStorage
+            const sessionUser = sessionStorage.getItem('friparts_user');
+            if (sessionUser) {
+                this.cargarPedidos();
+            } else {
+                // Escuchar evento de login y cargar cuando esté listo
+                console.log('⏳ [Almacen] Esperando login de usuario para cargar pedidos...');
+                const onUserReady = () => {
+                    console.log('✅ [Almacen] Usuario listo, cargando pedidos...');
+                    this.cargarPedidos();
+                    document.removeEventListener('user-ready', onUserReady);
+                };
+                document.addEventListener('user-ready', onUserReady);
+                // Timeout de seguridad: si en 5s no hay login, intentar de todos modos
+                setTimeout(() => {
+                    document.removeEventListener('user-ready', onUserReady);
+                    if (this.pedidosPendientes.length === 0) {
+                        console.log('⏰ [Almacen] Timeout, intentando cargar pedidos de todos modos...');
+                        this.cargarPedidos();
+                    }
+                }, 5000);
+            }
+        }
+
         this.iniciarAutoRefresco();
 
         // Listener para refrescar automáticamente al entrar a la página
@@ -122,8 +150,9 @@ const AlmacenModule = {
             if (showLoading) mostrarLoading(false);
             console.log('📦 [Almacen] cargarPedidos() finalizado');
 
-            // Si está en modo TV, reiniciar el scroll después de cargar nuevos datos
-            if (this.isTVMode) {
+            // Si está en modo TV, solo iniciar scroll si no hay uno activo
+            // (para no interrumpir el ciclo cada vez que se refrescan datos)
+            if (this.isTVMode && !this.scrollTimeout) {
                 this.iniciarAutoScroll();
             }
         }
@@ -295,8 +324,8 @@ const AlmacenModule = {
     },
 
     /**
-     * Abrir modal de checklist para un pedido específico
-     */
+ * Abrir modal de checklist para un pedido específico
+ */
     abrirModal: function (id_pedido) {
         const pedido = this.pedidosPendientes.find(p => p.id_pedido === id_pedido);
         if (!pedido) return;
@@ -308,7 +337,21 @@ const AlmacenModule = {
         if (toggle) toggle.checked = false;
 
         document.getElementById('modal-alistamiento-titulo').innerText = `Alistamiento: ${pedido.id_pedido}`;
-        document.getElementById('modal-alistamiento-cliente').innerText = `Cliente: ${pedido.cliente} `;
+
+        // --- Info del pedido: cliente + hora + contador de referencias ---
+        const totalRefs = pedido.productos.length;
+        const completadas = pedido.productos.filter(p => (parseInt(p.cant_lista) || 0) >= (parseInt(p.cantidad) || 1) || p.no_disponible).length;
+        const horaStr = pedido.hora ? ` | 🕐 ${pedido.hora}` : '';
+
+        const clienteEl = document.getElementById('modal-alistamiento-cliente');
+        clienteEl.innerHTML = `
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <span><i class="fas fa-user me-1"></i> ${pedido.cliente}${horaStr}</span>
+            <span class="badge ${completadas === totalRefs ? 'bg-success' : 'bg-primary'}" style="font-size: 0.85rem; padding: 6px 12px;">
+                <i class="fas fa-cube me-1"></i> ${completadas}/${totalRefs} referencias
+            </span>
+        </div>
+    `;
 
         this.renderizarProductosChecklist();
         this.actualizarProgresoVisual();
@@ -356,11 +399,12 @@ const AlmacenModule = {
             if (prod.cant_lista === undefined) prod.cant_lista = 0;
             // Asegurar booleano
             if (prod.despachado === undefined) prod.despachado = false;
+            if (prod.no_disponible === undefined) prod.no_disponible = false;
 
             // Lógica de Filtrado:
-            // - Normal: Ocultar si está 100% alistado y despachado.
+            // - Normal: Ocultar si está 100% alistado y despachado, O si está marcado no_disponible.
             // - Recuperación (mostrarOcultos): Mostrar todo
-            const estaCompletamenteDespachado = prod.cant_lista >= prod.cantidad && prod.despachado;
+            const estaCompletamenteDespachado = (prod.cant_lista >= prod.cantidad && prod.despachado) || prod.no_disponible;
 
             if (estaCompletamenteDespachado && !this.mostrarOcultos) {
                 return; // Ocultar en modo normal
@@ -369,8 +413,8 @@ const AlmacenModule = {
             itemsVisibles++;
             const isCompletoAlisado = prod.cant_lista >= prod.cantidad;
 
-            // Lógica de Estado Visual (Tri-estado)
-            const isReadyToDispatch = isCompletoAlisado && !prod.despachado;
+            // Lógica de Estado Visual (Quad-estado: pendiente, listo, despachado, no disponible)
+            const isReadyToDispatch = isCompletoAlisado && !prod.despachado && !prod.no_disponible;
 
             // Colores Dinámicos
             let bgClass = '#f8fafc'; // Gris (Default/Disabled)
@@ -378,7 +422,12 @@ const AlmacenModule = {
             let iconHtml = '<i class="far fa-circle"></i> PENDIENTE';
             let labelStyle = 'color: #94a3b8;'; // Gray 400
 
-            if (prod.despachado) {
+            if (prod.no_disponible) {
+                bgClass = '#fef2f2'; // Red 50
+                borderClass = '#fca5a5'; // Red 300
+                iconHtml = '<i class="fas fa-ban"></i> NO DISPONIBLE';
+                labelStyle = 'color: #dc2626;'; // Red 600
+            } else if (prod.despachado) {
                 bgClass = '#dcfce7'; // Green 100
                 borderClass = '#22c55e'; // Green 500
                 iconHtml = '<i class="fas fa-check-circle"></i> DESPACHADO';
@@ -394,8 +443,8 @@ const AlmacenModule = {
             const checkId = `check-despacho-${index}`;
 
             // Progress width for visual feedback within the card background or border
-            const progress = (prod.cant_lista / prod.cantidad) * 100;
-            const progressColor = progress >= 100 ? '#10b981' : '#6366f1';
+            const progress = prod.no_disponible ? 100 : (prod.cant_lista / prod.cantidad) * 100;
+            const progressColor = prod.no_disponible ? '#ef4444' : (progress >= 100 ? '#10b981' : '#6366f1');
 
             // Verificar permisos para eliminar (solo Andrés y Admins)
             const currentUser = window.AppState?.user;
@@ -405,6 +454,10 @@ const AlmacenModule = {
                     currentUser.name.toUpperCase().includes('ANDRÉS')
                 ));
 
+            // Estilo de producto no disponible (tachado y gris)
+            const ndOverlayStyle = prod.no_disponible ? 'opacity: 0.5; text-decoration: line-through;' : '';
+            const ndControlsDisabled = prod.no_disponible ? 'pointer-events: none; opacity: 0.3;' : '';
+
             html += `
             <div class="product-row-item p-4 mb-4 bg-white shadow-sm border-0 rounded-4 position-relative overflow-hidden" id="row-prod-${index}" 
                  style="transition: all 0.4s ease; transform: scale(1);">
@@ -412,7 +465,7 @@ const AlmacenModule = {
                 <!-- Visual Progress Bar at Bottom -->
                 <div style="position: absolute; bottom: 0; left: 0; height: 6px; width: ${progress}%; background: ${progressColor}; transition: width 0.3s ease;"></div>
 
-                <div class="d-flex justify-content-between align-items-start mb-3">
+                <div class="d-flex justify-content-between align-items-start mb-3" style="${ndOverlayStyle}">
                     <div style="max-width: 60%;">
                         <span class="badge bg-light text-dark border fw-bold mb-1" style="font-size: 0.8rem; letter-spacing: 1px;">CÓDIGO: ${prod.codigo}</span>
                         <h6 class="text-muted mb-0 fw-normal" style="font-size: 0.8rem; line-height: 1.2;">${prod.descripcion}</h6>
@@ -434,7 +487,7 @@ const AlmacenModule = {
                 </div>
 
                 <!-- Big Input Control Area -->
-                <div class="d-flex align-items-center justify-content-between bg-light rounded-4 p-2 mb-4 border inner-shadow">
+                <div class="d-flex align-items-center justify-content-between bg-light rounded-4 p-2 mb-4 border inner-shadow" style="${ndControlsDisabled}">
                     <button class="btn btn-white shadow-sm rounded-circle d-flex align-items-center justify-content-center border-0" 
                         onclick="AlmacenModule.ajustarCantidad(${index}, -1, 'cant_lista')"
                         style="width: 60px; height: 60px; font-size: 1.5rem; color: #ef4444; transition: transform 0.1s;"
@@ -459,17 +512,26 @@ const AlmacenModule = {
                 </div>
 
                 <!-- Status Toggle Actions -->
-                <div class="d-flex align-items-center justify-content-end gap-3 border-top pt-3">
-                    <span class="text-muted small fw-bold ${isReadyToDispatch ? 'text-orange-500' : ''}" style="transition: color 0.3s; ${isReadyToDispatch ? 'color: #f97316;' : ''}">
-                         ${isReadyToDispatch ? '<i class="fas fa-exclamation-circle me-1"></i> LISTO PARA CERRAR' : (prod.despachado ? '<i class="fas fa-check-circle me-1"></i> DESPACHADO' : 'PENDIENTE')}
-                    </span>
-                    
-                    <div class="form-check form-switch custom-switch-lg">
-                        <input class="form-check-input" type="checkbox" role="switch" id="${checkId}"
-                            ${prod.despachado ? 'checked' : ''}
-                            ${!isCompletoAlisado ? 'disabled' : ''}
-                            onchange="AlmacenModule.toggleDespacho(${index}, this.checked)"
-                            style="width: 3.5rem; height: 2rem; cursor: pointer;">
+                <div class="d-flex align-items-center justify-content-between gap-2 border-top pt-3">
+                    <!-- NO DISPONIBLE button (always enabled) -->
+                    <button class="btn btn-sm ${prod.no_disponible ? 'btn-danger' : 'btn-outline-danger'}" 
+                            onclick="AlmacenModule.toggleNoDisponible(${index})"
+                            style="font-size: 0.7rem; padding: 6px 10px; border-radius: 8px; font-weight: 700; transition: all 0.2s;">
+                        <i class="fas fa-ban me-1"></i> ${prod.no_disponible ? 'REVERTIR' : 'NO DISPONIBLE'}
+                    </button>
+
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="text-muted small fw-bold" style="transition: color 0.3s; ${labelStyle}">
+                             ${iconHtml}
+                        </span>
+                        
+                        <div class="form-check form-switch custom-switch-lg">
+                            <input class="form-check-input" type="checkbox" role="switch" id="${checkId}"
+                                ${prod.despachado ? 'checked' : ''}
+                                ${(!isCompletoAlisado || prod.no_disponible) ? 'disabled' : ''}
+                                onchange="AlmacenModule.toggleDespacho(${index}, this.checked)"
+                                style="width: 3.5rem; height: 2rem; cursor: pointer;">
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -499,6 +561,7 @@ const AlmacenModule = {
         if (window.HapticFeedback) window.HapticFeedback.light();
 
         this.actualizarProgresoVisual();
+        this.actualizarContadorReferencias();
 
         // Si se marca como despachado y estaba completamente alistado...
         const prod = this.pedidoActual.productos[index];
@@ -532,6 +595,56 @@ const AlmacenModule = {
     },
 
     /**
+     * Alternar estado NO DISPONIBLE de un producto (reversible)
+     */
+    toggleNoDisponible: function (index) {
+        const prod = this.pedidoActual.productos[index];
+        prod.no_disponible = !prod.no_disponible;
+
+        // Si marcamos como no disponible, limpiar despacho
+        if (prod.no_disponible) {
+            prod.despachado = false;
+        }
+
+        if (window.HapticFeedback) window.HapticFeedback.medium();
+
+        this.actualizarProgresoVisual();
+        this.actualizarContadorReferencias();
+
+        // Fade-out si se marca no disponible y no estamos en modo ocultos
+        if (prod.no_disponible && !this.mostrarOcultos) {
+            setTimeout(() => {
+                const row = document.getElementById(`row-prod-${index}`);
+                if (row) {
+                    row.style.transform = 'translateX(-50px)';
+                    row.style.opacity = '0';
+                    setTimeout(() => {
+                        this.renderizarProductosChecklist();
+                    }, 500);
+                } else {
+                    this.renderizarProductosChecklist();
+                }
+            }, 300);
+        } else {
+            this.renderizarProductosChecklist();
+        }
+    },
+
+    /**
+     * Actualizar el contador de referencias en el header del modal
+     */
+    actualizarContadorReferencias: function () {
+        if (!this.pedidoActual) return;
+        const totalRefs = this.pedidoActual.productos.length;
+        const completadas = this.pedidoActual.productos.filter(p => (parseInt(p.cant_lista) || 0) >= (parseInt(p.cantidad) || 1) || p.no_disponible).length;
+        const badge = document.querySelector('#modal-alistamiento-cliente .badge');
+        if (badge) {
+            badge.className = `badge ${completadas === totalRefs ? 'bg-success' : 'bg-primary'}`;
+            badge.innerHTML = `<i class="fas fa-cube me-1"></i> ${completadas}/${totalRefs} referencias`;
+        }
+    },
+
+    /**
      * Ajustar cantidad con botones +/- genérico
      */
     ajustarCantidad: function (index, delta, campo) {
@@ -560,6 +673,7 @@ const AlmacenModule = {
 
         this.renderizarProductosChecklist();
         this.actualizarProgresoVisual();
+        this.actualizarContadorReferencias();
 
         if (window.HapticFeedback) window.HapticFeedback.light();
     },
@@ -574,6 +688,15 @@ const AlmacenModule = {
 
         this.pedidoActual.productos.forEach(p => {
             const cantidad = parseFloat(p.cantidad) || 0;
+
+            // Productos NO DISPONIBLE se tratan como resueltos (100% alistado + despachado)
+            if (p.no_disponible) {
+                totalRequerido += cantidad;
+                totalListo += cantidad;  // Contar como completamente alistado
+                totalUnidadesDespachadas += cantidad;  // Contar como despachado
+                return;
+            }
+
             totalRequerido += cantidad;
             totalListo += parseInt(p.cant_lista) || 0;
 
@@ -630,6 +753,15 @@ const AlmacenModule = {
 
         this.pedidoActual.productos.forEach(p => {
             const cantidad = parseFloat(p.cantidad) || 0;
+
+            // Productos NO DISPONIBLE cuentan como resueltos
+            if (p.no_disponible) {
+                totalReq += cantidad;
+                totalLis += cantidad;
+                totalUnidadesDesp += cantidad;
+                return;
+            }
+
             totalReq += cantidad;
             totalLis += parseInt(p.cant_lista) || 0;
 
@@ -652,7 +784,8 @@ const AlmacenModule = {
         const detalles = this.pedidoActual.productos.map(p => ({
             codigo: p.codigo,
             cant_lista: p.cant_lista,
-            despachado: p.despachado // Enviamos el booleano
+            despachado: p.despachado,
+            no_disponible: p.no_disponible || false
         }));
 
         try {
@@ -835,63 +968,76 @@ const AlmacenModule = {
     },
 
     /**
-     * Lógica de Auto-Scroll para Modo TV (Airport Effect)
+     * Lógica de Auto-Scroll para Modo TV - Paginación por viewport
+     * Scroll simple basado en la altura del viewport, garantiza mostrar todo el contenido
      */
     iniciarAutoScroll: function () {
         this.detenerAutoScroll();
         if (!this.isTVMode) return;
 
-        console.log('📜 [Almacen] Configurando Auto-Scroll continuo...');
+        console.log('📜 [Almacen] Configurando Auto-Scroll por viewport...');
 
-        // Variables de control
-        let lastPausePosition = 0;
-        const pixelsPerPause = 960; // ~3 filas de tarjetas (320px cada una)
-        const scrollSpeed = 5; // Pixels por frame (más rápido que antes)
-        const pauseDuration = 8000; // 8 segundos de pausa
+        const viewportHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+        const maxScroll = docHeight - viewportHeight;
 
-        // Guardar el timeout para poder cancelarlo
-        this.scrollTimeout = setTimeout(() => {
-            this.scrollInterval = setInterval(() => {
-                const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex' ||
-                    document.getElementById('modalAlistamiento')?.style.display === 'block';
+        // Si todo cabe en pantalla, no hacer scroll
+        if (maxScroll <= 10) {
+            console.log('📜 [Almacen] Todo cabe en pantalla, no se necesita scroll');
+            return;
+        }
 
-                if (modalAbierto || !this.isTVMode) return;
+        // --- Construir páginas: avanzar 85% del viewport cada vez ---
+        // El 85% da un pequeño overlap para que no se pierda contenido en el borde
+        const step = Math.floor(viewportHeight * 0.85);
+        const pages = [0]; // Primera página siempre arriba
+        for (let y = step; y < maxScroll; y += step) {
+            pages.push(y);
+        }
+        // SIEMPRE añadir maxScroll como última página para ver el fondo completo
+        if (pages[pages.length - 1] < maxScroll) {
+            pages.push(maxScroll);
+        }
 
-                const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
-                const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+        console.log(`📜 [Almacen] ${pages.length} páginas (step=${step}px, maxScroll=${maxScroll}):`, pages);
 
-                if (maxScroll <= 10) return;
+        let currentPage = 0;
+        const pauseDuration = 6000; // 6 segundos por página
 
-                // Verificar si hemos scrolleado suficiente para hacer una pausa
-                if (currentScroll - lastPausePosition >= pixelsPerPause && currentScroll < maxScroll - 5) {
-                    console.log('📜 [Almacen] Pausa para leer (8s)...');
-                    lastPausePosition = currentScroll;
-                    this.detenerAutoScroll();
+        const scrollToNextPage = () => {
+            if (!this.isTVMode) return;
 
-                    // Pausar 8 segundos y luego continuar
-                    this.scrollTimeout = setTimeout(() => {
-                        if (this.isTVMode) this.iniciarAutoScroll();
-                    }, pauseDuration);
-                    return;
-                }
+            // Si hay un modal abierto, esperar y reintentar
+            const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex' ||
+                document.getElementById('modalAlistamiento')?.style.display === 'block';
+            if (modalAbierto) {
+                this.scrollTimeout = setTimeout(scrollToNextPage, 2000);
+                return;
+            }
 
-                // Si llegamos al final, volver arriba
-                if (currentScroll >= maxScroll - 5) {
-                    console.log('📜 [Almacen] Fin alcanzado, volviendo arriba...');
-                    this.detenerAutoScroll();
+            currentPage++;
+
+            if (currentPage >= pages.length) {
+                // Fin del ciclo → pausar mostrando las últimas tarjetas
+                console.log('📜 [Almacen] Última página vista, pausando 8s antes de volver arriba...');
+                this.scrollTimeout = setTimeout(() => {
+                    if (!this.isTVMode) return;
+                    console.log('📜 [Almacen] Volviendo arriba...');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
-                    lastPausePosition = 0;
+                    currentPage = 0;
+                    // Pausar 8s arriba antes de reiniciar
+                    this.scrollTimeout = setTimeout(scrollToNextPage, pauseDuration);
+                }, pauseDuration);
+            } else {
+                console.log(`📜 [Almacen] Página ${currentPage + 1}/${pages.length} (y=${pages[currentPage]})`);
+                window.scrollTo({ top: pages[currentPage], behavior: 'smooth' });
+                this.scrollTimeout = setTimeout(scrollToNextPage, pauseDuration);
+            }
+        };
 
-                    this.scrollTimeout = setTimeout(() => {
-                        if (this.isTVMode) this.iniciarAutoScroll();
-                    }, pauseDuration);
-                    return;
-                }
-
-                // Scroll continuo suave
-                window.scrollBy(0, scrollSpeed);
-            }, 30); // 30ms entre frames
-        }, 2000);
+        // Empezar desde arriba, pausar 8s, luego avanzar
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        this.scrollTimeout = setTimeout(scrollToNextPage, pauseDuration);
     },
 
     /**

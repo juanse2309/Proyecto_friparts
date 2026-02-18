@@ -33,17 +33,46 @@ const ModuloEnsamble = {
             }
 
             // 2. Cargar Productos (Para Buje Origen)
-            if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
-                this.productosData = window.AppState.sharedData.productos;
-            } else {
-                const prods = await fetchData('/api/productos/listar');
-                this.productosData = prods.items || prods;
-            }
+            await this._cargarProductos();
 
             mostrarLoading(false);
         } catch (error) {
             console.error('Error cargando datos:', error);
             mostrarLoading(false);
+        }
+    },
+
+    _cargarProductos: async function () {
+        // Intentar desde cache compartida
+        if (window.AppState?.sharedData?.productos?.length > 0) {
+            this.productosData = window.AppState.sharedData.productos;
+            console.log('📦 Productos desde cache:', this.productosData.length);
+            return;
+        }
+
+        // Fallback: cargar directamente desde API
+        try {
+            const prods = await fetchData('/api/productos/listar');
+            if (prods) {
+                const items = prods.items || prods;
+                if (Array.isArray(items) && items.length > 0) {
+                    this.productosData = items;
+                    console.log('📦 Productos desde API directa:', this.productosData.length);
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn('⚠️ Fallo carga directa de productos:', e);
+        }
+
+        // Último intento: esperar 1.5s por si cargarDatosCompartidos aún no termina
+        console.log('⏳ Productos no disponibles aún, reintentando en 1.5s...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        if (window.AppState?.sharedData?.productos?.length > 0) {
+            this.productosData = window.AppState.sharedData.productos;
+            console.log('📦 Productos cargados en reintento:', this.productosData.length);
+        } else {
+            console.error('❌ No se pudieron cargar productos para Ensamble');
         }
     },
 
@@ -196,8 +225,7 @@ const ModuloEnsamble = {
         document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
         document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);
 
-        // Listener en input manual o pegado
-        document.getElementById('ens-buje-componente')?.addEventListener('change', actualizarMapeoEnsamble);
+        // El mapeo se dispara desde initAutocompleteComponente al seleccionar
 
         // Configurar botón de defectos
         const btnDefectos = document.getElementById('btn-defectos-ensamble');
@@ -327,6 +355,11 @@ async function registrarEnsamble() {
 
 async function actualizarMapeoEnsamble() {
     const bujeCode = document.getElementById('ens-buje-componente')?.value;
+    const selectorContainer = document.getElementById('ens-opciones-selector');
+
+    // Limpiar selector anterior si existe
+    if (selectorContainer) selectorContainer.remove();
+
     if (!bujeCode) {
         document.getElementById('ens-id-codigo').value = '';
         document.getElementById('ens-qty-bujes').value = '1';
@@ -338,10 +371,17 @@ async function actualizarMapeoEnsamble() {
         const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(bujeCode)}`);
 
         if (data && data.success) {
-            document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
-            const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
-            document.getElementById('ens-qty-bujes').value = qtyValue;
-            actualizarCalculoEnsamble();
+            // Si hay múltiples opciones, mostrar selector
+            if (data.opciones && data.opciones.length > 0) {
+                console.log('🔀 Múltiples opciones encontradas:', data.opciones);
+                mostrarSelectorOpciones(data.opciones);
+            } else {
+                // Una sola opción: asignar directamente
+                document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
+                const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
+                document.getElementById('ens-qty-bujes').value = qtyValue;
+                actualizarCalculoEnsamble();
+            }
         } else {
             document.getElementById('ens-id-codigo').value = 'NO DEFINIDO';
             document.getElementById('ens-qty-bujes').value = '1';
@@ -349,6 +389,102 @@ async function actualizarMapeoEnsamble() {
     } catch (error) {
         console.error('❌ Error buscando mapeo:', error);
     }
+}
+
+/**
+ * Muestra un mini-selector cuando un producto tiene múltiples opciones de componente
+ * Por ejemplo: 9721 puede usar CB9721 o FR-9303
+ */
+function mostrarSelectorOpciones(opciones) {
+    // Crear contenedor del selector
+    const container = document.createElement('div');
+    container.id = 'ens-opciones-selector';
+    container.style.cssText = `
+        background: linear-gradient(135deg, #fef3c7, #fde68a);
+        border: 2px solid #f59e0b;
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-top: 8px;
+        animation: fadeIn 0.3s ease;
+    `;
+
+    container.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <i class="fas fa-exclamation-triangle" style="color: #d97706; font-size: 18px;"></i>
+            <strong style="color: #92400e; font-size: 14px;">¿Con cuál componente se hizo?</strong>
+        </div>
+        <div id="ens-opciones-btns" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+    `;
+
+    const btnsContainer = container.querySelector('#ens-opciones-btns');
+
+    opciones.forEach((opcion, idx) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.style.cssText = `
+            flex: 1;
+            min-width: 120px;
+            padding: 10px 16px;
+            border: 2px solid #d97706;
+            border-radius: 8px;
+            background: white;
+            color: #92400e;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+        `;
+        btn.innerHTML = `<i class="fas fa-cube"></i> ${opcion.buje_origen}`;
+        btn.addEventListener('mouseenter', () => {
+            btn.style.background = '#f59e0b';
+            btn.style.color = 'white';
+            btn.style.transform = 'scale(1.03)';
+        });
+        btn.addEventListener('mouseleave', () => {
+            if (!btn.classList.contains('selected')) {
+                btn.style.background = 'white';
+                btn.style.color = '#92400e';
+                btn.style.transform = 'scale(1)';
+            }
+        });
+        btn.addEventListener('click', () => {
+            // Seleccionar esta opción
+            document.getElementById('ens-id-codigo').value = opcion.codigo_ensamble || '';
+            document.getElementById('ens-qty-bujes').value = opcion.qty || 1;
+            actualizarCalculoEnsamble();
+
+            // Marcar como seleccionado visualmente
+            btnsContainer.querySelectorAll('button').forEach(b => {
+                b.classList.remove('selected');
+                b.style.background = 'white';
+                b.style.color = '#92400e';
+                b.style.transform = 'scale(1)';
+            });
+            btn.classList.add('selected');
+            btn.style.background = '#059669';
+            btn.style.color = 'white';
+            btn.style.borderColor = '#059669';
+            btn.style.transform = 'scale(1.03)';
+            btn.innerHTML = `<i class="fas fa-check-circle"></i> ${opcion.buje_origen}`;
+
+            console.log(`✅ Opción seleccionada: ${opcion.buje_origen} → ${opcion.codigo_ensamble} (QTY: ${opcion.qty})`);
+        });
+        btnsContainer.appendChild(btn);
+    });
+
+    // Insertar después del campo de Código Ensamble
+    const codigoField = document.getElementById('ens-id-codigo');
+    if (codigoField) {
+        const parentGroup = codigoField.closest('.form-group');
+        if (parentGroup) {
+            parentGroup.appendChild(container);
+        }
+    }
+
+    // Poner "Seleccionar..." en el campo hasta que elijan
+    document.getElementById('ens-id-codigo').value = '⚠️ Seleccionar componente...';
+    document.getElementById('ens-qty-bujes').value = '1';
 }
 
 function actualizarCalculoEnsamble() {

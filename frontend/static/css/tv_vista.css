@@ -4,6 +4,7 @@ body.tv-mode {
     background: #0f172a !important;
     /* Fondo muy oscuro para contraste */
     color: #f1f5f9 !important;
+    scroll-behavior: smooth !important;
     scrollbar-width: none;
     /* Firefox */
     -ms-overflow-style: none;
