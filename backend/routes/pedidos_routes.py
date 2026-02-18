@@ -151,34 +151,35 @@ def registrar_pedido():
                 logger.error(f"   Error: {str(ve)}")
                 continue
             
-            # Prepare row for this product (total se calcula después)
-            row = [
-                id_pedido,
-                fecha,
-                hora_actual,          # HORA auto-capturada
-                codigo,
-                descripcion,
-                vendedor,
-                cliente,
-                nit,
-                direccion,
-                ciudad,
-                forma_pago,
-                f"{descuento_global}%",  # Descuento global para todos
-                0,  # Total se calculará después (index 12)
-                estado,
-                cantidad,
-                precio_unitario,
-                "0%", # PROGRESO inicial (Alistamiento)
-                0,    # CANT_ALISTADA inicial
-                "0%", # PROGRESO_DESPACHO inicial
-                0,    # CANT_ENVIADA inicial
-                "",   # DELEGADO_A inicial
-                "FALSE", # ESTADO_DESPACHO inicial
-                "FALSE"  # NO_DISPONIBLE inicial
-            ]
+            # Prepare row for this product as a dictionary first to avoid index errors
+            row_dict = {h: "" for h in expected_headers}
+            row_dict.update({
+                "ID PEDIDO": id_pedido,
+                "FECHA": fecha,
+                "HORA": hora_actual,
+                "ID CODIGO": codigo,
+                "DESCRIPCION": descripcion,
+                "VENDEDOR": vendedor,
+                "CLIENTE": cliente,
+                "NIT": nit,
+                "DIRECCION": direccion,
+                "CIUDAD": ciudad,
+                "FORMA DE PAGO": forma_pago,
+                "DESCUENTO %": f"{descuento_global}%",
+                "TOTAL": 0,  # Se calcula después
+                "ESTADO": estado,
+                "CANTIDAD": cantidad,
+                "PRECIO UNITARIO": precio_unitario,
+                "PROGRESO": "0%",
+                "CANT_ALISTADA": 0,
+                "PROGRESO_DESPACHO": "0%",
+                "CANT_ENVIADA": 0,
+                "DELEGADO_A": "",
+                "ESTADO_DESPACHO": "FALSE",
+                "NO_DISPONIBLE": "FALSE"
+            })
             
-            rows_to_append.append(row)
+            rows_to_append.append(row_dict)
             logger.info(f"   ✅ Fila preparada para Google Sheets")
         
         # Calcular total general con descuento global
@@ -195,25 +196,29 @@ def registrar_pedido():
             total_general = subtotal_general
             logger.warning(f"⚠️ Error calculando descuento, usando subtotal: ${total_general}")
         
-        # Calcular total proporcional por cada item
         if subtotal_general > 0:
             logger.info(f"\n🔢 Calculando totales proporcionales por item...")
-            for i, row in enumerate(rows_to_append):
-                cantidad = float(row[14])  # CANTIDAD (shifted +1 due to HORA column)
-                precio_unitario = float(row[15])  # PRECIO UNITARIO
+            for i, row_dict in enumerate(rows_to_append):
+                cantidad = float(row_dict["CANTIDAD"])
+                precio_unitario = float(row_dict["PRECIO UNITARIO"])
                 subtotal_item = cantidad * precio_unitario
                 
                 # Total proporcional con descuento global
                 total_item = subtotal_item * (1 - desc_float)
                 total_item = round(total_item, 2)
                 
-                row[12] = total_item  # Actualizar TOTAL (shifted +1 due to HORA column)
+                row_dict["TOTAL"] = total_item
                 logger.info(f"   Item {i+1}: ${subtotal_item} → ${total_item} (con {descuento_global}% desc)")
         
+        # Convert dictionary rows to lists in correct order
+        final_rows = []
+        for rd in rows_to_append:
+            final_rows.append([rd[h] for h in expected_headers])
+        
         # Append all rows
-        if rows_to_append:
-            logger.info(f"\n💾 Guardando {len(rows_to_append)} filas en Google Sheets...")
-            for i, row in enumerate(rows_to_append):
+        if final_rows:
+            logger.info(f"\n💾 Guardando {len(final_rows)} filas en Google Sheets...")
+            for i, row in enumerate(final_rows):
                 logger.info(f"   Guardando fila {i+1}: {row[:5]}...")  # Solo primeros 5 campos para no saturar
                 ws.append_row(row)
             
