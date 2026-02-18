@@ -432,7 +432,16 @@ const AuthModule = {
         // Re-iniciar modulo actual después del login
         // Esperar a que los datos compartidos estén listos antes de re-inicializar
         const reiniciarModulo = () => {
-            const currentPage = window.AppState?.paginaActual || 'dashboard';
+            // Intentar obtener página actual del estado, del hash o fallback a dashboard
+            let currentPage = window.AppState?.paginaActual;
+            if (!currentPage) {
+                const hash = window.location.hash.replace('#', '');
+                if (hash && document.getElementById(`${hash}-page`)) {
+                    currentPage = hash;
+                }
+            }
+            if (!currentPage) currentPage = 'dashboard';
+
             console.log(`🔄 Re-inicializando página ${currentPage} después del login...`);
 
             // Usar cargarPagina para re-inicializar completamente

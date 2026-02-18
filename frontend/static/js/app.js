@@ -161,8 +161,9 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         history.pushState({ page: nombrePagina }, '', `#${nombrePagina}`);
     }
 
-    inicializarModulo(nombrePagina);
+    // Establecer página actual antes de inicializar para evitar race conditions
     window.AppState.paginaActual = nombrePagina;
+    inicializarModulo(nombrePagina);
 
     // Guardar en localStorage para persistencia al recargar
     try {
