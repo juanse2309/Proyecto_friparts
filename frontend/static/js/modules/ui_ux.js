@@ -78,6 +78,45 @@ const ModuloUX = (() => {
                         setTimeout(() => playTone(f, 'sine', 0.3), i * 200);
                     });
                     break;
+                case 'techno':
+                    // Techno Beat (Rítmico y persistente)
+                    for (let i = 0; i < 6; i++) {
+                        setTimeout(() => playTone(150, 'square', 0.1), i * 400); // Kick
+                        setTimeout(() => playTone(1000, 'sine', 0.05), i * 400 + 200); // Snare
+                    }
+                    break;
+                case 'emergency':
+                    // Emergencia (Patrulla Digital)
+                    for (let i = 0; i < 10; i++) {
+                        setTimeout(() => playTone(900, 'sawtooth', 0.15), i * 300);
+                        setTimeout(() => playTone(600, 'sawtooth', 0.15), i * 300 + 150);
+                    }
+                    break;
+                case 'space':
+                    // Space Odyssey (Barridos espaciales)
+                    [1, 2, 3].forEach((cycle, i) => {
+                        setTimeout(() => {
+                            const now = audioContext.currentTime;
+                            const osc = audioContext.createOscillator();
+                            const gain = audioContext.createGain();
+                            osc.type = 'sine';
+                            osc.frequency.setValueAtTime(200, now);
+                            osc.frequency.exponentialRampToValueAtTime(1500, now + 0.8);
+                            gain.gain.setValueAtTime(0.1, now);
+                            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+                            osc.connect(gain);
+                            gain.connect(audioContext.destination);
+                            osc.start();
+                            osc.stop(now + 0.8);
+                        }, i * 1000);
+                    });
+                    break;
+                case 'marimba':
+                    // Marimba Rhythm (Alegre)
+                    [440, 523, 659, 440, 523, 659, 880].forEach((f, i) => {
+                        setTimeout(() => playTone(f, 'sine', 0.2), i * 150);
+                    });
+                    break;
                 case 'pulse':
                     // Pulso Moderno (Corto y penetrante)
                     playTone(1000, 'square', 0.05);
