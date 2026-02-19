@@ -63,13 +63,15 @@ async function cargarDatosCompartidos() {
 
         window.AppState.sharedData.productos = productosRaw.map(p => ({
             id_codigo: p.id_codigo || p.ID_CODIGO || 0,
-            codigo_sistema: p.codigo || p.codigo_sistema || p.CODIGO || '',
+            codigo_sistema: p.codigo_sistema || p.codigo || p.CODIGO || '',
+            codigo: p.codigo || p.codigo_sistema || '', // Backup
             descripcion: p.descripcion || p.DESCRIPCION || '',
             imagen: p.imagen || '',
             precio: p.precio || p.PRECIO || 0,
             stock_por_pulir: p.stock_por_pulir || p.POR_PULIR || 0,
             stock_terminado: p.stock_terminado || p.TERMINADO || 0,
-            stock_total: p.existencias_totales || p.EXISTENCIAS || 0,
+            stock_total: p.stock_total || p.existencias_totales || p.EXISTENCIAS || 0,
+            stock_disponible: p.stock_disponible || 0, // CRITICO
             semaforo: p.semaforo || { color: 'gray', estado: '', mensaje: '' },
             metricas: p.metricas || { min: 0, max: 0, reorden: 0 }
         }));

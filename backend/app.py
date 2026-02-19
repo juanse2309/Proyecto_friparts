@@ -3030,7 +3030,8 @@ def buscar_productos(query):
                     'id_codigo': producto.get('ID CODIGO', ''),
                     'descripcion': producto.get('DESCRIPCION', ''),
                     'stock_total': stock_total,
-                    'unidad': producto.get('UNIDAD', 'PZ')
+                    'unidad': producto.get('UNIDAD', 'PZ'),
+                    'imagen': producto.get('IMAGEN', '')
                 })
         
         return jsonify({

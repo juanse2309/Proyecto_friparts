@@ -245,7 +245,7 @@ const AlmacenModule = {
                             <!-- Barra Doble de Progreso -->
                             <div class="mt-auto" style="cursor: pointer; margin-bottom: 10px;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="small fw-bold text-muted" style="font-size: 0.65rem;"><i class="fas fa-box me-1"></i> Alistado</span>
+                                    <span class="small fw-bold text-muted" style="font-size: 0.65rem;"><i class="fas fa-box me-1"></i> En Reparto</span>
                                     <span class="small fw-bold" style="color: #6366f1; font-size: 0.7rem;">${progresoAlisado}%</span>
                                 </div>
                                 <div class="progress progress-modern" style="height: 6px; border-radius: 10px; background: #f1f5f9; margin-bottom: 10px;">
@@ -725,7 +725,7 @@ const AlmacenModule = {
 
         if (barAlisado) {
             barAlisado.style.width = `${pctAlisado}% `;
-            barAlisado.innerText = `Alistado: ${pctAlisado}% `;
+            barAlisado.innerText = `En Reparto: ${pctAlisado}% `;
             // ... efectos ...
             barAlisado.parentElement.classList.add('progress-modern');
             barAlisado.classList.add('progress-bar-shimmer');
@@ -788,7 +788,7 @@ const AlmacenModule = {
         let estado = 'EN ALISTAMIENTO';
         if (pctEnv === 100 && pctLis === 100) estado = 'DESPACHADO'; // Todo alistado y todo check despachado
         else if (pctEnv > 0) estado = 'DESPACHO PARCIAL';
-        else if (pctLis === 100) estado = 'ALISTADO';
+        else if (pctLis === 100) estado = 'EN REPARTO';
         else if (pctLis === 0) estado = 'PENDIENTE';
 
         const detalles = this.pedidoActual.productos.map(p => ({
