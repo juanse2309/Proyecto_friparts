@@ -214,62 +214,45 @@ def obtener_precio_db(codigo):
 def buscar_producto_en_inventario(codigo_sistema):
     """
     Busca un producto en la hoja PRODUCTOS y devuelve su información.
-    MEJORADO: Usa comparación normalizada (sin espacios, case-insensitive).
-    
-    Ahora '9304' encontrará 'FR-9304', 'fr-9304', ' 9304 ', etc.
+    OPTIMIZADO: Usa PRODUCTOS_CACHE para evitar el error 429.
     """
     try:
-        logger.info(f"🔎 ===== INICIO BÚSQUEDA EN INVENTARIO =====")
-        logger.info(f"🔎 Código recibido: '{codigo_sistema}' (tipo: {type(codigo_sistema).__name__})")
+        # 1. Intentar usar CACHE
+        ahora = time.time()
+        registros = None
         
-        ws = get_worksheet(Hojas.PRODUCTOS)
-        registros = ws.get_all_records()
-        
-        logger.info(f"📊 Total de productos en hoja: {len(registros)}")
-        
+        if PRODUCTOS_CACHE["data"] and (ahora - PRODUCTOS_CACHE["timestamp"] < PRODUCTOS_CACHE_TTL):
+            registros = PRODUCTOS_CACHE["data"]
+            logger.info(" [Cache] Buscando en cache local de inventario")
+        else:
+            logger.info(" [API] Recargando inventario desde Google Sheets")
+            ws = get_worksheet(Hojas.PRODUCTOS)
+            registros = ws.get_all_records()
+            # Actualizar cache
+            PRODUCTOS_CACHE["data"] = registros
+            PRODUCTOS_CACHE["timestamp"] = ahora
+
+        if not registros:
+            return {'encontrado': False, 'error': 'No hay datos en la hoja PRODUCTOS'}
+
         # Normalizar el código de búsqueda
         codigo_normalizado = normalizar_codigo(codigo_sistema)
-        logger.info(f"🔍 Código normalizado para búsqueda: '{codigo_normalizado}'")
         
         for idx, r in enumerate(registros):
             val_hoja = str(r.get('CODIGO SISTEMA', '')).strip()
             id_codigo = str(r.get('ID CODIGO', '')).strip()
             
-            # Normalizar ambos valores de la hoja
-            val_hoja_norm = normalizar_codigo(val_hoja)
-            id_codigo_norm = normalizar_codigo(id_codigo)
-            
-            # LOGS DETALLADOS DE COMPARACIÓN
-            if idx < 5 or codigo_normalizado in [val_hoja_norm, id_codigo_norm]:
-                logger.info(f"   🔄 Fila {idx+2}:")
-                logger.info(f"      Buscando: '{codigo_normalizado}'")
-                logger.info(f"      Contra CODIGO SISTEMA: '{val_hoja}' → normalizado: '{val_hoja_norm}'")
-                logger.info(f"      Contra ID CODIGO: '{id_codigo}' → normalizado: '{id_codigo_norm}'")
-                logger.info(f"      Match CODIGO SISTEMA: {val_hoja_norm == codigo_normalizado}")
-                logger.info(f"      Match ID CODIGO: {id_codigo_norm == codigo_normalizado}")
-            
-            # Comparación normalizada
-            if val_hoja_norm == codigo_normalizado or id_codigo_norm == codigo_normalizado:
-                logger.info(f"✅ ¡¡¡PRODUCTO ENCONTRADO!!! en fila {idx+2}")
-                logger.info(f"   CODIGO SISTEMA original: '{val_hoja}'")
-                logger.info(f"   ID CODIGO original: '{id_codigo}'")
-                logger.info(f"   Descripción: '{r.get('DESCRIPCION', '')}'")
+            # Comparación rápida (optimizada)
+            if normalizar_codigo(val_hoja) == codigo_normalizado or normalizar_codigo(id_codigo) == codigo_normalizado:
                 return {
                     'fila': idx + 2,
                     'datos': r,
                     'encontrado': True
                 }
         
-        logger.warning(f"❌ PRODUCTO NO ENCONTRADO: '{codigo_sistema}'")
-        logger.warning(f"   Código normalizado buscado: '{codigo_normalizado}'")
-        logger.warning(f"   Total de registros revisados: {len(registros)}")
-        logger.warning(f"   Primeras 5 filas revisadas en detalle (ver arriba)")
-        return {'encontrado': False, 'error': f'Producto "{codigo_sistema}" no encontrado en la hoja PRODUCTOS'}
+        return {'encontrado': False, 'error': f'Producto "{codigo_sistema}" no encontrado'}
     except Exception as e:
         logger.error(f"❌ ERROR en buscar_producto_en_inventario: {str(e)}")
-        logger.error(f"   Tipo de error: {type(e).__name__}")
-        import traceback
-        logger.error(traceback.format_exc())
         return {'encontrado': False, 'error': str(e)}
 
 def obtener_datos_producto(codigo_entrada):
@@ -336,62 +319,74 @@ def obtener_stock(codigo_sistema, almacen):
         return 0
 
 def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
-    """Actualiza el stock de un producto en un almacen especifico."""
+    """
+    Actualiza el stock de un producto en un almacen especifico.
+    OPTIMIZADO: 
+    - Evita llamadas redundantes a Google Sheets.
+    - Actualiza el cache local después de escribir para mantener consistencia.
+    """
     try:
         resultado = buscar_producto_en_inventario(codigo_sistema)
         if not resultado['encontrado']:
             return False, resultado['error']
         
         fila_num = resultado['fila']
-        datos = resultado['datos']
+        datos_fila = resultado['datos']
         
         mapeo_almacenes = {
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
             'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
-            'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
             'CLIENTE': 'CLIENTE',
-            'PNC': 'PNC'  # Mapping for PNC column
+            'PNC': 'PNC'
         }
         
         columna = mapeo_almacenes.get(almacen)
         if not columna:
             return False, f'Almacen {almacen} no valido'
         
-        stock_actual = obtener_stock(codigo_sistema, almacen)
+        # Obtener stock actual de los datos que YA tenemos (evita una petición)
+        stock_val = datos_fila.get(columna, 0)
+        try:
+            stock_actual = int(float(str(stock_val).replace(',', '') or 0))
+        except:
+            stock_actual = 0
         
         if operacion == 'sumar':
             nuevo_stock = stock_actual + cantidad
         elif operacion == 'restar':
             if stock_actual < cantidad:
-                return False, f'Stock insuficiente. Disponible: {stock_actual}, Requerido: {cantidad}'
+                return False, f'Stock insuficiente en {almacen}. Disp: {stock_actual}, Req: {cantidad}'
             nuevo_stock = stock_actual - cantidad
         else:
             return False, f'Operacion {operacion} no valida'
         
+        # 1. Escribir en Google Sheets
         ws = get_worksheet(Hojas.PRODUCTOS)
-        
         headers = ws.row_values(1)
         try:
             col_index = headers.index(columna) + 1
         except ValueError:
-            return False, f'Columna {columna} no encontrada en PRODUCTOS'
-        
+            return False, f'Columna {columna} no encontrada'
+            
         ws.update_cell(fila_num, col_index, nuevo_stock)
         
-        # INVALIDAR CACHE
-        invalidar_cache_productos()
-        
-        mensaje = f'✅ Stock actualizado en Sheets: {codigo_sistema} [{almacen}] {stock_actual} -> {nuevo_stock}'
+        # 2. ACTUALIZACIÓN CRUCIAL DEL CACHE LOCAL
+        # Esto permite que la siguiente llamada en el mismo loop vea el stock actualizado
+        if PRODUCTOS_CACHE["data"]:
+            # El índice en el array es fila_num - 2
+            idx = fila_num - 2
+            if idx < len(PRODUCTOS_CACHE["data"]):
+                PRODUCTOS_CACHE["data"][idx][columna] = nuevo_stock
+                logger.info(f" 💾 Cache local actualizado: {codigo_sistema} {columna} = {nuevo_stock}")
+
+        mensaje = f'✅ Stock actualizado: {codigo_sistema} [{almacen}] {stock_actual} -> {nuevo_stock}'
         logger.info(mensaje)
-        print(mensaje)
         return True, mensaje
         
     except Exception as e:
-        error_msg = f"Error actualizando stock: {str(e)}"
-        print(error_msg)
-        traceback.print_exc()
-        return False, error_msg
+        logger.error(f"Error actualizando stock: {str(e)}")
+        return False, str(e)
 
 def calcular_metricas_semaforo(stock_total, p_min, p_reorden, p_max):
     """
@@ -796,34 +791,43 @@ def obtener_buje_origen_y_qty(codigo_producto):
         ss = get_spreadsheet()
         
         # 1. Normalizar codigo para busqueda
-        codigo_sis_real = obtener_codigo_sistema_real(codigo_producto) # ej: 9430
+        codigo_sis_real = normalizar_codigo(codigo_producto)
         
-        # 2. Cargar FICHAS
-        ws_fichas = ss.worksheet(Hojas.FICHAS)
-        registros_fichas = ws_fichas.get_all_records()
+        # 1. Obtener FICHAS (OPTIMIZADO CON CACHE)
+        ahora = time.time()
+        registros_fichas = None
         
+        if FICHAS_CACHE.get("data") and (ahora - FICHAS_CACHE.get("timestamp", 0) < FICHAS_CACHE_TTL):
+            registros_fichas = FICHAS_CACHE["data"]
+            logger.info(" [Cache] Usando fichas para mapeo")
+        else:
+            logger.info(" [API] Cargando fichas para mapeo")
+            ss = gc.open_by_key(GSHEET_KEY)
+            ws_fichas = ss.worksheet(Hojas.FICHAS)
+            registros_fichas = ws_fichas.get_all_records()
+            # Guardar en cache
+            FICHAS_CACHE["data"] = registros_fichas
+            FICHAS_CACHE["timestamp"] = ahora
+        
+        if not registros_fichas:
+            return codigo_producto, 1.0, "ERROR_DATOS"
+
         # BUSQUEDA 1: ¿Es el producto final? (FICHAS[ID CODIGO] == codigo)
         for r in registros_fichas:
             id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
-            id_cod_norm = normalizar_codigo(id_cod_ficha)
-            if id_cod_norm == codigo_sis_real:
+            if normalizar_codigo(id_cod_ficha) == codigo_sis_real:
                 buje = str(r.get('BUJE ENSAMBLE', '')).strip()
                 qty = float(r.get('QTY', 1) or 1)
-                logger.info(f" [Mapeo] Encontrado como PRODUCTO: {codigo_sis_real} utiliza buje {buje}")
                 return buje, qty, id_cod_ficha
         
         # BUSQUEDA 2: ¿Es el componente? (FICHAS[BUJE ENSAMBLE] == codigo)
         for r in registros_fichas:
             buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
-            buje_norm = normalizar_codigo(buje_ficha)
-            if buje_norm == codigo_sis_real:
+            if normalizar_codigo(buje_ficha) == codigo_sis_real:
                 prod_final = str(r.get('ID CODIGO', '')).strip()
                 qty = float(r.get('QTY', 1) or 1)
-                logger.info(f" [Mapeo] Encontrado como COMPONENTE: {codigo_sis_real} es buje para {prod_final}")
                 return buje_ficha, qty, prod_final
 
-        # Fallback: No se encontro en FICHAS
-        logger.warning(f" [Mapeo] No hay ficha tecnica para {codigo_producto}")
         return codigo_producto, 1.0, "NO DEFINIDO"
         
     except Exception as e:
@@ -1346,15 +1350,13 @@ def obtener_ensamble_desde_producto():
                     })
         
         if opciones:
-            # Retornar primera opción como default + todas las opciones
-            primera = opciones[0]
+            # Retornar todas las opciones encontradas
+            # Si hay más de una, el frontend decidirá si es un BOM (AND) o Opciones (OR)
+            # Para el reporte de Power BI y consistencia, enviamos la lista completa
             return jsonify({
                 'success': True,
                 'codigo_sistema': codigo_sistema,
-                'codigo_ensamble': primera['codigo_ensamble'],
-                'buje_origen': primera['buje_origen'],
-                'qty': primera['qty'],
-                'opciones': opciones if len(opciones) > 1 else []
+                'opciones': opciones
             }), 200
         else:
             return jsonify({
@@ -1572,33 +1574,23 @@ def handle_ensamble():
             return error_response("Codigo de producto requerido")
         
         # ========================================
-        # OBTENER INFORMACÍN DE BUJE ORIGEN (Soporte Bidireccional)
+        # OBTENER COMPONENTES (Nueva lógica multi-componente)
         # ========================================
-        buje_origen_id, qty_calculada, producto_final_id = obtener_buje_origen_y_qty(codigo_sis)
+        componentes_a_procesar = data.get('componentes', [])
         
-        # PRIORIZAR QTY ENVIADO POR EL CLIENTE (Frontend)
-        qty_unitaria = float(data.get('qty_unitaria', qty_calculada))
+        if not componentes_a_procesar:
+            # Fallback legacy: un solo componente (mantiene compatibilidad)
+            buje_origen_id, qty_calculada, producto_final_id = obtener_buje_origen_y_qty(codigo_sis)
+            qty_unitaria = float(data.get('qty_unitaria', qty_calculada))
+            componentes_a_procesar = [{
+                'buje_origen': buje_origen_id,
+                'qty_unitaria': qty_unitaria
+            }]
         
-        logger.info(f" Buje ID: {buje_origen_id}, QTY unitaria: {qty_unitaria} (Calculada: {qty_calculada})")
-        
-        # ========================================
-        # BUSCAR CODIGO SISTEMA DEL BUJE
-        # ========================================
-        buje_codigo_sistema, _, _ = obtener_datos_producto(buje_origen_id)
-        
-        if not buje_codigo_sistema:
-            buje_codigo_sistema = buje_origen_id
-            logger.warning(f" No se encontro CODIGO SISTEMA para buje {buje_origen_id}, usando ID")
-            
-        # ========================================
-        # BUSCAR CODIGO SISTEMA DEL PRODUCTO ENSAMBLADO
-        # ========================================
-        producto_codigo_sistema, _, _ = obtener_datos_producto(codigo_sis)
-        if not producto_codigo_sistema:
-            producto_codigo_sistema = codigo_entrada
+        logger.info(f" Componentes a procesar: {len(componentes_a_procesar)}")
 
         # ========================================
-        # CALCULAR CANTIDADES
+        # CALCULAR CANTIDADES Y ALMACENES
         # ========================================
         cantidad_recibida = int(data.get('cantidad_recibida', 0))
         pnc = int(data.get('pnc', 0))
@@ -1606,97 +1598,113 @@ def handle_ensamble():
         
         if cantidad_recibida == 0:
             cantidad_recibida = cantidad_real + pnc
-        
-        # Calcular consumo de bujes (Usando QTY unitaria corregida)
-        total_consumo = cantidad_recibida * qty_unitaria
-        
-        logger.info(f" Cantidades: recibida={cantidad_recibida}, real={cantidad_real}, pnc={pnc}, consumo={total_consumo}")
-        logger.info(f" Stock - Descontara de: {buje_codigo_sistema}, Agregara a: {producto_codigo_sistema}")
-        
-        # ========================================
-        # MOVER INVENTARIO (USANDO ALMACENES DINAMICOS)
-        # ========================================
+            
         almacen_origen = data.get('almacen_origen', 'P. TERMINADO')
         almacen_destino = data.get('almacen_destino', 'PRODUCTO ENSAMBLADO')
 
-        # Salida de buje (CONSUMO TOTAL: Recibida * QTY)
-        exito_resta, msj_resta = registrar_salida(buje_codigo_sistema, total_consumo, almacen_origen)
-        if not exito_resta:
-            logger.error(f" {msj_resta}")
-            return jsonify({"success": False, "error": msj_resta}), 400
-        
-        logger.info(f" Salida: {buje_codigo_sistema} (-{total_consumo}) desde {almacen_origen}")
-        
-        # Entrada del producto ensamblado (Solo las BUENAS sumadas al destino)
-        exito_suma, msj_suma = registrar_entrada(producto_codigo_sistema, cantidad_real, almacen_destino)
-        if not exito_suma:
-            # Revertir
-            registrar_entrada(buje_codigo_sistema, total_consumo, almacen_origen)
-            logger.error(f" {msj_suma}")
-            return jsonify({"success": False, "error": msj_suma}), 400
-        
-        logger.info(f" Entrada: {producto_codigo_sistema} (+{cantidad_real}) en {almacen_destino}")
-        
         # ========================================
-        # CREAR REGISTRO EN HOJA ENSAMBLES
+        # BUSCAR CODIGO SISTEMA DEL PRODUCTO FINAL
         # ========================================
-        id_ensamble = f"ENS-{str(uuid.uuid4())[:8].upper()}"
-        
-        #  ORDEN CORRECTO SEGN TUS ENCABEZADOS - SIN CAMPO LOTE
-        # Asegurate que la hoja ENSAMBLES no tenga columna para "LOTE"
-        # Fila para Google Sheets
+        producto_codigo_sistema, _, _ = obtener_datos_producto(codigo_sis)
+        if not producto_codigo_sistema:
+            producto_codigo_sistema = codigo_entrada
+
+        # ========================================
+        # LOGICA DE STOCK: DESCONTAR COMPONENTES (Loop)
+        # ========================================
+        componentes_procesados_exito = []
+        try:
+            for comp in componentes_a_procesar:
+                b_id = str(comp.get('buje_origen', '')).strip()
+                q_unit = float(comp.get('qty_unitaria', 1))
+                
+                # Normalizar código del buje
+                b_codigo_sistema, _, _ = obtener_datos_producto(b_id)
+                if not b_codigo_sistema: b_codigo_sistema = b_id
+                
+                total_consumo = cantidad_recibida * q_unit
+                
+                logger.info(f" Procesando stock: Buje {b_codigo_sistema} (-{total_consumo})")
+                exito_resta, msj_resta = registrar_salida(b_codigo_sistema, total_consumo, almacen_origen)
+                
+                if not exito_resta:
+                    # ROLLBACK: Revertir los que ya se descontaron
+                    logger.error(f" Error en stock para {b_codigo_sistema}: {msj_resta}. Iniciando rollback...")
+                    for prev_comp in componentes_procesados_exito:
+                        registrar_entrada(prev_comp['buje'], prev_comp['qty'], almacen_origen)
+                    return jsonify({"success": False, "error": f"Stock insuficiente para {b_codigo_sistema}: {msj_resta}"}), 400
+                
+                componentes_procesados_exito.append({
+                    'buje': b_codigo_sistema,
+                    'qty': total_consumo,
+                    'buje_id_original': b_id,
+                    'qty_unitaria': q_unit
+                })
+
+            # ========================================
+            # AGREGAR PRODUCTO TERMINADO (Solo una vez)
+            # ========================================
+            exito_suma, msj_suma = registrar_entrada(producto_codigo_sistema, cantidad_real, almacen_destino)
+            if not exito_suma:
+                # ROLLBACK componentes
+                for prev_comp in componentes_procesados_exito:
+                    registrar_entrada(prev_comp['buje'], prev_comp['qty'], almacen_origen)
+                logger.error(f" Error sumando stock final {producto_codigo_sistema}: {msj_suma}")
+                return jsonify({"success": False, "error": msj_suma}), 400
+
+        except Exception as e:
+            logger.error(f" Error inesperado en procesamiento de stock: {str(e)}")
+            return jsonify({"success": False, "error": f"Error técnico en stock: {str(e)}"}), 500
+
+        # ========================================
+        # CREAR REGISTROS EN HOJA ENSAMBLES (Uno por componente)
+        # ========================================
+        id_ensamble = f"ENS-{str(uuid.uuid4())[:10].upper()}"
         fecha_ensamble_f = formatear_fecha_para_sheet(data.get('fecha_inicio', ''))
         
-        fila_ensamble = [
-            fecha_ensamble_f,                            # 1. FECHA
-            id_ensamble,                                 # 2. ID ENSAMBLE
-            codigo_sis,                                 # 3. ID CODIGO (sin FR-)
-            cantidad_real,                              # 4. CANTIDAD
-            data.get('orden_produccion', ''),          # 5. OP NUMERO
-            data.get('responsable', ''),               # 6. RESPONSABLE
-            data.get('hora_inicio', ''),               # 7. HORA INICIO
-            data.get('hora_fin', ''),                  # 8. HORA FIN
-            buje_origen_id,                            # 9. BUJE ENSAMBLE (ID sin FR-)
-            qty_unitaria,                              # 10. QTY
-            almacen_origen,                            # 11. ALMACEN PARA DESCARGAR
-            almacen_destino                            # 12. ALMACEN DESTINO
-            # NOTA: Ya no incluimos campo "LOTE" aqui
-        ]
-        
-        # Si tu hoja de Google Sheets tiene mas columnas (ej: observaciones), 
-        # puedes agregarlas aqui segun los datos del formulario:
-        fila_ensamble.append(data.get('observaciones', ''))  # 13. OBSERVACIONES (si existe la columna)
-        # fila_ensamble.append(data.get('criterio_pnc', ''))  # 14. CRITERIO PNC (si existe la columna)
-        
-        logger.debug(f" Fila ensamble ({len(fila_ensamble)} columnas): {fila_ensamble}")
-        
-        # Guardar en Google Sheets
         try:
             ss = gc.open_by_key(GSHEET_KEY)
             ws = ss.worksheet(Hojas.ENSAMBLES)
-            # Verifica que la hoja tenga las columnas correctas
             headers = ws.row_values(1)
-            logger.info(f" Encabezados de ENSAMBLES: {headers}")
             
-            # Si faltan columnas para los datos adicionales, puedes agregar valores vacios
-            while len(fila_ensamble) < len(headers):
-                fila_ensamble.append('')
+            filas_a_insertar = []
+            for comp in componentes_procesados_exito:
+                fila = [
+                    fecha_ensamble_f,                                # 1. FECHA
+                    id_ensamble,                                     # 2. ID ENSAMBLE
+                    codigo_sis,                                     # 3. ID CODIGO (Final)
+                    cantidad_real,                                  # 4. CANTIDAD
+                    data.get('orden_produccion', ''),               # 5. OP NUMERO
+                    data.get('responsable', ''),                    # 6. RESPONSABLE
+                    data.get('hora_inicio', ''),                    # 7. HORA INICIO
+                    data.get('hora_fin', ''),                       # 8. HORA FIN
+                    comp['buje_id_original'],                       # 9. BUJE ENSAMBLE
+                    comp['qty_unitaria'],                           # 10. QTY (Unitaria)
+                    almacen_origen,                                 # 11. ALMACEN ORIGEN
+                    almacen_destino,                                # 12. ALMACEN DESTINO
+                    data.get('observaciones', '')                   # 13. OBSERVACIONES
+                ]
                 
-            ws.append_row(fila_ensamble, value_input_option='USER_ENTERED')
-            logger.info(f" Registro guardado en ENSAMBLES con {len(fila_ensamble)} columnas")
+                # Rellenar hasta el número de encabezados
+                while len(fila) < len(headers):
+                    fila.append('')
+                filas_a_insertar.append(fila)
+
+            # Insertar todas las filas a la vez (si hay varias)
+            if filas_a_insertar:
+                ws.append_rows(filas_a_insertar, value_input_option='USER_ENTERED')
+                logger.info(f" {len(filas_a_insertar)} registros guardados en ENSAMBLES")
+
         except Exception as e:
-            logger.error(f" Error guardando: {str(e)}")
-            # Revertir movimientos de stock
-            registrar_salida(producto_codigo_sistema, cantidad_real, "PRODUCTO ENSAMBLADO")
-            registrar_entrada(buje_codigo_sistema, total_consumo, "P. TERMINADO")
-            return jsonify({"success": False, "error": f"Error guardando: {str(e)}"}), 500
-        
+            logger.error(f" Error guardando en Sheets: {str(e)}")
+            # Nota: A este punto el stock ya se movió, reportamos el error pero el inventario cambió
+            return jsonify({"success": True, "mensaje": f"Ensamble procesado con ADVERTENCIA en log: {str(e)}", "id_ensamble": id_ensamble}), 200
+
         # ========================================
         # REGISTRAR PNC SI EXISTE
         # ========================================
         if pnc > 0:
-            logger.info(f" Registrando PNC: {pnc} piezas")
-            exito_pnc = registrar_pnc_detalle(
+            registrar_pnc_detalle(
                 tipo_proceso='ensamble',
                 id_operacion=id_ensamble,
                 codigo_producto=codigo_sis,
@@ -1704,29 +1712,20 @@ def handle_ensamble():
                 criterio_pnc=data.get('criterio_pnc', ''),
                 observaciones=data.get('observaciones', '')
             )
-            if not exito_pnc:
-                logger.warning(f" PNC no registrado")
         
         # ========================================
         # RESPUESTA EXITOSA
         # ========================================
-        mensaje = f" Ensamble registrado: {cantidad_real} piezas de {codigo_sis}"
-        if pnc > 0:
-            mensaje += f" (con {pnc} PNC)"
-        
         try:
             last_row = len(ws.col_values(1)) 
-        except:
-            last_row = 0
+        except: last_row = 0
 
         return jsonify({
             "success": True,
-            "mensaje": mensaje,
+            "mensaje": f"Ensamble registrado exitosamente: {cantidad_real} unidades de {codigo_sis}",
             "id_ensamble": id_ensamble,
             "cantidad_real": cantidad_real,
-            "pnc": pnc,
-            "buje_consumido": buje_codigo_sistema,
-            "total_consumo": total_consumo,
+            "componentes_descontados": len(componentes_procesados_exito),
             "undo_meta": {
                 "hoja": Hojas.ENSAMBLES,
                 "fila": last_row,

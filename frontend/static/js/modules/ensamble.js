@@ -260,6 +260,26 @@ async function registrarEnsamble() {
         const totalPiezas = cantidadBolsas * qty;
         const cantidadReal = Math.max(0, totalPiezas - pnc);
 
+        // NUEVA LÓGICA: Recopilar componentes del BOM si existe
+        const bomItems = document.querySelectorAll('.bom-item');
+        let componentes = [];
+
+        if (bomItems && bomItems.length > 0) {
+            bomItems.forEach(item => {
+                const checkbox = item.querySelector('.bom-checkbox');
+                if (checkbox && checkbox.checked) {
+                    const dataRaw = item.querySelector('.bom-data')?.value;
+                    if (dataRaw) {
+                        const op = JSON.parse(dataRaw);
+                        componentes.push({
+                            buje_origen: op.buje_origen,
+                            qty_unitaria: op.qty || op.qty_unitaria || 1
+                        });
+                    }
+                }
+            });
+        }
+
         const datos = {
             fecha_inicio: document.getElementById('fecha-ensamble')?.value || '',
             responsable: document.getElementById('responsable-ensamble')?.value || '',
@@ -268,16 +288,17 @@ async function registrarEnsamble() {
             codigo_producto: document.getElementById('ens-id-codigo')?.value || '', // Producto final
             buje_componente: document.getElementById('ens-buje-componente')?.value || '',
             qty_unitaria: qty,
-            cantidad_bolsas: cantidadBolsas, // Explicitly sending bags
-            cantidad_recibida: cantidadBolsas, // Keeping for backward compat if needed, or remove if backend updated
-            cantidad_real: cantidadReal, // Piezas Buenas
-            total_piezas: totalPiezas, // Raw total pieces
+            cantidad_bolsas: cantidadBolsas,
+            cantidad_recibida: cantidadBolsas,
+            cantidad_real: cantidadReal,
+            total_piezas: totalPiezas,
             almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || 'P. TERMINADO',
             almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || 'PRODUCTO ENSAMBLADO',
             orden_produccion: document.getElementById('op-ensamble')?.value || '',
             pnc: pnc,
             criterio_pnc: document.getElementById('criterio-pnc-hidden-ensamble')?.value || '',
-            observaciones: document.getElementById('observaciones-ensamble')?.value || ''
+            observaciones: document.getElementById('observaciones-ensamble')?.value || '',
+            componentes: componentes.length > 0 ? componentes : [] // Enviar lista si existe
         };
 
         if (!datos.codigo_producto || datos.codigo_producto === 'NO DEFINIDO') {
@@ -356,9 +377,13 @@ async function registrarEnsamble() {
 async function actualizarMapeoEnsamble() {
     const bujeCode = document.getElementById('ens-buje-componente')?.value;
     const selectorContainer = document.getElementById('ens-opciones-selector');
+    const bomSection = document.getElementById('ensamble-bom-section');
+    const bomLista = document.getElementById('ensamble-bom-lista');
 
-    // Limpiar selector anterior si existe
+    // Limpiar UI anterior
     if (selectorContainer) selectorContainer.remove();
+    if (bomSection) bomSection.style.display = 'none';
+    if (bomLista) bomLista.innerHTML = '';
 
     if (!bujeCode) {
         document.getElementById('ens-id-codigo').value = '';
@@ -371,17 +396,30 @@ async function actualizarMapeoEnsamble() {
         const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(bujeCode)}`);
 
         if (data && data.success) {
-            // Si hay múltiples opciones, mostrar selector
+            // Si hay múltiples opciones, decidir si es BOM o Selector
             if (data.opciones && data.opciones.length > 0) {
-                console.log('🔀 Múltiples opciones encontradas:', data.opciones);
-                mostrarSelectorOpciones(data.opciones);
-            } else {
+                console.log('🔀 Múltiples registros encontrados:', data.opciones);
+
+                // Detectar si es un BOM (Estructura de múltiples componentes para un mismo producto final)
+                // Se asume BOM si la búsqueda fue por PRODUCTO FINAL y devolvió varias filas
+                const esBOM = data.opciones.every(o => o.tipo === 'producto');
+
+                if (esBOM) {
+                    renderBOM(data.opciones);
+                    // Llenar campos principales con el primer componente (compatibilidad)
+                    document.getElementById('ens-id-codigo').value = data.opciones[0].codigo_ensamble || '';
+                    document.getElementById('ens-qty-bujes').value = data.opciones[0].qty || 1;
+                } else {
+                    // Es un selector de opciones (Un componente usado en varios productos posibles)
+                    mostrarSelectorOpciones(data.opciones);
+                }
+            } else if (data.codigo_ensamble) {
                 // Una sola opción: asignar directamente
                 document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
                 const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
                 document.getElementById('ens-qty-bujes').value = qtyValue;
-                actualizarCalculoEnsamble();
             }
+            actualizarCalculoEnsamble();
         } else {
             document.getElementById('ens-id-codigo').value = 'NO DEFINIDO';
             document.getElementById('ens-qty-bujes').value = '1';
@@ -389,6 +427,32 @@ async function actualizarMapeoEnsamble() {
     } catch (error) {
         console.error('❌ Error buscando mapeo:', error);
     }
+}
+
+/**
+ * Renderiza la lista de componentes requeridos para el ensamble
+ */
+function renderBOM(opciones) {
+    const bomSection = document.getElementById('ensamble-bom-section');
+    const bomLista = document.getElementById('ensamble-bom-lista');
+    if (!bomSection || !bomLista) return;
+
+    bomSection.style.display = 'block';
+    bomLista.innerHTML = opciones.map((op, idx) => `
+        <div class="bom-item" style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; min-width: 150px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <span style="font-weight: 600; font-size: 11px; color: #64748b; text-transform: uppercase;">
+                    <i class="fas fa-puzzle-piece"></i> Componente ${idx + 1}
+                </span>
+                <input type="checkbox" checked class="bom-checkbox" data-idx="${idx}" style="width: 16px; height: 16px; cursor: pointer;" title="Incluir en el descuento de stock">
+            </div>
+            <div style="font-size: 15px; font-weight: 800; color: #1e293b; margin: 2px 0;">${op.buje_origen}</div>
+            <div class="text-muted small" style="font-weight: 500;">
+                Consumo: <span class="badge bg-light text-dark border">${op.qty} und</span>
+            </div>
+            <input type="hidden" class="bom-data" value='${JSON.stringify(op).replace(/'/g, "&apos;")}'>
+        </div>
+    `).join('');
 }
 
 /**
