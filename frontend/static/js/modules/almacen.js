@@ -1200,6 +1200,40 @@ const AlmacenModule = {
             clearInterval(this.autoRefreshInterval);
             this.autoRefreshInterval = null;
         }
+    },
+
+    /**
+     * Abrir modal de configuración de sonido
+     */
+    abrirConfigSonido: function () {
+        const modal = document.getElementById('modalSoundConfig');
+        if (!modal) return;
+
+        // Marcar la opción actual
+        const currentSound = window.ModuloUX?.getSoundTheme() || 'classic';
+        const options = modal.querySelectorAll('#sound-options button');
+        options.forEach(opt => {
+            if (opt.dataset.sound === currentSound) {
+                opt.classList.add('active', 'bg-primary', 'text-white');
+            } else {
+                opt.classList.remove('active', 'bg-primary', 'text-white');
+            }
+        });
+
+        modal.style.display = 'flex';
+    },
+
+    /**
+     * Probar y seleccionar un sonido
+     */
+    seleccionarSonido: function (theme) {
+        if (window.ModuloUX) {
+            window.ModuloUX.setSoundTheme(theme);
+            window.ModuloUX.playSound('new_order'); // Probar sonido
+
+            // Actualizar UI del modal
+            this.abrirConfigSonido();
+        }
     }
 };
 

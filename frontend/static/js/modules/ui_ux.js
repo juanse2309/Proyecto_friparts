@@ -30,24 +30,50 @@ const ModuloUX = (() => {
     };
 
     /**
-     * Reproducir sonido de éxito o error
-     * @param {string} type 'success' | 'error'
+     * Reproducir sonido según el tema configurado
+     * @param {string} type 'success' | 'error' | 'new_order'
      */
     const playSound = (type) => {
+        const theme = localStorage.getItem('friparts_sound_theme') || 'classic';
+
         if (type === 'success') {
-            // Ding alegre (Do mayor arpegio rápido)
             playTone(523.25, 'sine', 0.1); // C5
             setTimeout(() => playTone(659.25, 'sine', 0.1), 100); // E5
         } else if (type === 'error') {
-            // Error Potente (Disonancia para impacto)
-            playTone(150, 'sawtooth', 0.4); // Low C#
-            playTone(110, 'square', 0.4);   // Low A (creates minor 3rd/dissonance)
+            playTone(150, 'sawtooth', 0.4);
+            playTone(110, 'square', 0.4);
         } else if (type === 'new_order') {
-            // Campana de Pedido (Ding Dong)
-            playTone(600, 'sine', 0.1);
-            setTimeout(() => playTone(800, 'sine', 0.4), 150);
+            switch (theme) {
+                case 'siren':
+                    // Sirena Industrial (Llamativa y potente)
+                    [800, 600, 800, 600].forEach((f, i) => {
+                        setTimeout(() => playTone(f, 'sawtooth', 0.2), i * 200);
+                    });
+                    break;
+                case 'pulse':
+                    // Pulso Moderno (Corto y penetrante)
+                    playTone(1000, 'square', 0.05);
+                    setTimeout(() => playTone(1000, 'square', 0.05), 100);
+                    setTimeout(() => playTone(1200, 'square', 0.1), 200);
+                    break;
+                case 'arpeggio':
+                    // Arpeggio Melódico
+                    [440, 554, 659, 880].forEach((f, i) => {
+                        setTimeout(() => playTone(f, 'sine', 0.15), i * 100);
+                    });
+                    break;
+                case 'classic':
+                default:
+                    // Campana Clásica (Mejorada)
+                    playTone(600, 'sine', 0.1);
+                    setTimeout(() => playTone(800, 'sine', 0.4), 150);
+                    break;
+            }
         }
     };
+
+    const getSoundTheme = () => localStorage.getItem('friparts_sound_theme') || 'classic';
+    const setSoundTheme = (theme) => localStorage.setItem('friparts_sound_theme', theme);
 
     /**
      * Generar Avatar e Iniciales
@@ -103,7 +129,9 @@ const ModuloUX = (() => {
                 }
             }, 500);
         },
-        playSound
+        playSound,
+        getSoundTheme,
+        setSoundTheme
     };
 
 })();
