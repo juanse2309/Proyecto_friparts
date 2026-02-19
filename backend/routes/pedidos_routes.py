@@ -260,33 +260,38 @@ def registrar_pedido():
             rows_to_append.append(row_dict)
             logger.info(f"   ✅ Fila preparada para Google Sheets")
         
-        # Calcular total general con descuento global
+        # Calcular total general con descuento global e IVA 19%
         try:
             desc_float = float(descuento_global) / 100
-            total_general = subtotal_general * (1 - desc_float)
+            subtotal_neto = subtotal_general * (1 - desc_float)
+            iva_general = subtotal_neto * 0.19
+            total_general = subtotal_neto + iva_general
+            
             total_general = round(total_general, 2)
             
             logger.info(f"\n💰 Cálculo de totales:")
-            logger.info(f"   Subtotal general: ${subtotal_general}")
+            logger.info(f"   Subtotal bruto: ${subtotal_general}")
             logger.info(f"   Descuento: {descuento_global}% (${subtotal_general * desc_float})")
-            logger.info(f"   Total general: ${total_general}")
+            logger.info(f"   IVA (19%): ${iva_general}")
+            logger.info(f"   Total a Pagar: ${total_general}")
         except ValueError:
             total_general = subtotal_general
-            logger.warning(f"⚠️ Error calculando descuento, usando subtotal: ${total_general}")
+            logger.warning(f"⚠️ Error calculando descuento/IVA, usando subtotal: ${total_general}")
         
         if subtotal_general > 0:
             logger.info(f"\n🔢 Calculando totales proporcionales por item...")
             for i, row_dict in enumerate(rows_to_append):
                 cantidad = float(row_dict["CANTIDAD"])
                 precio_unitario = float(row_dict["PRECIO UNITARIO"])
-                subtotal_item = cantidad * precio_unitario
+                subtotal_item_bruto = cantidad * precio_unitario
                 
-                # Total proporcional con descuento global
-                total_item = subtotal_item * (1 - desc_float)
+                # Total proporcional con descuento global e IVA
+                subtotal_item_neto = subtotal_item_bruto * (1 - desc_float)
+                total_item = subtotal_item_neto * 1.19
                 total_item = round(total_item, 2)
                 
                 row_dict["TOTAL"] = total_item
-                logger.info(f"   Item {i+1}: ${subtotal_item} → ${total_item} (con {descuento_global}% desc)")
+                logger.info(f"   Item {i+1}: ${subtotal_item_bruto} → ${total_item} (con {descuento_global}% desc e IVA)")
         
         # Convert dictionary rows to lists in correct order
         final_rows = []
