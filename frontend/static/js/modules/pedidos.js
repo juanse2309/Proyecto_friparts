@@ -106,7 +106,7 @@ const ModuloPedidos = {
 
     // Helper para normalizar texto (quitar tildes y minusculas)
     normalizeString: function (str) {
-        return (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        return String(str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     },
 
     buscarClientes: function (query, suggestionsDiv) {
