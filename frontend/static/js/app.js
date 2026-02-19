@@ -267,21 +267,56 @@ function inicializarModulo(nombrePagina) {
     if (modulo?.inicializar) {
         if (!userLoggedIn && nombrePagina !== 'dashboard') {
             console.log(`ℹ️  Módulo ${nombrePagina} esperando login de usuario...`);
-            // Reintentar después de 500ms
-            setTimeout(() => {
-                const userNowLoggedIn = window.AppState && window.AppState.user && window.AppState.user.name;
+
+            // Función para intentar inicializar cuando el usuario esté listo
+            const intentarInicializar = () => {
+                const userNowLoggedIn = window.AppState && window.AppState.user && (window.AppState.user.name || window.AppState.user.nombre);
                 if (userNowLoggedIn) {
-                    console.log(`🔧 Inicializando módulo (retry): ${nombrePagina}`);
+                    // Asegurar campos por compatibilidad
+                    if (!window.AppState.user.name) window.AppState.user.name = window.AppState.user.nombre;
+                    if (!window.AppState.user.nombre) window.AppState.user.nombre = window.AppState.user.name;
+
+                    console.log(`🔧 Inicializando módulo (vía evento/retry): ${nombrePagina}`);
                     modulo.inicializar();
-                } else {
-                    console.warn(`⚠️  Módulo ${nombrePagina} requiere usuario logueado`);
+                    return true;
                 }
-            }, 500);
+                return false;
+            };
+
+            // Escuchar evento de usuario listo
+            const onUserReadyApp = () => {
+                if (intentarInicializar()) {
+                    window.removeEventListener('user-ready', onUserReadyApp);
+                    document.removeEventListener('user-ready', onUserReadyApp);
+                }
+            };
+            window.addEventListener('user-ready', onUserReadyApp);
+            document.addEventListener('user-ready', onUserReadyApp);
+
+            // Safety Retry (por si el evento se disparó justo antes)
+            setTimeout(() => {
+                if (intentarInicializar()) {
+                    window.removeEventListener('user-ready', onUserReadyApp);
+                    document.removeEventListener('user-ready', onUserReadyApp);
+                } else {
+                    console.warn(`⚠️  Módulo ${nombrePagina} sigue esperando usuario tras 1s...`);
+                    // Un último reintento a los 3s
+                    setTimeout(() => {
+                        if (intentarInicializar()) {
+                            window.removeEventListener('user-ready', onUserReadyApp);
+                            document.removeEventListener('user-ready', onUserReadyApp);
+                        } else {
+                            console.error(`❌  Módulo ${nombrePagina} NO pudo inicializarse: usuario no logueado`);
+                        }
+                    }, 2000);
+                }
+            }, 1000);
             return;
         }
         console.log('🔧 Inicializando módulo:', nombrePagina);
         modulo.inicializar();
-    } else {
+    }
+    else {
         console.warn('⚠️  Módulo no encontrado (intento 1):', nombrePagina);
         // REINTENTO DE CARGA DE MODULO (Fix Race Condition Loading)
         setTimeout(() => {

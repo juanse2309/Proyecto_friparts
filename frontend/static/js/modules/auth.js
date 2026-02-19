@@ -67,10 +67,13 @@ const AuthModule = {
     init: async function () {
         console.log("🔐 Inicializando Módulo de Autenticación Avancado...");
 
-        // 1. Cargar lista de responsables (solo si es necesario, lazy load idealmente pero aqui eager)
-        await this.loadResponsables();
+        // 1. Bloquear interfaz o mostrar Landing - INMEDIATO para evitar race conditions
+        this.checkSession();
 
-        // 2. Listeners Staff Logic
+        // 2. Cargar lista de responsables (en segundo plano, no bloquea session check)
+        this.loadResponsables();
+
+        // 3. Listeners Staff Logic
         const loginForm = document.getElementById('login-form');
         if (loginForm) {
             loginForm.addEventListener('submit', (e) => this.handleLogin(e));
@@ -82,9 +85,6 @@ const AuthModule = {
                 this.value = this.value.replace(/[^0-9]/g, '');
             });
         }
-
-        // 3. Bloquear interfaz o mostrar Landing
-        this.checkSession();
     },
 
     // =================================================================
@@ -412,6 +412,7 @@ const AuthModule = {
 
         // DISPATCH EVENT: User Ready (Fix Race Condition)
         window.dispatchEvent(new CustomEvent('user-ready', { detail: user }));
+        document.dispatchEvent(new CustomEvent('user-ready', { detail: user }));
 
         // REDIRECCIÓN INMEDIATA para clientes (antes de cargar dashboard)
         if (user.rol === 'Cliente') {
@@ -527,6 +528,7 @@ const AuthModule = {
                 }
 
                 // Notificar a módulos que esperan login (e.g. Almacén)
+                window.dispatchEvent(new Event('user-ready'));
                 document.dispatchEvent(new Event('user-ready'));
 
             } catch (e) {

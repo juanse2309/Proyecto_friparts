@@ -129,6 +129,48 @@ const ModuloUX = (() => {
                         setTimeout(() => playTone(f, 'sine', 0.15), i * 100);
                     });
                     break;
+                case 'uber':
+                    // Uber Style (Dos tonos rápidos y urgentes)
+                    playTone(659.25, 'sine', 0.1); // E5
+                    setTimeout(() => playTone(783.99, 'sine', 0.2), 150); // G5
+                    break;
+                case 'mario':
+                    // Level Up (Estilo Mario)
+                    [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+                        setTimeout(() => playTone(f, 'sine', 0.15), i * 100);
+                    });
+                    break;
+                case 'magic':
+                    // Varita Mágica (Brillo descendente)
+                    for (let i = 0; i < 15; i++) {
+                        setTimeout(() => playTone(2000 - (i * 100), 'sine', 0.05), i * 30);
+                    }
+                    break;
+                case 'tada':
+                    // Tada! (Fanfarria triunfal)
+                    playTone(392.00, 'sawtooth', 0.1); // G4
+                    setTimeout(() => playTone(523.25, 'sawtooth', 0.4), 100); // C5
+                    break;
+                case 'zen':
+                    // Campana Zen (Relajante y profunda)
+                    playTone(196.00, 'sine', 1.5); // G3
+                    playTone(392.00, 'sine', 1.0); // G4
+                    break;
+                case 'bird':
+                    // Pájaro Digital (Chirp)
+                    const now = audioContext.currentTime;
+                    const osc = audioContext.createOscillator();
+                    const gain = audioContext.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1500, now);
+                    osc.frequency.exponentialRampToValueAtTime(3000, now + 0.1);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    osc.connect(gain);
+                    gain.connect(audioContext.destination);
+                    osc.start();
+                    osc.stop(now + 0.1);
+                    break;
                 case 'classic':
                 default:
                     // Campana Clásica (Mejorada)

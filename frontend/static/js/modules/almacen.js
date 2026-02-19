@@ -14,54 +14,64 @@ const AlmacenModule = {
     isTVMode: false,
 
     /**
- * Inicializar módulo
- */
+     * Inicializar módulo
+     */
     inicializar: function () {
+        if (this._inicializado) {
+            console.log('⚠️ [Almacen] Módulo ya estaba inicializado, recargando datos...');
+            this.cargarPedidos();
+            return;
+        }
+
         console.log('🔧 [Almacen] Inicializando módulo...');
-        console.log('🔧 [Almacen] Estado actual:', {
-            pedidosPendientes: this.pedidosPendientes.length,
-            user: window.AppState?.user,
-            tvMode: this.isTVMode
-        });
+
+        // Marcar como inicializado
+        this._inicializado = true;
 
         // Si el usuario ya está logueado, cargar pedidos inmediatamente
+        // Verificamos tanto .name como .nombre por variaciones en AppState
         const user = window.AppState?.user;
-        if (user && user.name) {
+        if (user && (user.name || user.nombre)) {
+            console.log('✅ [Almacen] Usuario ya presente, cargando pedidos...');
             this.cargarPedidos();
         } else {
-            // Si no hay usuario aún, intentar con sessionStorage
-            const sessionUser = sessionStorage.getItem('friparts_user');
-            if (sessionUser) {
+            // Escuchar evento de login y cargar cuando esté listo
+            console.log('⏳ [Almacen] Esperando login de usuario para cargar pedidos...');
+
+            const onUserReady = () => {
+                console.log('✅ [Almacen] Evento user-ready detectado, cargando pedidos...');
                 this.cargarPedidos();
-            } else {
-                // Escuchar evento de login y cargar cuando esté listo
-                console.log('⏳ [Almacen] Esperando login de usuario para cargar pedidos...');
-                const onUserReady = () => {
-                    console.log('✅ [Almacen] Usuario listo, cargando pedidos...');
+                document.removeEventListener('user-ready', onUserReady);
+                window.removeEventListener('user-ready', onUserReady);
+            };
+
+            document.addEventListener('user-ready', onUserReady);
+            window.addEventListener('user-ready', onUserReady);
+
+            // Timeout de seguridad: si en 4s no hay login, intentar de todos modos con lo que haya en session
+            setTimeout(() => {
+                document.removeEventListener('user-ready', onUserReady);
+                window.removeEventListener('user-ready', onUserReady);
+                if (this.pedidosPendientes.length === 0) {
+                    console.log('⏰ [Almacen] Timeout, intentando carga forzada...');
                     this.cargarPedidos();
-                    document.removeEventListener('user-ready', onUserReady);
-                };
-                document.addEventListener('user-ready', onUserReady);
-                // Timeout de seguridad: si en 5s no hay login, intentar de todos modos
-                setTimeout(() => {
-                    document.removeEventListener('user-ready', onUserReady);
-                    if (this.pedidosPendientes.length === 0) {
-                        console.log('⏰ [Almacen] Timeout, intentando cargar pedidos de todos modos...');
-                        this.cargarPedidos();
-                    }
-                }, 5000);
-            }
+                }
+            }, 4000);
         }
 
         this.iniciarAutoRefresco();
 
-        // Listener para refrescar automáticamente al entrar a la página
-        document.querySelector('[data-page="almacen"]')?.addEventListener('click', () => {
-            console.log('🔧 [Almacen] Click en menú detectado, recargando...');
-            this.cargarPedidos();
-        });
+        // Evitar múltiples listeners en el menú
+        const menuBtn = document.querySelector('[data-page="almacen"]');
+        if (menuBtn && !menuBtn._hasAlmacenListener) {
+            menuBtn.addEventListener('click', () => {
+                console.log('🔧 [Almacen] Actualización por click en menú');
+                this.cargarPedidos();
+            });
+            menuBtn._hasAlmacenListener = true;
+        }
 
-        console.log('✅ [Almacen] Módulo inicializado correctamente');
+        console.log('✅ [Almacen] Inicialización completa');
     },
 
     /**

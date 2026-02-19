@@ -1620,6 +1620,42 @@
                         <p class="text-muted small mb-4">Elige el sonido para los nuevos pedidos en Modo TV:</p>
 
                         <div class="list-group list-group-flush mb-4" id="sound-options">
+                            <button onclick="AlmacenModule.seleccionarSonido('uber')"
+                                class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom rounded-3 mb-2"
+                                style="background: #f8fafc;" data-sound="uber">
+                                <span><i class="fas fa-car me-2 text-dark"></i> Uber Style</span>
+                                <i class="fas fa-play-circle text-primary"></i>
+                            </button>
+                            <button onclick="AlmacenModule.seleccionarSonido('mario')"
+                                class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom rounded-3 mb-2"
+                                data-sound="mario">
+                                <span><i class="fas fa-star me-2 text-warning"></i> Mario Jump</span>
+                                <i class="fas fa-play-circle text-primary"></i>
+                            </button>
+                            <button onclick="AlmacenModule.seleccionarSonido('magic')"
+                                class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom rounded-3 mb-2"
+                                data-sound="magic">
+                                <span><i class="fas fa-magic me-2 text-info"></i> Varita Mágica</span>
+                                <i class="fas fa-play-circle text-primary"></i>
+                            </button>
+                            <button onclick="AlmacenModule.seleccionarSonido('tada')"
+                                class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom rounded-3 mb-2"
+                                data-sound="tada">
+                                <span><i class="fas fa-certificate me-2 text-danger"></i> ¡Tada!</span>
+                                <i class="fas fa-play-circle text-primary"></i>
+                            </button>
+                            <button onclick="AlmacenModule.seleccionarSonido('zen')"
+                                class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom rounded-3 mb-2"
+                                data-sound="zen">
+                                <span><i class="fas fa-om me-2 text-success"></i> Zen Bell</span>
+                                <i class="fas fa-play-circle text-primary"></i>
+                            </button>
+                            <button onclick="AlmacenModule.seleccionarSonido('bird')"
+                                class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom rounded-3 mb-2"
+                                data-sound="bird">
+                                <span><i class="fas fa-kiwi-bird me-2 text-primary"></i> Pájaro Digital</span>
+                                <i class="fas fa-play-circle text-primary"></i>
+                            </button>
                             <button onclick="AlmacenModule.seleccionarSonido('classic')"
                                 class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom rounded-3 mb-2"
                                 data-sound="classic">
@@ -1899,23 +1935,23 @@
     <script src="/static/js/modules/touch-feedback.js?v=1.2.0"></script>
     <!-- ... resto de módulos ... --> <!-- 1. UTILS primero (funciones compartidas) -->
     <!-- 2. APP PRINCIPAL (antes de los módulos) -->
-    <script src="/static/js/app.js?v=1.2.0"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
-    <script src="/static/js/modules/dashboard.js?v=1.2.0"></script>
-    <script src="/static/js/modules/inventario.js?v=1.2.0"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1.2.0"></script>
-    <script src="/static/js/modules/pulido.js?v=1.2.0"></script>
-    <script src="/static/js/modules/ensamble.js?v=1.2.0"></script>
-    <script src="/static/js/modules/pnc.js?v=1.2.0"></script>
-    <script src="/static/js/modules/facturacion.js?v=1.2.0"></script>
-    <script src="/static/js/modules/reportes.js?v=1.2.0"></script>
-    <script src="/static/js/modules/mezcla.js?v=1.2.0"></script>
-    <script src="/static/js/modules/historial.js?v=1.2.0"></script>
+    <script src="/static/js/app.js?v=1.3.0"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
+    <script src="/static/js/modules/dashboard.js?v=1.3.0"></script>
+    <script src="/static/js/modules/inventario.js?v=1.3.0"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1.3.0"></script>
+    <script src="/static/js/modules/pulido.js?v=1.3.0"></script>
+    <script src="/static/js/modules/ensamble.js?v=1.3.0"></script>
+    <script src="/static/js/modules/pnc.js?v=1.3.0"></script>
+    <script src="/static/js/modules/facturacion.js?v=1.3.0"></script>
+    <script src="/static/js/modules/reportes.js?v=1.3.0"></script>
+    <script src="/static/js/modules/mezcla.js?v=1.3.0"></script>
+    <script src="/static/js/modules/historial.js?v=1.3.0"></script>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 
-    <script src="/static/js/modules/pedidos.js?v=1.2.0"></script>
-    <script src="/static/js/modules/almacen.js?v=1.2.0"></script>
+    <script src="/static/js/modules/pedidos.js?v=1.3.0"></script>
+    <script src="/static/js/modules/almacen.js?v=1.3.0"></script>
     <!-- Script de inicialización -->
     <script>
         // ELIMINADO LOGICA LEGACY DE MODAL COMPARTIDO
