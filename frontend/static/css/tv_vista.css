@@ -23,13 +23,13 @@ body.tv-mode .sidebar {
 
 body.tv-mode .main-content {
     margin-left: 0 !important;
-    padding: 2vh 2vw !important;
+    padding: 10px !important;
+    /* Mínimo padding para ganar espacio */
 }
 
 body.tv-mode .top-bar {
-    background: #1e293b !important;
-    border: 1px solid #334155 !important;
-    padding: 1vh 2vw !important;
+    display: none !important;
+    /* Ocultar cabecera completamente */
 }
 
 body.tv-mode .page-title h1 {
@@ -162,9 +162,22 @@ body.tv-mode .btn-exit-tv {
     z-index: 9999;
     background: #ef4444;
     color: white;
-    padding: 15px 30px;
-    border-radius: 50px;
-    font-weight: bold;
-    font-size: 1.2rem;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.85rem;
     cursor: pointer;
+    border: none;
+    opacity: 0.7;
+    transition: opacity 0.3s;
+}
+
+body.tv-mode .btn-exit-tv:hover {
+    opacity: 1;
+}
+
+/* Forzar 2 columnas en TV */
+body.tv-mode .col-md-6.col-lg-4 {
+    flex: 0 0 calc(50% - 1.5rem) !important;
+    max-width: 50% !important;
 }

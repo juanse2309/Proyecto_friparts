@@ -994,14 +994,14 @@ const AlmacenModule = {
             // Encontrar la primera tarjeta cuyo fondo (bottom) esté fuera del viewport actual
             let nextCard = cards.find(c => {
                 const rect = c.getBoundingClientRect();
-                // rect.bottom > viewportHeight significa que la tarjeta se está cortando abajo
-                return rect.bottom > viewportHeight + 20;
+                // Aumentamos el margen para asegurar que detectamos una fila nueva
+                return rect.top > viewportHeight - 100;
             });
 
             if (!nextCard) return maxScroll;
 
             // Queremos scrollear al TOP de esa tarjeta (ajustando a scroll absoluto)
-            const nextScrollY = (nextCard.getBoundingClientRect().top + window.scrollY) - 20;
+            const nextScrollY = (nextCard.getBoundingClientRect().top + window.scrollY) - 10;
 
             return Math.min(nextScrollY, maxScroll);
         };
@@ -1020,10 +1020,13 @@ const AlmacenModule = {
             const docHeight = document.documentElement.scrollHeight;
 
             // Si ya estamos muy cerca del final, volver arriba
-            if (currentY + viewportHeight >= docHeight - 50) {
+            // Aumentamos threshold de 50 a 150 para evitar rebotes prematuros
+            if (currentY + viewportHeight >= docHeight - 150) {
                 console.log('📜 [Almacen] Fin alcanzado, volviendo al inicio...');
                 this.scrollTimeout = setTimeout(() => {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
+                    // Aprovechar el reset para recargar datos
+                    this.cargarPedidos(false);
                     this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
                 }, pauseDuration);
                 return;
