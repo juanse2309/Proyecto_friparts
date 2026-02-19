@@ -696,22 +696,27 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
         ]
         
         # SOLUCION ROBUSTA PARA EVITAR DESPLAZAMIENTO DE COLUMNAS
+        # SOLUCION ROBUSTA PARA EVITAR DESPLAZAMIENTO DE COLUMNAS
         try:
-            # 1. Calcular siguiente fila vacía basada en la primera columna que tenga datos
-            # Usamos col_values(1) porque ID PNC (Col A) siempre debe tener datos
+            # 1. Calcular siguiente fila vacía basada en la primera columna
             all_ids = worksheet.col_values(1)
             next_row = len(all_ids) + 1
             
-            # 2. Definir el rango exacto (A-I para las 9 columnas)
-            # Esto obliga a Google Sheets a colocar los datos en las columnas correctas
+            # 2. Verificar si necesitamos agregar filas a la hoja
+            if next_row > worksheet.row_count:
+                print(f"⚠️ Hoja llena ({worksheet.row_count} filas), agregando nuevas filas...")
+                worksheet.add_rows(10) # Agregamos colchón de 10 filas
+                
+            # 3. Definir el rango exacto (A-I para las 9 columnas)
             rango_celdas = f"A{next_row}:I{next_row}"
             
+            # 4. Usar update (ahora seguro porque garantizamos que la fila existe)
             worksheet.update(rango_celdas, [fila_pnc], value_input_option='USER_ENTERED')
             print(f"✅ PNC registrado exitosamente en {hoja_pnc} | Fila: {next_row} | Rango: {rango_celdas}")
             
         except Exception as e_update:
-            print(f"⚠️ Advertencia: Fallo update explícito ({e_update}), usando append_row como respaldo...")
-            # Como respaldo, usamos append_row pero intentando que no se desplace
+            print(f"❌ Error CRÍTICO en update explícito: {e_update}")
+            # Solo como último recurso absoluto intentamos append
             worksheet.append_row(fila_pnc, value_input_option='USER_ENTERED')
             
         return True
