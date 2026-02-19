@@ -7,6 +7,8 @@ const ModuloPedidos = {
     productosData: [], // Cache de productos
     clienteSeleccionado: null, // {nombre, nit}
     ultimoIdRegistrado: null, // ID generado por el servidor
+    idPedidoEdicion: null,   // ID del pedido que se está editando
+
 
     init: function () {
         console.log("🛒 Inicializando Módulo Pedidos...");
@@ -38,6 +40,9 @@ const ModuloPedidos = {
         if (inputFecha) {
             inputFecha.valueAsDate = new Date();
         }
+
+        // 6. Configurar gestión de Enter
+        this.configurarManejoEnter();
     },
 
     cargarDatosIniciales: async function () {
@@ -266,6 +271,161 @@ const ModuloPedidos = {
         }
     },
 
+    configurarManejoEnter: function () {
+        const form = document.getElementById('form-pedidos');
+        if (!form) return;
+
+        // Lista de IDs de inputs que deben pasar al siguiente con Enter
+        const inputsSecuencia = [
+            'ped-fecha',
+            'ped-cliente',
+            'ped-pago',
+            'ped-descuento-global',
+            'ped-producto',
+            'ped-cantidad',
+            'ped-precio'
+        ];
+
+        form.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const targetId = e.target.id;
+
+                // Prevenir envío accidental del formulario
+                if (e.target.type !== 'textarea' && e.target.type !== 'submit' && e.target.id !== 'ped-load-id') {
+                    e.preventDefault();
+                }
+
+                // Lógica especial para el buscador de pedidos
+                if (targetId === 'ped-load-id') {
+                    e.preventDefault();
+                    this.cargarPedidoPorId();
+                    return;
+                }
+
+                // Lógica específica para campos de producto
+                if (targetId === 'ped-cantidad' || targetId === 'ped-precio') {
+                    this.agregarItemAlCarrito();
+                    document.getElementById('ped-producto').focus();
+                    return;
+                }
+
+                // Lógica de salto de foco
+                const currentIndex = inputsSecuencia.indexOf(targetId);
+                if (currentIndex !== -1 && currentIndex < inputsSecuencia.length - 1) {
+                    const nextInput = document.getElementById(inputsSecuencia[currentIndex + 1]);
+                    if (nextInput) {
+                        nextInput.focus();
+                        if (nextInput.tagName === 'INPUT') nextInput.select();
+                    }
+                }
+            }
+        });
+    },
+
+    cargarPedidoPorId: async function () {
+        const inputId = document.getElementById('ped-load-id');
+        const id = inputId.value.trim().toUpperCase();
+
+        if (!id) {
+            mostrarNotificacion('Ingrese un ID de pedido', 'warning');
+            return;
+        }
+
+        try {
+            console.log(`🔍 Buscando pedido: ${id}...`);
+            const response = await fetch(`/api/pedidos/detalle/${id}`);
+            const result = await response.json();
+
+            if (result.success) {
+                this.poblarFormularioConPedido(result.pedido);
+                inputId.value = '';
+                mostrarNotificacion(`Pedido ${id} cargado correctamente`, 'success');
+            } else {
+                mostrarNotificacion(result.error || 'Pedido no encontrado', 'error');
+            }
+        } catch (error) {
+            console.error('Error cargando pedido:', error);
+            mostrarNotificacion('Error de conexión al cargar pedido', 'error');
+        }
+    },
+
+    poblarFormularioConPedido: function (pedido) {
+        console.log("📄 Poblando formulario con:", pedido);
+
+        // 1. Limpiar estado actual
+        this.listaProductos = [];
+        this.idPedidoEdicion = pedido.id_pedido;
+
+        // 2. Poblar cabecera
+        document.getElementById('ped-fecha').value = pedido.fecha;
+        document.getElementById('ped-vendedor').value = pedido.vendedor;
+        document.getElementById('ped-cliente').value = pedido.cliente;
+        document.getElementById('ped-nit').value = pedido.nit || '';
+        document.getElementById('ped-direccion').value = pedido.direccion || '';
+        document.getElementById('ped-ciudad').value = pedido.ciudad || '';
+        document.getElementById('ped-pago').value = pedido.forma_pago || 'Contado';
+        document.getElementById('ped-descuento-global').value = pedido.descuento_global || 0;
+
+        // Establecer cliente seleccionado para las validaciones
+        this.clienteSeleccionado = {
+            nombre: pedido.cliente,
+            nit: pedido.nit,
+            direccion: pedido.direccion,
+            ciudad: pedido.ciudad
+        };
+
+        // 3. Cargar productos (conviertiendo de la estructura del backend)
+        this.listaProductos = pedido.productos.map(p => ({
+            codigo: p.codigo,
+            descripcion: p.descripcion,
+            cantidad: p.cantidad,
+            precio_unitario: p.precio_unitario,
+            stock_disponible: 0
+        }));
+
+        // 4. Actualizar UI
+        this.renderizarTablaItems();
+        this.calcularTotalPedido();
+
+        // 5. Mostrar indicador de edición
+        const indicator = document.getElementById('edit-mode-indicator');
+        const spanId = document.getElementById('active-edit-id');
+        if (indicator && spanId) {
+            indicator.style.display = 'block';
+            spanId.textContent = pedido.id_pedido;
+        }
+
+        // 6. Cambiar texto del botón de registro
+        const btnSubmit = document.querySelector('#form-pedidos button[type="submit"]');
+        if (btnSubmit) {
+            btnSubmit.innerHTML = '<i class="fas fa-save"></i> Actualizar Pedido';
+            btnSubmit.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+
+    cancelarEdicion: function () {
+        this.idPedidoEdicion = null;
+        limpiarFormulario('form-pedidos');
+        this.listaProductos = [];
+        this.clienteSeleccionado = null;
+        this.renderizarTablaItems();
+        this.calcularTotalPedido();
+
+        document.getElementById('edit-mode-indicator').style.display = 'none';
+
+        const btnSubmit = document.querySelector('#form-pedidos button[type="submit"]');
+        if (btnSubmit) {
+            btnSubmit.innerHTML = '<i class="fas fa-paper-plane"></i> Registrar Pedido';
+            btnSubmit.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        }
+
+        document.getElementById('ped-total').textContent = '$ 0.00';
+        this.actualizarVendedor();
+        mostrarNotificacion('Edición cancelada', 'info');
+    },
+
 
     agregarItemAlCarrito: function () {
         console.log('🛒 agregarItemAlCarrito llamado');
@@ -360,8 +520,8 @@ const ModuloPedidos = {
                     <td data-label="Código" style="padding: 10px; border: 1px solid #dee2e6;">${item.codigo}</td>
                     <td data-label="Descripción" style="padding: 10px; border: 1px solid #dee2e6;">${item.descripcion}</td>
                     <td data-label="Cantidad" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${item.cantidad}</td>
-                    <td data-label="Precio Unit." style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">$${formatNumber(item.precio_unitario)}</td>
-                    <td data-label="Subtotal" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">$${formatNumber(subtotal)}</td>
+                    <td data-label="Precio Unit." style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${formatearMoneda(item.precio_unitario)}</td>
+                    <td data-label="Subtotal" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${formatearMoneda(subtotal)}</td>
                     <td data-label="Acciones" style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">
                         <button type="button" class="btn btn-sm btn-danger" onclick="ModuloPedidos.eliminarItemDelCarrito(${index})">
                             <i class="fas fa-trash"></i>
@@ -383,13 +543,27 @@ const ModuloPedidos = {
     calcularTotalPedido: function () {
         const descuentoGlobal = parseFloat(document.getElementById('ped-descuento-global')?.value || 0);
 
-        const subtotal = this.listaProductos.reduce((sum, item) => {
+        const subtotalBruto = this.listaProductos.reduce((sum, item) => {
             return sum + (item.cantidad * item.precio_unitario);
         }, 0);
 
-        const total = subtotal * (1 - descuentoGlobal / 100);
+        const valorDescuento = subtotalBruto * (descuentoGlobal / 100);
+        const subtotalNeto = subtotalBruto - valorDescuento;
+        const iva = subtotalNeto * 0.19;
+        const total = subtotalNeto + iva;
 
-        document.getElementById('ped-total').textContent = `$ ${formatNumber(total)}`;
+        // Actualizar UI
+        const pedSubtotal = document.getElementById('ped-subtotal');
+        const pedIva = document.getElementById('ped-iva');
+        const pedTotal = document.getElementById('ped-total');
+
+        if (pedSubtotal) pedSubtotal.textContent = formatearMoneda(subtotalBruto);
+        if (pedIva) pedIva.textContent = formatearMoneda(iva);
+        if (pedTotal) pedTotal.textContent = formatearMoneda(total);
+
+        // Habilitar botón PDF si hay items
+        const btnPdf = document.getElementById('btn-pdf-pedido');
+        if (btnPdf) btnPdf.disabled = this.listaProductos.length === 0;
     },
 
     registrarPedido: async function (e) {
@@ -424,6 +598,7 @@ const ModuloPedidos = {
             const descuentoGlobal = parseFloat(document.getElementById('ped-descuento-global')?.value || 0);
 
             const pedidoData = {
+                id_pedido: this.idPedidoEdicion, // Incluir si estamos editando
                 fecha: document.getElementById('ped-fecha').value || new Date().toISOString().split('T')[0],
                 vendedor: document.getElementById('ped-vendedor').value,
                 cliente: this.clienteSeleccionado.nombre,
@@ -468,6 +643,15 @@ const ModuloPedidos = {
                 limpiarFormulario('form-pedidos');
                 this.listaProductos = [];
                 this.clienteSeleccionado = null;
+                this.idPedidoEdicion = null;
+                if (document.getElementById('edit-mode-indicator')) {
+                    document.getElementById('edit-mode-indicator').style.display = 'none';
+                }
+                const btnSubmit = document.querySelector('#form-pedidos button[type="submit"]');
+                if (btnSubmit) {
+                    btnSubmit.innerHTML = '<i class="fas fa-paper-plane"></i> Registrar Pedido';
+                    btnSubmit.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                }
                 this.renderizarTablaItems();
                 this.calcularTotalPedido();
                 document.getElementById('ped-total').textContent = '$ 0.00';
@@ -608,8 +792,8 @@ const ModuloPedidos = {
                     item.codigo,
                     item.descripcion,
                     item.cantidad,
-                    `$ ${formatNumber(item.precio_unitario)}`,
-                    `$ ${formatNumber(item.cantidad * item.precio_unitario)}`
+                    formatearMoneda(item.precio_unitario),
+                    formatearMoneda(item.cantidad * item.precio_unitario)
                 ]);
 
                 doc.autoTable({
@@ -628,15 +812,49 @@ const ModuloPedidos = {
                 });
 
                 // --- 4. TOTALES ---
-                const finalY = doc.lastAutoTable.finalY + 15;
-                doc.setDrawColor(30, 58, 138);
-                doc.setLineWidth(1);
-                doc.line(140, finalY - 5, 196, finalY - 5);
+                const finalY = doc.lastAutoTable.finalY + 10;
+                const totalX = 196;
 
-                doc.setFontSize(14);
+                // Cálculos para el PDF
+                const subtotalBruto = listaProductos.reduce((acc, p) => acc + (p.cantidad * p.precio_unitario), 0);
+                const valorDescuento = subtotalBruto * (descuentoGlobal / 100);
+                const subtotalNeto = subtotalBruto - valorDescuento;
+                const iva = subtotalNeto * 0.19;
+                const totalFinal = subtotalNeto + iva;
+
+                doc.setFontSize(10);
+                doc.setTextColor(100);
+                doc.setFont(undefined, 'normal');
+
+                // Subtotal
+                doc.text(`Subtotal:`, totalX - 45, finalY);
+                doc.text(formatearMoneda(subtotalBruto), totalX, finalY, { align: 'right' });
+
+                // Descuento (si existe)
+                let currentY = finalY;
+                if (descuentoGlobal > 0) {
+                    currentY += 6;
+                    doc.text(`Descuento (${descuentoGlobal}%):`, totalX - 45, currentY);
+                    doc.text(`- ${formatearMoneda(valorDescuento)}`, totalX, currentY, { align: 'right' });
+                }
+
+                // IVA
+                currentY += 6;
+                doc.text(`IVA (19%):`, totalX - 45, currentY);
+                doc.text(formatearMoneda(iva), totalX, currentY, { align: 'right' });
+
+                // Línea de total
+                currentY += 4;
+                doc.setDrawColor(30, 58, 138);
+                doc.setLineWidth(0.5);
+                doc.line(totalX - 55, currentY, totalX, currentY);
+
+                // Total Final
+                currentY += 10;
+                doc.setFontSize(15);
                 doc.setTextColor(30, 58, 138);
                 doc.setFont(undefined, 'bold');
-                doc.text(`TOTAL A PAGAR: ${totalStr}`, 196, finalY, { align: 'right' });
+                doc.text(`TOTAL A PAGAR: ${formatearMoneda(totalFinal)}`, totalX, currentY, { align: 'right' });
 
                 // --- 5. FIRMAS Y PIE ---
                 const footerY = 270;

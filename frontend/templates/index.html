@@ -1225,6 +1225,28 @@
                 <div class="form-container">
                     <form id="form-pedidos" class="styled-form">
                         <div class="form-grid">
+                            <!-- Fila 0: Buscador de Pedido Existente (EDICIÓN) -->
+                            <div class="form-group full-width"
+                                style="margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 10px; border: 1px dashed #cbd5e1;">
+                                <label for="ped-load-id" style="font-weight: 700; color: #1e293b;"><i
+                                        class="fas fa-search"></i> Retomar / Editar Pedido Existente</label>
+                                <div class="d-flex gap-2">
+                                    <input type="text" id="ped-load-id"
+                                        placeholder="Ingrese ID del pedido (ej: PED-1234)"
+                                        style="flex: 1; border: 2px solid #e2e8f0; border-radius: 8px; padding: 8px 15px;">
+                                    <button type="button" class="btn btn-warning fw-bold"
+                                        onclick="ModuloPedidos.cargarPedidoPorId()" style="white-space: nowrap;">
+                                        <i class="fas fa-search-plus"></i> Cargar Pedido
+                                    </button>
+                                </div>
+                                <div id="edit-mode-indicator" class="mt-2 small fw-bold text-success"
+                                    style="display: none;">
+                                    <i class="fas fa-edit"></i> MODO EDICIÓN ACTIVO: <span id="active-edit-id"></span>
+                                    <button type="button" class="btn btn-link btn-sm text-danger p-0 ms-2"
+                                        onclick="ModuloPedidos.cancelarEdicion()">[Cancelar]</button>
+                                </div>
+                            </div>
+
                             <!-- Fila 1 -->
                             <div class="form-group">
                                 <label for="ped-fecha"><i class="fas fa-calendar"></i> Fecha</label>
@@ -1340,13 +1362,45 @@
                             </div>
 
 
-                            <!-- Total (Destacado) -->
-                            <div class="form-group full-width pedidos-total-container">
-                                <div class="pedidos-total-label-box">
-                                    <i class="fas fa-coins"></i>
-                                    <span class="pedidos-total-label-text">TOTAL A PAGAR</span>
+                            <!-- Contenedor de Totales Desglosados -->
+                            <div class="form-group full-width"
+                                style="margin-top: 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden;">
+                                <div style="display: grid; grid-template-columns: 1fr; gap: 0;">
+                                    <!-- Subtotal -->
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px dashed #cbd5e1;">
+                                        <span
+                                            style="color: #64748b; font-weight: 600; font-size: 0.95rem;">SUBTOTAL</span>
+                                        <span id="ped-subtotal"
+                                            style="color: #1e293b; font-weight: 700; font-size: 1.1rem;">$ 0.00</span>
+                                    </div>
+                                    <!-- IVA -->
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid #e2e8f0; background: #f1f5f9;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span
+                                                style="color: #64748b; font-weight: 600; font-size: 0.95rem;">IVA</span>
+                                            <span
+                                                class="badge bg-primary-subtle text-primary border border-primary-subtle"
+                                                style="font-size: 0.75rem;">19%</span>
+                                        </div>
+                                        <span id="ped-iva"
+                                            style="color: #1e293b; font-weight: 700; font-size: 1.1rem;">$ 0.00</span>
+                                    </div>
+                                    <!-- Total Final (Destacado) -->
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; padding: 20px; background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%); color: white;">
+                                        <div style="display: flex; flex-direction: column;">
+                                            <span
+                                                style="font-size: 0.8rem; font-weight: 600; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">Total
+                                                a Pagar</span>
+                                            <span style="font-size: 0.7rem; opacity: 0.8;">IVA Incluido</span>
+                                        </div>
+                                        <span id="ped-total"
+                                            style="font-size: 2.2rem; font-weight: 800; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">$
+                                            0.00</span>
+                                    </div>
                                 </div>
-                                <span id="ped-total" class="pedidos-total-value">$ 0.00</span>
                             </div>
                         </div>
 

@@ -110,10 +110,88 @@ def registrar_pedido():
         if not existing_headers:
             logger.info("📝 Creando encabezados en hoja PEDIDOS")
             ws.append_row(expected_headers)
+
+        # ---------------------------------------------------------
+        # LÓGICA DE EDICIÓN / RETOMAR PEDIDO
+        # ---------------------------------------------------------
+        id_pedido_existente = data.get('id_pedido')
+        if id_pedido_existente:
+            logger.info(f"✏️ MODO EDICIÓN: Actualizando pedido {id_pedido_existente}")
+            
+            # 1. Buscar filas del pedido anterior
+            registros = ws.get_all_records()
+            filas_a_eliminar = []
+            productos_anteriores = []
+            
+            # Recopilar info para reversión de inventario
+            for idx, r in enumerate(registros):
+                if str(r.get("ID PEDIDO")) == str(id_pedido_existente):
+                    filas_a_eliminar.append(idx + 2) # +2 por header y 0-index
+                    productos_anteriores.append({
+                        "codigo": str(r.get("ID CODIGO")).strip().upper(),
+                        "cantidad": float(r.get("CANTIDAD", 0))
+                    })
+            
+            if filas_a_eliminar:
+                logger.info(f"   🗑️ Eliminando {len(filas_a_eliminar)} filas anteriores...")
+                
+                # REVERSIÓN DE STOCK COMPROMETIDO (Antes de borrar)
+                try:
+                    ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
+                    registros_prods = ws_productos.get_all_records()
+                    headers_prods = ws_productos.row_values(1)
+                    col_comp = headers_prods.index("COMPROMETIDO") + 1
+                    
+                    mapa_prods = {str(p["ID CODIGO"]).strip().upper(): (i + 2) for i, p in enumerate(registros_prods)}
+                    # También mapear por codigo sistema
+                    for i, p in enumerate(registros_prods):
+                         c_sis = str(p.get("CODIGO SISTEMA", "")).strip().upper()
+                         if c_sis: mapa_prods[c_sis] = i + 2
+
+                    updates_reversion = []
+                    for prod_ant in productos_anteriores:
+                        cod = prod_ant["codigo"]
+                        cant = prod_ant["cantidad"]
+                        
+                        if cod in mapa_prods:
+                            fila_p = mapa_prods[cod]
+                            # Obtener valor actual directo de la celda para ser preciso (o confiar en la lectura masiva)
+                            # Confiaremos en lectura masiva por velocidad, riesgo bajo si concurrencia es baja
+                            # Mejor: usar el valor leido y restar.
+                            # OJO: Si alguien mas modificó, podria haber error.
+                            # Para batch update, necesitamos valor actual.
+                            # Re-leer SOLO las celdas afectadas seria lento.
+                            # Asumiremos snapshot de registros_prods es valido.
+                            item_prod = registros_prods[fila_p - 2]
+                            comp_actual = float(item_prod.get("COMPROMETIDO", 0) or 0)
+                            nuevo_comp = max(0, comp_actual - cant)
+                            
+                            updates_reversion.append({
+                                'range': gspread.utils.rowcol_to_a1(fila_p, col_comp),
+                                'values': [[nuevo_comp]]
+                            })
+                    
+                    if updates_reversion:
+                        ws_productos.batch_update(updates_reversion)
+                        logger.info(f"   📉 Reversiòn stock comprometido completada ({len(updates_reversion)} updates)")
+
+                except Exception as e_rev:
+                    logger.error(f"❌ Error revirtiendo stock comprometido: {e_rev}")
+
+                # Borrar filas (en orden inverso para no alterar índices de las pendientes)
+                for fila in sorted(filas_a_eliminar, reverse=True):
+                    ws.delete_rows(fila)
+                
+                logger.info("   ✅ Filas anteriores eliminadas.")
+            
+            # Usar el ID existente
+            id_pedido = id_pedido_existente
+        else:
+            # Generate unique ID for this order (shared by all items)
+            id_pedido = f"PED-{str(uuid.uuid4())[:8].upper()}"
         
-        # Process each product
-        subtotal_general = 0
-        rows_to_append = []
+        estado = "PENDIENTE"
+
         
         logger.info(f"🔄 Procesando {len(productos)} productos...")
         
@@ -304,6 +382,64 @@ def registrar_pedido():
         logger.error(f"   Tipo de error: {type(e).__name__}")
         import traceback
         logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pedidos_bp.route('/api/pedidos/detalle/<id_pedido>', methods=['GET'])
+def obtener_detalle_pedido(id_pedido):
+    """
+    Obtiene el detalle completo de un pedido por su ID.
+    Útil para la funcionalidad de 'Retomar Pedido'.
+    """
+    try:
+        if not id_pedido:
+             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
+
+        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        registros = ws.get_all_records()
+        
+        # Filtrar por ID
+        items_pedido = [r for r in registros if str(r.get("ID PEDIDO")) == str(id_pedido)]
+        
+        if not items_pedido:
+            return jsonify({"success": False, "error": "Pedido no encontrado"}), 404
+            
+        # Tomamos los datos de cabecera del primer item
+        cabecera = items_pedido[0]
+        
+        pedido = {
+            "id_pedido": cabecera.get("ID PEDIDO"),
+            "fecha": cabecera.get("FECHA"),
+            "hora": cabecera.get("HORA", ""),
+            "vendedor": cabecera.get("VENDEDOR"),
+            "cliente": cabecera.get("CLIENTE"),
+            "nit": cabecera.get("NIT", ""),
+            "direccion": cabecera.get("DIRECCION", ""),
+            "ciudad": cabecera.get("CIUDAD", ""),
+            "forma_pago": cabecera.get("FORMA DE PAGO", "Contado"),
+            "descuento_global": str(cabecera.get("DESCUENTO %", "0")).replace('%', ''),
+            "estado": cabecera.get("ESTADO"),
+            "productos": []
+        }
+        
+        for item in items_pedido:
+            pedido["productos"].append({
+                "codigo": item.get("ID CODIGO"),
+                "descripcion": item.get("DESCRIPCION"),
+                "cantidad": item.get("CANTIDAD"),
+                "precio_unitario": item.get("PRECIO UNITARIO"),
+                "total": item.get("TOTAL"),
+                "cant_alistada": item.get("CANT_ALISTADA", 0),
+                "cant_enviada": item.get("CANT_ENVIADA", 0),
+                "estado_despacho": str(item.get("ESTADO_DESPACHO", "FALSE")).upper() == "TRUE"
+            })
+            
+        return jsonify({
+            "success": True,
+            "pedido": pedido
+        })
+
+    except Exception as e:
+        logger.error(f"Error cargando detalle pedido {id_pedido}: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/pendientes', methods=['GET'])

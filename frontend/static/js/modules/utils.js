@@ -244,6 +244,18 @@ function formatNumber(num) {
 }
 
 /**
+ * Formatear moneda con 2 decimales fijos
+ */
+function formatearMoneda(num) {
+    if (num === null || num === undefined || isNaN(num)) return '$ 0,00';
+    const val = parseFloat(num);
+    return '$ ' + val.toLocaleString('es-CO', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+/**
  * Formatear fecha corta
  */
 function formatDateShort(fecha) {
