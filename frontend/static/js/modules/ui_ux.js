@@ -50,6 +50,34 @@ const ModuloUX = (() => {
                         setTimeout(() => playTone(f, 'sawtooth', 0.2), i * 200);
                     });
                     break;
+                case 'mega_siren':
+                    // Mega Sirena (Largo - 8 ciclos)
+                    for (let i = 0; i < 8; i++) {
+                        setTimeout(() => playTone(800, 'sawtooth', 0.2), i * 400);
+                        setTimeout(() => playTone(600, 'sawtooth', 0.2), i * 400 + 200);
+                    }
+                    break;
+                case 'urgent':
+                    // Alarma Urgente (Rápida y penetrante)
+                    for (let i = 0; i < 12; i++) {
+                        setTimeout(() => playTone(1200, 'square', 0.05), i * 100);
+                    }
+                    break;
+                case 'sonar':
+                    // Eco de Sonar (Pulsos profundos)
+                    [400, 400, 400].forEach((f, i) => {
+                        setTimeout(() => {
+                            playTone(f, 'sine', 0.8);
+                            playTone(f * 1.5, 'sine', 0.4);
+                        }, i * 1000);
+                    });
+                    break;
+                case 'melody':
+                    // Secuencia Melódica (Elegante y larga)
+                    [523, 659, 783, 1046, 783, 659, 523].forEach((f, i) => {
+                        setTimeout(() => playTone(f, 'sine', 0.3), i * 200);
+                    });
+                    break;
                 case 'pulse':
                     // Pulso Moderno (Corto y penetrante)
                     playTone(1000, 'square', 0.05);
