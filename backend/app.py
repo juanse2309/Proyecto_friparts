@@ -18,9 +18,11 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Configurar Flask
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, 
-            template_folder='../frontend/templates', 
-            static_folder='../frontend/static')
+            template_folder=os.path.join(BASE_DIR, '../frontend/templates'), 
+            static_folder=os.path.join(BASE_DIR, '../frontend/static'))
 CORS(app)
 
 # Login Blueprint
@@ -5314,7 +5316,8 @@ def handle_estadisticas():
         return jsonify({'success': False, 'error': str(e)}), 500
 @app.route('/static/<path:path>')
 def serve_static(path):
-    return send_from_directory('static', path)
+    # Asegurar que se sirve desde la carpeta estática correcta
+    return send_from_directory(app.static_folder, path)
 
 # ====================================================================
 # INICIO DEL SERVIDOR (DEPRECATED BLOCK REMOVED)
@@ -5366,16 +5369,16 @@ def undo_last_action():
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5005))
     print("\n" + "="*50)
-    print("🚀 INICIANDO SERVIDOR FLASK (PUERTO 5005)")
+    print(f"🚀 INICIANDO SERVIDOR FLASK (PUERTO {port})")
     print("="*50)
-    print(f"📍 URL Local:   http://127.0.0.1:5005")
-    print(f"📍 URL Red:     http://172.16.1.109:5005")
+    print(f"📍 URL: http://0.0.0.0:{port}")
     print("="*50 + "\n")
     
     app.run(
         host='0.0.0.0',
-        port=5005,
+        port=port,
         debug=True,
         use_reloader=True
     )
