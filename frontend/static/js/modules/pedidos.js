@@ -543,19 +543,65 @@ const ModuloPedidos = {
         const item = this.listaProductos[index];
         if (!item) return;
 
-        const nuevaCant = prompt(`Editar cantidad para ${item.descripcion}:`, item.cantidad);
-        if (nuevaCant === null) return; // Cancelado
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:20000;';
+        modal.innerHTML = `
+            <div style="background:#fff; border-radius:16px; max-width:400px; width:90%; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.3); animation: slideInRight 0.3s ease;">
+                <div style="background:linear-gradient(135deg,#6366f1,#4f46e5); padding:18px 24px; color:#fff;">
+                    <h4 style="margin:0; font-size:1.1rem; font-weight:600;"><i class="fas fa-edit me-2"></i>Editar Cantidad</h4>
+                </div>
+                <div style="padding:24px;">
+                    <p style="margin:0 0 6px; font-size:0.85rem; color:#64748b;">Producto:</p>
+                    <p style="margin:0 0 16px; font-weight:600; color:#1e293b; font-size:0.95rem;">${item.codigo} — ${item.descripcion}</p>
+                    <label style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Nueva Cantidad</label>
+                    <input type="number" id="modal-edit-cantidad" value="${item.cantidad}" min="1" 
+                           style="width:100%; padding:12px 16px; font-size:1.8rem; font-weight:700; text-align:center; border:2px solid #e2e8f0; border-radius:12px; margin-top:8px; outline:none; transition:border 0.2s;"
+                           onfocus="this.style.borderColor='#6366f1'" onblur="this.style.borderColor='#e2e8f0'">
+                </div>
+                <div style="padding:16px 24px; background:#f8fafc; border-top:1px solid #e5e7eb; display:flex; gap:12px; justify-content:flex-end;">
+                    <button id="modal-edit-cancelar" style="padding:10px 20px; border:1px solid #d1d5db; background:#fff; color:#374151; border-radius:10px; font-weight:500; cursor:pointer; font-size:0.9rem;">
+                        Cancelar
+                    </button>
+                    <button id="modal-edit-confirmar" style="padding:10px 24px; background:linear-gradient(135deg,#6366f1,#4f46e5); color:#fff; border:none; border-radius:10px; font-weight:600; cursor:pointer; font-size:0.9rem;">
+                        <i class="fas fa-check me-1"></i> Guardar
+                    </button>
+                </div>
+            </div>
+        `;
 
-        const cantNum = parseInt(nuevaCant);
-        if (isNaN(cantNum) || cantNum <= 0) {
-            mostrarNotificacion('La cantidad debe ser un número mayor a 0', 'warning');
-            return;
-        }
+        document.body.appendChild(modal);
 
-        item.cantidad = cantNum;
-        this.renderizarTablaItems();
-        this.calcularTotalPedido();
-        mostrarNotificacion('Cantidad actualizada', 'success');
+        const inputCant = document.getElementById('modal-edit-cantidad');
+        inputCant.focus();
+        inputCant.select();
+
+        // Enter key support
+        inputCant.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') document.getElementById('modal-edit-confirmar').click();
+            if (e.key === 'Escape') document.getElementById('modal-edit-cancelar').click();
+        });
+
+        document.getElementById('modal-edit-confirmar').addEventListener('click', () => {
+            const cantNum = parseInt(inputCant.value);
+            if (isNaN(cantNum) || cantNum <= 0) {
+                mostrarNotificacion('La cantidad debe ser un número mayor a 0', 'warning');
+                return;
+            }
+            item.cantidad = cantNum;
+            this.renderizarTablaItems();
+            this.calcularTotalPedido();
+            document.body.removeChild(modal);
+            mostrarNotificacion('Cantidad actualizada', 'success');
+        });
+
+        document.getElementById('modal-edit-cancelar').addEventListener('click', () => {
+            document.body.removeChild(modal);
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) document.body.removeChild(modal);
+        });
     },
 
     actualizarEstadoBotonPDF: function () {
