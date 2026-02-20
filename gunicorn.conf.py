@@ -11,8 +11,7 @@ bind = "0.0.0.0:" + os.environ.get("PORT", "10000")
 # when sharing the singleton client across threads.
 # CRITICAL: Render free tier has 512MB RAM. Multiple workers cause OOM.
 workers = 1 
-worker_class = 'gthread'
-threads = 4
+worker_class = 'sync'
 # threads = 2  <-- DISABLED to prevent SSL decryption errors
 
 # Increase timeout to allow for slow initial connections (e.g. Google Sheets)
