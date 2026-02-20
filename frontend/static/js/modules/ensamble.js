@@ -54,7 +54,7 @@ const ModuloEnsamble = {
         try {
             const prods = await fetchData('/api/productos/listar');
             if (prods) {
-                const items = prods.items || prods;
+                const items = prods?.productos || prods?.items || (Array.isArray(prods) ? prods : []);
                 if (Array.isArray(items) && items.length > 0) {
                     this.productosData = items;
                     console.log('📦 Productos desde API directa:', this.productosData.length);

@@ -68,7 +68,7 @@ const ModuloPedidos = {
             } else {
                 const response = await fetch('/api/productos/listar');
                 const data = await response.json();
-                this.productosData = data.items || data;
+                this.productosData = data?.productos || data?.items || (Array.isArray(data) ? data : []);
             }
             console.log("✅ Productos cargados:", this.productosData.length);
         } catch (e) {

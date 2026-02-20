@@ -39,7 +39,7 @@ const ModuloInyeccion = {
             } else {
                 console.warn('⚠️ [Inyeccion] Cache vacío, intentando fetch...');
                 const prods = await fetchData('/api/productos/listar');
-                this.productosData = prods.items || prods;
+                this.productosData = prods?.productos || prods?.items || (Array.isArray(prods) ? prods : []);
             }
 
             // 3. Cargar Máquinas

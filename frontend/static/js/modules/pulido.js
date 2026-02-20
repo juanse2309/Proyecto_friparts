@@ -40,7 +40,7 @@ const ModuloPulido = {
                 this.productosData = window.AppState.sharedData.productos;
             } else {
                 const prods = await fetchData('/api/productos/listar');
-                this.productosData = prods.items || prods;
+                this.productosData = prods?.productos || prods?.items || (Array.isArray(prods) ? prods : []);
             }
 
             mostrarLoading(false);
