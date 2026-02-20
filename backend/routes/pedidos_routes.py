@@ -193,6 +193,9 @@ def registrar_pedido():
         estado = "PENDIENTE"
 
         
+        subtotal_general = 0
+        rows_to_append = []
+        
         logger.info(f"🔄 Procesando {len(productos)} productos...")
         
         for idx, producto in enumerate(productos):

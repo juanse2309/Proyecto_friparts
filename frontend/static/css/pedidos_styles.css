@@ -1,0 +1,101 @@
+/* pedidos_styles.css - Estilos específicos para el módulo de pedidos */
+
+.pedidos-summary-card {
+    margin-top: 20px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+}
+
+.pedidos-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px dashed #cbd5e1;
+}
+
+.pedidos-summary-row.subtotal {
+    border-bottom: 1px dashed #cbd5e1;
+}
+
+.pedidos-summary-row.iva {
+    border-bottom: 1px solid #e2e8f0;
+    background: #f1f5f9;
+}
+
+.summary-label {
+    color: #64748b;
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+}
+
+.summary-value {
+    color: #1e293b;
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.pedidos-total-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%);
+    color: white;
+}
+
+.total-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.total-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.total-subtext {
+    font-size: 0.7rem;
+    opacity: 0.8;
+}
+
+.total-amount {
+    font-size: 2.2rem;
+    font-weight: 800;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    word-break: break-all;
+}
+
+/* Responsividad para móviles */
+@media (max-width: 480px) {
+    .total-amount {
+        font-size: 1.8rem;
+    }
+    
+    .pedidos-summary-row {
+        padding: 10px 15px;
+    }
+    
+    .pedidos-total-card {
+        padding: 15px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .total-amount {
+        align-self: flex-end;
+    }
+}
+
+@media (max-width: 360px) {
+    .total-amount {
+        font-size: 1.5rem;
+    }
+}
