@@ -408,11 +408,13 @@ def obtener_detalle_pedido(id_pedido):
         ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
         registros = ws.get_all_records()
         
-        # Filtrar por ID
-        items_pedido = [r for r in registros if str(r.get("ID PEDIDO")) == str(id_pedido)]
+        # Filtrar por ID (Normalizado para evitar errores de espacios o mayúsculas)
+        id_pedido_buscado = str(id_pedido).strip().upper()
+        items_pedido = [r for r in registros if str(r.get("ID PEDIDO", "")).strip().upper() == id_pedido_buscado]
         
         if not items_pedido:
-            return jsonify({"success": False, "error": "Pedido no encontrado"}), 404
+            logger.warning(f"⚠️ Pedido {id_pedido_buscado} no encontrado. IDs disponibles: {[str(r.get('ID PEDIDO'))[:10] for r in registros[:5]]}...")
+            return jsonify({"success": False, "error": f"Pedido {id_pedido} no encontrado en la base de datos"}), 404
             
         # Tomamos los datos de cabecera del primer item
         cabecera = items_pedido[0]

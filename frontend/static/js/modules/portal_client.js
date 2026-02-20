@@ -1037,7 +1037,7 @@ const ModuloPortal = {
         }
     },
 
-    mostrarConfirmacion: function (titulo, mensaje) {
+    mostrarConfirmacion: function (titulo, mensaje, esAlerta = false) {
         return new Promise((resolve) => {
             const modal = document.createElement('div');
             modal.className = 'modal-overlay';
@@ -1057,8 +1057,8 @@ const ModuloPortal = {
                         ${mensaje}
                     </div>
                     <div class="modal-footer border-top p-3 bg-light d-flex justify-content-end gap-2">
-                        <button class="btn btn-light border" id="confirm-cancel">Cancelar</button>
-                        <button class="btn btn-primary px-4 fw-bold" id="confirm-ok">Confirmar</button>
+                        ${!esAlerta ? '<button class="btn btn-light border" id="confirm-cancel">Cancelar</button>' : ''}
+                        <button class="btn btn-primary px-4 fw-bold" id="confirm-ok">${esAlerta ? 'Aceptar' : 'Confirmar'}</button>
                     </div>
                 </div>
             `;
@@ -1069,8 +1069,13 @@ const ModuloPortal = {
                 resolve(val);
             };
 
-            document.getElementById('confirm-ok').onclick = () => close(true);
-            document.getElementById('confirm-cancel').onclick = () => close(false);
+            const btnOk = modal.querySelector('#confirm-ok');
+            const btnCancel = modal.querySelector('#confirm-cancel');
+
+            btnOk.onclick = () => close(true);
+            if (btnCancel) {
+                btnCancel.onclick = () => close(false);
+            }
         });
     },
 
@@ -1147,7 +1152,11 @@ const ModuloPortal = {
     },
 
     retomarPedido: async function (id_pedido) {
-        if (!confirm(`¿Deseas editar el pedido ${id_pedido}? Esto reemplazará tu carrito actual.`)) return;
+        const confirmar = await this.mostrarConfirmacion(
+            '¿Editar Pedido?',
+            `¿Deseas editar el pedido <strong>${id_pedido}</strong>? Esto reemplazará tu carrito actual.`
+        );
+        if (!confirmar) return;
 
         this.toggleLoader(true);
         try {
@@ -1180,7 +1189,7 @@ const ModuloPortal = {
         } catch (e) {
             this.toggleLoader(false);
             console.error("Error retomando pedido:", e);
-            alert("No se pudo cargar el pedido para editar.");
+            this.mostrarConfirmacion('Error', `No se pudo cargar el pedido: ${e.message}`, true); // true para modo alerta (solo un botón)
         }
     },
 
