@@ -280,9 +280,6 @@ const AlmacenModule = {
                                     <i class="fas fa-copy text-muted" style="font-size: 0.9rem; opacity: 0.6;"></i>
                                 </div>
                                 <div class="d-flex flex-wrap gap-1 align-items-center justify-content-end" style="flex: 1;">
-                                    <i class="fas fa-copy text-muted" style="font-size: 0.9rem; opacity: 0.6;" title="Copiar ID"></i>
-                                </div>
-                                <div class="d-flex flex-wrap gap-1 align-items-center justify-content-end" style="flex: 1;">
                                     ${esParaMi ? '<span class="badge bg-info" style="font-size: 0.6rem; padding: 4px 6px; font-weight: 700; border-radius: 4px;"><i class="fas fa-user-check me-1"></i>MÍO</span>' : ''}
                                     <span class="badge" style="background: ${colorStatus}; font-size: 0.6rem; padding: 4px 6px; text-transform: uppercase; font-weight: 700; border-radius: 4px;">${pedido.estado}</span>
                                 </div>
