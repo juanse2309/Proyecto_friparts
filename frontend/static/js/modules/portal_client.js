@@ -6,6 +6,7 @@ const ModuloPortal = {
     carrito: [],
     carrito: [],
     pedidos: [],
+    id_pedido_edicion: null, // Si se está editando un pedido existente
     pollingInterval: null,
     POLLING_DELAY: 15000, // 15 segundos
 
@@ -791,6 +792,9 @@ const ModuloPortal = {
 
     eliminarItem: function (idx) {
         this.carrito.splice(idx, 1);
+        if (this.carrito.length === 0) {
+            this.id_pedido_edicion = null;
+        }
         this.guardarCarritoLocal();
         this.verCarrito(); // Re-render
     },
@@ -839,10 +843,15 @@ const ModuloPortal = {
 
         try {
             // 5. Enviar al Backend
+            const payload = { ...pedidoData };
+            if (this.id_pedido_edicion) {
+                payload.id_pedido = this.id_pedido_edicion;
+            }
+
             const response = await fetch('/api/pedidos/registrar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(pedidoData)
+                body: JSON.stringify(payload)
             });
 
             const result = await response.json();
@@ -853,6 +862,7 @@ const ModuloPortal = {
 
                 // Limpiar
                 this.carrito = [];
+                this.id_pedido_edicion = null; // Limpiar modo edición
                 this.guardarCarritoLocal();
                 document.getElementById('portal-cart-modal').style.display = 'none';
                 this.actualizarBadge();
@@ -1114,9 +1124,17 @@ const ModuloPortal = {
                             <span>Progreso</span>
                             <span>${p.progreso}%</span>
                         </div>
-                        <div class="progress" style="height: 8px; border-radius: 4px;">
+                        <div class="progress mb-3" style="height: 8px; border-radius: 4px;">
                             <div class="progress-bar ${badgeClass}" role="progressbar" style="width: ${p.progreso}%"></div>
                         </div>
+
+                        ${p.progreso === 0 || p.progreso === '0%' ? `
+                            <div class="d-flex justify-content-end">
+                                <button class="btn btn-outline-primary btn-sm px-3 fw-bold shadow-sm" onclick="ModuloPortal.retomarPedido('${p.id}')">
+                                    <i class="fas fa-edit me-1"></i> Editar Pedido
+                                </button>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
                 `;
@@ -1125,6 +1143,44 @@ const ModuloPortal = {
         } catch (e) {
             console.error(e);
             container.innerHTML = '<div class="text-danger">Error cargando pedidos.</div>';
+        }
+    },
+
+    retomarPedido: async function (id_pedido) {
+        if (!confirm(`¿Deseas editar el pedido ${id_pedido}? Esto reemplazará tu carrito actual.`)) return;
+
+        this.toggleLoader(true);
+        try {
+            const res = await fetch(`/api/pedidos/detalle/${id_pedido}`);
+            const data = await res.json();
+
+            if (!data.success) throw new Error(data.error);
+
+            const p = data.pedido;
+            // Mapear productos al formato del carrito
+            this.carrito = p.productos.map(prod => ({
+                codigo: prod.codigo,
+                descripcion: prod.descripcion,
+                cantidad: prod.cantidad,
+                precio: prod.precio_unitario
+            }));
+
+            this.id_pedido_edicion = id_pedido;
+            this.guardarCarritoLocal();
+            this.toggleLoader(false);
+
+            // Ir al carrito
+            this.switchTab('catalogo'); // Opcional: mostrar catálogo o ir directo a abrir el modal del carrito
+            this.verCarrito();
+
+            if (window.AuthModule) {
+                window.AuthModule.mostrarNotificacion(`Editando pedido ${id_pedido}`, 'info');
+            }
+
+        } catch (e) {
+            this.toggleLoader(false);
+            console.error("Error retomando pedido:", e);
+            alert("No se pudo cargar el pedido para editar.");
         }
     },
 
