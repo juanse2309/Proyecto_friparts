@@ -63,6 +63,14 @@ PRODUCTOS_CACHE = {
     "data": None,
     "timestamp": 0
 }
+PRODUCTOS_LISTAR_CACHE = {
+    "data": None,
+    "timestamp": 0
+}
+PRODUCTOS_V2_CACHE = {
+    "data": None,
+    "timestamp": 0
+}
 PRODUCTOS_CACHE_TTL = 120  # segundos (ajusta a 120, 300, etc.)
 
 RESPONSABLES_CACHE = {
@@ -161,10 +169,17 @@ except Exception as e:
 # ====================================================================
 
 def invalidar_cache_productos():
-    """Invalida el cache de productos."""
+    """Invalida todos los caches relacionados con productos."""
     PRODUCTOS_CACHE["data"] = None
     PRODUCTOS_CACHE["timestamp"] = 0
-    print(" PRODUCTOS_CACHE invalidado")
+    
+    PRODUCTOS_LISTAR_CACHE["data"] = None
+    PRODUCTOS_LISTAR_CACHE["timestamp"] = 0
+    
+    PRODUCTOS_V2_CACHE["data"] = None
+    PRODUCTOS_V2_CACHE["timestamp"] = 0
+    
+    print(" 🧹 Todos los caches de PRODUCTOS han sido invalidados")
 
 # ====================================================================
 # HELPERS (NUEVO)
@@ -2711,11 +2726,11 @@ def obtener_clientes():
 def listar_productos_v2():
     """Endpoint optimizado para la tabla de inventario con semaforos."""
     try:
-        # 1. Verificar Cache
+        # 1. Verificar Cache V2
         current_time = time.time()
-        if PRODUCTOS_CACHE["data"] and (current_time - PRODUCTOS_CACHE["timestamp"] < PRODUCTOS_CACHE_TTL):
+        if PRODUCTOS_V2_CACHE["data"] and (current_time - PRODUCTOS_V2_CACHE["timestamp"] < PRODUCTOS_CACHE_TTL):
              print(" [Cache] Sirviendo inventario V2 desde memoria")
-             return jsonify(PRODUCTOS_CACHE["data"])
+             return jsonify(PRODUCTOS_V2_CACHE["data"])
 
         # 2. Leer Google Sheets
         ss = gc.open_by_key(GSHEET_KEY)
@@ -2779,8 +2794,8 @@ def listar_productos_v2():
                 continue
         
         # 4. Guardar en cache y retornar
-        PRODUCTOS_CACHE["data"] = lista_final
-        PRODUCTOS_CACHE["timestamp"] = current_time
+        PRODUCTOS_V2_CACHE["data"] = lista_final
+        PRODUCTOS_V2_CACHE["timestamp"] = current_time
         print(f" Inventario V2 cargado: {len(lista_final)} productos")
         
         return jsonify(lista_final)
@@ -2828,11 +2843,11 @@ def listar_productos():
         ahora = time.time()
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         
-        # Cache (si no hay force_refresh Juan Sebastian)
-        if not force_refresh and (PRODUCTOS_CACHE["data"] is not None and 
-            (ahora - PRODUCTOS_CACHE["timestamp"]) < PRODUCTOS_CACHE_TTL):
+        # Cache (si no hay force_refresh)
+        if not force_refresh and (PRODUCTOS_LISTAR_CACHE["data"] is not None and 
+            (ahora - PRODUCTOS_LISTAR_CACHE["timestamp"]) < PRODUCTOS_CACHE_TTL):
             print(" Cache HIT!")
-            return jsonify(PRODUCTOS_CACHE["data"])
+            return jsonify(PRODUCTOS_LISTAR_CACHE["data"])
         
         if force_refresh:
             print(" 🔄 FORCE REFRESH: Saltando cache de productos...")
@@ -2936,8 +2951,8 @@ def listar_productos():
         # Guardar en cache
         resultado = {'items': productos}
         
-        PRODUCTOS_CACHE["data"] = resultado
-        PRODUCTOS_CACHE["timestamp"] = ahora
+        PRODUCTOS_LISTAR_CACHE["data"] = resultado
+        PRODUCTOS_LISTAR_CACHE["timestamp"] = ahora
         
         print(f" ✅ {len(productos)} productos cargados")
         return jsonify(resultado), 200
