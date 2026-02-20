@@ -477,8 +477,8 @@ const AlmacenModule = {
 
                 <div class="d-flex justify-content-between align-items-start mb-3" style="${ndOverlayStyle}">
                     <div style="max-width: 60%;">
-                        <span class="badge bg-light text-dark border fw-bold mb-1" style="font-size: 0.8rem; letter-spacing: 1px;">CÓDIGO: ${prod.codigo}</span>
-                        <h6 class="text-muted mb-0 fw-normal" style="font-size: 0.8rem; line-height: 1.2;">${prod.descripcion}</h6>
+                        <span class="badge bg-light text-dark border fw-bold mb-1" style="font-size: 1.6rem; letter-spacing: 1px; padding: 6px 12px;">CÓDIGO: ${prod.codigo}</span>
+                        <h6 class="text-muted mb-0 fw-normal" style="font-size: 0.7rem; line-height: 1.2;">${prod.descripcion}</h6>
                     </div>
                     <div class="d-flex align-items-start gap-2">
                         <div class="text-end">
