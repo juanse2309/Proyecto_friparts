@@ -1229,25 +1229,46 @@
                         <div class="form-grid">
                             <!-- Fila 0: Buscador de Pedido Existente (EDICIÓN) -->
                             <div class="form-group full-width"
-                                style="margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 10px; border: 1px dashed #cbd5e1;">
-                                <label for="ped-load-id" style="font-weight: 700; color: #1e293b;"><i
-                                        class="fas fa-search"></i> Retomar / Editar Pedido Existente</label>
-                                <div class="d-flex gap-2">
-                                    <input type="text" id="ped-load-id"
-                                        placeholder="Ingrese ID del pedido (ej: PED-1234)"
-                                        style="flex: 1; border: 2px solid #e2e8f0; border-radius: 8px; padding: 8px 15px;">
+                                style="margin-bottom: 20px; background: linear-gradient(135deg, #f8fafc, #f1f5f9); padding: 16px; border-radius: 12px; border: 2px dashed #94a3b8;">
+                                <label for="ped-load-id"
+                                    style="font-weight: 700; color: #1e293b; font-size: 0.9rem; margin-bottom: 10px; display: block;">
+                                    <i class="fas fa-redo-alt" style="color: #f59e0b;"></i> Retomar / Editar Pedido
+                                    Existente
+                                </label>
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch;">
+                                    <input type="text" id="ped-load-id" placeholder="Ej: PED-1234"
+                                        style="flex: 1; min-width: 150px; border: 2px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 1rem; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">
                                     <button type="button" class="btn btn-warning fw-bold"
-                                        onclick="ModuloPedidos.cargarPedidoPorId()" style="white-space: nowrap;">
-                                        <i class="fas fa-search-plus"></i> Cargar Pedido
+                                        onclick="ModuloPedidos.cargarPedidoPorId()"
+                                        style="white-space: nowrap; border-radius: 10px; padding: 10px 16px; font-size: 0.9rem;">
+                                        <i class="fas fa-download"></i> Cargar
                                     </button>
                                 </div>
-                                <div id="edit-mode-indicator" class="mt-2 small fw-bold text-success"
-                                    style="display: none;">
-                                    <i class="fas fa-edit"></i> MODO EDICIÓN ACTIVO: <span id="active-edit-id"></span>
-                                    <button type="button" class="btn btn-link btn-sm text-danger p-0 ms-2"
-                                        onclick="ModuloPedidos.cancelarEdicion()">[Cancelar]</button>
+                                <div id="edit-mode-indicator" class="mt-2 fw-bold"
+                                    style="display: none; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 10px 14px; border-radius: 10px; font-size: 0.85rem;">
+                                    <div
+                                        style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;">
+                                        <div>
+                                            <i class="fas fa-edit"></i> EDITANDO: <span id="active-edit-id"
+                                                style="font-family: monospace; font-size: 1rem;"></span>
+                                        </div>
+                                        <div style="display: flex; gap: 6px;">
+                                            <button type="button" class="btn btn-sm btn-light fw-bold"
+                                                title="Copiar ID del pedido"
+                                                onclick="navigator.clipboard.writeText(document.getElementById('active-edit-id').textContent).then(()=>mostrarNotificacion('ID copiado al portapapeles','success'));"
+                                                style="border-radius: 8px; padding: 4px 10px; font-size: 0.8rem;">
+                                                <i class="fas fa-copy"></i> Copiar
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-light fw-bold"
+                                                onclick="ModuloPedidos.cancelarEdicion()"
+                                                style="border-radius: 8px; padding: 4px 10px; font-size: 0.8rem;">
+                                                <i class="fas fa-times"></i> Cancelar
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
+
 
                             <!-- Fila 1 -->
                             <div class="form-group">
