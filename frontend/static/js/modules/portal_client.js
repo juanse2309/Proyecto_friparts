@@ -615,9 +615,9 @@ const ModuloPortal = {
                      class="rounded-3 border" 
                      style="width: 60px; height: 60px; object-fit: contain; background: #fff;" 
                      onerror="
-                        if (this.src.endsWith('.jpg')) { 
+                        if (this.src.includes('.jpg')) { 
                             this.src = this.src.replace('.jpg', '.png'); 
-                        } else if (this.src.endsWith('.png') && '${fallbackImage}' !== '') { 
+                        } else if (this.src.includes('.png') && '${fallbackImage}' !== '') { 
                             this.src = '${fallbackImage}'; 
                         } else { 
                             this.src = '${noImage}';

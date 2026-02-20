@@ -52,6 +52,7 @@ def registrar_pedido():
         ciudad = data.get('ciudad', '')        # OPCIONAL - Compatible con frontend antiguo
         forma_pago = data.get('forma_pago', 'Contado')
         descuento_global = data.get('descuento_global', 0)
+        observaciones = data.get('observaciones', '')
         productos = data.get('productos', [])
         
         logger.info(f"📋 Campos extraídos:")
@@ -104,7 +105,8 @@ def registrar_pedido():
             "ID PEDIDO", "FECHA", "HORA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
             "CLIENTE", "NIT", "DIRECCION", "CIUDAD", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
             "ESTADO", "CANTIDAD", "PRECIO UNITARIO", "PROGRESO", "CANT_ALISTADA",
-            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A", "ESTADO_DESPACHO", "NO_DISPONIBLE"
+            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A", "ESTADO_DESPACHO", "NO_DISPONIBLE", 
+            "OBSERVACIONES"
         ]
         
         if not existing_headers:
@@ -257,7 +259,8 @@ def registrar_pedido():
                 "CANT_ENVIADA": 0,
                 "DELEGADO_A": "",
                 "ESTADO_DESPACHO": "FALSE",
-                "NO_DISPONIBLE": "FALSE"
+                "NO_DISPONIBLE": "FALSE",
+                "OBSERVACIONES": observaciones
             })
             
             rows_to_append.append(row_dict)
@@ -426,6 +429,7 @@ def obtener_detalle_pedido(id_pedido):
             "forma_pago": cabecera.get("FORMA DE PAGO", "Contado"),
             "descuento_global": str(cabecera.get("DESCUENTO %", "0")).replace('%', ''),
             "estado": cabecera.get("ESTADO"),
+            "observaciones": cabecera.get("OBSERVACIONES", ""),
             "productos": []
         }
         
@@ -486,7 +490,7 @@ def obtener_pedidos_pendientes():
             rol_norm = str(rol_actual).upper() if rol_actual else ""
             user_norm = str(usuario_actual).upper() if usuario_actual else ""
             
-            es_admin = "ADMIN" in rol_norm or "NATALIA" in user_norm or "NATHALIA" in user_norm or "ANDRES" in user_norm or "ANDRÉS" in user_norm
+            es_admin = "ADMIN" in rol_norm or "NATALIA" in user_norm or "NATHALIA" in user_norm or "LOPEZ" in user_norm or "ANDRES" in user_norm or "ANDRÉS" in user_norm
             
             if not es_admin:
                 # Si no es admin/Natalia, solo ve lo que tiene expresamente asignado

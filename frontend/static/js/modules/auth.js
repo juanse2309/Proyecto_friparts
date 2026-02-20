@@ -79,6 +79,14 @@ const AuthModule = {
             loginForm.addEventListener('submit', (e) => this.handleLogin(e));
         }
 
+        const clientLoginForm = document.getElementById('client-login-form');
+        if (clientLoginForm) {
+            clientLoginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.handleClientLogin();
+            });
+        }
+
         const passwordInput = document.getElementById('login-password');
         if (passwordInput) {
             passwordInput.addEventListener('input', function (e) {
@@ -423,6 +431,22 @@ const AuthModule = {
 
         this.updateProfileUI();
         this.applyPermissions();
+
+        // 6. Verificar si Nathalia Lopez entra (HACK DE PERMISOS PARA NATHALIA)
+        if (user.nombre && user.nombre.toUpperCase().includes("NATHALIA")) {
+            console.log("⭐ Detectada Nathalia Lopez - Otorgando privilegios adicionales.");
+            // Si su rol no es Admin, forzar permisos comerciales/pedidos
+            if (user.rol !== 'Administración' && user.rol !== 'Comercial') {
+                // Podríamos cambiar su rol dinámicamente o añadir a sus permisos
+                const permisosExtra = ['pedidos', 'almacen', 'historial'];
+                permisosExtra.forEach(p => {
+                    if (!this.permissions[user.rol].includes(p)) {
+                        this.permissions[user.rol].push(p);
+                    }
+                });
+                this.applyPermissions(); // Re-apply
+            }
+        }
 
         // Si es cliente, mostrar mensaje diferente o nada
         if (user.rol !== 'Cliente') {

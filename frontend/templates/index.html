@@ -783,8 +783,9 @@
                             <!-- Fila 4: Orden y Cantidad Recibida -->
                             <div class="form-group">
                                 <label for="orden-produccion-pulido"><i class="fas fa-list-ol"></i> Orden
-                                    Producción</label>
-                                <input type="text" id="orden-produccion-pulido" placeholder="OP-2026-001">
+                                    Producción <span class="text-danger">*</span></label>
+                                <input type="text" id="orden-produccion-pulido" placeholder="OP-2026-001" required>
+                                <small class="text-muted d-block mt-1">Si no hay OP, escribe 1234 o similar.</small>
                             </div>
                             <div class="form-group">
                                 <label for="entrada-pulido"><i class="fas fa-calculator"></i> Total Procesado</label>
@@ -1360,6 +1361,13 @@
                                 <label for="ped-descuento-global"><i class="fas fa-percentage"></i> Descuento Total
                                     (%)</label>
                                 <input type="number" id="ped-descuento-global" min="0" max="100" value="0" step="0.01">
+                            </div>
+                            <!-- Columna Completa: Observaciones -->
+                            <div class="form-group full-width">
+                                <label for="ped-observaciones"><i class="fas fa-comment-dots"></i> Observaciones /
+                                    Comentarios</label>
+                                <textarea id="ped-observaciones" rows="2"
+                                    placeholder="Notas adicionales sobre el pedido..."></textarea>
                             </div>
 
 
@@ -2351,8 +2359,7 @@
                         <input type="password" id="client-password" class="form-control" required placeholder="******">
                     </div>
                 </div>
-                <button type="button" class="btn btn-primary w-100 py-2 fw-bold rounded-pill"
-                    onclick="AuthModule.handleClientLogin()">
+                <button type="submit" class="btn btn-primary w-100 py-2 fw-bold rounded-pill">
                     Inicia Sesión <i class="fas fa-arrow-right ms-2"></i>
                 </button>
                 <div class="text-center mt-3">

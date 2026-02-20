@@ -365,6 +365,7 @@ const ModuloPedidos = {
         document.getElementById('ped-ciudad').value = pedido.ciudad || '';
         document.getElementById('ped-pago').value = pedido.forma_pago || 'Contado';
         document.getElementById('ped-descuento-global').value = pedido.descuento_global || 0;
+        document.getElementById('ped-observaciones').value = pedido.observaciones || '';
 
         // Establecer cliente seleccionado para las validaciones
         this.clienteSeleccionado = {
@@ -523,14 +524,38 @@ const ModuloPedidos = {
                     <td data-label="Precio Unit." style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${formatearMoneda(item.precio_unitario)}</td>
                     <td data-label="Subtotal" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${formatearMoneda(subtotal)}</td>
                     <td data-label="Acciones" style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">
-                        <button type="button" class="btn btn-sm btn-danger" onclick="ModuloPedidos.eliminarItemDelCarrito(${index})">
-                            <i class="fas fa-trash"></i>
-                        </button>
+                        <div class="d-flex justify-content-center gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-primary" style="padding: 4px 8px; font-size: 0.8rem;" title="Editar Cantidad" onclick="ModuloPedidos.editarItemDelCarrito(${index})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" style="padding: 4px 8px; font-size: 0.8rem;" title="Eliminar" onclick="ModuloPedidos.eliminarItemDelCarrito(${index})">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
                     </td>
                 </tr>
             `;
         }).join('');
         this.actualizarEstadoBotonPDF();
+    },
+
+    editarItemDelCarrito: function (index) {
+        const item = this.listaProductos[index];
+        if (!item) return;
+
+        const nuevaCant = prompt(`Editar cantidad para ${item.descripcion}:`, item.cantidad);
+        if (nuevaCant === null) return; // Cancelado
+
+        const cantNum = parseInt(nuevaCant);
+        if (isNaN(cantNum) || cantNum <= 0) {
+            mostrarNotificacion('La cantidad debe ser un número mayor a 0', 'warning');
+            return;
+        }
+
+        item.cantidad = cantNum;
+        this.renderizarTablaItems();
+        this.calcularTotalPedido();
+        mostrarNotificacion('Cantidad actualizada', 'success');
     },
 
     actualizarEstadoBotonPDF: function () {
@@ -607,6 +632,7 @@ const ModuloPedidos = {
                 ciudad: this.clienteSeleccionado.ciudad || '',
                 forma_pago: document.getElementById('ped-pago').value,
                 descuento_global: descuentoGlobal,
+                observaciones: document.getElementById('ped-observaciones').value || '',
                 productos: this.listaProductos.map(item => ({
                     codigo: item.codigo,
                     descripcion: item.descripcion,
