@@ -710,13 +710,21 @@ const ModuloPortal = {
                 ${cartHtml}
             </div>
             <div class="cart-summary bg-light p-4 border-top mt-auto">
+                <div class="d-flex justify-content-between mb-1">
+                    <span class="text-muted small">Total Referencias</span>
+                    <span class="fw-bold text-dark small">${totalReferencias}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-1">
+                    <span class="text-muted small">Subtotal</span>
+                    <span class="fw-bold text-dark small">$${totalPrecio.toLocaleString()}</span>
+                </div>
                 <div class="d-flex justify-content-between mb-2">
-                    <span class="text-muted">Total Referencias</span>
-                    <span class="fw-bold text-dark">${totalReferencias}</span>
+                    <span class="text-muted small">IVA (19%)</span>
+                    <span class="fw-bold text-dark small">$${(totalPrecio * 0.19).toLocaleString()}</span>
                 </div>
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <span class="h5 mb-0 text-dark fw-bold">Total Estimado</span>
-                    <span class="h4 mb-0 text-primary fw-bold">$${totalPrecio.toLocaleString()}</span>
+                    <span class="h5 mb-0 text-dark fw-bold">Total a Pagar</span>
+                    <span class="h4 mb-0 text-primary fw-bold">$${(totalPrecio * 1.19).toLocaleString()}</span>
                 </div>
                 <div class="d-grid">
                     <button class="btn btn-primary py-3 rounded-3 shadow-sm fw-bold hover-scale" onclick="ModuloPortal.enviarPedido()">
@@ -805,14 +813,17 @@ const ModuloPortal = {
         if (!confirmar) return;
 
         // 3. Preparar Datos
-        const fecha = new Date().toISOString().split('T')[0];
-        const totalPrecio = this.carrito.reduce((a, b) => a + (b.cantidad * b.precio), 0);
+        const subtotal = totalPrecio;
+        const iva = subtotal * 0.19;
+        const totalConIva = subtotal + iva;
 
         const pedidoData = {
             fecha: fecha,
             vendedor: 'Portal Web', // Marca especial
             cliente: user.nombre || 'Cliente Portal',
             nit: user.nit || '',
+            direccion: user.direccion || '',
+            ciudad: user.ciudad || '',
             forma_pago: 'Crédito', // Default para clientes portal
             descuento_global: 0,
             productos: this.carrito.map(item => ({
@@ -869,7 +880,9 @@ const ModuloPortal = {
                                 ciudad: user.ciudad || ''
                             },
                             productos: pedidoData.productos,
-                            total: `$ ${totalPrecio.toLocaleString()}`,
+                            subtotal: `$ ${subtotal.toLocaleString()}`,
+                            iva: `$ ${iva.toLocaleString()}`,
+                            total: `$ ${totalConIva.toLocaleString()}`,
                             forma_pago: 'Crédito'
                         };
                         this.generarPDF(dataPDF);
@@ -975,16 +988,22 @@ const ModuloPortal = {
                     }
                 });
 
-                // --- 4. TOTAL ---
-                const finalY = doc.lastAutoTable.finalY + 15;
-                doc.setDrawColor(30, 58, 138);
-                doc.setLineWidth(1);
-                doc.line(140, finalY - 5, 196, finalY - 5);
+                const finalY = doc.lastAutoTable.finalY + 10;
+                doc.setDrawColor(240);
+                doc.setLineWidth(0.5);
+
+                doc.setFontSize(9);
+                doc.setTextColor(100);
+                doc.text(`Subtotal:`, 160, finalY, { align: 'right' });
+                doc.text(datos.subtotal, 196, finalY, { align: 'right' });
+
+                doc.text(`IVA (19%):`, 160, finalY + 5, { align: 'right' });
+                doc.text(datos.iva, 196, finalY + 5, { align: 'right' });
 
                 doc.setFontSize(14);
                 doc.setTextColor(30, 58, 138);
                 doc.setFont(undefined, 'bold');
-                doc.text(`TOTAL A PAGAR: ${datos.total}`, 196, finalY, { align: 'right' });
+                doc.text(`TOTAL A PAGAR: ${datos.total}`, 196, finalY + 15, { align: 'right' });
 
                 // --- 5. FOOTER ---
                 const footerY = 270;

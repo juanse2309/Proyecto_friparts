@@ -287,8 +287,12 @@ const AlmacenModule = {
                         </div>
                         <div class="card-body" style="padding: 15px; flex: 1; display: flex; flex-direction: column;">
                             <h6 class="card-title fw-bold mb-1" style="color: #1e293b; cursor: pointer; font-size: 0.85rem; line-height: 1.3; margin-bottom: 4px !important;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">${pedido.cliente}</h6>
-                            <p class="text-muted mb-1" style="font-size: 0.7rem; margin-bottom: 4px !important;"><i class="fas fa-map-marker-alt me-1"></i> ${pedido.direccion || 'S/D'} - ${pedido.ciudad || 'S/C'}</p>
-                            <p class="text-muted mb-3" style="font-size: 0.7rem; margin-bottom: 12px !important;"><i class="fas fa-calendar-alt me-1"></i> ${pedido.fecha} | <i class="fas fa-user me-1"></i> ${pedido.vendedor}</p>
+                            <p class="text-muted mb-1" style="font-size: 0.70rem; margin-bottom: 4px !important;"><i class="fas fa-map-marker-alt me-1"></i> ${pedido.direccion || 'S/D'} - ${pedido.ciudad || 'S/C'}</p>
+                            <p class="text-muted mb-3" style="font-size: 0.70rem; margin-bottom: 12px !important;">
+                                <i class="fas fa-calendar-alt me-1"></i> ${pedido.fecha} 
+                                ${pedido.hora ? `<span class="ms-2 text-primary" style="font-weight: 600;"><i class="fas fa-clock me-1"></i> ${pedido.hora}</span>` : ''} 
+                                | <i class="fas fa-user me-1"></i> ${pedido.vendedor}
+                            </p>
                             
                             <!-- Barra Doble de Progreso -->
                             <div class="mt-auto" style="cursor: pointer; margin-bottom: 10px;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
