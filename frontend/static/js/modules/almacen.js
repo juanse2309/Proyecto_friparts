@@ -14,6 +14,49 @@ const AlmacenModule = {
     isTVMode: false,
 
     /**
+     * Copiar ID al portapapeles con feedback visual
+     */
+    copiarID: function (id, element) {
+        if (!id) return;
+
+        // Fallback para navegadores sin navigator.clipboard
+        const copyToClipboard = (text) => {
+            if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+            } else {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                textArea.style.top = "0";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                return new Promise((res, rej) => {
+                    document.execCommand('copy') ? res() : rej();
+                    textArea.remove();
+                });
+            }
+        };
+
+        copyToClipboard(id).then(() => {
+            const icon = element.querySelector('i');
+            const originalClass = icon.className;
+            icon.className = 'fas fa-check text-success';
+
+            // Feedback háptico si está disponible
+            if (window.HapticFeedback) window.HapticFeedback.light();
+
+            setTimeout(() => {
+                icon.className = originalClass;
+            }, 2000);
+        }).catch(err => {
+            console.error('Error al copiar ID:', err);
+            mostrarNotificacion('Error al copiar el ID', 'error');
+        });
+    },
+
+    /**
      * Inicializar módulo
      */
     inicializar: function () {
@@ -230,7 +273,12 @@ const AlmacenModule = {
                         style="transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); border-radius: 12px; overflow: hidden; border-left: 5px solid ${colorStatus} !important; background: #fff; min-height: 280px; display: flex; flex-direction: column;">
                         <div style="background: #f8fafc; padding: 12px 15px; border-bottom: 1px solid #edf2f7; cursor: pointer;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                                <span class="fw-bold text-primary order-id-ref" style="font-size: 1.4rem; white-space: nowrap; letter-spacing: -0.3px; font-weight: 800;">${pedido.id_pedido}</span>
+                                <div class="d-flex align-items-center gap-2 cursor-pointer copy-id-btn" 
+                                     onclick="event.stopPropagation(); AlmacenModule.copiarID('${pedido.id_pedido}', this)"
+                                     title="Copiar ID del pedido">
+                                    <span class="fw-bold text-primary order-id-ref" style="font-size: 1.4rem; white-space: nowrap; letter-spacing: -0.3px; font-weight: 800;">${pedido.id_pedido}</span>
+                                    <i class="fas fa-copy text-muted" style="font-size: 0.9rem; opacity: 0.6;"></i>
+                                </div>
                                 <div class="d-flex flex-wrap gap-1 align-items-center justify-content-end" style="flex: 1;">
                                     ${esParaMi ? '<span class="badge bg-info" style="font-size: 0.6rem; padding: 4px 6px; font-weight: 700; border-radius: 4px;"><i class="fas fa-user-check me-1"></i>MÍO</span>' : ''}
                                     <span class="badge" style="background: ${colorStatus}; font-size: 0.6rem; padding: 4px 6px; text-transform: uppercase; font-weight: 700; border-radius: 4px;">${pedido.estado}</span>

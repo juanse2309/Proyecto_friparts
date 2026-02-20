@@ -10,7 +10,7 @@ bind = "0.0.0.0:" + os.environ.get("PORT", "10000")
 # NOTE: Using 'sync' instead of 'gthread' because gspread/SSL is not thread-safe 
 # when sharing the singleton client across threads.
 # CRITICAL: Render free tier has 512MB RAM. Multiple workers cause OOM.
-workers = 1 
+workers = 2 
 worker_class = 'sync'
 # threads = 2  <-- DISABLED to prevent SSL decryption errors
 

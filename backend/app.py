@@ -44,8 +44,12 @@ app.register_blueprint(common_bp, url_prefix='/api')
 @app.route('/')
 def index():
     """Pagina principal con la interfaz web."""
-    print(f"[{datetime.datetime.now()}] >>> PETICION RECIBIDA: index.html")
-    return render_template('index.html')
+    try:
+        logger.info(f"[{datetime.datetime.now()}] >>> PETICION RECIBIDA: index.html")
+        return render_template('index.html')
+    except Exception as e:
+        logger.error(f"❌ ERROR RENDERIZANDO index.html: {e}")
+        return f"Error en el servidor: {str(e)}", 500
 # -----------------------------
 
 # ====================================================================
