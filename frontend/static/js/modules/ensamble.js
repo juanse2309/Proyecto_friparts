@@ -135,8 +135,8 @@ const ModuloEnsamble = {
 
             debounceTimer = setTimeout(() => {
                 const resultados = this.productosData.filter(prod =>
-                    (prod.codigo_sistema || '').toLowerCase().includes(query.toLowerCase()) ||
-                    (prod.descripcion || '').toLowerCase().includes(query.toLowerCase())
+                    String(prod.codigo_sistema || '').toLowerCase().includes(query.toLowerCase()) ||
+                    String(prod.descripcion || '').toLowerCase().includes(query.toLowerCase())
                 ).slice(0, 15);
 
                 this.renderSuggestions(suggestionsDiv, resultados, (item) => {

@@ -106,8 +106,8 @@ const ModuloPulido = {
 
             debounceTimer = setTimeout(() => {
                 const resultados = this.productosData.filter(prod =>
-                    (prod.codigo_sistema || '').toLowerCase().includes(query) ||
-                    (prod.descripcion || '').toLowerCase().includes(query)
+                    String(prod.codigo_sistema || '').toLowerCase().includes(query) ||
+                    String(prod.descripcion || '').toLowerCase().includes(query)
                 ).slice(0, 15);
 
                 this.renderSuggestions(suggestionsDiv, resultados, (item) => {

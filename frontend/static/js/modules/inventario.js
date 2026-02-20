@@ -429,8 +429,8 @@ function configurarEventosInventario() {
             if (!window.AppState.productosData) return;
 
             const filtrados = window.AppState.productosData.filter(p =>
-                (p.codigo || '').toLowerCase().includes(query) ||
-                (p.descripcion || '').toLowerCase().includes(query)
+                String(p.codigo || '').toLowerCase().includes(query) ||
+                String(p.descripcion || '').toLowerCase().includes(query)
             );
             window.AppState.productosFiltrados = filtrados;
             renderizarTablaProductos(filtrados, true);

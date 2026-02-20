@@ -23,19 +23,42 @@ function renderProductSuggestions(container, items, onSelect) {
     }
 
     container.innerHTML = items.map(prod => {
-        const imgUrl = prod.imagen || PLACEHOLDER_SVG_PRODUCTO;
-        const codigo = prod.codigo_sistema || prod.codigo || 'N/A';
+        const codigo = String(prod.codigo_sistema || prod.codigo || 'N/A').trim();
         const descripcion = prod.descripcion || 'Sin descripción';
         const precio = prod.precio || 0;
         const stock = prod.stock_disponible ?? prod.stock_total ?? prod.stock ?? 0;
+
+        // Lógica de imágenes multiformato
+        const localImageJpg = `/static/img/productos/${codigo}.jpg`;
+        const localImagePng = `/static/img/productos/${codigo}.png`;
+        const fallbackUrl = prod.imagen || '';
 
         return `
             <div class="suggestion-item product-suggestion-pro" 
                  style="display: flex; align-items: center; gap: 12px; padding: 10px; cursor: pointer; border-bottom: 1px solid #f0f0f0;"
                  data-codigo="${codigo}">
                 
-                <img src="${imgUrl}" 
-                     onerror="this.src='${PLACEHOLDER_SVG_PRODUCTO}';this.onerror=null;"
+                <img src="${localImageJpg}" 
+                     data-png-src="${localImagePng}"
+                     data-url-src="${fallbackUrl}"
+                     data-placeholder="${PLACEHOLDER_SVG_PRODUCTO}"
+                     data-attempt="0"
+                     onerror="
+                        const attempt = parseInt(this.dataset.attempt || '0');
+                        this.dataset.attempt = (attempt + 1).toString();
+                        
+                        if (attempt === 0) {
+                            // Intento 1: JPG -> PNG
+                            this.src = this.dataset.pngSrc;
+                        } else if (attempt === 1 && this.dataset.urlSrc) {
+                            // Intento 2: PNG -> Cloud URL (si existe)
+                            this.src = this.dataset.urlSrc;
+                        } else {
+                            // Final: Placeholder
+                            this.src = this.dataset.placeholder;
+                            this.onerror = null;
+                        }
+                     "
                      style="width: 42px; height: 42px; object-fit: cover; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0;">
                 
                 <div style="flex: 1; min-width: 0;">

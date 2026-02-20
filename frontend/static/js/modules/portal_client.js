@@ -343,8 +343,21 @@ const ModuloPortal = {
                     <img src="${localImage}" 
                          alt="${p.codigo}"
                          class="product-image"
+                         loading="lazy"
+                         data-png-src="/static/img/productos/${p.codigo.trim()}.png"
+                         data-placeholder="${noImage}"
+                         data-attempt="0"
                          onclick="window.open(this.src, '_blank')"
-                         onerror="if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png')}else{this.onerror=null;this.src='${noImage}'}">
+                         onerror="
+                            const attempt = parseInt(this.dataset.attempt || '0');
+                            this.dataset.attempt = (attempt + 1).toString();
+                            if (attempt === 0) {
+                                this.src = this.dataset.pngSrc;
+                            } else {
+                                this.src = this.dataset.placeholder;
+                                this.onerror = null;
+                            }
+                         ">
                     <div class="product-info">
                         <div class="product-name">${p.descripcion}</div>
                         <div class="product-code">${p.codigo}</div>
@@ -431,9 +444,22 @@ const ModuloPortal = {
                          <img src="${localImage}" 
                              alt="${p.codigo}"
                              class="rounded"
+                             loading="lazy"
                              style="width: 100%; height: 100%; object-fit: contain; cursor: pointer;"
+                             data-png-src="/static/img/productos/${p.codigo.trim()}.png"
+                             data-placeholder="${noImage}"
+                             data-attempt="0"
                              onclick="window.open(this.src, '_blank')"
-                             onerror="if(this.src.endsWith('.jpg')){this.src=this.src.replace('.jpg','.png')}else{this.onerror=null;this.src='${noImage}'}">
+                             onerror="
+                                const attempt = parseInt(this.dataset.attempt || '0');
+                                this.dataset.attempt = (attempt + 1).toString();
+                                if (attempt === 0) {
+                                    this.src = this.dataset.pngSrc;
+                                } else {
+                                    this.src = this.dataset.placeholder;
+                                    this.onerror = null;
+                                }
+                             ">
                     </div>
                 </td>
                 <td data-label="Producto">
@@ -505,8 +531,8 @@ const ModuloPortal = {
         this.searchTimer = setTimeout(() => {
             const query = document.getElementById('portal-search').value.toLowerCase();
             const filtrados = this.productos.filter(p =>
-                p.descripcion.toLowerCase().includes(query) ||
-                p.codigo.toLowerCase().includes(query)
+                String(p.descripcion || '').toLowerCase().includes(query) ||
+                String(p.codigo || '').toLowerCase().includes(query)
             );
             // Renderizar la lista filtrada (esto resetea page a 1)
             this.renderizarProductos(filtrados);
@@ -614,13 +640,20 @@ const ModuloPortal = {
                 <img src="${localImage}" 
                      class="rounded-3 border" 
                      style="width: 60px; height: 60px; object-fit: contain; background: #fff;" 
+                     data-png-src="/static/img/productos/${item.codigo.trim()}.png"
+                     data-cloud-src="${fallbackImage}"
+                     data-placeholder="${noImage}"
+                     data-attempt="0"
                      onerror="
-                        if (this.src.includes('.jpg')) { 
-                            this.src = this.src.replace('.jpg', '.png'); 
-                        } else if (this.src.includes('.png') && '${fallbackImage}' !== '') { 
-                            this.src = '${fallbackImage}'; 
-                        } else { 
-                            this.src = '${noImage}';
+                        const attempt = parseInt(this.dataset.attempt || '0');
+                        this.dataset.attempt = (attempt + 1).toString();
+                        if (attempt === 0) {
+                            this.src = this.dataset.pngSrc;
+                        } else if (attempt === 1 && this.dataset.cloudSrc) {
+                            this.src = this.dataset.cloudSrc;
+                        } else {
+                            this.src = this.dataset.placeholder;
+                            this.onerror = null;
                         }
                      ">
             `;

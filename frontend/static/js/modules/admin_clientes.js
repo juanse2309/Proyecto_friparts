@@ -70,9 +70,9 @@ const ModuloAdminClientes = {
 
         if (this.filtroActual) {
             clientesFiltrados = this.clientes.filter(c =>
-                (c.nombre_empresa || '').toLowerCase().includes(this.filtroActual) ||
-                (c.nit || '').toLowerCase().includes(this.filtroActual) ||
-                (c.email || '').toLowerCase().includes(this.filtroActual)
+                String(c.nombre_empresa || '').toLowerCase().includes(this.filtroActual) ||
+                String(c.nit || '').toLowerCase().includes(this.filtroActual) ||
+                String(c.email || '').toLowerCase().includes(this.filtroActual)
             );
         }
 
