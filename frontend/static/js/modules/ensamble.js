@@ -358,6 +358,7 @@ async function registrarEnsamble() {
             };
             mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', metaConCallback);
             document.getElementById('form-ensamble')?.reset();
+            ModuloEnsamble.intentarAutoSeleccionarResponsable();
 
             // Reset state
             window.tmpDefectosEnsamble = [];

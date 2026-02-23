@@ -66,6 +66,22 @@ def registrar_pedido():
         logger.info(f"   Descuento global: {descuento_global}%")
         logger.info(f"   Total productos: {len(productos)}")
         
+        # --- ENRIQUECIMIENTO DE SEGURIDAD (Si viene vacío del portal) ---
+        if nit and (not direccion or not ciudad):
+            try:
+                nit_clean = str(nit).upper().replace('NIT', '').strip()
+                ws_db = sheets_client.get_worksheet("DB_Clientes")
+                if ws_db:
+                    recs = ws_db.get_all_records()
+                    match = next((r for r in recs if nit_clean in str(r.get('IDENTIFICACION', '')).upper()), None)
+                    if match:
+                        if not direccion: direccion = match.get('DIRECCION', '')
+                        if not ciudad: ciudad = match.get('CIUDAD', '')
+                        logger.info(f"✨ Datos enriquecidos en registro para {nit}: {direccion}, {ciudad}")
+            except Exception as e_e:
+                logger.error(f"⚠️ Error enriqueciendo en registro: {e_e}")
+        # -----------------------------------------------------------------
+        
         # Validation
         if not all([fecha, vendedor, cliente]):
             logger.error(f"❌ Faltan campos obligatorios: fecha={fecha}, vendedor={vendedor}, cliente={cliente}")

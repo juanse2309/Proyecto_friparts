@@ -392,6 +392,7 @@ const ModuloInyeccion = {
 
                 mostrarNotificacion('Registro exitoso', 'success', metaConCallback);
                 document.getElementById('form-inyeccion').reset();
+                this.intentarAutoSeleccionarResponsable();
                 document.getElementById('cavidades-inyeccion').value = 1;
                 document.getElementById('pnc-inyeccion').value = 0;
                 document.getElementById('cantidad-real-inyeccion').value = ''; // Reset Manual Input

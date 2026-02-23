@@ -264,7 +264,7 @@ const ModuloPortal = {
         grid.className = '';
 
         const cards = listaPagina.map(p => {
-            const localImage = `/static/img/productos/${p.codigo.trim()}.jpg`;
+            const localImage = `/static/img/productos/${String(p.codigo).trim()}.jpg`;
             const noImage = '/static/img/no-image.svg';
 
             return `
@@ -328,7 +328,7 @@ const ModuloPortal = {
         grid.style.display = 'block';
 
         const cards = listaPagina.map(p => {
-            const localImage = `/static/img/productos/${p.codigo.trim()}.jpg`;
+            const localImage = `/static/img/productos/${String(p.codigo).trim()}.jpg`;
             const noImage = '/static/img/no-image.svg';
 
             const stockBadge = p.stock > 50
@@ -345,7 +345,7 @@ const ModuloPortal = {
                          alt="${p.codigo}"
                          class="product-image"
                          loading="lazy"
-                         data-png-src="/static/img/productos/${p.codigo.trim()}.png"
+                         data-png-src="/static/img/productos/${String(p.codigo).trim()}.png"
                          data-placeholder="${noImage}"
                          data-attempt="0"
                          onclick="window.open(this.src, '_blank')"
@@ -435,7 +435,7 @@ const ModuloPortal = {
         `;
 
         const tableBody = listaPagina.map(p => {
-            const localImage = `/static/img/productos/${p.codigo.trim()}.jpg`;
+            const localImage = `/static/img/productos/${String(p.codigo).trim()}.jpg`;
             const noImage = '/static/img/no-image.svg';
 
             return `
@@ -447,7 +447,7 @@ const ModuloPortal = {
                              class="rounded"
                              loading="lazy"
                              style="width: 100%; height: 100%; object-fit: contain; cursor: pointer;"
-                             data-png-src="/static/img/productos/${p.codigo.trim()}.png"
+                             data-png-src="/static/img/productos/${String(p.codigo).trim()}.png"
                              data-placeholder="${noImage}"
                              data-attempt="0"
                              onclick="window.open(this.src, '_blank')"
@@ -630,7 +630,8 @@ const ModuloPortal = {
         const cartHtml = this.carrito.map((item, idx) => {
             const prod = this.productos.find(p => p.codigo === item.codigo);
             // Fallback robusto de imagen (Igual que en renderizarProductos)
-            const localImage = `/static/img/productos/${item.codigo.trim()}.jpg`;
+            const codigoLimpio = String(item.codigo).trim();
+            const localImage = `/static/img/productos/${codigoLimpio}.jpg`;
             const fallbackImage = prod && prod.imagen && prod.imagen.length > 5 ? prod.imagen : '';
             const noImage = '/static/img/no-image.svg';
 
@@ -641,7 +642,7 @@ const ModuloPortal = {
                 <img src="${localImage}" 
                      class="rounded-3 border" 
                      style="width: 60px; height: 60px; object-fit: contain; background: #fff;" 
-                     data-png-src="/static/img/productos/${item.codigo.trim()}.png"
+                     data-png-src="/static/img/productos/${String(item.codigo).trim()}.png"
                      data-cloud-src="${fallbackImage}"
                      data-placeholder="${noImage}"
                      data-attempt="0"
@@ -817,12 +818,13 @@ const ModuloPortal = {
         if (!confirmar) return;
 
         // 3. Preparar Datos
-        const subtotal = totalPrecio;
+        const subtotal = this.carrito.reduce((sum, item) => sum + (item.cantidad * item.precio), 0);
         const iva = subtotal * 0.19;
         const totalConIva = subtotal + iva;
+        const fechaHoy = new Date().toISOString().split('T')[0];
 
         const pedidoData = {
-            fecha: fecha,
+            fecha: fechaHoy,
             vendedor: 'Portal Web', // Marca especial
             cliente: user.nombre || 'Cliente Portal',
             nit: user.nit || '',
@@ -880,7 +882,7 @@ const ModuloPortal = {
                         // Preparar datos para PDF
                         const dataPDF = {
                             id_pedido: result.id_pedido,
-                            fecha: fecha,
+                            fecha: fechaHoy,
                             vendedor: 'Portal Web',
                             cliente: {
                                 nombre: user.nombre,
@@ -1133,13 +1135,16 @@ const ModuloPortal = {
                             <div class="progress-bar ${badgeClass}" role="progressbar" style="width: ${p.progreso}%"></div>
                         </div>
 
-                        ${p.progreso === 0 || p.progreso === '0%' ? `
-                            <div class="d-flex justify-content-end">
+                        <div class="d-flex justify-content-end gap-2">
+                            <button class="btn btn-outline-info btn-sm px-3 fw-bold shadow-sm" onclick="ModuloPortal.repedirPedido('${p.id}')">
+                                <i class="fas fa-redo me-1"></i> Repedir
+                            </button>
+                            ${(parseInt(p.progreso) || 0) < 100 ? `
                                 <button class="btn btn-outline-primary btn-sm px-3 fw-bold shadow-sm" onclick="ModuloPortal.retomarPedido('${p.id}')">
-                                    <i class="fas fa-edit me-1"></i> Editar Pedido
+                                    <i class="fas fa-edit me-1"></i> Editar
                                 </button>
-                            </div>
-                        ` : ''}
+                            ` : ''}
+                        </div>
                     </div>
                 </div>
                 `;
@@ -1151,11 +1156,13 @@ const ModuloPortal = {
         }
     },
 
-    retomarPedido: async function (id_pedido) {
-        const confirmar = await this.mostrarConfirmacion(
-            '¿Editar Pedido?',
-            `¿Deseas editar el pedido <strong>${id_pedido}</strong>? Esto reemplazará tu carrito actual.`
-        );
+    retomarPedido: async function (id_pedido, esRepedido = false) {
+        const titulo = esRepedido ? '¿Repedir Pedido?' : '¿Editar Pedido?';
+        const msg = esRepedido
+            ? `¿Deseas cargar los mismos productos del pedido <strong>${id_pedido}</strong> en un nuevo carrito?`
+            : `¿Deseas editar el pedido <strong>${id_pedido}</strong>? Esto reemplazará tu carrito actual.`;
+
+        const confirmar = await this.mostrarConfirmacion(titulo, msg);
         if (!confirmar) return;
 
         this.toggleLoader(true);
@@ -1168,29 +1175,36 @@ const ModuloPortal = {
             const p = data.pedido;
             // Mapear productos al formato del carrito
             this.carrito = p.productos.map(prod => ({
-                codigo: prod.codigo,
+                codigo: String(prod.codigo),
                 descripcion: prod.descripcion,
                 cantidad: prod.cantidad,
                 precio: prod.precio_unitario
             }));
 
-            this.id_pedido_edicion = id_pedido;
+            // Solo asignar id_pedido_edicion si NO es un repedido
+            this.id_pedido_edicion = esRepedido ? null : id_pedido;
+
             this.guardarCarritoLocal();
             this.toggleLoader(false);
 
             // Ir al carrito
-            this.switchTab('catalogo'); // Opcional: mostrar catálogo o ir directo a abrir el modal del carrito
+            this.switchTab('catalogo');
             this.verCarrito();
 
             if (window.AuthModule) {
-                window.AuthModule.mostrarNotificacion(`Editando pedido ${id_pedido}`, 'info');
+                const toastMsg = esRepedido ? `Cargados items de ${id_pedido}` : `Editando pedido ${id_pedido}`;
+                window.AuthModule.mostrarNotificacion(toastMsg, 'info');
             }
 
         } catch (e) {
             this.toggleLoader(false);
             console.error("Error retomando pedido:", e);
-            this.mostrarConfirmacion('Error', `No se pudo cargar el pedido: ${e.message}`, true); // true para modo alerta (solo un botón)
+            this.mostrarConfirmacion('Error', `No se pudo cargar el pedido: ${e.message}`, true);
         }
+    },
+
+    repedirPedido: function (id_pedido) {
+        this.retomarPedido(id_pedido, true);
     },
 
     // ===================================

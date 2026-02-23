@@ -381,6 +381,39 @@ def toggle_estado_cliente():
         logger.error(f"Error actualizando estado: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+# ====================================================================
+# HELPER: Data Enrichment
+# ====================================================================
+def enrich_client_data(user_data):
+    """
+    Intenta completar dirección y ciudad desde DB_Clientes si faltan.
+    """
+    nit = user_data.get('nit', '')
+    if not nit:
+        return user_data
+
+    # Limpiar NIT para búsqueda (quitar 'NIT ' o similares)
+    nit_clean = str(nit).upper().replace('NIT', '').strip()
+    
+    if not user_data.get('direccion') or not user_data.get('ciudad'):
+        try:
+            ws_db = sheets_client.get_worksheet("DB_Clientes")
+            if ws_db:
+                records = ws_db.get_all_records()
+                # Buscar por coincidencia parcial en IDENTIFICACION
+                match = next((r for r in records if nit_clean in str(r.get('IDENTIFICACION', '')).upper()), None)
+                
+                if match:
+                    if not user_data.get('direccion'):
+                        user_data['direccion'] = match.get('DIRECCION', '')
+                    if not user_data.get('ciudad'):
+                        user_data['ciudad'] = match.get('CIUDAD', '')
+                    logger.info(f"✅ Datos enriquecidos para {nit} desde DB_Clientes")
+        except Exception as e:
+            logger.error(f"⚠️ Error enriqueciendo datos desde DB_Clientes: {e}")
+            
+    return user_data
+
 @auth_bp.route('/api/auth/client/login', methods=['POST'])
 def login_client():
     try:
@@ -428,18 +461,32 @@ def login_client():
         cambiar_clave_val = str(user_found.get('CAMBIAR_CLAVE', '')).upper()
         requires_change = cambiar_clave_val in ['TRUE', 'SI', '1', 'VERDADERO']
 
-        return jsonify({
+        # Helper para buscar campos con posibles variaciones de acentos/mayúsculas
+        def get_field(record, keys):
+            for k in keys:
+                if k in record and record[k]:
+                    return record[k]
+            return ""
+
+        response_data = {
             "success": True,
             "requires_password_change": requires_change,
             "user": {
-                "nombre": user_found.get('NOMBRE_EMPRESA'), 
-                "nombre_contacto": user_found.get('NOMBRE_CONTACTO'),
+                "nombre": get_field(user_found, ['NOMBRE_EMPRESA', 'Nombre Empresa', 'Cliente', 'CLIENTE']), 
+                "nombre_contacto": get_field(user_found, ['NOMBRE_CONTACTO', 'Contacto', 'Nombre Contacto']),
                 "email": email,
-                "nit": user_found.get('NIT_EMPRESA'),
+                "nit": get_field(user_found, ['NIT_EMPRESA', 'NIT', 'Nit']),
+                "direccion": get_field(user_found, ['DIRECCION', 'DIRECCIÓN', 'Direccion', 'Dirección', 'direccion']),
+                "ciudad": get_field(user_found, ['CIUDAD', 'Ciudad', 'ciudad']),
                 "rol": "Cliente",
                 "tipo": "CLIENTE"
             }
-        })
+        }
+        
+        # Enriquecer datos antes de enviar
+        response_data['user'] = enrich_client_data(response_data['user'])
+
+        return jsonify(response_data)
 
     except Exception as e:
         logger.error(f"Error in client login: {e}")
@@ -513,19 +560,33 @@ def change_password_client():
         if col_cambiar_idx:
             ws_users.update_cell(user_row_index, col_cambiar_idx, "FALSE")
 
+        # Helper para buscar campos con posibles variaciones
+        def get_field(record, keys):
+            for k in keys:
+                if k in record and record[k]:
+                    return record[k]
+            return ""
+
         # Return user info for auto-login
-        return jsonify({
+        response_data = {
             "success": True, 
             "message": "Contraseña actualizada correctamente.",
             "user": {
-                "nombre": user_found.get('NOMBRE_EMPRESA'),
-                "nombre_contacto": user_found.get('NOMBRE_CONTACTO'),
+                "nombre": get_field(user_found, ['NOMBRE_EMPRESA', 'Nombre Empresa', 'Cliente', 'CLIENTE']),
+                "nombre_contacto": get_field(user_found, ['NOMBRE_CONTACTO', 'Contacto', 'Nombre Contacto']),
                 "email": email,
-                "nit": user_found.get('NIT_EMPRESA'),
+                "nit": get_field(user_found, ['NIT_EMPRESA', 'NIT', 'Nit']),
+                "direccion": get_field(user_found, ['DIRECCION', 'DIRECCIÓN', 'Direccion', 'Dirección', 'direccion']),
+                "ciudad": get_field(user_found, ['CIUDAD', 'Ciudad', 'ciudad']),
                 "rol": "Cliente",
                 "tipo": "CLIENTE"
             }
-        })
+        }
+
+        # Enriquecer datos antes de enviar
+        response_data['user'] = enrich_client_data(response_data['user'])
+
+        return jsonify(response_data)
 
     except Exception as e:
         logger.error(f"Error updating password: {e}")

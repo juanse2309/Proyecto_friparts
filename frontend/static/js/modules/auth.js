@@ -413,6 +413,8 @@ const AuthModule = {
             tipo: user.tipo || 'STAFF',
             nit: user.nit || null,
             email: user.email || null,
+            direccion: user.direccion || null,
+            ciudad: user.ciudad || null,
             fullData: user
         };
 
@@ -539,6 +541,8 @@ const AuthModule = {
                     rol: user.rol,
                     tipo: user.tipo || 'STAFF',
                     nit: user.nit,
+                    direccion: user.direccion || null,
+                    ciudad: user.ciudad || null,
                     fullData: user
                 };
 

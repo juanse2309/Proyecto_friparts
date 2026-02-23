@@ -289,6 +289,7 @@ const ModuloPulido = {
                 };
                 mostrarNotificacion('✅ Registro exitoso', 'success', metaConCallback);
                 document.getElementById('form-pulido')?.reset();
+                this.intentarAutoSeleccionarResponsable();
                 window.tmpDefectosPulido = [];
                 this.actualizarCalculo();
                 const loteInput = document.getElementById('lote-pulido');
