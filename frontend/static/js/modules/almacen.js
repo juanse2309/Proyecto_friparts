@@ -1090,6 +1090,14 @@ const AlmacenModule = {
             console.log('📺 [Almacen] Desactivando Modo TV...');
             document.body.classList.remove('tv-mode');
 
+            // CRÍTICO: Limpiar estilos inline !important que se pusieron al activar TV mode.
+            // Sin esto, almacen-page queda con display:block !important bloqueando la navegación.
+            const pTV = document.getElementById('almacen-page');
+            if (pTV) {
+                pTV.style.removeProperty('display');
+                pTV.style.removeProperty('z-index');
+            }
+
             // Re-renderizar para volver a modo normal (colores, fondos, etc)
             this.renderizarTarjetas();
 
@@ -1336,7 +1344,9 @@ const AlmacenModule = {
             const modalAbierto = document.getElementById('modalAlistamiento')?.style.display === 'flex';
 
             // Verificación robusta: página actual O existencia del contenedor
-            const esPaginaAlmacen = paginaActual === 'almacen' || !!document.getElementById('almacen-container');
+            // CRÍTICO: Solo usar paginaActual. getElementById siempre devuelve true porque el div
+            // existe en el HTML aunque no esté visible, causando recargas en otros módulos.
+            const esPaginaAlmacen = paginaActual === 'almacen';
 
             if (esPaginaAlmacen && !this.isTVMode && !modalAbierto) {
                 console.log('🔄 [Almacen] Auto-refresco de fondo...');
