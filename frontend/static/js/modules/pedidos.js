@@ -244,6 +244,12 @@ const ModuloPedidos = {
             if (precio === 0) {
                 console.warn("⚠️ Este producto no tiene precio en DB_Productos. Ingréselo manualmente.");
             }
+            // Saltar automáticamente al campo cantidad
+            const campoCantidad = document.getElementById('ped-cantidad');
+            if (campoCantidad) {
+                campoCantidad.focus();
+                campoCantidad.select();
+            }
         });
     },
 
