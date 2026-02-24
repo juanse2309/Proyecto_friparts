@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 import uuid
 import datetime
+import time # Juan Sebastian: Para manejo de caché
 
 auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger(__name__)
@@ -15,9 +16,20 @@ logger = logging.getLogger(__name__)
 @auth_bp.route('/api/auth/metals/responsables', methods=['GET'])
 def get_metals_responsables():
     try:
+        from backend.app import METALS_PERSONAL_CACHE # Importación local para evitar circular
+        ahora = time.time()
+        
+        # 1. Verificar Caché
+        if METALS_PERSONAL_CACHE["data"] and (ahora - METALS_PERSONAL_CACHE["timestamp"] < METALS_PERSONAL_CACHE["ttl"]):
+            logger.info("⚡ [Cache] Retornando responsables de Metales desde caché")
+            return jsonify(METALS_PERSONAL_CACHE["data"])
+
+        # 2. Si no hay caché, consultar Sheets
+        logger.info("🌐 [API] Consultando Google Sheets para responsables de Metales")
         ws = sheets_client.get_worksheet("METALS_PERSONAL")
         if not ws:
             return jsonify({"error": "Hoja METALS_PERSONAL no encontrada"}), 500
+        
         records = ws.get_all_records()
         usuarios = []
         for row in records:
@@ -27,6 +39,11 @@ def get_metals_responsables():
                     "departamento": row.get("DEPARTAMENTO", ""),
                     "documento": str(row.get("DOCUMENTO", ""))
                 })
+        
+        # 3. Guardar en Caché
+        METALS_PERSONAL_CACHE["data"] = usuarios
+        METALS_PERSONAL_CACHE["timestamp"] = ahora
+        
         return jsonify(usuarios)
     except Exception as e:
         logger.error(f"Error fetching metals responsables: {e}")
@@ -88,6 +105,16 @@ def get_client_users_sheet():
 @auth_bp.route('/api/auth/responsables', methods=['GET'])
 def get_responsables():
     try:
+        from backend.app import RESPONSABLES_CACHE
+        ahora = time.time()
+
+        # 1. Verificar Caché
+        if RESPONSABLES_CACHE["data"] and (ahora - RESPONSABLES_CACHE["timestamp"] < RESPONSABLES_CACHE["ttl"]):
+            logger.info("⚡ [Cache] Retornando responsables de FriParts desde caché")
+            return jsonify(RESPONSABLES_CACHE["data"])
+
+        # 2. Si no hay caché, consultar Sheets
+        logger.info("🌐 [API] Consultando Google Sheets para responsables de FriParts")
         ws = sheets_client.get_worksheet("RESPONSABLES")
         if not ws:
             return jsonify({"error": "Hoja RESPONSABLES no encontrada"}), 500
@@ -102,6 +129,10 @@ def get_responsables():
                 "documento": str(row.get("DOCUMENTO", ""))
             })
             
+        # 3. Guardar en Caché
+        RESPONSABLES_CACHE["data"] = usuarios
+        RESPONSABLES_CACHE["timestamp"] = ahora
+
         return jsonify(usuarios)
 
     except Exception as e:

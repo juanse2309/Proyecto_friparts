@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from backend.services.inventario_service import inventario_service
 from backend.repositories.producto_repository import producto_repo
 import logging
+import time # Juan Sebastian: Para manejo de caché
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,16 @@ def buscar_productos(query):
 def listar_productos():
     """Lista todos los productos con información completa."""
     try:
+        from backend.app import PRODUCTOS_LISTAR_CACHE, PRODUCTOS_CACHE_TTL
+        ahora = time.time()
+
+        # 1. Verificar Caché
+        if PRODUCTOS_LISTAR_CACHE["data"] and (ahora - PRODUCTOS_LISTAR_CACHE["timestamp"] < PRODUCTOS_CACHE_TTL):
+            logger.info("⚡ [Cache] Retornando listado de productos desde caché")
+            return jsonify(PRODUCTOS_LISTAR_CACHE["data"])
+
+        # 2. Si no hay caché, consultar repositorio
+        logger.info("🌐 [API] Consultando repositorio para listado completo de productos")
         productos = producto_repo.listar_todos()
         
         productos_formateados = []
@@ -101,10 +112,16 @@ def listar_productos():
                 'precio': p.get('PRECIO', 0)
             })
         
-        return jsonify({
+        response_data = {
             'status': 'success',
             'productos': productos_formateados
-        }), 200
+        }
+
+        # 3. Guardar en Caché
+        PRODUCTOS_LISTAR_CACHE["data"] = response_data
+        PRODUCTOS_LISTAR_CACHE["timestamp"] = ahora
+
+        return jsonify(response_data), 200
         
     except Exception as e:
         logger.error(f"Error listando productos: {e}")

@@ -61,40 +61,32 @@ const ModuloPedidos = {
             console.error("Error cargando clientes:", e);
         }
 
-        // Cargar Productos - SIEMPRE con precios frescos desde /api/productos/listar
+        // Cargar Productos - Preferir datos de AppState para evitar redundancia y errores 429
         try {
-            // Usar /api/productos/listar que siempre incluye precios de DB_Productos
-            const respProd = await fetch('/api/productos/listar?refresh=true');
-            const productosResp = await respProd.json();
-            const rawList = Array.isArray(productosResp) ? productosResp : (productosResp.items || []);
-            this.productosData = rawList.map(p => ({
-                codigo_sistema: p.codigo_sistema || p.codigo || '',
-                codigo: p.codigo || p.codigo_sistema || '',
-                descripcion: p.descripcion || '',
-                imagen: p.imagen || '',
-                precio: parseFloat(p.precio) || 0,
-                stock_por_pulir: p.stock_por_pulir || 0,
-                stock_terminado: p.stock_terminado || 0,
-                stock_disponible: p.stock_disponible !== undefined ? p.stock_disponible : (p.stock || 0),
-                stock_total: p.existencias_totales || p.stock_total || 0,
-            }));
-            const conPrecio = this.productosData.filter(p => p.precio > 0).length;
-            console.log(`✅ Productos cargados en Pedidos: ${this.productosData.length} total, ${conPrecio} con precio`);
-            if (window.AppState?.sharedData) window.AppState.sharedData.productos = this.productosData;
-        } catch (e) {
-            console.error("Error cargando productos para Pedidos:", e);
-            // Fallback: usar AppState asegurando que precio sea numérico
             if (window.AppState && window.AppState.sharedData.productos.length > 0) {
-                this.productosData = window.AppState.sharedData.productos.map(p => ({
-                    ...p,
+                this.productosData = window.AppState.sharedData.productos;
+                console.log("✅ Usando productos desde AppState en Pedidos:", this.productosData.length);
+            } else {
+                console.log("🔄 AppState vacío, solicitando productos al servidor...");
+                const respProd = await fetch('/api/productos/listar');
+                const productosResp = await respProd.json();
+                const rawList = Array.isArray(productosResp) ? productosResp : (productosResp.items || []);
+                this.productosData = rawList.map(p => ({
                     codigo_sistema: p.codigo_sistema || p.codigo || '',
                     codigo: p.codigo || p.codigo_sistema || '',
+                    descripcion: p.descripcion || '',
+                    imagen: p.imagen || '',
                     precio: parseFloat(p.precio) || 0,
+                    stock_por_pulir: p.stock_por_pulir || 0,
+                    stock_terminado: p.stock_terminado || 0,
                     stock_disponible: p.stock_disponible !== undefined ? p.stock_disponible : (p.stock || 0),
+                    stock_total: p.existencias_totales || p.stock_total || 0,
                 }));
-                const conPrecio = this.productosData.filter(p => p.precio > 0).length;
-                console.warn(`⚠️ Usando caché del AppState: ${this.productosData.length} productos, ${conPrecio} con precio`);
             }
+            const conPrecio = this.productosData.filter(p => p.precio > 0).length;
+            console.log(`✅ Productos listos en Pedidos: ${this.productosData.length} total, ${conPrecio} con precio`);
+        } catch (e) {
+            console.error("Error cargando productos para Pedidos:", e);
         }
 
         // Pre-fill vendedor

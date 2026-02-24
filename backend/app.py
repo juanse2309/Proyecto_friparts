@@ -12,6 +12,7 @@ import json
 import math
 from google.oauth2.service_account import Credentials
 import logging
+from backend.core.database import sheets_client
 
 
 # Configurar logging detallado
@@ -61,26 +62,58 @@ def index():
 GSHEET_FILE_NAME = os.environ.get("GSHEET_FILE_NAME", "Proyecto_Friparts")
 GSHEET_KEY = os.environ.get("GSHEET_KEY", "1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM")
 
-# Cache simple en memoria
-PRODUCTOS_CACHE = {
-    "data": None,
-    "timestamp": 0
-}
+# --- CONFIGURACIÓN DE CACHÉ GLOBAL ---
+CACHE_TTL_STRICT = 60    # 1 minuto para datos muy volátiles
+CACHE_TTL_MEDIUM = 300   # 5 minutos para catálogos y personal
+CACHE_TTL_LONG = 3600    # 1 hora para configuraciones
+
 PRODUCTOS_LISTAR_CACHE = {
     "data": None,
-    "timestamp": 0
+    "timestamp": 0,
+    "ttl": CACHE_TTL_MEDIUM
 }
-PRODUCTOS_V2_CACHE = {
-    "data": None,
-    "timestamp": 0
-}
-PRODUCTOS_CACHE_TTL = 120  # segundos (ajusta a 120, 300, etc.)
 
 RESPONSABLES_CACHE = {
     "data": None,
     "timestamp": 0,
-    "ttl": 300  # 5 minutos
+    "ttl": CACHE_TTL_LONG
 }
+
+CLIENTES_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": CACHE_TTL_LONG
+}
+
+PEDIDOS_PENDIENTES_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": CACHE_TTL_STRICT # Los pedidos cambian más frecuentemente
+}
+
+# Caches para METALS (Juan Sebastian)
+METALS_PRODUCTOS_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": CACHE_TTL_MEDIUM
+}
+
+METALS_PERSONAL_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": CACHE_TTL_MEDIUM
+}
+
+def invalidar_cache_pedidos():
+    """Llamar tras registrar o actualizar alistamiento."""
+    global PEDIDOS_PENDIENTES_CACHE
+    PEDIDOS_PENDIENTES_CACHE["timestamp"] = 0
+    logger.info("🗑️ Caché de PEDIDOS invalidado")
+
+def invalidar_cache_productos():
+    global PRODUCTOS_LISTAR_CACHE
+    PRODUCTOS_LISTAR_CACHE["timestamp"] = 0
+    logger.info("🗑️ Caché de PRODUCTOS invalidado")
 
 class Hojas:
     INYECCION = "INYECCION"
@@ -2388,6 +2421,43 @@ def obtener_historial_global():
                         
             except Exception as e:
                 logger.error(f" Error en consolidado PNC: {e}")
+
+        # ========================================
+        # 7. METALS PRODUCCION (Juan Sebastian)
+        # ========================================
+        if not tipo or tipo == 'METALS':
+            try:
+                ws_met = ss.worksheet("METALS_PRODUCCION")
+                registros_met = ws_met.get_all_records()
+                logger.info(f" METALS: {len(registros_met)} registros totales")
+                
+                procesados = 0
+                for idx, reg in enumerate(registros_met):
+                    fecha_str = str(reg.get('FECHA', ''))
+                    if not fecha_str or fecha_str == '': continue
+                    
+                    fecha_reg = parsear_fecha_flexible(fecha_str)
+                    if not fecha_reg: continue
+                    
+                    if fecha_desde and fecha_reg < fecha_desde: continue
+                    if fecha_hasta and fecha_reg > fecha_hasta: continue
+                    
+                    procesados += 1
+                    movimientos.append({
+                        'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                        'Tipo': 'METALS',
+                        'Producto': str(reg.get('CODIGO_PRODUCTO', '')),
+                        'Responsable': str(reg.get('RESPONSABLE', '')),
+                        'Cant': str(reg.get('CANTIDAD_OK', '0')),
+                        'Orden': str(reg.get('MAQUINA', '')),
+                        'Extra': str(reg.get('PROCESO', '')),
+                        'Detalle': str(reg.get('OBSERVACIONES', '')),
+                        'hoja': 'METALS_PRODUCCION',
+                        'fila': idx + 2
+                    })
+                logger.info(f" METALS: {procesados} procesados")
+            except Exception as e:
+                logger.error(f" Error en METALS: {e}")
         
         # ========================================
         # ORDENAR Y RETORNAR
@@ -2908,133 +2978,144 @@ def listar_productos():
         ahora = time.time()
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         
-        # Cache (si no hay force_refresh)
+        # 1. Cache
         if not force_refresh and (PRODUCTOS_LISTAR_CACHE["data"] is not None and 
-            (ahora - PRODUCTOS_LISTAR_CACHE["timestamp"]) < PRODUCTOS_CACHE_TTL):
-            print(" Cache HIT!")
+            (ahora - PRODUCTOS_LISTAR_CACHE["timestamp"]) < PRODUCTOS_LISTAR_CACHE["ttl"]):
+            logger.debug("⚡ Cache HIT [Productos]")
             return jsonify(PRODUCTOS_LISTAR_CACHE["data"])
         
         if force_refresh:
-            print(" 🔄 FORCE REFRESH: Saltando cache de productos...")
             invalidar_cache_productos()
         
-        # Leer directo del sheet (igual que clientes/productos)
-        ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet("PRODUCTOS")
+        # 2. Leer Hoja PRODUCTOS de forma robusta
+        ws = sheets_client.get_worksheet("PRODUCTOS")
+        if not ws:
+            return jsonify({'items': [], 'error': 'Hoja PRODUCTOS no encontrada'}), 200
         
-        registros = ws.get_all_records()
+        raw_rows = ws.get_all_values()
+        if not raw_rows or len(raw_rows) < 2:
+            return jsonify({'items': [], 'warning': 'La hoja PRODUCTOS está vacía'}), 200
+            
+        headers = [str(h).strip().upper() for h in raw_rows[0]]
         
-        # NUEVO: Cargar DB_Productos UNA SOLA VEZ para precios
+        # Mapeo dinámico de índices de columnas
+        def get_col(name):
+            try: return headers.index(name)
+            except: return -1
+            
+        idx_cod_sis = get_col('CODIGO SISTEMA')
+        idx_id_cod = get_col('ID CODIGO')
+        idx_desc = get_col('DESCRIPCION')
+        idx_p_pulir = get_col('POR PULIR')
+        idx_p_term = get_col('P. TERMINADO')
+        idx_comp = get_col('COMPROMETIDO')
+        idx_min = get_col('STOCK MINIMO')
+        idx_reorden = get_col('PUNTO REORDEN')
+        idx_max = get_col('STOCK MAXIMO')
+        idx_img = get_col('IMAGEN')
+        
+        # 3. Cargar Precios desde DB_Productos
+        precios_db = {}
         try:
-            ws_db = ss.worksheet("DB_Productos")
-            # Usamos get_all_values() en lugar de get_all_records() para evitar
-            # el error 'expected_headers are not uniques' cuando hay columnas duplicadas
-            raw_values = ws_db.get_all_values()
-            precios_db = {}
-            if raw_values and len(raw_values) > 1:
-                headers_db = [str(h).strip() for h in raw_values[0]]
-                # Buscar índice de columna PRECIO (flexible con variantes de nombre)
-                precio_col = -1
-                for variante in ['PRECIO', 'PRICE', 'VALOR', 'PRECIO UNITARIO', 'VALOR UNITARIO']:
-                    for i, h in enumerate(headers_db):
-                        if h.strip().upper() == variante:
-                            precio_col = i
+            ws_db = sheets_client.get_worksheet("DB_Productos")
+            if ws_db:
+                db_rows = ws_db.get_all_values()
+                if db_rows and len(db_rows) > 1:
+                    db_headers = [str(h).strip().upper() for h in db_rows[0]]
+                    p_idx_precio = -1
+                    for v in ['PRECIO', 'PRICE', 'VALOR', 'PRECIO UNITARIO', 'VALOR UNITARIO']:
+                        if v in db_headers:
+                            p_idx_precio = db_headers.index(v)
                             break
-                    if precio_col >= 0:
-                        break
-                # Buscar índice de columna CODIGO y ID CODIGO
-                codigo_col = next((i for i, h in enumerate(headers_db) if h.strip().upper() == 'CODIGO'), -1)
-                id_codigo_col = next((i for i, h in enumerate(headers_db) if h.strip().upper() == 'ID CODIGO'), -1)
-                print(f" [DB_Productos] Cols → CODIGO:{codigo_col}, ID CODIGO:{id_codigo_col}, PRECIO:{precio_col} | Headers: {headers_db[:8]}")
-                for row in raw_values[1:]:
-                    try:
-                        precio_raw = row[precio_col] if precio_col >= 0 and precio_col < len(row) else '0'
-                        precio = float(str(precio_raw).replace(',', '').replace('$', '').strip() or 0)
-                    except (ValueError, TypeError):
-                        precio = 0
-                    codigo_sistema = str(row[codigo_col]).strip().upper() if codigo_col >= 0 and codigo_col < len(row) else ''
-                    id_codigo = str(row[id_codigo_col]).strip().upper() if id_codigo_col >= 0 and id_codigo_col < len(row) else ''
-                    if codigo_sistema: precios_db[codigo_sistema] = precio
-                    if id_codigo: precios_db[id_codigo] = precio
-            print(f"✅ Precios cargados de DB_Productos: {len(precios_db)} entradas")
-        except Exception as e:
-            logger.warning(f"No se pudo cargar DB_Productos: {e}")
-            precios_db = {}
-        
+                    
+                    p_idx_cod = -1
+                    for v in ['ID CODIGO', 'CODIGO', 'ID']:
+                        if v in db_headers:
+                            p_idx_cod = db_headers.index(v)
+                            break
+                    
+                    if p_idx_precio >= 0 and p_idx_cod >= 0:
+                        for row in db_rows[1:]:
+                            if len(row) > max(p_idx_precio, p_idx_cod):
+                                cod_val = str(row[p_idx_cod]).strip().upper()
+                                try:
+                                    precio_val = float(str(row[p_idx_precio]).replace(',','').replace('$','').strip() or 0)
+                                    if cod_val: precios_db[cod_val] = precio_val
+                                except: pass
+        except Exception as e_db:
+            logger.warning(f"No se pudo cargar precios de DB_Productos: {e_db}")
+
+        # 4. Procesar Filas
         productos = []
-        for r in registros:
-            # Prioridad ID CODIGO segun solicitud Juan Sebastian
-            codigo = str(
-                r.get('ID CODIGO', '') or
-                r.get('CODIGO SISTEMA', '') or 
-                r.get('CODIGO', '') or
-                r.get("REFERENCIA", '') 
-                or ""
-            ).strip()    
-               
+        def safe_int(row, idx, default=0):
+            if idx < 0 or idx >= len(row): return default
+            try:
+                val = str(row[idx]).strip()
+                if not val: return default
+                return int(float(val.replace(',', '')))
+            except: return default
 
-            if codigo:
-                stock_por_pulir = int(r.get('POR PULIR', 0) or 0)
-                stock_term = int(r.get('P. TERMINADO', 0) or 0)
-                stock_comp = int(r.get('COMPROMETIDO', 0) or 0)
-                stock_disponible = stock_term - stock_comp
-                stock_total = stock_por_pulir + stock_term
-                stock_minimo = int(r.get('STOCK MINIMO', 10) or 10)
-                punto_reorden = int(r.get('PUNTO REORDEN', 0) or 0) or int(stock_minimo * 0.75)
-                
-                # Calcular semáforo (Lógica Saneada Juan Sebastian)
-                # Rojo: Agotado (<= 0)
-                # Amarillo: Por Pedir (<= Reorden y > 0)
-                # Verde: Stock OK (> Reorden)
-                
-                # Nueva lógica: El semáforo depende del stock global (Producción)
-                stock_global = (stock_term + stock_por_pulir) - stock_comp
-                p_reorden = int(r.get('PUNTO REORDEN', 0) or 0)
-                p_max = int(r.get('STOCK MAXIMO', 999999) or 999999)
-                semaforo = calcular_metricas_semaforo(stock_global, stock_minimo, p_reorden, p_max)
+        for row in raw_rows[1:]:
+            # Identificar código principal (ID CODIGO manda)
+            id_cod_raw = str(row[idx_id_cod]).strip() if idx_id_cod >= 0 and idx_id_cod < len(row) else ''
+            sis_cod_raw = str(row[idx_cod_sis]).strip() if idx_cod_sis >= 0 and idx_cod_sis < len(row) else ''
+            
+            codigo = id_cod_raw or sis_cod_raw
+            if not codigo: continue
 
-                # Precios: Buscar por varias claves de forma robusta
-                codigo_sis_up = str(r.get('CODIGO SISTEMA', '')).strip().upper()
-                id_cod_up = str(r.get('ID CODIGO', '')).strip().upper()
-                precio = precios_db.get(codigo_sis_up) or precios_db.get(id_cod_up) or 0
-
-                item = {
-                    'codigo': codigo,
-                    'codigo_sistema': r.get('CODIGO SISTEMA', ''),
-                    'id_codigo': r.get('ID CODIGO', ''),
-                    'descripcion': str(r.get('DESCRIPCION', '')),
-                    'stock_por_pulir': stock_por_pulir,
-                    'stock_terminado': stock_term,
-                    'stock_comprometido': stock_comp,
-                    'stock_disponible': stock_disponible,
-                    'stock_total': stock_total,
-                    'existencias_totales': stock_total,
-                    'stock': stock_disponible, # Alias para portal Juan Sebastian
-                    'stock_minimo': stock_minimo,
-                    'precio': precio,
-                    'imagen': corregir_url_imagen(str(r.get('IMAGEN', ''))),
-                    'semaforo': semaforo,
-                    'metricas': {
-                        'min': stock_minimo,
-                        'reorden': punto_reorden,
-                        'max': p_max
-                    }
+            p_pulir = safe_int(row, idx_p_pulir)
+            p_term = safe_int(row, idx_p_term)
+            comp = safe_int(row, idx_comp)
+            stock_min = safe_int(row, idx_min, 10)
+            p_reorden = safe_int(row, idx_reorden) or int(stock_min * 0.75)
+            p_max = safe_int(row, idx_max, 999999)
+            
+            disponible = p_term - comp
+            total = p_pulir + p_term
+            
+            # Semáforo
+            global_stock = total - comp
+            semaforo = calcular_metricas_semaforo(global_stock, stock_min, p_reorden, p_max)
+            
+            # Precio
+            precio = precios_db.get(id_cod_raw.upper()) or precios_db.get(sis_cod_raw.upper()) or 0
+            
+            item = {
+                'codigo': codigo,
+                'codigo_sistema': sis_cod_raw,
+                'id_codigo': id_cod_raw,
+                'descripcion': str(row[idx_desc]).strip() if idx_desc >= 0 and idx_desc < len(row) else 'Sin descripción',
+                'stock_por_pulir': p_pulir,
+                'stock_terminado': p_term,
+                'stock_comprometido': comp,
+                'stock_disponible': disponible,
+                'stock_total': total,
+                'existencias_totales': total,
+                'stock': disponible,
+                'stock_minimo': stock_min,
+                'precio': precio,
+                'imagen': corregir_url_imagen(str(row[idx_img]).strip() if idx_img >= 0 and idx_img < len(row) else ''),
+                'semaforo': semaforo,
+                'metricas': {
+                    'min': stock_min,
+                    'reorden': p_reorden,
+                    'max': p_max
                 }
-                productos.append(item)
+            }
+            productos.append(item)
 
-        # Guardar en cache
+        # 5. Guardar Caché y Responder
         resultado = {'items': productos}
-        
         PRODUCTOS_LISTAR_CACHE["data"] = resultado
         PRODUCTOS_LISTAR_CACHE["timestamp"] = ahora
         
-        print(f" ✅ {len(productos)} productos cargados")
+        logger.info(f"✅ Se cargaron {len(productos)} productos manualmente.")
         return jsonify(resultado), 200
 
     except Exception as e:
-        print(f" ❌ Error listar productos: {e}")
+        logger.error(f"❌ Error listar productos: {e}")
         traceback.print_exc()
-        return jsonify({'items': []}), 200
+        return jsonify({'items': [], 'error': str(e), 'trace': traceback.format_exc()}), 200
 
 @app.route('/api/productos/detalle/<codigo_sistema>', methods=['GET'])
 def detalle_producto(codigo_sistema):

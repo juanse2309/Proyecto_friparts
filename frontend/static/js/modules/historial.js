@@ -32,7 +32,17 @@
             const res = await fetchData(url);
 
             if (res && res.success) {
-                h_datos = res.data || [];
+                let rawData = res.data || [];
+
+                // Filtrado estricto por división (Juan Sebastian request)
+                const division = window.AppState.user?.division || 'FRIPARTS';
+                if (division === 'FRIPARTS') {
+                    h_datos = rawData.filter(r => r.Tipo !== 'METALS');
+                } else {
+                    // Si es FRIMETALS, solo mostrar METALS
+                    h_datos = rawData.filter(r => r.Tipo === 'METALS');
+                }
+
                 h_paginaActual = 1; // Reseteo imperativo a página 1
 
                 // Debug para verificar llaves reales Juan Sebastian
@@ -103,11 +113,11 @@
                     cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = 'N/A';
-                } else if (r.Tipo === 'ENSAMBLE') {
-                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    cantidad = r['CANTIDAD'] !== undefined ? r['CANTIDAD'] : r.Cant;
-                    orden = r['OP NUMERO'] || r.Orden;
-                    maquina = 'N/A';
+                } else if (r.Tipo === 'METALS') {
+                    responsable = r.Responsable || r.RESPONSABLE || '-';
+                    cantidad = r.Cant || r.CANTIDAD_OK || '0';
+                    orden = r.Orden || r.MAQUINA || '-';
+                    maquina = r.Extra || r.PROCESO || '-';
                 }
 
                 html += `
@@ -191,11 +201,11 @@
                     cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = '-'; // Pulido no tiene máquina
-                } else if (r.Tipo === 'ENSAMBLE') {
-                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    cantidad = r['CANTIDAD'] !== undefined ? r['CANTIDAD'] : r.Cant;
-                    orden = r['OP NUMERO'] || r.Orden;
-                    maquina = '-';
+                } else if (r.Tipo === 'METALS') {
+                    responsable = r.Responsable || r.RESPONSABLE || '-';
+                    cantidad = r.Cant || r.CANTIDAD_OK || '0';
+                    orden = r.Orden || r.MAQUINA || '-';
+                    maquina = r.Extra || r.PROCESO || '-';
                 }
 
                 html += `
@@ -279,6 +289,7 @@
             case 'ENSAMBLE': return 'bg-success';
             case 'VENTA': return 'bg-warning text-dark';
             case 'PNC': return 'bg-danger';
+            case 'METALS': return 'bg-dark';
             default: return 'bg-secondary';
         }
     }

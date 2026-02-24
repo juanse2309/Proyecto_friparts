@@ -24,7 +24,9 @@ window.AppState = {
 
 
 
+let datosCargados = false;
 async function cargarDatosCompartidos() {
+    if (datosCargados) return; // Evitar múltiples cargas
     try {
         console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
 
@@ -96,6 +98,7 @@ async function cargarDatosCompartidos() {
             console.log('  ✅ Clientes cargados:', window.AppState.sharedData.clientes.length);
         }
 
+        datosCargados = true;
     } catch (error) {
         console.error('❌ CRITICAL ERROR en cargarDatosCompartidos:', error);
         alert('Error conectando con el servidor. Revisa la consola (F12) y asegura que el backend esté corriendo.');
@@ -140,12 +143,18 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
     // Ocultar todas las páginas
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
-    const pagina = document.getElementById(`${nombrePagina}-page`);
+    // LÓGICA ESPECIAL PARA FRIMETALS (Páginas dinámicas)
+    let pageIdToShow = nombrePagina;
+    if (nombrePagina.startsWith('metals-') && nombrePagina !== 'metals-dashboard') {
+        pageIdToShow = 'metals-produccion'; // Todas usan el mismo host dinámico
+    }
+
+    const pagina = document.getElementById(`${pageIdToShow}-page`);
     if (pagina) {
         pagina.classList.add('active');
-        console.log('✅ Página visible:', nombrePagina);
+        console.log('✅ Página visible:', pageIdToShow);
     } else {
-        console.error('❌ Página no encontrada:', `${nombrePagina}-page`);
+        console.error('❌ Página no encontrada:', `${pageIdToShow}-page`);
         return;
     }
 
@@ -201,7 +210,15 @@ window.addEventListener('popstate', (event) => {
  */
 window.volverAlDashboard = function () {
     console.log('🔙 Volviendo al Dashboard...');
-    cargarPagina('dashboard');
+    const division = window.AppState.user?.division || 'FRIPARTS';
+
+    // Si es FRIMETALS, volver a la cuadrícula de producción
+    if (division === 'FRIMETALS') {
+        cargarPagina('metals-produccion');
+    } else {
+        cargarPagina('dashboard');
+    }
+
     document.querySelector('.sidebar')?.classList.remove('active');
     document.querySelector('.sidebar-overlay')?.classList.remove('active');
 };
@@ -222,7 +239,17 @@ function inicializarModulo(nombrePagina) {
         'almacen': window.AlmacenModule,
         'admin-clientes': window.ModuloAdminClientes,
         'metals-produccion': window.ModuloMetals,
-        'metals-dashboard': window.ModuloMetals
+        'metals-dashboard': window.ModuloMetals,
+        'metals-torno': window.ModuloMetals,
+        'metals-laser': window.ModuloMetals,
+        'metals-soldadura': window.ModuloMetals,
+        'metals-marcadora': window.ModuloMetals,
+        'metals-taladro': window.ModuloMetals,
+        'metals-dobladora': window.ModuloMetals,
+        'metals-pintura': window.ModuloMetals,
+        'metals-zincado': window.ModuloMetals,
+        'metals-horno': window.ModuloMetals,
+        'metals-pulido-m': window.ModuloMetals
     };
 
     const modulo = modulos[nombrePagina];
@@ -376,10 +403,22 @@ function configurarNavegacion() {
     const handleSidebarToggle = (e) => {
         const toggleBtn = e.target.closest('[id^="toggle-sidebar"]');
         if (toggleBtn) {
-            e.preventDefault(); // Evitar doble ejecución en algunos dispositivos
+            e.preventDefault();
             console.log('🍔 Toggle sidebar pulsado');
-            document.querySelector('.sidebar')?.classList.toggle('active');
-            document.querySelector('.sidebar-overlay')?.classList.toggle('active');
+
+            const sidebar = document.querySelector('.sidebar');
+            const mainContent = document.querySelector('.main-content');
+            const overlay = document.querySelector('.sidebar-overlay');
+
+            // En móviles usamos 'active' para el overlay
+            if (window.innerWidth < 992) {
+                sidebar?.classList.toggle('active');
+                overlay?.classList.toggle('active');
+            } else {
+                // En escritorio usamos 'collapsed' y 'expanded'
+                sidebar?.classList.toggle('collapsed');
+                mainContent?.classList.toggle('expanded');
+            }
         }
     };
 
@@ -406,10 +445,24 @@ async function inicializarAplicacion() {
     console.log('🚀 Aplicación inicializando...');
     try {
         configurarNavegacion();
-        await cargarDatosCompartidos();
+
+        // --- Optimización Cuota (Error 429) ---
+        // Solo cargar datos si YA hay un usuario en sesión
+        const sessionUser = sessionStorage.getItem('friparts_user');
+        if (sessionUser) {
+            console.log('👤 Sesión activa detectada. Cargando datos...');
+            await cargarDatosCompartidos();
+        } else {
+            console.log('⏳ Sin sesión activa. Datos compartidos se cargarán post-login.');
+        }
+
+        // Escuchar evento de login para cargar datos si no estaban cargados
+        document.addEventListener('user-ready', async () => {
+            console.log('🔔 Evento user-ready recibido. Asegurando carga de datos...');
+            await cargarDatosCompartidos();
+        });
 
         // 5. Cargar página inicial (Dashboard o Hash)
-
         // CORRECCIÓN CRÍTICA: Si AuthModule ya activó portal-cliente, no sobreescribir.
         const activePage = document.querySelector('.page.active');
         if (activePage && activePage.id === 'portal-cliente-page') {
@@ -421,6 +474,7 @@ async function inicializarAplicacion() {
         }
 
         const hashPage = window.location.hash.replace('#', '');
+        const division = window.AppState.user?.division || 'FRIPARTS';
 
         // Intentar restaurar última página visitada desde localStorage
         let pageToLoad = null;
@@ -428,6 +482,10 @@ async function inicializarAplicacion() {
         if (hashPage && document.getElementById(`${hashPage}-page`)) {
             pageToLoad = hashPage;
             console.log('📍 Cargando desde hash:', hashPage);
+        } else if (division === 'FRIMETALS') {
+            // Juan Sebastian: Forzar aterrizaje en cuadrícula para Metales
+            pageToLoad = 'metals-produccion';
+            console.log('🏭 Forzando landing de Metales (Grid):', pageToLoad);
         } else {
             try {
                 const lastPage = localStorage.getItem('friparts_last_page');

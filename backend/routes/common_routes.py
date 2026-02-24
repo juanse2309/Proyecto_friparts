@@ -15,6 +15,14 @@ common_bp = Blueprint('common', __name__)
 def obtener_responsables():
     """Obtiene lista de responsables."""
     try:
+        from backend.app import RESPONSABLES_CACHE, CACHE_TTL_LONG
+        import time
+        ahora = time.time()
+
+        # 1. Verificar Caché
+        if RESPONSABLES_CACHE["data"] and (ahora - RESPONSABLES_CACHE["timestamp"] < RESPONSABLES_CACHE["ttl"]):
+            return jsonify(RESPONSABLES_CACHE["data"]), 200
+
         ws = sheets_client.get_worksheet(Hojas.RESPONSABLES)
         if not ws:
             return jsonify({
@@ -25,10 +33,16 @@ def obtener_responsables():
         registros = ws.get_all_records()
         responsables = [r.get('NOMBRE', '') for r in registros if r.get('NOMBRE')]
         
-        return jsonify({
+        resultado = {
             'status': 'success',
             'responsables': responsables
-        }), 200
+        }
+
+        # 2. Guardar en Caché
+        RESPONSABLES_CACHE["data"] = resultado
+        RESPONSABLES_CACHE["timestamp"] = ahora
+
+        return jsonify(resultado), 200
         
     except Exception as e:
         logger.error(f"Error obteniendo responsables: {e}")
@@ -42,6 +56,14 @@ def obtener_responsables():
 def obtener_clientes():
     """Obtiene lista de clientes."""
     try:
+        from backend.app import CLIENTES_CACHE
+        import time
+        ahora = time.time()
+
+        # 1. Verificar Caché
+        if CLIENTES_CACHE["data"] and (ahora - CLIENTES_CACHE["timestamp"] < CLIENTES_CACHE["ttl"]):
+            return jsonify(CLIENTES_CACHE["data"]), 200
+
         ws = sheets_client.get_worksheet(Hojas.CLIENTES)
         if not ws:
             return jsonify({
@@ -52,10 +74,16 @@ def obtener_clientes():
         registros = ws.get_all_records()
         clientes = [r.get('NOMBRE', '') for r in registros if r.get('NOMBRE')]
         
-        return jsonify({
+        resultado = {
             'status': 'success',
             'clientes': clientes
-        }), 200
+        }
+
+        # 2. Guardar en Caché
+        CLIENTES_CACHE["data"] = resultado
+        CLIENTES_CACHE["timestamp"] = ahora
+
+        return jsonify(resultado), 200
         
     except Exception as e:
         logger.error(f"Error obteniendo clientes: {e}")

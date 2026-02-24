@@ -1,145 +1,416 @@
 /**
- * metals.js - Lógica de Producción FriMetals
+ * metals.js - Módulos de Producción FRIMETALS
+ * Selector de procesos + formularios específicos por máquina
  */
 
 const ModuloMetals = {
     productosData: [],
+    procesoActual: null,
 
+    // ----------------------------------------------------------------
+    // Mapa de procesos → máquinas + campos específicos
+    // ----------------------------------------------------------------
+    PAGE_MAP: {
+        'metals-torno': 'TORNO',
+        'metals-laser': 'CORTADORA_LASER',
+        'metals-soldadura': 'SOLDADURA',
+        'metals-marcadora': 'MARCADORA_LASER',
+        'metals-taladro': 'TALADRO',
+        'metals-dobladora': 'DOBLADORA',
+        'metals-pintura': 'PINTURA',
+        'metals-zincado': 'ZINCADO',
+        'metals-horno': 'HORNO',
+        'metals-pulido-m': 'PULIDO'
+    },
+
+    PROCESOS: {
+        'TORNO': {
+            label: 'Torno',
+            icon: 'fa-circle-notch',
+            color: '#3b82f6',
+            maquinas: ['TORNO-1', 'TORNO-2', 'TORNO-3', 'TORNO-4'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-tachometer-alt"></i> RPM</label>
+                    <select id="extra-rpm" class="input-metals">
+                        <option value="">-- RPM --</option>
+                        <option>100</option><option>200</option><option>300</option>
+                        <option>500</option><option>800</option><option>1000</option>
+                        <option>1500</option><option>2000</option>
+                    </select>
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-cube"></i> Material</label>
+                    <input type="text" id="extra-material" class="input-metals" placeholder="Ej: Acero 1020, Aluminio...">
+                </div>`
+        },
+        'CORTADORA_LASER': {
+            label: 'Cortadora Laser',
+            icon: 'fa-bolt',
+            color: '#ef4444',
+            maquinas: ['CORTADORA LASER'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-sun"></i> Potencia (%)</label>
+                    <input type="number" id="extra-potencia" class="input-metals" min="1" max="100" placeholder="Ej: 80">
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-wind"></i> Velocidad (mm/s)</label>
+                    <input type="number" id="extra-velocidad" class="input-metals" min="1" placeholder="Ej: 50">
+                </div>`
+        },
+        'SOLDADURA': {
+            label: 'Soldadura',
+            icon: 'fa-fire',
+            color: '#f59e0b',
+            maquinas: ['SOLDADORA-1', 'SOLDADORA-2'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-tools"></i> Tipo Soldadura</label>
+                    <select id="extra-tipo-soldadura" class="input-metals">
+                        <option value="">-- Tipo --</option>
+                        <option>MIG</option><option>TIG</option><option>PUNTO</option><option>ARCO</option>
+                    </select>
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-cube"></i> Material</label>
+                    <input type="text" id="extra-material" class="input-metals" placeholder="Ej: Acero inox, Galvanizado...">
+                </div>`
+        },
+        'MARCADORA_LASER': {
+            label: 'Marcadora Laser',
+            icon: 'fa-crosshairs',
+            color: '#8b5cf6',
+            maquinas: ['MARCADORA LASER'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-sun"></i> Potencia (%)</label>
+                    <input type="number" id="extra-potencia" class="input-metals" min="1" max="100" placeholder="Ej: 60">
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-wind"></i> Velocidad (mm/s)</label>
+                    <input type="number" id="extra-velocidad" class="input-metals" min="1" placeholder="Ej: 100">
+                </div>`
+        },
+        'TALADRO': {
+            label: 'Taladro',
+            icon: 'fa-circle',
+            color: '#10b981',
+            maquinas: ['TALADRO-1', 'TALADRO-2'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-circle"></i> Diámetro Broca (mm)</label>
+                    <input type="number" id="extra-diametro" class="input-metals" step="0.1" min="0.5" placeholder="Ej: 8.5">
+                </div>`
+        },
+        'DOBLADORA': {
+            label: 'Dobladora',
+            icon: 'fa-angle-left',
+            color: '#06b6d4',
+            maquinas: ['DOBLADORA'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-angle-left"></i> Ángulo (°)</label>
+                    <input type="number" id="extra-angulo" class="input-metals" min="1" max="180" placeholder="Ej: 90">
+                </div>`
+        },
+        'PINTURA': {
+            label: 'Pintura',
+            icon: 'fa-paint-roller',
+            color: '#ec4899',
+            maquinas: ['CABINA PINTURA'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-paint-roller"></i> Tipo Pintura</label>
+                    <input type="text" id="extra-tipo-pintura" class="input-metals" placeholder="Ej: Epóxica, Poliuretano, Base...">
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-layer-group"></i> N° Capas</label>
+                    <input type="number" id="extra-capas" class="input-metals" min="1" max="10" placeholder="Ej: 2">
+                </div>`
+        },
+        'ZINCADO': {
+            label: 'Zincado',
+            icon: 'fa-shield-alt',
+            color: '#64748b',
+            maquinas: ['CUBA ZINCADO'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-clock"></i> Tiempo Zincado (min)</label>
+                    <input type="number" id="extra-tiempo-zincado" class="input-metals" min="1" placeholder="Ej: 20">
+                </div>`
+        },
+        'HORNO': {
+            label: 'Horno',
+            icon: 'fa-fire-alt',
+            color: '#dc2626',
+            maquinas: ['HORNO-1'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-thermometer-half"></i> Temperatura (°C)</label>
+                    <input type="number" id="extra-temperatura" class="input-metals" min="50" max="1500" placeholder="Ej: 250">
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-hourglass-half"></i> Tiempo Horno (min)</label>
+                    <input type="number" id="extra-tiempo-horno" class="input-metals" min="1" placeholder="Ej: 45">
+                </div>`
+        },
+        'PULIDO': {
+            label: 'Pulido',
+            icon: 'fa-certificate',
+            color: '#7c3aed',
+            maquinas: ['PULIDORA-1'],
+            extraFields: `
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-sliders-h"></i> Tipo Pulido</label>
+                    <select id="extra-tipo-pulido" class="input-metals">
+                        <option value="">-- Tipo --</option>
+                        <option>Manual</option><option>Mecánico</option><option>Electrolítico</option>
+                    </select>
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-grip-horizontal"></i> Grano / Lija</label>
+                    <input type="text" id="extra-grano" class="input-metals" placeholder="Ej: 120, 240, 400...">
+                </div>`
+        }
+    },
+
+    // ----------------------------------------------------------------
+    // Inicializar
+    // ----------------------------------------------------------------
     inicializar: async function () {
-        console.log('🏭 [Metals] Inicializando...');
+        console.log('🏭 [Metals] Inicializando módulo de producción...');
 
-        const isDashboard = window.AppState.paginaActual === 'metals-dashboard';
-
-        if (isDashboard) {
-            await this.cargarDashboard();
-        } else {
-            this.configurarFecha();
-            this.intentarAutoSeleccionarResponsable();
+        // 1. Cargar productos si no están en AppState
+        if (!window.AppState.sharedData.productosMetals) {
             await this.cargarProductos();
-            this.initAutocompleteProducto();
-            this.configurarEventos();
-        }
-    },
-
-    cargarDashboard: async function () {
-        try {
-            console.log('📊 [Metals] Cargando dashboard...');
-            const response = await fetch('/api/metals/produccion/historial');
-            const data = await response.json();
-
-            if (data.success && data.historial) { // Corrected from `res.success` to `data.success`
-                this.renderDashboard(data.historial);
-            }
-        } catch (error) {
-            console.error('Error cargando dashboard metals:', error);
-        }
-    },
-
-    renderDashboard: function (registros) {
-        const tbody = document.getElementById('metals-dashboard-history');
-        if (!tbody) return;
-
-        const hoy = new Date().toISOString().split('T')[0];
-        let cantHoy = 0;
-        let lotesUnicos = new Set();
-        let pncTotal = 0;
-
-        tbody.innerHTML = registros.slice(0, 20).map(r => {
-            const rFecha = r.FECHA || '';
-            // Convertir D/M/YYYY a YYYY-MM-DD para comparar con hoy
-            let rFechaISO = '';
-            if (rFecha.includes('/')) {
-                const parts = rFecha.split('/');
-                rFechaISO = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-            }
-
-            if (rFechaISO === hoy) {
-                cantHoy += parseInt(r.CANT_LOGRADA || 0);
-                pncTotal += parseInt(r.PNC || 0);
-            }
-            if (r.ESTADO !== 'FINALIZADO') lotesUnicos.add(r.LOTE);
-
-            return `
-                <tr>
-                    <td>${r.FECHA}</td>
-                    <td><span class="badge bg-light text-dark shadow-sm border">${r.LOTE}</span></td>
-                    <td>${r.CODIGO_PRODUCTO}</td>
-                    <td><span class="text-primary fw-bold">${r.PROCESO}</span></td>
-                    <td>${r.OPERARIO}</td>
-                    <td><span class="text-success fw-bold">${r.CANT_LOGRADA}</span></td>
-                    <td><i class="far fa-clock me-1 text-muted"></i>${r.TIEMPO_TOTAL || '--'}</td>
-                    <td><span class="badge ${r.ESTADO === 'COMPLETADO' ? 'bg-success' : 'bg-warning'}">${r.ESTADO}</span></td>
-                </tr>
-            `;
-        }).join('');
-
-        if (registros.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center p-4">No hay registros aún</td></tr>';
-        }
-
-        // Actualizar KPIs
-        document.getElementById('metals-kpi-hoy').textContent = cantHoy;
-        document.getElementById('metals-kpi-lotes').textContent = lotesUnicos.size;
-        document.getElementById('metals-kpi-pnc').textContent = pncTotal;
-    },
-
-    configurarFecha: function () {
-        const fechaInput = document.getElementById('fecha-metals');
-        if (fechaInput) {
-            fechaInput.value = new Date().toISOString().split('T')[0];
-        }
-    },
-
-    intentarAutoSeleccionarResponsable: function () {
-        const input = document.getElementById('responsable-metals');
-        if (!input) return;
-
-        if (window.AppState?.user?.name) {
-            input.value = window.AppState.user.name;
         } else {
-            // Re-intentar cuando el usuario esté listo
-            window.addEventListener('user-ready', () => {
-                input.value = window.AppState.user.name;
-            }, { once: true });
+            this.productosData = window.AppState.sharedData.productosMetals;
+        }
+
+        // 2. Detectar qué proceso mostrar según la página actual
+        const paginaActual = window.AppState.paginaActual;
+        console.log(`🏭 [Metals] Página actual: ${paginaActual}`);
+
+        if (paginaActual === 'metals-dashboard') {
+            this.cargarDashboard();
+            return;
+        }
+
+        if (paginaActual === 'metals-produccion') {
+            this.mostrarSelectorProcesos();
+            return;
+        }
+
+        const procesoKey = this.PAGE_MAP[paginaActual];
+        if (procesoKey) {
+            this.abrirFormulario(procesoKey);
+        } else {
+            console.warn(`⚠️ [Metals] No hay proceso mapeado para la página: ${paginaActual}`);
+            this.mostrarSelectorProcesos(); // Fallback
         }
     },
 
-    cargarProductos: async function () {
-        try {
-            console.log('📦 [Metals] Cargando productos especializados...');
-            const response = await fetch('/api/metals/productos/listar');
-            const data = await response.json();
-            this.productosData = data.productos || [];
-            console.log(`✅ [Metals] ${this.productosData.length} productos cargados.`);
-        } catch (error) {
-            console.error('Error cargando productos metals:', error);
+    desactivar: function () {
+        // Resetear estado al salir
+        this.procesoActual = null;
+    },
+
+    // ----------------------------------------------------------------
+    // Selector de procesos (vista principal)
+    // ----------------------------------------------------------------
+    mostrarSelectorProcesos: function () {
+        const contenedor = document.getElementById('metals-contenido');
+        if (!contenedor) return;
+
+        this.procesoActual = null;
+
+        const tarjetas = Object.entries(this.PROCESOS).map(([key, proc]) => `
+            <div class="metals-process-card" onclick="ModuloMetals.abrirFormulario('${key}')"
+                style="border-top: 4px solid ${proc.color};">
+                <div class="metals-card-icon" style="background: ${proc.color}20; color: ${proc.color};">
+                    <i class="fas ${proc.icon} fa-2x"></i>
+                </div>
+                <div class="metals-card-label">${proc.label}</div>
+                <div class="metals-card-machines">${proc.maquinas.join(' · ')}</div>
+            </div>
+        `).join('');
+
+        contenedor.innerHTML = `
+            <div class="metals-selector-header">
+                <h2><i class="fas fa-hammer me-2"></i>Registro de Producción</h2>
+                <p class="text-muted">Selecciona el proceso que realizaste</p>
+            </div>
+            <div class="metals-process-grid">
+                ${tarjetas}
+            </div>
+        `;
+    },
+
+    // ----------------------------------------------------------------
+    // Formulario por proceso
+    // ----------------------------------------------------------------
+    abrirFormulario: function (procesoKey) {
+        const proc = this.PROCESOS[procesoKey];
+        if (!proc) return;
+
+        this.procesoActual = procesoKey;
+        const contenedor = document.getElementById('metals-contenido');
+        if (!contenedor) return;
+
+        const maquinasOptions = proc.maquinas.map(m => `<option value="${m}">${m}</option>`).join('');
+        const hoy = new Date().toISOString().split('T')[0];
+        const responsable = window.AppState?.user?.name || '';
+
+        contenedor.innerHTML = `
+            <div class="metals-form-header" style="border-left: 5px solid ${proc.color}; padding-left: 16px; margin-bottom: 24px;">
+                <button class="btn-back-metals" onclick="ModuloMetals.mostrarSelectorProcesos()">
+                    <i class="fas fa-arrow-left me-2"></i>Volver
+                </button>
+                <h3 style="color: ${proc.color}; margin: 8px 0 4px;">
+                    <i class="fas ${proc.icon} me-2"></i>${proc.label}
+                </h3>
+                <p class="text-muted small mb-0">Registrar actividad de producción</p>
+            </div>
+
+            <form id="form-metals" class="metals-form">
+                <!-- Fila 1: Fecha + Responsable -->
+                <div class="metals-form-grid">
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-calendar"></i> Fecha</label>
+                        <input type="date" id="metals-fecha" class="input-metals" value="${hoy}" required>
+                    </div>
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-user"></i> Operario</label>
+                        <input type="text" id="metals-responsable" class="input-metals" value="${responsable}" readonly
+                            style="background: #f1f5f9; color: #64748b; font-weight: 700;">
+                    </div>
+                </div>
+
+                <!-- Fila 2: Máquina + Producto -->
+                <div class="metals-form-grid">
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-cog"></i> Máquina</label>
+                        <select id="metals-maquina" class="input-metals" required>
+                            <option value="">-- Seleccionar --</option>
+                            ${maquinasOptions}
+                        </select>
+                    </div>
+                    <div class="form-group-metals" style="position: relative;">
+                        <label class="label-metals"><i class="fas fa-box"></i> Producto (Código / Descripción)</label>
+                        <input type="text" id="metals-producto" class="input-metals" autocomplete="off"
+                            placeholder="Buscar código o descripción..." required>
+                        <div id="metals-sugerencias" class="autocomplete-suggestions"></div>
+                    </div>
+                </div>
+
+                <!-- Fila 3: Horas -->
+                <div class="metals-form-grid">
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-clock"></i> Hora Inicio</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="time" id="metals-hora-inicio" class="input-metals" style="flex: 1;">
+                            <button type="button" class="btn-hora-metals" onclick="ModuloMetals.marcarHora('inicio')" title="Marcar ahora">
+                                <i class="fas fa-stopwatch"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-clock"></i> Hora Fin</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="time" id="metals-hora-fin" class="input-metals" style="flex: 1;">
+                            <button type="button" class="btn-hora-metals" onclick="ModuloMetals.marcarHora('fin')" title="Marcar ahora">
+                                <i class="fas fa-flag-checkered"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fila 4: Cantidad OK + PNC -->
+                <div class="metals-form-grid">
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-check-circle" style="color: #10b981;"></i> Cantidad OK</label>
+                        <input type="number" id="metals-cant-ok" class="input-metals" min="0" placeholder="0" required>
+                    </div>
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-times-circle" style="color: #ef4444;"></i> PNC / Defectos</label>
+                        <input type="number" id="metals-pnc" class="input-metals" min="0" placeholder="0" value="0">
+                    </div>
+                </div>
+
+                <!-- Campos específicos del proceso -->
+                <div class="metals-form-grid" id="metals-campos-extra">
+                    ${proc.extraFields}
+                </div>
+
+                <!-- Observaciones -->
+                <div class="form-group-metals" style="grid-column: 1 / -1;">
+                    <label class="label-metals"><i class="fas fa-comment"></i> Observaciones</label>
+                    <textarea id="metals-observaciones" class="input-metals" rows="2"
+                        placeholder="Notas adicionales del proceso..."></textarea>
+                </div>
+
+                <!-- Botones -->
+                <div class="metals-form-actions">
+                    <button type="submit" class="btn-guardar-metals"
+                        style="background: ${proc.color};">
+                        <i class="fas fa-save me-2"></i>Guardar Registro
+                    </button>
+                    <button type="button" class="btn-limpiar-metals"
+                        onclick="document.getElementById('form-metals').reset(); ModuloMetals.abrirFormulario('${procesoKey}')">
+                        <i class="fas fa-redo me-1"></i>Limpiar
+                    </button>
+                </div>
+            </form>
+        `;
+
+        // Inicializar autocomplete y eventos
+        this.initAutocompleteProducto();
+        document.getElementById('form-metals').addEventListener('submit', (e) => this.handleSubmit(e));
+
+        // Auto-seleccionar máquina si solo hay una
+        if (proc.maquinas.length === 1) {
+            document.getElementById('metals-maquina').value = proc.maquinas[0];
         }
     },
 
+    // ----------------------------------------------------------------
+    // Autocomplete de productos
+    // ----------------------------------------------------------------
     initAutocompleteProducto: function () {
-        const input = document.getElementById('producto-metals');
-        const suggestionsDiv = document.getElementById('metals-producto-suggestions');
-
+        const input = document.getElementById('metals-producto');
+        const suggestionsDiv = document.getElementById('metals-sugerencias');
         if (!input || !suggestionsDiv) return;
 
-        input.addEventListener('input', (e) => {
-            const query = e.target.value.trim().toLowerCase();
+        input.addEventListener('input', () => {
+            const query = input.value.trim().toLowerCase();
             if (query.length < 2) {
                 suggestionsDiv.classList.remove('active');
                 return;
             }
-
-            const resultados = this.productosData.filter(prod =>
-                String(prod.CODIGO || '').toLowerCase().includes(query) ||
-                String(prod.DESCRIPCION || '').toLowerCase().includes(query)
+            const resultados = this.productosData.filter(p =>
+                String(p.CODIGO || '').toLowerCase().includes(query) ||
+                String(p.DESCRIPCION || '').toLowerCase().includes(query)
             ).slice(0, 10);
 
-            this.renderSuggestions(suggestionsDiv, resultados, (item) => {
-                input.value = `${item.CODIGO} - ${item.DESCRIPCION}`;
-                input.dataset.codigo = item.CODIGO;
-                suggestionsDiv.classList.remove('active');
-                this.determinarProximoPaso();
-            });
+            if (resultados.length === 0) {
+                suggestionsDiv.innerHTML = '<div class="suggestion-item text-muted">Sin resultados</div>';
+            } else {
+                suggestionsDiv.innerHTML = resultados.map(p => `
+                    <div class="suggestion-item" data-cod="${p.CODIGO}" data-desc="${p.DESCRIPCION}">
+                        <strong>${p.CODIGO}</strong> — ${p.DESCRIPCION}
+                    </div>
+                `).join('');
+                suggestionsDiv.querySelectorAll('.suggestion-item').forEach(div => {
+                    div.addEventListener('click', () => {
+                        input.value = `${div.dataset.cod} — ${div.dataset.desc}`;
+                        input.dataset.codigo = div.dataset.cod;
+                        input.dataset.descripcion = div.dataset.desc;
+                        suggestionsDiv.classList.remove('active');
+                    });
+                });
+            }
+            suggestionsDiv.classList.add('active');
         });
 
         document.addEventListener('click', (e) => {
@@ -147,128 +418,156 @@ const ModuloMetals = {
                 suggestionsDiv.classList.remove('active');
             }
         });
+    },
 
-        // Listener para Lote
-        const loteInput = document.getElementById('lote-metals');
-        if (loteInput) {
-            loteInput.addEventListener('change', () => this.determinarProximoPaso());
-            loteInput.addEventListener('blur', () => this.determinarProximoPaso());
+    // ----------------------------------------------------------------
+    // Helpers
+    // ----------------------------------------------------------------
+    marcarHora: function (tipo) {
+        const ahora = new Date();
+        const hh = String(ahora.getHours()).padStart(2, '0');
+        const mm = String(ahora.getMinutes()).padStart(2, '0');
+        const idInput = tipo === 'inicio' ? 'metals-hora-inicio' : 'metals-hora-fin';
+        const el = document.getElementById(idInput);
+        if (el) el.value = `${hh}:${mm}`;
+    },
+
+    cargarProductos: async function () {
+        try {
+            const res = await fetch('/api/metals/productos/listar');
+            const data = await res.json();
+            this.productosData = data.productos || [];
+            window.AppState.sharedData.productosMetals = this.productosData; // Cache global
+            console.log(`✅ [Metals] ${this.productosData.length} productos cargados.`);
+        } catch (e) {
+            console.error('Error cargando productos metals:', e);
         }
     },
 
-    determinarProximoPaso: async function () {
-        const productInput = document.getElementById('producto-metals');
-        const loteInput = document.getElementById('lote-metals');
-        const procesoInput = document.getElementById('proceso-metals');
-
-        const codigo = productInput?.dataset?.codigo;
-        const lote = loteInput?.value?.trim();
-
-        if (!codigo || !lote || !procesoInput) return;
+    cargarDashboard: async function () {
+        console.log('📊 [Metals] Cargando Dashboard...');
+        const historyBody = document.getElementById('metals-dashboard-history');
+        if (!historyBody) return;
 
         try {
-            console.log(`🔍 [Metals] Consultando próximo paso para ${codigo} Lote ${lote}...`);
-            const response = await fetch(`/api/metals/produccion/proximo_paso?codigo_producto=${codigo}&lote=${lote}`);
-            const res = await response.json();
+            const res = await fetch('/api/metals/produccion/historial?limite=10');
+            const data = await res.json();
 
-            if (res.success) {
-                procesoInput.value = res.proximo || 'No definido';
-                if (res.proximo === 'FINALIZADO') {
-                    Swal.fire('Atención', 'Este lote ya ha completado todos los procesos definidos.', 'info');
-                }
+            if (data.success && data.registros) {
+                // Actualizar KPIs
+                const stats = data.stats || { hoy: 0, mes: 0, pnc: 0, procesos: 0 };
+                document.getElementById('metals-kpi-hoy').textContent = stats.hoy || 0;
+                document.getElementById('metals-kpi-mes').textContent = stats.mes || 0;
+                document.getElementById('metals-kpi-pnc').textContent = stats.pnc || 0;
+                document.getElementById('metals-kpi-procesos').textContent = stats.procesos || 0;
+
+                // Renderizar tabla
+                historyBody.innerHTML = data.registros.map(r => `
+                    <tr>
+                        <td>${r.FECHA}</td>
+                        <td><span class="badge" style="background: #64748b;">${r.PROCESO}</span></td>
+                        <td>${r.MAQUINA}</td>
+                        <td>${r.RESPONSABLE}</td>
+                        <td class="small">${r.CODIGO_PRODUCTO}<br><span class="text-muted">${r.DESCRIPCION_PRODUCTO}</span></td>
+                        <td class="text-center fw-bold text-success">${r.CANTIDAD_OK}</td>
+                        <td class="text-center fw-bold text-danger">${r.PNC}</td>
+                        <td>${r.TIEMPO_MIN || 0}m</td>
+                    </tr>
+                `).join('') || '<tr><td colspan="8" class="text-center p-3 text-muted">No hay registros recientes</td></tr>';
             }
-        } catch (error) {
-            console.error('Error determinando proximo paso:', error);
+        } catch (e) {
+            console.error('Error cargando dashboard metals:', e);
+            historyBody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">Error al cargar datos</td></tr>';
         }
     },
 
-    renderSuggestions: function (container, items, onSelect) {
-        if (items.length === 0) {
-            container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
-        } else {
-            container.innerHTML = items.map(item => `
-                <div class="suggestion-item" style="padding: 10px; border-bottom: 1px solid #eee; cursor: pointer;">
-                    <strong>${item.CODIGO}</strong> - ${item.DESCRIPCION}
-                </div>
-            `).join('');
+    // ----------------------------------------------------------------
+    // Recolectar campos extra del proceso actual
+    // ----------------------------------------------------------------
+    getExtraData: function () {
+        const extras = {};
+        const extraEl = document.getElementById('metals-campos-extra');
+        if (!extraEl) return extras;
 
-            container.querySelectorAll('.suggestion-item').forEach((div, index) => {
-                div.addEventListener('click', () => onSelect(items[index]));
-            });
-        }
-        container.classList.add('active');
+        extraEl.querySelectorAll('input, select').forEach(el => {
+            if (el.id && el.value) {
+                const key = el.id.replace('extra-', '').replace(/-/g, '_');
+                extras[key] = el.value;
+            }
+        });
+        return extras;
     },
 
-    marcarHora: function (tipo) {
-        const input = document.getElementById(tipo === 'inicio' ? 'hora-inicio-metals' : 'hora-fin-metals');
-        if (input) {
-            const ahora = new Date();
-            const horas = String(ahora.getHours()).padStart(2, '0');
-            const minutos = String(ahora.getMinutes()).padStart(2, '0');
-            input.value = `${horas}:${minutos}`;
-        }
-    },
-
-    configurarEventos: function () {
-        const form = document.getElementById('form-metals-produccion');
-        if (form) {
-            form.addEventListener('submit', (e) => this.handleSubmit(e));
-        }
-    },
-
+    // ----------------------------------------------------------------
+    // Submit
+    // ----------------------------------------------------------------
     handleSubmit: async function (e) {
         e.preventDefault();
 
-        const data = {
-            responsable: document.getElementById('responsable-metals').value,
-            fecha: document.getElementById('fecha-metals').value,
-            maquina: document.getElementById('maquina-metals').value,
-            codigo_producto: document.getElementById('producto-metals').dataset.codigo,
-            lote: document.getElementById('lote-metals').value,
-            proceso: document.getElementById('proceso-metals').value,
-            cant_solicitada: document.getElementById('cant-solicitada-metals').value,
-            hora_inicio: document.getElementById('hora-inicio-metals').value,
-            hora_fin: document.getElementById('hora-fin-metals').value,
-            cant_ok: document.getElementById('cant-ok-metals').value,
-            pnc: document.getElementById('pnc-metals').value
-        };
+        const productoInput = document.getElementById('metals-producto');
+        const codigo = productoInput?.dataset?.codigo;
+        const descripcion = productoInput?.dataset?.descripcion || productoInput?.value || '';
 
-        if (!data.codigo_producto || !data.maquina) {
-            return Swal.fire('Error', 'Debe seleccionar un producto y una máquina', 'error');
+        if (!codigo) {
+            mostrarNotificacion('⚠️ Selecciona un producto del buscador', 'warning');
+            productoInput.focus();
+            return;
         }
+
+        const horaInicio = document.getElementById('metals-hora-inicio')?.value;
+        const horaFin = document.getElementById('metals-hora-fin')?.value;
+
+        // Calcular tiempo en minutos
+        let tiempoMin = null;
+        if (horaInicio && horaFin) {
+            const [h1, m1] = horaInicio.split(':').map(Number);
+            const [h2, m2] = horaFin.split(':').map(Number);
+            tiempoMin = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (tiempoMin < 0) tiempoMin += 1440; // cruce de medianoche
+        }
+
+        const proc = this.PROCESOS[this.procesoActual];
+
+        const payload = {
+            proceso: this.procesoActual,
+            proceso_label: proc?.label || this.procesoActual,
+            maquina: document.getElementById('metals-maquina')?.value,
+            fecha: document.getElementById('metals-fecha')?.value,
+            responsable: document.getElementById('metals-responsable')?.value,
+            codigo_producto: codigo,
+            descripcion_producto: descripcion,
+            hora_inicio: horaInicio,
+            hora_fin: horaFin,
+            tiempo_min: tiempoMin,
+            cantidad_ok: document.getElementById('metals-cant-ok')?.value,
+            pnc: document.getElementById('metals-pnc')?.value || '0',
+            observaciones: document.getElementById('metals-observaciones')?.value || '',
+            campos_extra: this.getExtraData()
+        };
 
         try {
             mostrarLoading(true);
             const response = await fetch('/api/metals/produccion/registrar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                body: JSON.stringify(payload)
             });
-
             const res = await response.json();
             mostrarLoading(false);
 
             if (res.success) {
-                Swal.fire('¡Éxito!', 'Actividad registrada correctamente', 'success');
-                e.target.reset();
-                this.configurarFecha();
-                this.intentarAutoSeleccionarResponsable();
+                mostrarNotificacion(`✅ Registro guardado — ${proc?.label}`, 'success');
+                // Limpiar formulario o recargar
+                setTimeout(() => this.inicializar(), 1200);
             } else {
-                Swal.fire('Error', res.message || 'Error al registrar', 'error');
+                mostrarNotificacion(`❌ Error: ${res.message}`, 'error');
             }
-        } catch (error) {
-            console.error('Error submit metals:', error);
+        } catch (err) {
             mostrarLoading(false);
-            Swal.fire('Error', 'Error de conexión', 'error');
+            console.error('Error submit metals:', err);
+            mostrarNotificacion('Error de conexión', 'error');
         }
     }
 };
 
 window.ModuloMetals = ModuloMetals;
-
-// Escuchar cambios de página si se maneja vía app.js
-window.addEventListener('hashchange', () => {
-    if (window.location.hash === '#metals-produccion') {
-        ModuloMetals.inicializar();
-    }
-});

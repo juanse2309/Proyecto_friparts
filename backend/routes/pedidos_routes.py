@@ -393,6 +393,9 @@ def registrar_pedido():
             logger.info(f"   Productos: {len(rows_to_append)}")
             logger.info(f"   Total: ${total_general}")
             
+            from backend.app import invalidar_cache_pedidos
+            invalidar_cache_pedidos()
+            
             return jsonify({
                 "success": True, 
                 "message": "Pedido registrado exitosamente",
@@ -481,91 +484,89 @@ def obtener_detalle_pedido(id_pedido):
 def obtener_pedidos_pendientes():
     """
     Retorna la lista de pedidos que no están completados, agrupados por ID.
+    Utiliza caché global para reducir llamadas a Sheets.
     """
     try:
-        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
-        registros = ws.get_all_records()
-        
-        # Obtener usuario y rol desde query params para filtrado
+        from backend.app import PEDIDOS_PENDIENTES_CACHE
+        import time
+        ahora = time.time()
+
+        # 1. Intentar obtener datos base de la caché
+        pedidos_completos = None
+        if PEDIDOS_PENDIENTES_CACHE["data"] and (ahora - PEDIDOS_PENDIENTES_CACHE["timestamp"] < PEDIDOS_PENDIENTES_CACHE["ttl"]):
+            logger.info("⚡ [Cache] Usando pedidos pendientes desde caché")
+            pedidos_completos = PEDIDOS_PENDIENTES_CACHE["data"]
+        else:
+            logger.info("🌐 [API] Consultando Google Sheets para pedidos pendientes")
+            ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+            if not ws:
+                return jsonify({"success": False, "error": "Hoja PEDIDOS no encontrada"}), 500
+            
+            registros = ws.get_all_records()
+            
+            # Agrupar por ID PEDIDO (Datos en bruto sin filtrar por usuario)
+            agrupados = {}
+            for r in registros:
+                id_pedido = r.get("ID PEDIDO")
+                estado = r.get("ESTADO", "PENDIENTE").upper()
+                if estado != "COMPLETADO":
+                    if id_pedido not in agrupados:
+                        agrupados[id_pedido] = {
+                            "id_pedido": id_pedido,
+                            "fecha": r.get("FECHA"),
+                            "hora": r.get("HORA", ""),
+                            "cliente": r.get("CLIENTE"),
+                            "estado": estado,
+                            "progreso": r.get("PROGRESO", "0%"),
+                            "progreso_despacho": r.get("PROGRESO_DESPACHO", "0%"),
+                            "vendedor": r.get("VENDEDOR"),
+                            "direccion": r.get("DIRECCION", ""),
+                            "ciudad": r.get("CIUDAD", ""),
+                            "observaciones": r.get("OBSERVACIONES") or r.get("OBSERVACION") or "",
+                            "delegado_a": str(r.get("DELEGADO_A", "")).strip(),
+                            "productos": []
+                        }
+                    
+                    agrupados[id_pedido]["productos"].append({
+                        "codigo": r.get("ID CODIGO"),
+                        "descripcion": r.get("DESCRIPCION"),
+                        "cantidad": r.get("CANTIDAD"),
+                        "cant_lista": r.get("CANT_ALISTADA", 0),
+                        "cant_enviada": r.get("CANT_ENVIADA", 0),
+                        "total": r.get("TOTAL", 0),
+                        "despachado": str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper() == "TRUE",
+                        "no_disponible": str(r.get("NO_DISPONIBLE", "FALSE")).strip().upper() == "TRUE"
+                    })
+            
+            pedidos_completos = list(agrupados.values())
+            
+            # Guardar en caché
+            PEDIDOS_PENDIENTES_CACHE["data"] = pedidos_completos
+            PEDIDOS_PENDIENTES_CACHE["timestamp"] = ahora
+
+        # 2. Filtrar por usuario y rol (Lógica de Seguridad)
         usuario_actual = request.args.get('usuario')
         rol_actual = request.args.get('rol')
         
-        logger.info(f"🔍 Filtrando pedidos para: Usuario='{usuario_actual}', Rol='{rol_actual}'")
-        if registros:
-            headers_list = list(registros[0].keys())
-            logger.info(f"📊 Cabeceras detectadas en PEDIDOS: {headers_list}")
-            # Log de un registro de ejemplo para ver si OBSERVACIONES tiene valor
-            if "OBSERVACIONES" in registros[0]:
-                logger.info(f"📸 Muestra de OBSERVACIONES primer pedido: '{registros[0].get('OBSERVACIONES')}'")
-        else:
-            logger.warning("⚠️ La hoja PEDIDOS está vacía")
-
-        # Agrupar por ID PEDIDO
-        pedidos_dict = {}
-        for r in registros:
-            id_pedido = r.get("ID PEDIDO")
-            estado = r.get("ESTADO", "PENDIENTE").upper()
-            delegado_a = str(r.get("DELEGADO_A", "")).strip()
-            
-            # FILTRADO DE SEGURIDAD:
-            # Si no es Admin ni Natalia, solo ve lo que tiene asignado o lo que no tiene a nadie asignado (para que Natalia lo asigne)
-            # El usuario pidió: "viera desde su usuario solo los que tienen pendientes o delegados"
-            # Asumimos que si está vacío es "para todos" hasta que se delegue, 
-            # pero el requerimiento dice "solo los que tienen pendientes o delegados".
-            # Verificar si es admin o Natalia (case-insensitive para evitar problemas de acentos o nombres)
-            # Normalizar para comparación
-            rol_norm = str(rol_actual).upper() if rol_actual else ""
-            user_norm = str(usuario_actual).upper() if usuario_actual else ""
-            
-            es_admin = "ADMIN" in rol_norm or "NATALIA" in user_norm or "NATHALIA" in user_norm or "LOPEZ" in user_norm or "ANDRES" in user_norm or "ANDRÉS" in user_norm
-            
-            if not es_admin:
-                # Si no es admin/Natalia, solo ve lo que tiene expresamente asignado
-                # Normalización para evitar problemas con mayúsculas/minúsculas
-                if str(delegado_a).strip().upper() != str(usuario_actual).strip().upper():
-                    logger.debug(f"   ⏩ Saltando pedido {id_pedido}: no delegado a {usuario_actual}")
-                    continue # No es para mí
-            
-            logger.info(f"   ✅ Incluyendo pedido {id_pedido} para {usuario_actual} (es_admin={es_admin})")
-            
-            if estado != "COMPLETADO":
-                if id_pedido not in pedidos_dict:
-                    pedidos_dict[id_pedido] = {
-                        "id_pedido": id_pedido,
-                        "fecha": r.get("FECHA"),
-                        "hora": r.get("HORA", ""),
-                        "cliente": r.get("CLIENTE"),
-                        "estado": estado,
-                        "progreso": r.get("PROGRESO", "0%"),
-                        "vendedor": r.get("VENDEDOR"),
-                        "direccion": r.get("DIRECCION", ""),
-                        "ciudad": r.get("CIUDAD", ""),
-                        "observaciones": r.get("OBSERVACIONES") or r.get("OBSERVACION") or \
-                                         r.get("NOTAS") or r.get("NOTA") or \
-                                         r.get("COMENTARIOS") or r.get("COMENTARIO") or "",
-                        "delegado_a": delegado_a,
-                        "productos": []
-                    }
-                
-                pedidos_dict[id_pedido]["productos"].append({
-                    "codigo": r.get("ID CODIGO"),
-                    "descripcion": r.get("DESCRIPCION"),
-                    "cantidad": r.get("CANTIDAD"),
-                    "cant_lista": r.get("CANT_ALISTADA", 0),
-                    "cant_enviada": r.get("CANT_ENVIADA", 0),
-                    "total": r.get("TOTAL", 0),
-                    # Leer estado booleano de despacho (convertir string 'TRUE'/'FALSE' a bool)
-                    "despachado": str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper() == "TRUE",
-                    "no_disponible": str(r.get("NO_DISPONIBLE", "FALSE")).strip().upper() == "TRUE"
-                })
-            
-            # Siempre intentamos obtener el progreso de despacho si existe
-            if id_pedido in pedidos_dict:
-                pedidos_dict[id_pedido]["progreso_despacho"] = r.get("PROGRESO_DESPACHO", "0%")
+        rol_norm = str(rol_actual).upper() if rol_actual else ""
+        user_norm = str(usuario_actual).upper() if usuario_actual else ""
         
+        # Super-usuarios que ven todo
+        es_admin = any(x in rol_norm for x in ["ADMIN", "GERENCIA"]) or \
+                   any(x in user_norm for x in ["NATALIA", "NATHALIA", "ANDRES", "ANDRÉS"])
+
+        pedidos_filtrados = []
+        for p in pedidos_completos:
+            if es_admin:
+                pedidos_filtrados.append(p)
+            else:
+                # Si no es admin, solo ve lo que tiene asignado
+                if str(p.get("delegado_a", "")).strip().upper() == user_norm:
+                    pedidos_filtrados.append(p)
+
         return jsonify({
             "success": True, 
-            "pedidos": list(pedidos_dict.values())
+            "pedidos": pedidos_filtrados
         })
     except Exception as e:
         logger.error(f"Error cargando pedidos pendientes: {e}")
@@ -608,6 +609,8 @@ def delegar_pedido():
         
         if updates:
             ws.batch_update(updates)
+            from backend.app import invalidar_cache_pedidos
+            invalidar_cache_pedidos()
             return jsonify({"success": True, "message": f"Pedido {id_pedido} delegado a {colaboradora}"})
         else:
             return jsonify({"success": False, "error": "Pedido no encontrado"}), 404

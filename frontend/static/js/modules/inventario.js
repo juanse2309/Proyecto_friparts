@@ -17,8 +17,10 @@ async function cargarProductos(forceRefresh = false) {
         console.log('📦 Cargando productos...');
         mostrarLoading(true);
 
-        let url = '/api/productos/listar';
-        if (forceRefresh) {
+        const isMetals = window.AppState.user?.division === 'FRIMETALS';
+        let url = isMetals ? '/api/metals/productos/listar' : '/api/productos/listar';
+
+        if (forceRefresh && !isMetals) {
             url += '?refresh=true';
         }
         const response = await fetch(url);
@@ -32,16 +34,27 @@ async function cargarProductos(forceRefresh = false) {
         let listaFinal = [];
         if (data.items && Array.isArray(data.items)) {
             listaFinal = data.items;
+        } else if (data.productos && Array.isArray(data.productos)) {
+            listaFinal = data.productos;
         } else if (Array.isArray(data)) {
             listaFinal = data;
         }
 
         if (listaFinal.length > 0) {
-            window.AppState.productosData = listaFinal;
-            paginaActual = 1; // Resetear a pÃ¡gina 1
-            renderizarTablaProductos(listaFinal);
-            actualizarEstadisticasInventario(listaFinal);
-            console.log('âœ… Productos cargados:', listaFinal.length);
+            // Normalizar las claves para que coincidan con lo que espera el frontend (minúsculas)
+            window.AppState.productosData = listaFinal.map(p => ({
+                codigo: p.codigo || p.CODIGO || '',
+                descripcion: p.descripcion || p.DESCRIPCION || '',
+                precio: p.precio || p.PRECIO || 0,
+                stock_disponible: p.stock_disponible || p.DISPONIBLE || 0,
+                stock_terminado: p.stock_terminado || p.TERMINADO || 0,
+                existencias_totales: p.existencias_totales || p.TOTAL || p.STOCK || 0,
+                semaforo: p.semaforo || { color: 'gray', estado: '' }
+            }));
+            paginaActual = 1; // Resetear a página 1
+            renderizarTablaProductos(window.AppState.productosData);
+            actualizarEstadisticasInventario(window.AppState.productosData);
+            console.log('✅ Productos cargados y normalizados:', window.AppState.productosData.length);
         } else {
             mostrarNotificacion('No hay productos para mostrar', 'warning');
         }
