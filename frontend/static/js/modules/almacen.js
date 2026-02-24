@@ -1363,7 +1363,7 @@ const AlmacenModule = {
         if (!modal) return;
 
         // Marcar la opción actual
-        const currentSound = window.ModuloUX?.getSoundTheme() || 'classic';
+        const currentSound = window.ModuloUX?.getSoundTheme() || 'marimba';
         const options = modal.querySelectorAll('#sound-options button');
         options.forEach(opt => {
             if (opt.dataset.sound === currentSound) {

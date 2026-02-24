@@ -34,8 +34,6 @@ const ModuloUX = (() => {
      * @param {string} type 'success' | 'error' | 'new_order'
      */
     const playSound = (type) => {
-        const theme = localStorage.getItem('friparts_sound_theme') || 'classic';
-
         if (type === 'success') {
             playTone(523.25, 'sine', 0.1); // C5
             setTimeout(() => playTone(659.25, 'sine', 0.1), 100); // E5
@@ -43,6 +41,7 @@ const ModuloUX = (() => {
             playTone(150, 'sawtooth', 0.4);
             playTone(110, 'square', 0.4);
         } else if (type === 'new_order') {
+            const theme = localStorage.getItem('friparts_sound_theme') || 'marimba';
             switch (theme) {
                 case 'siren':
                     // Sirena Industrial (Llamativa y potente)
@@ -181,7 +180,7 @@ const ModuloUX = (() => {
         }
     };
 
-    const getSoundTheme = () => localStorage.getItem('friparts_sound_theme') || 'classic';
+    const getSoundTheme = () => localStorage.getItem('friparts_sound_theme') || 'marimba';
     const setSoundTheme = (theme) => localStorage.setItem('friparts_sound_theme', theme);
 
     /**

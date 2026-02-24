@@ -1,4 +1,4 @@
-/* tv_vista.css - MODO TV (ESTÉTICA ESTILO LIGHT + CARDS DARK PRO) */
+/* tv_vista.css - MODO TV (ESTÉTICA ESTILO LIGHT + CARDS DARK PRO + COMPRESIÓN VERTICAL) */
 
 body.tv-mode {
     background: #f1f5f9 !important;
@@ -42,22 +42,26 @@ body.tv-mode #almacen-page {
     position: relative !important;
     z-index: 5000 !important;
     background: #f1f5f9 !important;
-    padding: 2vh 2vw !important;
+    padding: 1.5vh 1.5vw !important;
+    /* Compactado de 2vh 2vw */
 }
 
 /* Título de Página */
 body.tv-mode #almacen-page .page-title h1 {
     display: flex !important;
     align-items: center !important;
-    gap: 15px !important;
-    font-size: 3rem !important;
+    gap: 12px !important;
+    font-size: 2.2rem !important;
+    /* Compactado de 3rem */
     font-weight: 800 !important;
     color: #1e293b !important;
-    margin-bottom: 3vh !important;
+    margin-bottom: 2vh !important;
+    /* Compactado de 3vh */
 }
 
 body.tv-mode #almacen-page .page-title i {
-    font-size: 3.5rem !important;
+    font-size: 2.5rem !important;
+    /* Compactado de 3.5rem */
     color: #4f46e5 !important;
 }
 
@@ -66,12 +70,13 @@ body.tv-mode .almacen-card-pro {
     background: #1e293b !important;
     /* Azul oscuro profundo */
     border: none !important;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1) !important;
     color: #ffffff !important;
     border-radius: 12px !important;
     border-left: 6px solid #f97316 !important;
     /* Borde naranja de estado */
-    margin-bottom: 1.5rem !important;
+    margin-bottom: 1rem !important;
+    /* Compactado de 1.5rem */
     opacity: 1 !important;
     visibility: visible !important;
     overflow: hidden !important;
@@ -81,19 +86,23 @@ body.tv-mode .almacen-card-pro {
 body.tv-mode .almacen-card-pro>div:first-child {
     background: rgba(255, 255, 255, 0.03) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    padding: 8px 15px !important;
+    /* Padding reducido */
 }
 
 /* ID del pedido */
 body.tv-mode .almacen-card-pro .order-id-ref {
     color: #38bdf8 !important;
     /* Sky blue */
-    font-size: 1.8rem !important;
+    font-size: 1.5rem !important;
+    /* Compactado de 1.8rem */
 }
 
 /* Cliente */
 body.tv-mode .almacen-card-pro .card-title {
     color: #ffffff !important;
-    font-size: 2rem !important;
+    font-size: 1.7rem !important;
+    /* Compactado de 2rem */
     font-weight: 700 !important;
 }
 
@@ -101,52 +110,67 @@ body.tv-mode .almacen-card-pro .card-title {
 body.tv-mode .almacen-card-pro .text-muted {
     color: #94a3b8 !important;
     /* Slate 400 */
-    font-size: 1.1rem !important;
+    font-size: 0.95rem !important;
+    /* Compactado de 1.1rem */
 }
 
-/* Notas/Observaciones (Revertidas a estilo integrado) */
+/* Notas/Observaciones (Compactadas) */
 body.tv-mode .nota-alistamiento-card {
-    font-size: 1.1rem !important;
+    font-size: 1rem !important;
+    /* Compactado de 1.1rem */
     background-color: rgba(245, 158, 11, 0.1) !important;
     border-left: 4px solid #f59e0b !important;
     color: #fbbf24 !important;
-    padding: 12px !important;
-    margin-top: 10px !important;
+    padding: 8px !important;
+    /* Compactado de 12px */
+    margin-top: 6px !important;
+    /* Compactado de 10px */
     border-radius: 6px !important;
+    line-height: 1.3 !important;
 }
 
 /* Barras de progreso */
 body.tv-mode .progress.progress-modern {
-    height: 3vh !important;
+    height: 2.2vh !important;
+    /* Compactado de 3vh */
     background: #334155 !important;
     border-radius: 6px !important;
+    margin-bottom: 6px !important;
 }
 
 body.tv-mode .progress-bar {
-    font-size: 1rem !important;
+    font-size: 0.9rem !important;
     font-weight: 700 !important;
 }
 
 /* Asignación (Alistador) */
 body.tv-mode .alistador-tv-display {
     display: block !important;
-    font-size: 1.6rem !important;
+    font-size: 1.4rem !important;
+    /* Compactado de 1.6rem */
     font-weight: 800 !important;
     color: #ffffff !important;
-    margin-top: 10px !important;
+    margin-top: 6px !important;
+    /* Compactado de 10px */
     text-transform: uppercase !important;
+}
+
+/* Sección de delegación compactada */
+body.tv-mode .delegation-section {
+    padding-top: 10px !important;
+    margin-top: 10px !important;
 }
 
 /* Botón de salida */
 body.tv-mode .btn-exit-tv {
     position: fixed !important;
-    bottom: 25px !important;
-    right: 25px !important;
+    bottom: 20px !important;
+    right: 20px !important;
     z-index: 10000 !important;
     background: #ef4444 !important;
     color: white !important;
     border: none !important;
-    padding: 12px 20px !important;
+    padding: 10px 18px !important;
     border-radius: 10px !important;
     font-weight: 600 !important;
     opacity: 0.8;
