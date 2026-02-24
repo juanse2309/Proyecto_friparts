@@ -61,18 +61,40 @@ const ModuloPedidos = {
             console.error("Error cargando clientes:", e);
         }
 
-        // Cargar Productos
+        // Cargar Productos - SIEMPRE con precios frescos desde /api/productos/listar
         try {
-            if (window.AppState && window.AppState.sharedData.productos.length > 0) {
-                this.productosData = window.AppState.sharedData.productos;
-            } else {
-                const response = await fetch('/api/productos/listar');
-                const data = await response.json();
-                this.productosData = data?.productos || data?.items || (Array.isArray(data) ? data : []);
-            }
-            console.log("✅ Productos cargados:", this.productosData.length);
+            // Usar /api/productos/listar que siempre incluye precios de DB_Productos
+            const respProd = await fetch('/api/productos/listar?refresh=true');
+            const productosResp = await respProd.json();
+            const rawList = Array.isArray(productosResp) ? productosResp : (productosResp.items || []);
+            this.productosData = rawList.map(p => ({
+                codigo_sistema: p.codigo_sistema || p.codigo || '',
+                codigo: p.codigo || p.codigo_sistema || '',
+                descripcion: p.descripcion || '',
+                imagen: p.imagen || '',
+                precio: parseFloat(p.precio) || 0,
+                stock_por_pulir: p.stock_por_pulir || 0,
+                stock_terminado: p.stock_terminado || 0,
+                stock_disponible: p.stock_disponible !== undefined ? p.stock_disponible : (p.stock || 0),
+                stock_total: p.existencias_totales || p.stock_total || 0,
+            }));
+            const conPrecio = this.productosData.filter(p => p.precio > 0).length;
+            console.log(`✅ Productos cargados en Pedidos: ${this.productosData.length} total, ${conPrecio} con precio`);
+            if (window.AppState?.sharedData) window.AppState.sharedData.productos = this.productosData;
         } catch (e) {
-            console.error("Error cargando productos:", e);
+            console.error("Error cargando productos para Pedidos:", e);
+            // Fallback: usar AppState asegurando que precio sea numérico
+            if (window.AppState && window.AppState.sharedData.productos.length > 0) {
+                this.productosData = window.AppState.sharedData.productos.map(p => ({
+                    ...p,
+                    codigo_sistema: p.codigo_sistema || p.codigo || '',
+                    codigo: p.codigo || p.codigo_sistema || '',
+                    precio: parseFloat(p.precio) || 0,
+                    stock_disponible: p.stock_disponible !== undefined ? p.stock_disponible : (p.stock || 0),
+                }));
+                const conPrecio = this.productosData.filter(p => p.precio > 0).length;
+                console.warn(`⚠️ Usando caché del AppState: ${this.productosData.length} productos, ${conPrecio} con precio`);
+            }
         }
 
         // Pre-fill vendedor
@@ -201,7 +223,7 @@ const ModuloPedidos = {
     buscarProductos: function (query, suggestionsDiv) {
         const queryNorm = this.normalizeString(query);
         const resultados = this.productosData.filter(prod => {
-            const codigoNorm = this.normalizeString(prod.codigo_sistema);
+            const codigoNorm = this.normalizeString(prod.codigo_sistema || prod.codigo || '');
             const descNorm = this.normalizeString(prod.descripcion);
             return codigoNorm.includes(queryNorm) || descNorm.includes(queryNorm);
         });
@@ -213,10 +235,15 @@ const ModuloPedidos = {
         }
 
         renderProductSuggestions(suggestionsDiv, resultados.slice(0, 10), (item) => {
-            document.getElementById('ped-producto').value = `${item.codigo_sistema} - ${item.descripcion}`;
-            document.getElementById('ped-precio').value = item.precio || 0;
+            const codigoDisplay = item.codigo_sistema || item.codigo || '';
+            document.getElementById('ped-producto').value = `${codigoDisplay} - ${item.descripcion}`;
+            const precio = parseFloat(item.precio) || 0;
+            document.getElementById('ped-precio').value = precio;
             this.productoSeleccionado = item; // Guardar el objeto completo
-            console.log("💰 Producto seleccionado:", item.codigo_sistema, "Stock Disponible:", item.stock_disponible);
+            console.log(`💰 Producto: ${codigoDisplay} | Precio: $${precio} | Stock: ${item.stock_disponible}`);
+            if (precio === 0) {
+                console.warn("⚠️ Este producto no tiene precio en DB_Productos. Ingréselo manualmente.");
+            }
         });
     },
 
@@ -1080,7 +1107,13 @@ const ModuloPedidos = {
     // Método para integración con app.js
     inicializar: function () {
         console.log("🔧 Inicializando módulo Pedidos (desde app.js)");
-        this.cargarDatosIniciales();
+        // Evitar múltiples cargas simultáneas
+        if (this._cargando) {
+            console.log("⏭️ Pedidos ya está cargando, omitiendo...");
+            return;
+        }
+        this._cargando = true;
+        this.cargarDatosIniciales().finally(() => { this._cargando = false; });
         this.actualizarVendedor();
     },
 

@@ -253,15 +253,30 @@
                 </div>
             </div>
 
-            <!-- Opción Staff -->
+            <!-- Opción Staff FRIPARTS -->
             <div class="card bg-white bg-opacity-10 backdrop-blur border-0 hover-scale cursor-pointer"
-                onclick="AuthModule.openStaffLogin()" style="width: 280px; padding: 2rem; border-radius: 20px;">
+                onclick="AuthModule.openStaffLogin('FRIPARTS')"
+                style="width: 280px; padding: 2rem; border-radius: 20px;">
                 <div class="text-center">
                     <div class="bg-danger bg-opacity-20 rounded-circle d-inline-flex p-4 mb-4">
                         <i class="fas fa-users-cog fa-3x text-warning"></i>
                     </div>
-                    <h3 class="h4 fw-bold mb-2">Acceso Staff</h3>
-                    <p class="small text-white-50">Operarios, Administrativos y Logística</p>
+                    <h3 class="h4 fw-bold mb-2">Staff FRIPARTS</h3>
+                    <p class="small text-white-50">Producción Bujes y Administración</p>
+                    <button class="btn btn-outline-light rounded-pill px-4 mt-3 w-100">Ingresar</button>
+                </div>
+            </div>
+
+            <!-- Opción Staff FRIMETALS -->
+            <div class="card bg-white bg-opacity-10 backdrop-blur border-0 hover-scale cursor-pointer"
+                onclick="AuthModule.openStaffLogin('FRIMETALS')"
+                style="width: 280px; padding: 2rem; border-radius: 20px;">
+                <div class="text-center">
+                    <div class="bg-success bg-opacity-20 rounded-circle d-inline-flex p-4 mb-4">
+                        <i class="fas fa-tools fa-3x text-success"></i>
+                    </div>
+                    <h3 class="h4 fw-bold mb-2">Staff FRIMETALS</h3>
+                    <p class="small text-white-50">Producción Metalmecánica y Tiempos</p>
                     <button class="btn btn-outline-light rounded-pill px-4 mt-3 w-100">Ingresar</button>
                 </div>
             </div>
@@ -308,6 +323,12 @@
                         Global</span></a> </li>
             <li class="menu-item" data-page="pedidos"> <a href="#"><i
                         class="fas fa-shopping-basket"></i><span>Pedidos</span></a> </li>
+
+            <!-- SECCION FRIMETALS -->
+            <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i class="fas fa-chart-pie"></i><span>Metals
+                        Dashboard</span></a> </li>
+            <li class="menu-item" data-page="metals-produccion"> <a href="#"><i
+                        class="fas fa-tools"></i><span>Producción Metales</span></a> </li>
 
         </ul>
         <div class="sidebar-footer">
@@ -725,11 +746,79 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="form-actions"> <button type="submit" class="btn btn-primary"><i
-                                    class="fas fa-save"></i>
-                                Registrar Inyección</button> <button type="reset" class="btn btn-secondary"><i
-                                    class="fas fa-redo"></i> Limpiar</button> </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
+                                Inyección</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                        </div>
                     </form>
+                </div>
+            </div> <!-- METALS DASHBOARD -->
+            <div id="metals-dashboard-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon d-lg-none" id="toggle-sidebar-metals-dash">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-pie"></i> Metals Dashboard</h1>
+                        <p class="subtitle">Estado actual de la planta metalmecánica</p>
+                    </div>
+                </header>
+                <div class="p-4">
+                    <div class="row g-4 mb-4">
+                        <div class="col-md-4">
+                            <div class="card border-0 shadow-sm bg-primary text-white p-3" style="border-radius: 15px;">
+                                <h6 class="text-white-50">Producción Hoy (OK)</h6>
+                                <h2 id="metals-kpi-hoy" class="fw-bold mb-0">0</h2>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-0 shadow-sm bg-success text-white p-3" style="border-radius: 15px;">
+                                <h6 class="text-white-50">Lotes en Proceso</h6>
+                                <h2 id="metals-kpi-lotes" class="fw-bold mb-0">0</h2>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-0 shadow-sm bg-danger text-white p-3" style="border-radius: 15px;">
+                                <h6 class="text-white-50">PNC Reportado</h6>
+                                <h2 id="metals-kpi-pnc" class="fw-bold mb-0">0</h2>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card shadow-sm border-0" style="border-radius: 15px;">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0 fw-bold"><i class="fas fa-history me-2 text-primary"></i> Producción
+                                Reciente</h5>
+                            <button class="btn btn-sm btn-outline-primary" onclick="ModuloMetals.cargarDashboard()">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Lote</th>
+                                            <th>Producto</th>
+                                            <th>Proceso</th>
+                                            <th>Operario</th>
+                                            <th>Cant. OK</th>
+                                            <th>Tiempo</th>
+                                            <th>Estado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="metals-dashboard-history">
+                                        <tr>
+                                            <td colspan="8" class="text-center p-5 text-muted">Cargando historial...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div> <!-- Pulido -->
             <div id="pulido-page" class="page">
@@ -1842,6 +1931,10 @@
                                     style="font-size: 0.9rem; text-align: left;">Cliente: -</span>
                             </div>
 
+                            <!-- Contenedor para Observaciones -->
+                            <div id="modal-alistamiento-observaciones" style="display: none;"></div>
+
+
                             <div class="d-flex justify-content-end mb-2">
                                 <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" id="toggle-ver-ocultos"
@@ -2021,8 +2114,7 @@
     <script src="/static/js/modules/validation.js?v=1.3.0"></script>
     <script src="/static/js/modules/touch-feedback.js?v=1.3.0"></script>
     <!-- ... resto de módulos ... --> <!-- 1. UTILS primero (funciones compartidas) -->
-    <!-- 2. APP PRINCIPAL (antes de los módulos) -->
-    <script src="/static/js/app.js?v=1.3.0"></script> <!-- 3. MÓDULOS ESPECÍFICOS -->
+    <!-- 2. APP PRINCIPAL (Movida al final) -->
     <script src="/static/js/modules/dashboard.js?v=1.3.0"></script>
     <script src="/static/js/modules/inventario.js?v=1.3.0"></script>
     <script src="/static/js/modules/inyeccion.js?v=1.3.0"></script>
@@ -2039,6 +2131,8 @@
 
     <script src="/static/js/modules/pedidos.js?v=1.3.0"></script>
     <script src="/static/js/modules/almacen.js?v=1.3.0"></script>
+    <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
+    <script src="/static/js/app.js?v=1.3.0"></script>
     <!-- Script de inicialización -->
     <script>
         // ELIMINADO LOGICA LEGACY DE MODAL COMPARTIDO
@@ -2468,9 +2562,7 @@
         </div>
     </div>
 
-    <!-- Module Scripts -->
-    <script src="/static/js/modules/portal_client.js?v=1.3.0"></script>
-    <script src="/static/js/modules/admin_clientes.js?v=1.3.0"></script>
+    <!-- Module Scripts (MOVED TO TOP OF THIS BLOCK IN REFACTOR) -->
 </body>
 
 </html>

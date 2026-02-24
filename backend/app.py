@@ -2840,6 +2840,41 @@ def listar_productos_v2():
 # ENDPOINTS PARA PRODUCTOS (CON CACH)
 # ====================================================================
 
+@app.route('/api/debug/db_productos', methods=['GET'])
+def debug_db_productos():
+    """Endpoint de diagnóstico para inspeccionar columnas de DB_Productos."""
+    try:
+        ss = gc.open_by_key(GSHEET_KEY)
+        ws_db = ss.worksheet("DB_Productos")
+        
+        # Obtener encabezados reales
+        headers = ws_db.row_values(1)
+        
+        # Obtener primeras 3 filas para ver datos
+        all_records = ws_db.get_all_records()
+        sample = all_records[:3] if all_records else []
+        
+        # Buscar FR-9304 específicamente
+        fr9304 = None
+        for r in all_records:
+            for v in r.values():
+                if 'FR-9304' in str(v) or '9304' in str(v):
+                    fr9304 = r
+                    break
+            if fr9304:
+                break
+        
+        return jsonify({
+            'columnas_db_productos': headers,
+            'total_registros': len(all_records),
+            'muestra_primeras_3': sample,
+            'fr9304': fr9304,
+            'mensaje': 'Usa estas columnas para verificar el nombre exacto de la columna de precio'
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/productos', methods=['GET'])
 def get_productos():
     """Obtener lista de productos para autocomplete."""
@@ -2892,26 +2927,35 @@ def listar_productos():
         # NUEVO: Cargar DB_Productos UNA SOLA VEZ para precios
         try:
             ws_db = ss.worksheet("DB_Productos")
-            db_productos = ws_db.get_all_records()
-            
-            # Crear diccionario de precios con MÚLTIPLES claves
+            # Usamos get_all_values() en lugar de get_all_records() para evitar
+            # el error 'expected_headers are not uniques' cuando hay columnas duplicadas
+            raw_values = ws_db.get_all_values()
             precios_db = {}
-            for item in db_productos:
-                try:
-                    precio = float(item.get('PRECIO', 0) or 0)
-                except (ValueError, TypeError):
-                    precio = 0
-                
-                # Guardar con CODIGO (ej: "FR-5000")
-                codigo_sistema = str(item.get('CODIGO', '')).strip().upper()
-                if codigo_sistema:
-                    precios_db[codigo_sistema] = precio
-                
-                # Guardar con ID CODIGO (ej: "7012")  
-                id_codigo = str(item.get('ID CODIGO', '')).strip().upper()
-                if id_codigo:
-                    precios_db[id_codigo] = precio
-            
+            if raw_values and len(raw_values) > 1:
+                headers_db = [str(h).strip() for h in raw_values[0]]
+                # Buscar índice de columna PRECIO (flexible con variantes de nombre)
+                precio_col = -1
+                for variante in ['PRECIO', 'PRICE', 'VALOR', 'PRECIO UNITARIO', 'VALOR UNITARIO']:
+                    for i, h in enumerate(headers_db):
+                        if h.strip().upper() == variante:
+                            precio_col = i
+                            break
+                    if precio_col >= 0:
+                        break
+                # Buscar índice de columna CODIGO y ID CODIGO
+                codigo_col = next((i for i, h in enumerate(headers_db) if h.strip().upper() == 'CODIGO'), -1)
+                id_codigo_col = next((i for i, h in enumerate(headers_db) if h.strip().upper() == 'ID CODIGO'), -1)
+                print(f" [DB_Productos] Cols → CODIGO:{codigo_col}, ID CODIGO:{id_codigo_col}, PRECIO:{precio_col} | Headers: {headers_db[:8]}")
+                for row in raw_values[1:]:
+                    try:
+                        precio_raw = row[precio_col] if precio_col >= 0 and precio_col < len(row) else '0'
+                        precio = float(str(precio_raw).replace(',', '').replace('$', '').strip() or 0)
+                    except (ValueError, TypeError):
+                        precio = 0
+                    codigo_sistema = str(row[codigo_col]).strip().upper() if codigo_col >= 0 and codigo_col < len(row) else ''
+                    id_codigo = str(row[id_codigo_col]).strip().upper() if id_codigo_col >= 0 and id_codigo_col < len(row) else ''
+                    if codigo_sistema: precios_db[codigo_sistema] = precio
+                    if id_codigo: precios_db[id_codigo] = precio
             print(f"✅ Precios cargados de DB_Productos: {len(precios_db)} entradas")
         except Exception as e:
             logger.warning(f"No se pudo cargar DB_Productos: {e}")

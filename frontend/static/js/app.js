@@ -124,7 +124,9 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'pedidos': window.ModuloPedidos,
         'almacen': window.AlmacenModule,
         'portal-cliente': window.ModuloPortal,
-        'admin-clientes': window.ModuloAdminClientes
+        'admin-clientes': window.ModuloAdminClientes,
+        'metals-produccion': window.ModuloMetals,
+        'metals-dashboard': window.ModuloMetals
     };
 
     if (window.AppState.paginaActual) {
@@ -218,7 +220,9 @@ function inicializarModulo(nombrePagina) {
         'historial': window.ModuloHistorial,
         'pedidos': window.ModuloPedidos,
         'almacen': window.AlmacenModule,
-        'admin-clientes': window.ModuloAdminClientes
+        'admin-clientes': window.ModuloAdminClientes,
+        'metals-produccion': window.ModuloMetals,
+        'metals-dashboard': window.ModuloMetals
     };
 
     const modulo = modulos[nombrePagina];
@@ -335,7 +339,9 @@ function inicializarModulo(nombrePagina) {
                 'historial': window.ModuloHistorial,
                 'pedidos': window.ModuloPedidos,
                 'almacen': window.AlmacenModule,
-                'admin-clientes': window.ModuloAdminClientes
+                'admin-clientes': window.ModuloAdminClientes,
+                'metals-produccion': window.ModuloMetals,
+                'metals-dashboard': window.ModuloMetals
             };
             const moduloRetry = modulosRetry[nombrePagina];
             if (moduloRetry?.inicializar) {

@@ -3,6 +3,7 @@
 
 const AuthModule = {
     currentUser: null,
+    currentStaffType: 'FRIPARTS', // 'FRIPARTS' o 'FRIMETALS'
 
     // Matriz de Permisos
     permissions: {
@@ -15,6 +16,9 @@ const AuthModule = {
         'Alistamiento': ['almacen'],
         // NUEVO ROL CLIENTE
         'Cliente': ['portal-cliente'],
+        // NUEVOS ROLES FRIMETALS
+        'METALS_PROD': ['metals-dashboard', 'metals-produccion'],
+        'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'inventario', 'historial'],
         // Fallback
         'Invitado': []
     },
@@ -118,11 +122,21 @@ const AuthModule = {
         }
     },
 
-    openStaffLogin: function () {
+    openStaffLogin: function (type = 'FRIPARTS') {
+        this.currentStaffType = type;
         const modal = document.getElementById('login-modal');
         if (modal) {
+            // Personalizar título del modal según el tipo
+            const title = modal.querySelector('h2');
+            const sub = modal.querySelector('p');
+            if (title) title.textContent = type === 'FRIMETALS' ? 'FriMetals' : 'FriTech';
+            if (sub) sub.textContent = type === 'FRIMETALS' ? 'Módulo Metalmecánica' : 'Sistema de Producción';
+
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
+
+            // Cargar los responsables correspondientes
+            this.loadResponsables();
         }
     },
 
@@ -316,7 +330,11 @@ const AuthModule = {
 
             select.innerHTML = '<option value="">Cargando...</option>';
 
-            const response = await fetch('/api/auth/responsables');
+            const endpoint = this.currentStaffType === 'FRIMETALS'
+                ? '/api/auth/metals/responsables'
+                : '/api/auth/responsables';
+
+            const response = await fetch(endpoint);
             const users = await response.json();
 
             if (users.error) {
@@ -361,7 +379,11 @@ const AuthModule = {
         errorMsg.style.display = 'none';
 
         try {
-            const response = await fetch('/api/auth/login', {
+            const endpoint = this.currentStaffType === 'FRIMETALS'
+                ? '/api/auth/metals/login'
+                : '/api/auth/login';
+
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ responsable: nombre, password: password })
@@ -590,30 +612,44 @@ const AuthModule = {
         if (!this.currentUser) return;
 
         const role = this.currentUser.rol;
-        let allowedPages = [...(this.permissions[role] || [])];
+        let allowedPages = [];
 
-        // LOGICA EXCEPCIONES STAFF
-        const userNameUpper = this.currentUser.nombre.toUpperCase();
-
-        // Helper para normalizar (quitar tildes)
-        const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const nameNorm = normalize(userNameUpper);
-
-        // WILMER NOVOA -> Ver Ensamble ademas de Inyeccion
-        if (nameNorm.includes('WILMER') && nameNorm.includes('NOVOA')) {
-            if (!allowedPages.includes('ensamble')) allowedPages.push('ensamble');
+        // Determinar permisos base
+        if (this.currentUser.tipo === 'METALS_STAFF') {
+            // Si es de metales, por ahora damos acceso total a metales
+            allowedPages = ['metals-dashboard', 'metals-produccion'];
+            // Si el departamento es Admin, agregamos más
+            if (role.toUpperCase().includes('ADMIN') || role.toUpperCase().includes('GERENCIA')) {
+                allowedPages.push('inventario', 'historial');
+            }
+        } else {
+            allowedPages = [...(this.permissions[role] || [])];
         }
 
-        // NATALIA LOPEZ -> Alistamiento (Ya tiene 'almacen' por rol)
-        // Solo asegurar que pueda delegar (se maneja en almacen.js)
+        // LOGICA EXCEPCIONES STAFF FRIPARTS (Solo si no es METALS_STAFF)
+        if (this.currentUser.tipo !== 'METALS_STAFF') {
+            const userNameUpper = this.currentUser.nombre.toUpperCase();
 
-        // PAOLA y ZOENIA -> Bloquear Dashboard, Almacen, Facturacion y Mezcla
-        if (nameNorm.includes('PAOLA') || nameNorm.includes('ZOENIA')) {
-            // Remover explícitamente si existen
-            allowedPages = allowedPages.filter(p => !['dashboard', 'almacen', 'facturacion', 'mezcla'].includes(p));
-            // Asegurar acceso a edición global (sin facturacion ni mezcla)
-            const extras = ['inventario', 'historial', 'inyeccion', 'pulido', 'ensamble', 'pnc'];
-            extras.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
+            // Helper para normalizar (quitar tildes)
+            const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const nameNorm = normalize(userNameUpper);
+
+            // WILMER NOVOA -> Ver Ensamble ademas de Inyeccion
+            if (nameNorm.includes('WILMER') && nameNorm.includes('NOVOA')) {
+                if (!allowedPages.includes('ensamble')) allowedPages.push('ensamble');
+            }
+
+            // NATALIA LOPEZ -> Alistamiento (Ya tiene 'almacen' por rol)
+            // Solo asegurar que pueda delegar (se maneja en almacen.js)
+
+            // PAOLA y ZOENIA -> Bloquear Dashboard, Almacen, Facturacion y Mezcla
+            if (nameNorm.includes('PAOLA') || nameNorm.includes('ZOENIA')) {
+                // Remover explícitamente si existen
+                allowedPages = allowedPages.filter(p => !['dashboard', 'almacen', 'facturacion', 'mezcla'].includes(p));
+                // Asegurar acceso a edición global (sin facturacion ni mezcla)
+                const extras = ['inventario', 'historial', 'inyeccion', 'pulido', 'ensamble', 'pnc'];
+                extras.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
+            }
         }
 
         // 1. Mostrar/Ocultar Menú Sidebar
@@ -622,11 +658,6 @@ const AuthModule = {
 
         menuItems.forEach(item => {
             const pageName = item.getAttribute('data-page');
-
-            // Si es Cliente, ocultar TODO el sidebar standard? 
-            // O mostrar solo lo relevante?
-            // Actualmente portal-cliente no está en el sidebar.
-            // Asi que ocultamos todo para 'Cliente' si 'portal-cliente' no esta en la lista.
 
             if (allowedPages.includes(pageName)) {
                 item.style.display = 'block';
@@ -638,12 +669,10 @@ const AuthModule = {
 
         // 2. Redirección Forzada
         const activePage = document.querySelector('.page.active');
-        // Si estamos en dashboard (default) pero usuario es Cliente -> Redirigir a Portal
-        // Si no hay pagina activa conocida, o no permitida -> Redirigir
-
         // Determinar destino ideal
         let targetPage = 'dashboard'; // Default staff
         if (role === 'Cliente') targetPage = 'portal-cliente';
+        else if (this.currentUser.tipo === 'METALS_STAFF') targetPage = 'metals-dashboard';
         else if (role === 'Comercial') targetPage = 'pedidos';
         else if (firstAllowed) targetPage = firstAllowed;
 

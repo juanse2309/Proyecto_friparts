@@ -9,6 +9,66 @@ auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger(__name__)
 
 # ====================================================================
+# FRIMETALS AUTH
+# ====================================================================
+
+@auth_bp.route('/api/auth/metals/responsables', methods=['GET'])
+def get_metals_responsables():
+    try:
+        ws = sheets_client.get_worksheet("METALS_PERSONAL")
+        if not ws:
+            return jsonify({"error": "Hoja METALS_PERSONAL no encontrada"}), 500
+        records = ws.get_all_records()
+        usuarios = []
+        for row in records:
+            if row.get("ACTIVO") == "SI":
+                usuarios.append({
+                    "nombre": row.get("RESPONSABLE", ""),
+                    "departamento": row.get("DEPARTAMENTO", ""),
+                    "documento": str(row.get("DOCUMENTO", ""))
+                })
+        return jsonify(usuarios)
+    except Exception as e:
+        logger.error(f"Error fetching metals responsables: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/api/auth/metals/login', methods=['POST'])
+def metals_login():
+    try:
+        data = request.json
+        usuario_nombre = data.get('responsable')
+        password = data.get('password')
+        if not usuario_nombre or not password:
+            return jsonify({"success": False, "message": "Faltan datos"}), 400
+        ws = sheets_client.get_worksheet("METALS_PERSONAL")
+        if not ws:
+            return jsonify({"success": False, "message": "Error interno"}), 500
+        records = ws.get_all_records()
+        user_found = next((r for r in records if r.get("RESPONSABLE") == usuario_nombre), None)
+        if not user_found:
+             return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
+        
+        # Validar password (documento)
+        stored_doc = normalize_credential(user_found.get("DOCUMENTO"))
+        provided_pass = normalize_credential(password)
+        
+        if provided_pass == stored_doc:
+            return jsonify({
+                "success": True,
+                "user": {
+                    "nombre": user_found.get("RESPONSABLE"),
+                    "rol": user_found.get("DEPARTAMENTO"),
+                    "tipo": "METALS_STAFF"
+                }
+            })
+        else:
+            return jsonify({"success": False, "message": "Contraseña incorrecta"}), 401
+    except Exception as e:
+        logger.error(f"Error in metals login: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ====================================================================
 # HELPER: Sheets Interaction
 # ====================================================================
 def get_client_users_sheet():
