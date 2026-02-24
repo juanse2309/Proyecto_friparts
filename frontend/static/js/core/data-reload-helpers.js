@@ -41,6 +41,7 @@ const DataReloadHelpers = (() => {
                 codigo_sistema: p.codigo || '',
                 descripcion: p.descripcion || '',
                 imagen: p.imagen || '',
+                precio: p.precio || 0,
                 stock_por_pulir: p.stock_por_pulir || 0,
                 stock_terminado: p.stock_terminado || 0,
                 stock_total: p.existencias_totales || 0,

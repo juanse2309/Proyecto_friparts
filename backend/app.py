@@ -32,13 +32,16 @@ from backend.routes.imagenes_routes import imagenes_bp
 from backend.routes.common_routes import common_bp
 from backend.routes.facturacion_routes import facturacion_bp
 from backend.routes.inventario_routes import inventario_bp
+from backend.routes.metals_routes import metals_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
 app.register_blueprint(imagenes_bp, url_prefix='/imagenes')
 app.register_blueprint(facturacion_bp)
 app.register_blueprint(inventario_bp)
+app.register_blueprint(metals_bp)
 app.register_blueprint(common_bp, url_prefix='/api')
+
 
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
@@ -2736,6 +2739,27 @@ def listar_productos_v2():
         ss = gc.open_by_key(GSHEET_KEY)
         ws = ss.worksheet(Hojas.PRODUCTOS)
         datos = ws.get_all_records()
+
+        # NUEVO: Cargar DB_Productos para los precios (Fase 14)
+        try:
+            ws_db = ss.worksheet("DB_Productos")
+            db_productos_precios = ws_db.get_all_records()
+            precios_db = {}
+            for item in db_productos_precios:
+                try:
+                    p_val = float(item.get('PRECIO', 0) or 0)
+                except (ValueError, TypeError):
+                    p_val = 0
+                
+                # Mapeo robusto por CODIGO e ID CODIGO
+                c_sis = str(item.get('CODIGO', '')).strip().upper()
+                id_c = str(item.get('ID CODIGO', '')).strip().upper()
+                if c_sis: precios_db[c_sis] = p_val
+                if id_c: precios_db[id_c] = p_val
+            print(f" [V2] Precios vinculados: {len(precios_db)} entradas")
+        except Exception as e_p:
+            print(f" ⚠️ No se pudieron cargar precios en V2: {e_p}")
+            precios_db = {}
         
         lista_final = []
         
@@ -2769,16 +2793,22 @@ def listar_productos_v2():
                 # Puedes sumar ensamblado aqui si quieres
                 stock_total = por_pulir + terminado
 
-                # --- E. Logica de Semaforo (Centralizada) ---
+                # --- E. Precios (Fase 14) ---
+                id_cod_up = str(fila.get('ID CODIGO', '')).strip().upper()
+                cod_sis_up = str(fila.get('CODIGO SISTEMA', '')).strip().upper()
+                precio = precios_db.get(cod_sis_up) or precios_db.get(id_cod_up) or 0
+
+                # --- F. Logica de Semaforo (Centralizada) ---
                 # Usamos stock_global para el semforo (Produccin)
                 stock_global = (terminado + por_pulir) - comprometido
                 semaforo = calcular_metricas_semaforo(stock_global, p_min, p_reorden, p_max)
 
-                # --- F. Objeto Final ---
+                # --- G. Objeto Final ---
                 item = {
                     "codigo": codigo,
                     "descripcion": str(fila.get('DESCRIPCION', '')),
                     "imagen": corregir_url_imagen(str(fila.get('IMAGEN', ''))),
+                    "precio": precio,
                     "stock_por_pulir": por_pulir,
                     "stock_terminado": terminado,
                     "stock_comprometido": comprometido,
