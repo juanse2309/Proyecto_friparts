@@ -67,10 +67,24 @@ CACHE_TTL_STRICT = 60    # 1 minuto para datos muy volátiles
 CACHE_TTL_MEDIUM = 300   # 5 minutos para catálogos y personal
 CACHE_TTL_LONG = 3600    # 1 hora para configuraciones
 
+PRODUCTOS_CACHE_TTL = CACHE_TTL_MEDIUM
+
 PRODUCTOS_LISTAR_CACHE = {
     "data": None,
     "timestamp": 0,
     "ttl": CACHE_TTL_MEDIUM
+}
+
+PRODUCTOS_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": PRODUCTOS_CACHE_TTL
+}
+
+PRODUCTOS_V2_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": PRODUCTOS_CACHE_TTL
 }
 
 RESPONSABLES_CACHE = {
