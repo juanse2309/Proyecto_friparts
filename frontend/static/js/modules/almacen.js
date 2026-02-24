@@ -166,6 +166,18 @@ const AlmacenModule = {
             console.log('📦 [Almacen] Response status:', response.status);
 
             const data = await response.json();
+
+            // LOG DE DEPURACIÓN CRÍTICO PARA OBSERVACIONES
+            if (data.success && data.pedidos && data.pedidos.length > 0) {
+                const sample = data.pedidos[0];
+                console.log('📦 [Almacen] ESTRUCTURA DE PEDIDO RECIBIDA:', {
+                    id: sample.id_pedido,
+                    cliente: sample.cliente,
+                    observaciones: sample.observaciones,
+                    keys: Object.keys(sample)
+                });
+            }
+
             console.log('📦 [Almacen] Datos recibidos:', {
                 success: data.success,
                 pedidosCount: data.pedidos?.length || 0
@@ -231,10 +243,24 @@ const AlmacenModule = {
         let html = '<div class="row g-3">';
         // Filtrar pedidos completados (100% Alistado y 100% Enviado)
         const pendientesReales = this.pedidosPendientes.filter(p => {
-            const alistado = parseInt(p.progreso) || 0;
-            const enviado = parseInt(p.progreso_despacho) || 0;
-            return !(alistado === 100 && enviado === 100);
+            // Limpiar % y manejar nulos de forma robusta
+            const alistadoStr = String(p.progreso || '0').replace('%', '').trim();
+            const enviadoStr = String(p.progreso_despacho || '0').replace('%', '').trim();
+
+            const alistado = parseInt(alistadoStr) || 0;
+            const enviado = parseInt(enviadoStr) || 0;
+
+            // Un pedido se oculta SOLO si ambos procesos están al 100%
+            const isCompletado = (alistado >= 100 && enviado >= 100);
+
+            if (this.isTVMode) {
+                console.log(`🔍 [Almacen TV] Filtrando Pedido ${p.id_pedido}: Alistado=${alistado}%, Enviado=${enviado}% -> Mostrar: ${!isCompletado}`);
+            }
+
+            return !isCompletado;
         });
+
+        console.log(`📦 [Almacen] Pedidos tras filtrado: ${pendientesReales.length} de ${this.pedidosPendientes.length}`);
 
         if (pendientesReales.length === 0) {
             container.innerHTML = `
@@ -293,6 +319,12 @@ const AlmacenModule = {
                                 ${pedido.hora ? `<span class="ms-2 text-primary" style="font-weight: 600;"><i class="fas fa-clock me-1"></i> ${pedido.hora}</span>` : ''} 
                                 | <i class="fas fa-user me-1"></i> ${pedido.vendedor}
                             </p>
+                            
+                            ${(pedido.observaciones && String(pedido.observaciones).trim()) ? `
+                            <div class="alert alert-warning p-2 mb-3 nota-alistamiento-card" style="font-size: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b; background-color: #fefce8; color: #92400e;">
+                                <i class="fas fa-exclamation-triangle me-1"></i> <strong>Nota:</strong> ${String(pedido.observaciones).length > 70 ? String(pedido.observaciones).substring(0, 70) + '...' : pedido.observaciones}
+                            </div>
+                            ` : ''}
                             
                             <!-- Barra Doble de Progreso -->
                             <div class="mt-auto" style="cursor: pointer; margin-bottom: 10px;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
@@ -361,6 +393,18 @@ const AlmacenModule = {
         });
         html += '</div>';
         container.innerHTML = html;
+
+        // Diagnóstico avanzado Fase 5
+        if (this.isTVMode) {
+            const cardsCount = container.querySelectorAll('.almacen-card-pro').length;
+            const containerStyles = window.getComputedStyle(container);
+            console.log(`📊 [Almacen TV Diagnostic] DOM Actualizado: ${cardsCount} tarjetas inyectadas.`);
+            console.log(`📊 [Almacen TV Diagnostic] Container Style: display=${containerStyles.display}, opacity=${containerStyles.opacity}, visibility=${containerStyles.visibility}`);
+
+            if (cardsCount > 0 && (containerStyles.display === 'none' || containerStyles.opacity === '0')) {
+                console.error('❌ [Almacen TV Diagnostic] ¡ALERTA! Las tarjetas existen pero el contenedor está oculto por CSS.');
+            }
+        }
     },
 
     /**
@@ -414,6 +458,21 @@ const AlmacenModule = {
             </span>
         </div>
     `;
+
+        const observacionesContainer = document.getElementById('modal-alistamiento-observaciones');
+        if (observacionesContainer) {
+            if (pedido.observaciones && String(pedido.observaciones).trim()) {
+                observacionesContainer.innerHTML = `
+                    <div class="alert alert-warning mb-3" style="border-left: 5px solid #f59e0b; background-color: #fffbeb;">
+                        <h6 class="fw-bold mb-1" style="color: #92400e;"><i class="fas fa-comment-dots me-2"></i>Observaciones del Vendedor:</h6>
+                        <p class="mb-0 text-dark" style="font-size: 0.95rem;">${pedido.observaciones}</p>
+                    </div>
+                `;
+                observacionesContainer.style.display = 'block';
+            } else {
+                observacionesContainer.style.display = 'none';
+            }
+        }
 
         this.renderizarProductosChecklist();
         this.actualizarProgresoVisual();
@@ -956,20 +1015,44 @@ const AlmacenModule = {
 
         if (this.isTVMode) {
             console.log('📺 [Almacen] Activando Modo TV...');
+
+            // Forzar cierre de cualquier overlay de carga (Fase 5 fix)
+            if (window.mostrarLoading) window.mostrarLoading(false);
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) overlay.style.display = 'none';
+
             document.body.classList.add('tv-mode');
 
-            // Salir con ESCAPE
+            // Forzar visibilidad absoluta de la página de Almacén
+            const p = document.getElementById('almacen-page');
+            if (p) {
+                p.classList.add('active');
+                p.style.setProperty('display', 'block', 'important');
+                p.style.setProperty('z-index', '5000', 'important');
+            }
+
+            // Forzar re-renderizado para aplicar estilos de TV y asegurar visibilidad
+            this.renderizarTarjetas();
+
+            // Salir con ESCAPE (Protección contra propagación)
             this._escHandler = (e) => {
                 if (e.key === 'Escape' && this.isTVMode) {
+                    console.log('📺 [Almacen] Tecla ESC detectada, saliendo de TV...');
                     this.toggleModoTV();
                 }
             };
-            window.addEventListener('keydown', this._escHandler);
+
+            // Timeout pequeño para evitar que el Enter/Click inicial dispare el handler
+            setTimeout(() => {
+                if (this.isTVMode) window.addEventListener('keydown', this._escHandler);
+            }, 500);
 
             // Intentar poner en pantalla completa si el navegador lo permite
             try {
                 if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen();
+                    document.documentElement.requestFullscreen().catch(e => {
+                        console.warn('Pantalla completa rechazada:', e);
+                    });
                 }
             } catch (e) {
                 console.warn('Pantalla completa no soportada o bloqueada:', e);
@@ -996,11 +1079,19 @@ const AlmacenModule = {
 
             mostrarNotificacion('Modo TV Activado: Auto-refresco cada 30s', 'info');
 
-            // Iniciar auto-scroll
-            this.iniciarAutoScroll();
+            // Iniciar auto-scroll después de un delay de seguridad (10s) para asegurar carga visual
+            setTimeout(() => {
+                if (this.isTVMode) {
+                    console.log('📜 [Almacen] Iniciando Auto-Scroll diferido...');
+                    this.iniciarAutoScroll();
+                }
+            }, 10000);
         } else {
             console.log('📺 [Almacen] Desactivando Modo TV...');
             document.body.classList.remove('tv-mode');
+
+            // Re-renderizar para volver a modo normal (colores, fondos, etc)
+            this.renderizarTarjetas();
 
             // Remover listener de ESC
             if (this._escHandler) {
@@ -1057,7 +1148,7 @@ const AlmacenModule = {
             let nextCard = cards.find(c => {
                 const rect = c.getBoundingClientRect();
                 // Aumentamos el margen para asegurar que detectamos una fila nueva
-                return rect.top > viewportHeight - 100;
+                return rect.top > 100; // Si el top de la tarjeta está debajo del header invisible
             });
 
             if (!nextCard) return maxScroll;

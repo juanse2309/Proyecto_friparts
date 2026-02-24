@@ -1,183 +1,159 @@
-/* tv_vista.css - Optimización para pantallas grandes (Planta/Administración) */
+/* tv_vista.css - MODO TV (ESTÉTICA ESTILO LIGHT + CARDS DARK PRO) */
 
 body.tv-mode {
-    background: #0f172a !important;
-    /* Fondo muy oscuro para contraste */
-    color: #f1f5f9 !important;
-    scroll-behavior: smooth !important;
-    scrollbar-width: none;
-    /* Firefox */
-    -ms-overflow-style: none;
-    /* IE/Edge */
-}
-
-/* Chrome, Safari, Opera */
-body.tv-mode::-webkit-scrollbar {
-    display: none;
-}
-
-body.tv-mode .sidebar {
-    display: none !important;
-    /* Ocultar sidebar para ganar espacio */
-}
-
-body.tv-mode .main-content {
-    margin-left: 0 !important;
-    padding: 10px !important;
-    /* Mínimo padding para ganar espacio */
-}
-
-body.tv-mode .top-bar {
-    display: none !important;
-    /* Ocultar cabecera completamente */
-}
-
-body.tv-mode .page-title h1 {
-    font-size: 3rem !important;
-    color: #38bdf8 !important;
-}
-
-body.tv-mode .page-title p {
-    font-size: 1.5rem !important;
-    color: #94a3b8 !important;
-}
-
-/* Tarjetas de Pedido en Modo TV */
-body.tv-mode .almacen-card-pro {
-    background: #1e293b !important;
-    border: 2px solid #334155 !important;
-    margin-bottom: 2vh !important;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5) !important;
-}
-
-body.tv-mode .almacen-card-pro [style*="background: #f8fafc"] {
-    background: #0f172a !important;
-    /* Header de la tarjeta más oscuro */
-    border-bottom: 1px solid #334155 !important;
-}
-
-body.tv-mode .almacen-card-pro .text-primary.order-id-ref {
-    font-size: 1.5rem !important;
-    /* ID del pedido (Ajustado) */
-    color: #38bdf8 !important;
-    max-width: none !important;
-    overflow: visible !important;
-}
-
-body.tv-mode .almacen-card-pro .card-title {
-    font-size: 2.2rem !important;
-    /* Nombre del Cliente (Ajustado balance) */
-    color: #f1f5f9 !important;
-    margin-top: 5px !important;
-}
-
-body.tv-mode .almacen-card-pro .text-muted {
-    font-size: 1.1rem !important;
-    /* Fecha y Vendedor */
-    color: #94a3b8 !important;
-}
-
-/* Info de Alistador destacado en TV (Footer de la tarjeta) */
-body.tv-mode .delegation-section {
-    background: #0f172a !important;
-    /* Fondo más oscuro para el footer en TV */
-    padding: 1.5vh 1.5vw !important;
-    border-radius: 0 0 12px 12px !important;
+    background: #f1f5f9 !important;
+    /* Fondo claro neutro */
+    color: #1e293b !important;
+    overflow-y: auto !important;
     margin: 0 !important;
-    border-top: 2px solid #334155 !important;
-}
-
-body.tv-mode .delegate-label {
-    font-size: 1rem !important;
-    color: #38bdf8 !important;
-    opacity: 1 !important;
-}
-
-body.tv-mode .alistador-tv-display {
-    display: block !important;
-    font-size: 1.8rem !important;
-    color: #f1f5f9 !important;
-    margin-top: 5px !important;
-}
-
-body.tv-mode .delegation-controls {
-    display: none !important;
-    /* Ocultar controles de edición en TV */
-}
-
-body.tv-mode .almacen-card-pro .badge {
-    font-size: 1.1rem !important;
-    padding: 0.5rem 1rem !important;
-}
-
-/* Etiquetas de progreso */
-body.tv-mode .almacen-card-pro .small.fw-bold.text-muted {
-    font-size: 1.2rem !important;
-    /* "Alistado", "Despachado" */
-    color: #cbd5e1 !important;
-}
-
-body.tv-mode .almacen-card-pro .small.fw-bold:not(.text-muted) {
-    font-size: 1.5rem !important;
-    /* Porcentaje % */
-}
-
-/* Barras de Progreso Gigantes */
-body.tv-mode .progress.progress-modern {
-    height: 3.5vh !important;
-    background: #334155 !important;
-}
-
-/* Animación para situaciones Urgentes */
-@keyframes pulse-urgent {
-    0% {
-        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-    }
-
-    70% {
-        box-shadow: 0 0 0 20px rgba(239, 68, 68, 0);
-    }
-
-    100% {
-        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-    }
-}
-
-body.tv-mode .order-urgent {
-    animation: pulse-urgent 2s infinite;
-    border: 3px solid #ef4444 !important;
+    padding: 0 !important;
 }
 
 /* Ocultar elementos innecesarios */
-body.tv-mode .btn-icon,
-body.tv-mode .form-actions,
-body.tv-mode .top-controls .styled-select {
+body.tv-mode .sidebar,
+body.tv-mode .top-bar:not(#tv-header-fake),
+body.tv-mode .navbar,
+body.tv-mode #sidebar,
+body.tv-mode .sidebar-overlay,
+body.tv-mode #loading-overlay {
     display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
 }
 
+/* Contenedor principal */
+body.tv-mode .main-content,
+body.tv-mode #page-content {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: transparent !important;
+}
+
+/* Página de Almacén */
+body.tv-mode #almacen-page {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    z-index: 5000 !important;
+    background: #f1f5f9 !important;
+    padding: 2vh 2vw !important;
+}
+
+/* Título de Página */
+body.tv-mode #almacen-page .page-title h1 {
+    display: flex !important;
+    align-items: center !important;
+    gap: 15px !important;
+    font-size: 3rem !important;
+    font-weight: 800 !important;
+    color: #1e293b !important;
+    margin-bottom: 3vh !important;
+}
+
+body.tv-mode #almacen-page .page-title i {
+    font-size: 3.5rem !important;
+    color: #4f46e5 !important;
+}
+
+/* TARJETAS DARK PRO (Como en la imagen) */
+body.tv-mode .almacen-card-pro {
+    background: #1e293b !important;
+    /* Azul oscuro profundo */
+    border: none !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) !important;
+    color: #ffffff !important;
+    border-radius: 12px !important;
+    border-left: 6px solid #f97316 !important;
+    /* Borde naranja de estado */
+    margin-bottom: 1.5rem !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    overflow: hidden !important;
+}
+
+/* Encabezado de Tarjeta en Modo TV */
+body.tv-mode .almacen-card-pro>div:first-child {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* ID del pedido */
+body.tv-mode .almacen-card-pro .order-id-ref {
+    color: #38bdf8 !important;
+    /* Sky blue */
+    font-size: 1.8rem !important;
+}
+
+/* Cliente */
+body.tv-mode .almacen-card-pro .card-title {
+    color: #ffffff !important;
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+}
+
+/* Textos secundarios */
+body.tv-mode .almacen-card-pro .text-muted {
+    color: #94a3b8 !important;
+    /* Slate 400 */
+    font-size: 1.1rem !important;
+}
+
+/* Notas/Observaciones (Revertidas a estilo integrado) */
+body.tv-mode .nota-alistamiento-card {
+    font-size: 1.1rem !important;
+    background-color: rgba(245, 158, 11, 0.1) !important;
+    border-left: 4px solid #f59e0b !important;
+    color: #fbbf24 !important;
+    padding: 12px !important;
+    margin-top: 10px !important;
+    border-radius: 6px !important;
+}
+
+/* Barras de progreso */
+body.tv-mode .progress.progress-modern {
+    height: 3vh !important;
+    background: #334155 !important;
+    border-radius: 6px !important;
+}
+
+body.tv-mode .progress-bar {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+}
+
+/* Asignación (Alistador) */
+body.tv-mode .alistador-tv-display {
+    display: block !important;
+    font-size: 1.6rem !important;
+    font-weight: 800 !important;
+    color: #ffffff !important;
+    margin-top: 10px !important;
+    text-transform: uppercase !important;
+}
+
+/* Botón de salida */
 body.tv-mode .btn-exit-tv {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 9999;
-    background: #ef4444;
-    color: white;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 0.85rem;
-    cursor: pointer;
-    border: none;
-    opacity: 0.7;
-    transition: opacity 0.3s;
+    position: fixed !important;
+    bottom: 25px !important;
+    right: 25px !important;
+    z-index: 10000 !important;
+    background: #ef4444 !important;
+    color: white !important;
+    border: none !important;
+    padding: 12px 20px !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    opacity: 0.8;
 }
 
-body.tv-mode .btn-exit-tv:hover {
-    opacity: 1;
-}
-
-/* Forzar 2 columnas en TV */
+/* Grid */
 body.tv-mode .col-md-6.col-lg-4 {
-    flex: 0 0 calc(50% - 1.5rem) !important;
+    flex: 0 0 calc(50% - 1rem) !important;
     max-width: 50% !important;
 }

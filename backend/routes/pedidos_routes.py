@@ -435,6 +435,11 @@ def obtener_detalle_pedido(id_pedido):
         # Tomamos los datos de cabecera del primer item
         cabecera = items_pedido[0]
         
+        # Búsqueda robusta de observaciones (varias posibilidades de cabecera)
+        obs_val = cabecera.get("OBSERVACIONES") or cabecera.get("OBSERVACION") or \
+                  cabecera.get("NOTAS") or cabecera.get("NOTA") or \
+                  cabecera.get("COMENTARIOS") or cabecera.get("COMENTARIO") or ""
+        
         pedido = {
             "id_pedido": cabecera.get("ID PEDIDO"),
             "fecha": cabecera.get("FECHA"),
@@ -447,7 +452,7 @@ def obtener_detalle_pedido(id_pedido):
             "forma_pago": cabecera.get("FORMA DE PAGO", "Contado"),
             "descuento_global": str(cabecera.get("DESCUENTO %", "0")).replace('%', ''),
             "estado": cabecera.get("ESTADO"),
-            "observaciones": cabecera.get("OBSERVACIONES", ""),
+            "observaciones": obs_val,
             "productos": []
         }
         
@@ -487,7 +492,11 @@ def obtener_pedidos_pendientes():
         
         logger.info(f"🔍 Filtrando pedidos para: Usuario='{usuario_actual}', Rol='{rol_actual}'")
         if registros:
-            logger.info(f"📊 Primer registro de PEDIDOS: {registros[0].keys()}")
+            headers_list = list(registros[0].keys())
+            logger.info(f"📊 Cabeceras detectadas en PEDIDOS: {headers_list}")
+            # Log de un registro de ejemplo para ver si OBSERVACIONES tiene valor
+            if "OBSERVACIONES" in registros[0]:
+                logger.info(f"📸 Muestra de OBSERVACIONES primer pedido: '{registros[0].get('OBSERVACIONES')}'")
         else:
             logger.warning("⚠️ La hoja PEDIDOS está vacía")
 
@@ -531,6 +540,9 @@ def obtener_pedidos_pendientes():
                         "vendedor": r.get("VENDEDOR"),
                         "direccion": r.get("DIRECCION", ""),
                         "ciudad": r.get("CIUDAD", ""),
+                        "observaciones": r.get("OBSERVACIONES") or r.get("OBSERVACION") or \
+                                         r.get("NOTAS") or r.get("NOTA") or \
+                                         r.get("COMENTARIOS") or r.get("COMENTARIO") or "",
                         "delegado_a": delegado_a,
                         "productos": []
                     }
