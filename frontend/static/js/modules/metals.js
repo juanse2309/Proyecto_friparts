@@ -29,105 +29,49 @@ const ModuloMetals = {
             icon: 'fa-circle-notch',
             color: '#3b82f6',
             maquinas: ['TORNO-1', 'TORNO-2', 'TORNO-3', 'TORNO-4'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-tachometer-alt"></i> RPM</label>
-                    <select id="extra-rpm" class="input-metals">
-                        <option value="">-- RPM --</option>
-                        <option>100</option><option>200</option><option>300</option>
-                        <option>500</option><option>800</option><option>1000</option>
-                        <option>1500</option><option>2000</option>
-                    </select>
-                </div>
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-cube"></i> Material</label>
-                    <input type="text" id="extra-material" class="input-metals" placeholder="Ej: Acero 1020, Aluminio...">
-                </div>`
+            extraFields: ''
         },
         'CORTADORA_LASER': {
             label: 'Cortadora Laser',
             icon: 'fa-bolt',
             color: '#ef4444',
             maquinas: ['CORTADORA LASER'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-sun"></i> Potencia (%)</label>
-                    <input type="number" id="extra-potencia" class="input-metals" min="1" max="100" placeholder="Ej: 80">
-                </div>
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-wind"></i> Velocidad (mm/s)</label>
-                    <input type="number" id="extra-velocidad" class="input-metals" min="1" placeholder="Ej: 50">
-                </div>`
+            extraFields: ''
         },
         'SOLDADURA': {
             label: 'Soldadura',
             icon: 'fa-fire',
             color: '#f59e0b',
             maquinas: ['SOLDADORA-1', 'SOLDADORA-2'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-tools"></i> Tipo Soldadura</label>
-                    <select id="extra-tipo-soldadura" class="input-metals">
-                        <option value="">-- Tipo --</option>
-                        <option>MIG</option><option>TIG</option><option>PUNTO</option><option>ARCO</option>
-                    </select>
-                </div>
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-cube"></i> Material</label>
-                    <input type="text" id="extra-material" class="input-metals" placeholder="Ej: Acero inox, Galvanizado...">
-                </div>`
+            extraFields: ''
         },
         'MARCADORA_LASER': {
             label: 'Marcadora Laser',
             icon: 'fa-crosshairs',
             color: '#8b5cf6',
             maquinas: ['MARCADORA LASER'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-sun"></i> Potencia (%)</label>
-                    <input type="number" id="extra-potencia" class="input-metals" min="1" max="100" placeholder="Ej: 60">
-                </div>
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-wind"></i> Velocidad (mm/s)</label>
-                    <input type="number" id="extra-velocidad" class="input-metals" min="1" placeholder="Ej: 100">
-                </div>`
+            extraFields: ''
         },
         'TALADRO': {
             label: 'Taladro',
             icon: 'fa-circle',
             color: '#10b981',
             maquinas: ['TALADRO-1', 'TALADRO-2'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-circle"></i> Diámetro Broca (mm)</label>
-                    <input type="number" id="extra-diametro" class="input-metals" step="0.1" min="0.5" placeholder="Ej: 8.5">
-                </div>`
+            extraFields: ''
         },
         'DOBLADORA': {
             label: 'Dobladora',
             icon: 'fa-angle-left',
             color: '#06b6d4',
             maquinas: ['DOBLADORA'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-angle-left"></i> Ángulo (°)</label>
-                    <input type="number" id="extra-angulo" class="input-metals" min="1" max="180" placeholder="Ej: 90">
-                </div>`
+            extraFields: ''
         },
         'PINTURA': {
             label: 'Pintura',
             icon: 'fa-paint-roller',
             color: '#ec4899',
             maquinas: ['CABINA PINTURA'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-paint-roller"></i> Tipo Pintura</label>
-                    <input type="text" id="extra-tipo-pintura" class="input-metals" placeholder="Ej: Epóxica, Poliuretano, Base...">
-                </div>
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-layer-group"></i> N° Capas</label>
-                    <input type="number" id="extra-capas" class="input-metals" min="1" max="10" placeholder="Ej: 2">
-                </div>`
+            extraFields: ''
         },
         'ZINCADO': {
             label: 'Zincado',
@@ -136,8 +80,15 @@ const ModuloMetals = {
             maquinas: ['CUBA ZINCADO'],
             extraFields: `
                 <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-clock"></i> Tiempo Zincado (min)</label>
-                    <input type="number" id="extra-tiempo-zincado" class="input-metals" min="1" placeholder="Ej: 20">
+                    <label class="label-metals"><i class="fas fa-truck"></i> Estado de Zincado</label>
+                    <select id="extra-estado-zincado" class="input-metals">
+                        <option value="ENVIADO_A_PROVEEDOR">Enviado a Proveedor</option>
+                        <option value="RECIBIDO_DE_PROVEEDOR">Recibido de Proveedor</option>
+                    </select>
+                </div>
+                <div class="form-group-metals">
+                    <label class="label-metals"><i class="fas fa-file-invoice"></i> N° Remisión / Guía</label>
+                    <input type="text" id="extra-remision" class="input-metals" placeholder="Ej: RM-0012">
                 </div>`
         },
         'HORNO': {
@@ -145,33 +96,14 @@ const ModuloMetals = {
             icon: 'fa-fire-alt',
             color: '#dc2626',
             maquinas: ['HORNO-1'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-thermometer-half"></i> Temperatura (°C)</label>
-                    <input type="number" id="extra-temperatura" class="input-metals" min="50" max="1500" placeholder="Ej: 250">
-                </div>
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-hourglass-half"></i> Tiempo Horno (min)</label>
-                    <input type="number" id="extra-tiempo-horno" class="input-metals" min="1" placeholder="Ej: 45">
-                </div>`
+            extraFields: ''
         },
         'PULIDO': {
             label: 'Pulido',
             icon: 'fa-certificate',
             color: '#7c3aed',
             maquinas: ['PULIDORA-1'],
-            extraFields: `
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-sliders-h"></i> Tipo Pulido</label>
-                    <select id="extra-tipo-pulido" class="input-metals">
-                        <option value="">-- Tipo --</option>
-                        <option>Manual</option><option>Mecánico</option><option>Electrolítico</option>
-                    </select>
-                </div>
-                <div class="form-group-metals">
-                    <label class="label-metals"><i class="fas fa-grip-horizontal"></i> Grano / Lija</label>
-                    <input type="text" id="extra-grano" class="input-metals" placeholder="Ej: 120, 240, 400...">
-                </div>`
+            extraFields: ''
         }
     },
 
