@@ -26,7 +26,7 @@ function renderProductSuggestions(container, items, onSelect) {
         const codigo = String(prod.codigo_sistema || prod.codigo || 'N/A').trim();
         const descripcion = prod.descripcion || 'Sin descripción';
         const precio = prod.precio || 0;
-        const stock = prod.stock_disponible ?? prod.stock_total ?? prod.stock ?? 0;
+        const stock = prod.stock_terminado ?? prod.stock_disponible ?? prod.stock_total ?? prod.stock ?? 0;
 
         // Lógica de imágenes multiformato
         const localImageJpg = `/static/img/productos/${codigo}.jpg`;
