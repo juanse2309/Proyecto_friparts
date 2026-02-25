@@ -288,6 +288,7 @@ body.loaded {
 
 .page-title {
     flex: 1;
+    width: 100%;
 }
 
 .page-title h1 {
