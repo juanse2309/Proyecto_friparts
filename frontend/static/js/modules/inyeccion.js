@@ -5,6 +5,7 @@
 const ModuloInyeccion = {
     productosData: [],
     responsablesData: [],
+    items: [],
 
     init: async function () {
         console.log('🔧 [Inyeccion] Inicializando módulo Smart...');
@@ -227,6 +228,11 @@ const ModuloInyeccion = {
             };
         }
 
+        const btnAgregar = document.getElementById('btn-agregar-inyeccion');
+        if (btnAgregar) {
+            btnAgregar.onclick = () => this.agregarItem();
+        }
+
         const btnDefectos = document.getElementById('btn-defectos-inyeccion');
         if (btnDefectos) {
             btnDefectos.replaceWith(btnDefectos.cloneNode(true));
@@ -238,6 +244,17 @@ const ModuloInyeccion = {
             };
         }
 
+        // Limpiar peso vela si cambia la maquina
+        const selectMaquina = document.getElementById('maquina-inyeccion');
+        if (selectMaquina) {
+            selectMaquina.addEventListener('change', () => {
+                const pesoVela = document.getElementById('peso-vela-inyeccion');
+                if (pesoVela && this.items.length === 0) {
+                    pesoVela.value = 0;
+                }
+            });
+        }
+
         ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion', 'cantidad-real-inyeccion'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => this.calculos());
         });
@@ -247,13 +264,13 @@ const ModuloInyeccion = {
         const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
         const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
         const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
-        const manualReal = parseInt(document.getElementById('cantidad-real-inyeccion')?.value) || 0;
+        const inputReal = document.getElementById('cantidad-real-inyeccion');
+        const manualBuenas = parseInt(inputReal?.value) || 0;
+        const isManual = inputReal?.value !== '';
 
         const produccionTeorica = disparos * cavidades;
-
-        // Si hay manual, esa es la "Real Reportada". Si no, es la teorica.
-        const produccionFinal = manualReal > 0 ? manualReal : produccionTeorica;
-        const piezasBuenas = Math.max(0, produccionFinal - pnc);
+        const piezasBuenas = isManual ? manualBuenas : Math.max(0, produccionTeorica - pnc);
+        const produccionBrutaReal = isManual ? (manualBuenas + pnc) : produccionTeorica;
 
         const displayProduccion = document.getElementById('produccion-calculada');
         const displayFormula = document.getElementById('formula-calc');
@@ -264,146 +281,325 @@ const ModuloInyeccion = {
         }
 
         if (displayFormula) {
-            if (manualReal > 0) {
-                const diff = manualReal - produccionTeorica;
+            if (isManual) {
+                const diff = produccionBrutaReal - produccionTeorica;
                 const sign = diff >= 0 ? '+' : '';
-                const color = diff >= 0 ? '#4ade80' : '#f87171'; // Green or Red
-                displayFormula.innerHTML = `
-                    Teórica: <b>${produccionTeorica}</b> | 
-                    Real: <b>${manualReal}</b>
-                    <span style="color: ${color}; font-weight: bold; margin-left:8px;">(${sign}${diff})</span>
-                `;
+                const color = diff >= 0 ? '#4ade80' : '#f87171';
+                displayFormula.innerHTML = `Teórica: <b>${produccionTeorica}</b> | Bruto (Buenas+PNC): <b>${produccionBrutaReal}</b> <span style="color: ${color}; font-weight: bold; margin-left:8px;">(${sign}${diff})</span>`;
             } else {
                 displayFormula.textContent = `Disparos: ${disparos} × Cavidades: ${cavidades} = ${produccionTeorica} (Teórica)`;
             }
         }
 
         if (displayBuenas) {
-            if (pnc > 0) {
-                displayBuenas.textContent = `${produccionFinal} (Bruto) - PNC: ${pnc} = ${piezasBuenas} piezas buenas`;
-                displayBuenas.style.display = 'block';
-            } else {
-                // Si no hay PNC, mostramos mensaje confirmando que todas son buenas
-                displayBuenas.textContent = `${piezasBuenas} piezas buenas`;
-                displayBuenas.style.display = 'block';
+            displayBuenas.textContent = `Buenas: ${piezasBuenas} | PNC: ${pnc}`;
+        }
+    },
+
+    agregarItem: function () {
+        const codigo_producto = document.getElementById('codigo-producto-inyeccion')?.value || '';
+        const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
+        const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
+        const inputReal = document.getElementById('cantidad-real-inyeccion');
+        const manualBuenas = parseInt(inputReal?.value) || 0;
+        const isManual = inputReal?.value !== '';
+
+        if (!codigo_producto) {
+            Swal.fire('Atención', 'Ingresa un código de producto', 'warning');
+            return;
+        }
+        if (disparos <= 0) {
+            Swal.fire('Atención', 'Los disparos deben ser mayor a 0', 'warning');
+            return;
+        }
+
+        const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
+        const criterio_pnc = document.getElementById('criterio-pnc-hidden-inyeccion')?.value || '';
+
+        const codigo_ensamble = document.getElementById('codigo-ensamble-inyeccion')?.value || '';
+        const peso_bujes = parseFloat(document.getElementById('peso-bujes-inyeccion')?.value) || 0;
+        const observaciones = document.getElementById('observaciones-inyeccion')?.value || '';
+
+        const produccionTeorica = disparos * cavidades;
+        const piezasBuenas = isManual ? manualBuenas : Math.max(0, produccionTeorica - pnc);
+        const cantidadRealBruta = isManual ? (manualBuenas + pnc) : produccionTeorica;
+
+        const nuevoItem = {
+            id_item: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            codigo_producto,
+            no_cavidades: cavidades,
+            disparos,
+            cantidad_real: cantidadRealBruta,
+            manual_buenas: isManual ? manualBuenas : null,
+            pnc,
+            criterio_pnc,
+            codigo_ensamble,
+            peso_bujes,
+            observaciones,
+            piezasBuenas // Solo para visualizacion
+        };
+
+        this.items.push(nuevoItem);
+        this.renderTablaItems();
+        this.limpiarFormularioProducto();
+        Swal.fire({
+            title: 'Agregado',
+            text: 'Producto agregado a la lista',
+            icon: 'success',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 2000
+        });
+    },
+
+    removerItem: function (index) {
+        Swal.fire({
+            title: '¿Eliminar producto?',
+            text: "Se quitará de la lista actual.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Sí, eliminar',
+            cancelButtonText: 'Cancelar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                this.items.splice(index, 1);
+                this.renderTablaItems();
             }
+        });
+    },
+
+    editarItem: function (index, campo, valor) {
+        const item = this.items[index];
+        if (!item) return;
+
+        let val = parseFloat(valor);
+        if (isNaN(val) || val < 0) val = 0;
+
+        if (campo === 'manual_buenas') {
+            item.manual_buenas = valor === '' ? null : val;
+        } else {
+            item[campo] = val;
+        }
+
+        const produccionTeorica = item.disparos * item.no_cavidades;
+
+        if (item.manual_buenas !== null) {
+            item.piezasBuenas = item.manual_buenas;
+            item.cantidad_real = item.manual_buenas + item.pnc;
+        } else {
+            item.cantidad_real = produccionTeorica;
+            item.piezasBuenas = Math.max(0, produccionTeorica - item.pnc);
+        }
+
+        this.renderTablaItems();
+    },
+
+    editarPNCLista: async function (index) {
+        const item = this.items[index];
+
+        const { value: formValues } = await Swal.fire({
+            title: 'Reportar PNC',
+            html: `
+                <div class="mb-3 text-start">
+                    <label class="form-label fw-bold">Cantidad PNC</label>
+                    <input type="number" id="swal-pnc-qty" class="form-control" min="0" value="${item.pnc}">
+                </div>
+                <div class="text-start">
+                    <label class="form-label fw-bold">Criterio (Opcional)</label>
+                    <select id="swal-pnc-crit" class="form-select">
+                        <option value="">Selecciona un motivo...</option>
+                        <option value="Manchas" ${item.criterio_pnc === 'Manchas' ? 'selected' : ''}>Manchas</option>
+                        <option value="Incompleta" ${item.criterio_pnc === 'Incompleta' ? 'selected' : ''}>Incompleta</option>
+                        <option value="Rebaba" ${item.criterio_pnc === 'Rebaba' ? 'selected' : ''}>Rebaba</option>
+                        <option value="Quemada" ${item.criterio_pnc === 'Quemada' ? 'selected' : ''}>Quemada</option>
+                        <option value="Hundimiento" ${item.criterio_pnc === 'Hundimiento' ? 'selected' : ''}>Hundimiento</option>
+                        <option value="Chupon" ${item.criterio_pnc === 'Chupon' ? 'selected' : ''}>Chupón</option>
+                        <option value="Retenida" ${item.criterio_pnc === 'Retenida' ? 'selected' : ''}>Retenida en Molde</option>
+                        <option value="Contaminacion" ${item.criterio_pnc === 'Contaminacion' ? 'selected' : ''}>Contaminación</option>
+                        <option value="Troquelado" ${item.criterio_pnc === 'Troquelado' ? 'selected' : ''}>Mal Troquelado</option>
+                        <option value="Color" ${item.criterio_pnc === 'Color' ? 'selected' : ''}>Problema Color</option>
+                        <option value="Otro" ${item.criterio_pnc === 'Otro' ? 'selected' : ''}>Otro</option>
+                    </select>
+                </div>
+            `,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Guardar PNC',
+            cancelButtonText: 'Cancelar',
+            preConfirm: () => {
+                return {
+                    qty: parseInt(document.getElementById('swal-pnc-qty').value) || 0,
+                    crit: document.getElementById('swal-pnc-crit').value
+                }
+            }
+        });
+
+        if (formValues) {
+            item.pnc = formValues.qty;
+            item.criterio_pnc = formValues.crit;
+            // Forzar actualización
+            this.editarItem(index, 'pnc', formValues.qty);
+        }
+    },
+
+    limpiarFormularioProducto: function () {
+        document.getElementById('codigo-producto-inyeccion').value = '';
+        document.getElementById('cavidades-inyeccion').value = 1;
+        document.getElementById('cantidad-inyeccion').value = '';
+        document.getElementById('cantidad-real-inyeccion').value = '';
+        document.getElementById('pnc-inyeccion').value = 0;
+        document.getElementById('criterio-pnc-hidden-inyeccion').value = '';
+        document.getElementById('codigo-ensamble-inyeccion').value = '';
+        document.getElementById('peso-bujes-inyeccion').value = 0;
+        document.getElementById('observaciones-inyeccion').value = '';
+        this.calculos();
+        document.getElementById('codigo-producto-inyeccion').focus();
+    },
+
+    renderTablaItems: function () {
+        const tbody = document.getElementById('lista-inyeccion-body');
+        const tfoot = document.getElementById('inyeccion-tfoot');
+
+        if (!tbody) return;
+
+        if (this.items.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-5">
+                        <i class="fas fa-box-open mb-3" style="font-size: 2rem; color: #cbd5e1;"></i>
+                        <p class="mb-0">No hay productos en la lista.</p>
+                        <small>Llena la sección de Agregar Producto y presiona "+ Agregar Producto".</small>
+                    </td>
+                </tr>
+            `;
+            if (tfoot) tfoot.style.display = 'none';
+            return;
+        }
+
+        let totalBuenas = 0;
+        let totalPNC = 0;
+
+        tbody.innerHTML = this.items.map((item, index) => {
+            totalBuenas += item.piezasBuenas;
+            totalPNC += item.pnc;
+
+            return `
+            <tr>
+                <td class="fw-bold align-middle">${item.codigo_producto}</td>
+                <td class="text-center align-middle">
+                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 70px;" value="${item.no_cavidades}" onchange="ModuloInyeccion.editarItem(${index}, 'no_cavidades', this.value)">
+                </td>
+                <td class="text-center align-middle">
+                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 90px;" value="${item.disparos}" onchange="ModuloInyeccion.editarItem(${index}, 'disparos', this.value)">
+                </td>
+                <td class="text-center align-middle">
+                    <input type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 90px;" value="${item.manual_buenas !== null ? item.manual_buenas : ''}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)" placeholder="Teórica">
+                </td>
+                <td class="text-center align-middle">
+                    <div class="d-flex justify-content-center align-items-center gap-1">
+                        <input type="number" min="0" class="form-control form-control-sm text-center text-danger fw-bold" style="width: 70px; background-color: #fce8e6; cursor: pointer;" value="${item.pnc}" readonly onclick="ModuloInyeccion.editarPNCLista(${index})">
+                        <button type="button" class="btn btn-sm btn-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
+                    </div>
+                </td>
+                <td class="text-center align-middle">
+                    <span class="badge bg-secondary fs-6">${item.cantidad_real.toLocaleString()}</span>
+                </td>
+                <td class="text-center align-middle">
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="ModuloInyeccion.removerItem(${index})" title="Eliminar">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+            `;
+        }).join('');
+
+        if (tfoot) {
+            tfoot.style.display = 'table-footer-group';
+            document.getElementById('inyeccion-total-buenas').textContent = totalBuenas.toLocaleString();
+            document.getElementById('inyeccion-total-pnc').textContent = totalPNC.toLocaleString();
         }
     },
 
     registrar: async function () {
+        if (this.items.length === 0) {
+            Swal.fire('Advertencia', 'Agrega al menos un producto a la lista', 'warning');
+            return;
+        }
+
         const btn = document.querySelector('#form-inyeccion button[type="submit"]');
 
         try {
             if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, true);
             mostrarLoading(true);
 
-            const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
-            const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
-            const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
-            const manualReal = parseInt(document.getElementById('cantidad-real-inyeccion')?.value) || 0;
-
-            const produccionTeorica = disparos * cavidades;
-            // Si hay input manual > 0, es la verdad. Si no, usamos la teorica.
-            const cantidadRealBruta = manualReal > 0 ? manualReal : produccionTeorica;
-
-            // Cantidad Real REPORTADA al backend (para stock y reporte) es la bruta
-            // El backend resta el PNC para "piezas buenas" si es necesario, O nosotros mandamos bruto.
-            // Segun backend: piezas_buenas = max(0, cantidad_final_reportada - pnc)
-            // Asi que mandamos la bruta.
-
-            const datos = {
+            // Datos comunes de turno
+            const datosTurno = {
                 fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
                 maquina: document.getElementById('maquina-inyeccion')?.value || '',
                 responsable: document.getElementById('responsable-inyeccion')?.value || '',
-                codigo_producto: document.getElementById('codigo-producto-inyeccion')?.value || '',
-                no_cavidades: cavidades,
-                disparos: disparos,
                 hora_llegada: document.getElementById('hora-llegada-inyeccion')?.value || '',
                 hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
-                cantidad_real: cantidadRealBruta, // ENVIO LA MANUAL O LA TEORICA
-                almacen_destino: document.getElementById('almacen-destino-inyeccion')?.value || '',
-                codigo_ensamble: document.getElementById('codigo-ensamble-inyeccion')?.value || '',
                 orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
-                observaciones: document.getElementById('observaciones-inyeccion')?.value || '',
                 peso_vela_maquina: parseFloat(document.getElementById('peso-vela-inyeccion')?.value) || 0,
-                peso_bujes: parseFloat(document.getElementById('peso-bujes-inyeccion')?.value) || 0,
-                pnc: pnc,
-                criterio_pnc: document.getElementById('criterio-pnc-hidden-inyeccion')?.value || ''
+                almacen_destino: 'POR PULIR' // Hardcoded as requested
             };
 
-            if (!datos.codigo_producto) {
-                mostrarNotificacion('⚠️ Falta código de producto', 'error');
+            if (!datosTurno.maquina || !datosTurno.responsable) {
+                Swal.fire('Atención', 'Faltan datos del turno (Responsable o Máquina)', 'warning');
                 mostrarLoading(false);
                 return;
             }
 
-            console.log('📤 [Inyeccion] ENVIANDO:', datos);
+            // Unir datos de turno con cada item iterado
+            const payload = {
+                turno: datosTurno,
+                items: this.items
+            };
 
-            const response = await fetch('/api/inyeccion', {
+            console.log('📤 [Inyeccion] ENVIANDO LOTE:', payload);
+
+            const response = await fetch('/api/inyeccion/lote', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(datos)
+                body: JSON.stringify(payload)
             });
 
             const resultado = await response.json();
 
             if (response.ok && resultado.success) {
-                // Preparar datos para restauración en caso de Undo
-                const datosRestaurar = { ...datos };
-                const metaConCallback = {
-                    ...resultado.undo_meta,
-                    restoreCallback: () => {
-                        // Restaurar valores PRINCIPALES
-                        document.getElementById('fecha-inyeccion').value = datosRestaurar.fecha_inicio;
-                        document.getElementById('responsable-inyeccion').value = datosRestaurar.responsable;
-                        document.getElementById('maquina-inyeccion').value = datosRestaurar.maquina; // Restaurar Maquina
+                Swal.fire({
+                    title: '¡Registrado!',
+                    text: `Lote de ${this.items.length} productos procesado correctamente`,
+                    icon: 'success',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
 
-                        // Horarios
-                        document.getElementById('hora-llegada-inyeccion').value = datosRestaurar.hora_llegada; // Restaurar Llegada
-                        document.getElementById('hora-inicio-inyeccion').value = datosRestaurar.hora_inicio;
-                        document.getElementById('hora-termina-inyeccion').value = datosRestaurar.hora_termina;
+                // Reiniciar todo
+                this.items = [];
+                this.renderTablaItems();
 
-                        // Producto y Producción
-                        document.getElementById('codigo-producto-inyeccion').value = datosRestaurar.codigo_producto;
-                        document.getElementById('cavidades-inyeccion').value = datosRestaurar.no_cavidades;
-                        document.getElementById('cantidad-inyeccion').value = datosRestaurar.disparos;
-                        document.getElementById('cantidad-real-inyeccion').value = datosRestaurar.cantidad_real;
+                // Limpiar turno parcialmente (mantener maquina, fecha, responsable si se desea)
+                // Usualmente se deja responsable y maquina, quizas limpiar hora.
+                document.getElementById('hora-llegada-inyeccion').value = '';
+                document.getElementById('hora-inicio-inyeccion').value = '';
+                document.getElementById('hora-termina-inyeccion').value = '';
+                document.getElementById('peso-vela-inyeccion').value = 0;
+                // document.getElementById('orden-produccion-inyeccion').value = '';  // Opcional
 
-                        // PNC
-                        document.getElementById('pnc-inyeccion').value = datosRestaurar.pnc;
-                        document.getElementById('criterio-pnc-hidden-inyeccion').value = datosRestaurar.criterio_pnc;
-
-                        // Logística (Almacén, OP, Ensamble)
-                        document.getElementById('almacen-destino-inyeccion').value = datosRestaurar.almacen_destino;
-                        document.getElementById('codigo-ensamble-inyeccion').value = datosRestaurar.codigo_ensamble;
-                        document.getElementById('orden-produccion-inyeccion').value = datosRestaurar.orden_produccion;
-
-                        // Pesos
-                        document.getElementById('peso-vela-inyeccion').value = datosRestaurar.peso_vela_maquina;
-                        document.getElementById('peso-bujes-inyeccion').value = datosRestaurar.peso_bujes;
-                        document.getElementById('observaciones-inyeccion').value = datosRestaurar.observaciones;
-
-                        // Re-calcular
-                        if (ModuloInyeccion.calculos) ModuloInyeccion.calculos();
-                        mostrarNotificacion('Formulario completo restaurado', 'info');
-                    }
-                };
-
-                mostrarNotificacion('Registro exitoso', 'success', metaConCallback);
-                document.getElementById('form-inyeccion').reset();
+                this.limpiarFormularioProducto();
                 this.intentarAutoSeleccionarResponsable();
-                document.getElementById('cavidades-inyeccion').value = 1;
-                document.getElementById('pnc-inyeccion').value = 0;
-                document.getElementById('cantidad-real-inyeccion').value = ''; // Reset Manual Input
-                this.calculos();
             } else {
-                mostrarNotificacion(resultado.error || 'Error', 'error');
+                Swal.fire('Error', resultado.error || 'Error procesando lote', 'error');
             }
 
         } catch (e) {
-            console.error('Error [Inyeccion] registrar:', e);
-            mostrarNotificacion(e.message, 'error');
+            console.error('Error [Inyeccion] registrar lote:', e);
+            Swal.fire('Error de Conexión', e.message, 'error');
         } finally {
             mostrarLoading(false);
             if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);

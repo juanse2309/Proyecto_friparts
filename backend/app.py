@@ -1402,6 +1402,164 @@ def registrar_inyeccion():
         return jsonify({'success': False, 'error': f'Error interno del servidor: {str(e)}'}), 500
 
 
+@app.route('/api/inyeccion/lote', methods=['POST'])
+def registrar_inyeccion_lote():
+    """Registra múltiples productos de inyección en un solo turno usando array."""
+    try:
+        data = request.json
+        logger.info(f" -> Recibido lote de Inyección. Items: {len(data.get('items', []))}")
+        
+        turno = data.get('turno', {})
+        items = data.get('items', [])
+        
+        if not turno or not items:
+            return jsonify({'success': False, 'error': 'Faltan datos de turno o items'}), 400
+            
+        # ========================================
+        # VALIDACIONES TURNO
+        # ========================================
+        responsable = str(turno.get('responsable', '')).strip()
+        maquina = str(turno.get('maquina', '')).strip()
+        fecha_inicio = turno.get('fecha_inicio', '')
+        
+        if not responsable or not maquina:
+            return jsonify({'success': False, 'error': 'Responsable y Máquina son obligatorios'}), 400
+            
+        fecha_inicia_f = formatear_fecha_para_sheet(fecha_inicio)
+        hora_llegada = turno.get('hora_llegada', '')
+        hora_inicio = turno.get('hora_inicio', '')
+        hora_termina = turno.get('hora_termina', '')
+        orden_produccion = turno.get('orden_produccion', '')
+        peso_vela_maquina = float(turno.get('peso_vela_maquina', 0) or 0)
+        almacen_destino = turno.get('almacen_destino', 'POR PULIR')
+        
+        rows_to_insert = []
+        productos_procesados = []
+        
+        # ========================================
+        # PROCESAR CADA ITEM
+        # ========================================
+        for item in items:
+            codigo_producto_entrada = str(item.get('codigo_producto', '')).strip()
+            codigo_producto = obtener_codigo_sistema_real(codigo_producto_entrada)
+            
+            if not codigo_producto:
+                return jsonify({'success': False, 'error': f'Item sin código de producto'}), 400
+                
+            try:
+                disparos = int(float(item.get('disparos', 0) or 0))
+                cavidades = int(float(item.get('no_cavidades', 1) or 1))
+                pnc = int(float(item.get('pnc', 0) or 0))
+                cantidad_real = int(float(item.get('cantidad_real', 0) or 0))
+                peso_bujes = float(item.get('peso_bujes', 0) or 0)
+            except ValueError:
+                continue # Skip invalid number items
+                
+            codigo_ensamble = item.get('codigo_ensamble', '')
+            criterio_pnc = item.get('criterio_pnc', '')
+            observaciones = item.get('observaciones', '')
+            
+            cantidad_teorica = disparos * cavidades
+            cantidad_final = cantidad_real if cantidad_real > 0 else cantidad_teorica
+            piezas_buenas = max(0, cantidad_final - pnc)
+            
+            # ID unico
+            id_inyeccion = f"INY-{str(uuid.uuid4())[:8].upper()}"
+            
+            # Preparar Fila 22 columnas
+            row_validada = [
+                id_inyeccion,            # 1 ID INYECCION
+                str(fecha_inicia_f),     # 2 FECHA INICIA
+                str(fecha_inicia_f),     # 3 FECHA FIN (Asume misma fecha en este nivel)
+                "INYECCION",             # 4 DEPARTAMENTO
+                str(maquina),            # 5 MAQUINA
+                str(responsable),        # 6 RESPONSABLE
+                str(codigo_producto),    # 7 ID CODIGO
+                int(cavidades),          # 8 No. CAVIDADES
+                str(hora_llegada),       # 9 HORA LLEGADA
+                str(hora_inicio),        # 10 HORA INICIO
+                str(hora_termina),       # 11 HORA TERMINA
+                int(disparos),           # 12 CONTADOR MAQ
+                int(disparos),           # 13 CANT. CONTADOR
+                0,                       # 14 TOMADOS (0 by default now)
+                0.0,                     # 15 PESO TOMADAS
+                int(cantidad_final),     # 16 CANTIDAD REAL
+                str(almacen_destino),    # 17 ALMACEN DESTINO
+                str(codigo_ensamble),    # 18 COD. ENSAMBLE
+                str(orden_produccion),   # 19 OP
+                str(observaciones),      # 20 OBS
+                float(peso_vela_maquina),# 21 PESO VELA
+                float(peso_bujes)        # 22 PESO BUJES
+            ]
+            rows_to_insert.append(row_validada)
+            
+            productos_procesados.append({
+                'codigo_original': codigo_producto_entrada,
+                'codigo_sistema': codigo_producto,
+                'buenas': piezas_buenas,
+                'pnc': pnc,
+                'criterio_pnc': criterio_pnc,
+                'observaciones': observaciones,
+                'id_inyeccion': id_inyeccion,
+                'almacen': almacen_destino
+            })
+            
+        if not rows_to_insert:
+            return jsonify({'success': False, 'error': 'Ningún producto válido para procesar'}), 400
+            
+        # ========================================
+        # GUARDAR EN GOOGLE SHEETS EN BATCH
+        # ========================================
+        try:
+            ss = gc.open_by_key(GSHEET_KEY)
+            ws = ss.worksheet(Hojas.INYECCION)
+            
+            # Usar la función segura batch
+            ultima_fila = append_rows_seguro(ws, rows_to_insert)
+            logger.info(f" -> Lote guardado, {len(rows_to_insert)} filas. Última fila: {ultima_fila}")
+            
+        except Exception as e:
+            logger.error(f" Error batch INYECCION: {str(e)}")
+            return jsonify({'success': False, 'error': f'Error guardando en sheets: {str(e)}'}), 500
+            
+        # ========================================
+        # ACTUALIZAR STOCK Y PNC POR ITEM
+        # ========================================
+        for item in productos_procesados:
+            codigo_sistema, _, _ = obtener_datos_producto(item['codigo_sistema'])
+            if not codigo_sistema:
+                codigo_sistema = item['codigo_sistema']
+                
+            # STOCK
+            if item['almacen'] and item['buenas'] > 0:
+                exito, msg = registrar_entrada(codigo_sistema, item['buenas'], item['almacen'])
+                if exito:
+                    logger.info(f" Stock +{item['buenas']} para {codigo_sistema} en {item['almacen']}")
+                else:
+                    logger.warning(f" Fallo stock para {codigo_sistema}: {msg}")
+                    
+            # PNC
+            if item['pnc'] > 0:
+                cx_pnc = registrar_pnc_detalle(
+                    tipo_proceso="inyeccion",
+                    id_operacion=item['id_inyeccion'],
+                    codigo_producto=codigo_sistema,
+                    cantidad_pnc=item['pnc'],
+                    criterio_pnc=item['criterio_pnc'],
+                    observaciones=item['observaciones']
+                )
+                
+        return jsonify({
+            'success': True,
+            'mensaje': f'Lote de {len(rows_to_insert)} productos procesado exitosamente',
+            'items_procesados': len(rows_to_insert)
+        }), 200
+
+    except Exception as e:
+        logger.error(f" Error general lote inyeccion: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/producto/<codigo>', methods=['GET'])
 def obtener_producto(codigo):

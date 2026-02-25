@@ -630,132 +630,193 @@
                 </header>
                 <div class="form-container">
                     <form id="form-inyeccion" class="styled-form">
-                        <div class="form-grid"> <!-- Fila 1 -->
+
+                        <!-- SECCIÓN 1: DATOS DE TURNO -->
+                        <h4 class="section-title mb-3"
+                            style="color: #2c3e50; font-weight: 600; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
+                            <i class="fas fa-clock text-primary"></i> Datos del Turno
+                        </h4>
+                        <div class="form-grid mb-4">
                             <div class="form-group"> <label for="fecha-inyeccion"><i class="fas fa-calendar"></i>
-                                    Fecha</label> <input type="date" id="fecha-inyeccion" required> </div>
+                                    Fecha</label>
+                                <input type="date" id="fecha-inyeccion" required>
+                            </div>
                             <div class="form-group"> <label for="responsable-inyeccion"><i
-                                        class="fas fa-user-circle"></i>
-                                    Responsable</label> <input type="text" id="responsable-inyeccion"
-                                    placeholder="Buscar operario..." autocomplete="off">
+                                        class="fas fa-user-circle"></i> Responsable</label>
+                                <input type="text" id="responsable-inyeccion" placeholder="Buscar operario..."
+                                    autocomplete="off" required>
                                 <div id="inyeccion-responsable-suggestions" class="autocomplete-suggestions"></div>
                             </div>
-                            <!-- Fila 2 -->
                             <div class="form-group"> <label for="maquina-inyeccion"><i class="fas fa-cogs"></i>
-                                    Máquina</label> <select id="maquina-inyeccion" required></select> </div>
-                            <div class="form-group"> <label for="hora-llegada-inyeccion"><i class="fas fa-clock"></i>
-                                    Hora Llegada</label> <input type="time" id="hora-llegada-inyeccion"> </div>
-                            <!-- Fila 3 -->
+                                    Máquina</label>
+                                <select id="maquina-inyeccion" required></select>
+                            </div>
+                            <div class="form-group"> <label for="orden-produccion-inyeccion"><i
+                                        class="fas fa-list-ol"></i> Orden Producción</label>
+                                <input type="text" id="orden-produccion-inyeccion" placeholder="Número de orden"
+                                    required>
+                            </div>
+                            <div class="form-group"> <label for="hora-llegada-inyeccion"><i
+                                        class="fas fa-stopwatch"></i> Hora Llegada</label>
+                                <input type="time" id="hora-llegada-inyeccion">
+                            </div>
                             <div class="form-group"> <label for="hora-inicio-inyeccion"><i
-                                        class="fas fa-play-circle"></i>
-                                    Hora Inicio</label> <input type="time" id="hora-inicio-inyeccion" required>
+                                        class="fas fa-play-circle"></i> Hora Inicio</label>
+                                <input type="time" id="hora-inicio-inyeccion" required>
                             </div>
                             <div class="form-group"> <label for="hora-termina-inyeccion"><i
-                                        class="fas fa-stop-circle"></i>
-                                    Hora Termina</label> <input type="time" id="hora-termina-inyeccion" required>
+                                        class="fas fa-stop-circle"></i> Hora Termina</label>
+                                <input type="time" id="hora-termina-inyeccion" required>
                             </div>
-                            <!-- Fila 4 -->
-                            <div class="form-group"> <label for="codigo-producto-inyeccion"><i
-                                        class="fas fa-barcode"></i>
-                                    Producto</label> <input type="text" id="codigo-producto-inyeccion"
-                                    placeholder="Buscar por código o descripción..." autocomplete="off">
-                                <div id="inyeccion-producto-suggestions" class="autocomplete-suggestions"></div>
-                            </div>
-                            <div class="form-group"> <label for="cavidades-inyeccion"><i class="fas fa-cube"></i>
-                                    No.
-                                    Cavidades</label> <input type="number" id="cavidades-inyeccion" min="1" value="1"
-                                    required> </div> <!-- Fila 5 -->
-                            <div class="form-group"> <label for="cantidad-inyeccion"><i class="fas fa-bolt"></i>
-                                    Disparos</label> <input type="number" id="cantidad-inyeccion" min="1" required>
-                            </div>
-                            <div class="form-group"> <label for="cantidad-real-inyeccion"><i
-                                        class="fas fa-check-double"></i>
-                                    Cant. Real</label> <input type="number" id="cantidad-real-inyeccion" min="0"
-                                    placeholder="Manual...">
-                            </div>
-                            <div class="form-group"> <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i>
-                                    PNC</label>
-                                <div style="display: flex; gap: 5px;"> <input type="number" id="pnc-inyeccion" value="0"
-                                        readonly
-                                        style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer;"
-                                        onclick="window.abrirModalInyeccion()"> <button type="button"
-                                        onclick="window.abrirModalInyeccion()"
-                                        style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                                        <i class="fas fa-list-ul"></i> </button> </div>
-                            </div> <!-- Fila 6 -->
-                            <div class="form-group"> <label for="almacen-destino-inyeccion"><i
-                                        class="fas fa-warehouse"></i>
-                                    Almacén Destino</label> <select id="almacen-destino-inyeccion" required>
-                                    <option value="">Seleccionar destino...</option>
-                                    <option value="POR PULIR">POR PULIR</option>
-                                    <option value="P. TERMINADO">P. TERMINADO</option>
-                                    <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
-                                </select> </div>
-                            <div class="form-group"> <label for="codigo-ensamble-inyeccion"><i class="fas fa-link"></i>
-                                    Código Ensamble</label> <input type="text" id="codigo-ensamble-inyeccion"
-                                    placeholder="Si aplica"> </div> <!-- Fila 7 -->
-                            <div class="form-group"> <label for="orden-produccion-inyeccion"><i
-                                        class="fas fa-list-ol"></i>
-                                    Orden Producción</label> <input type="text" id="orden-produccion-inyeccion"
-                                    placeholder="Número de orden"> </div>
                             <div class="form-group"> <label for="peso-vela-inyeccion"><i
-                                        class="fas fa-weight-hanging"></i>
-                                    Peso Vela Máquina (kg)</label> <input type="number" id="peso-vela-inyeccion"
-                                    step="0.01" min="0" value="0"> </div>
-                            <!-- Fila 8 -->
-                            <div class="form-group"> <label for="peso-bujes-inyeccion"><i
-                                        class="fas fa-weight-hanging"></i>
-                                    Peso Bujes (kg)</label> <input type="number" id="peso-bujes-inyeccion" step="0.01"
-                                    min="0" value="0"> </div>
-                            <div class="form-group full-width"> <label for="observaciones-inyeccion"><i
-                                        class="fas fa-sticky-note"></i> Observaciones</label> <textarea
-                                    id="observaciones-inyeccion" rows="3"
-                                    placeholder="Notas adicionales del proceso..."></textarea>
-                                <input type="hidden" id="criterio-pnc-hidden-inyeccion">
+                                        class="fas fa-weight-hanging"></i> Peso Vela Máquina (kg)</label>
+                                <input type="number" id="peso-vela-inyeccion" step="0.01" min="0" value="0">
                             </div>
-                            <!-- PRODUCCIÓN CALCULADA (Destacada) -->
-                            <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                                       padding: 20px; 
-                                       border-radius: 12px;
-                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-                                       margin: 20px 0;">
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-                                    <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
-                                    <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
-                                        📊 Producción Calculada
-                                    </label>
+                        </div>
+
+                        <!-- SECCIÓN 2: AGREGAR PRODUCTO -->
+                        <div
+                            style="background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+                            <h4 class="section-title mb-3" style="color: #2c3e50; font-weight: 600;"><i
+                                    class="fas fa-box-open text-primary"></i> Agregar Producto a la Lista</h4>
+                            <div class="form-grid">
+                                <div class="form-group"> <label for="codigo-producto-inyeccion"><i
+                                            class="fas fa-barcode"></i> Producto</label>
+                                    <input type="text" id="codigo-producto-inyeccion" placeholder="Buscar por código..."
+                                        autocomplete="off">
+                                    <div id="inyeccion-producto-suggestions" class="autocomplete-suggestions"></div>
                                 </div>
-                                <div style="background: rgba(255,255,255,0.15); 
-                                            padding: 15px; 
-                                            border-radius: 8px;
-                                            backdrop-filter: blur(10px);">
-                                    <div id="produccion-calculada" style="font-size: 48px; 
-                                               font-weight: bold; 
-                                               color: white; 
-                                               text-align: center;
-                                               text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
-                                        0
+                                <div class="form-group"> <label for="cavidades-inyeccion"><i class="fas fa-cube"></i>
+                                        No. Cavidades</label>
+                                    <input type="number" id="cavidades-inyeccion" min="1" value="1">
+                                </div>
+                                <div class="form-group"> <label for="cantidad-inyeccion"><i class="fas fa-bolt"></i>
+                                        Disparos</label>
+                                    <input type="number" id="cantidad-inyeccion" min="1">
+                                </div>
+                                <div class="form-group"> <label for="cantidad-real-inyeccion"><i
+                                            class="fas fa-check-double"></i> Buenas (Real)</label>
+                                    <input type="number" id="cantidad-real-inyeccion" min="0" placeholder="Opcional...">
+                                </div>
+                                <div class="form-group"> <label for="pnc-inyeccion"><i class="fas fa-times-circle"></i>
+                                        PNC</label>
+                                    <div style="display: flex; gap: 5px;">
+                                        <input type="number" id="pnc-inyeccion" value="0" readonly
+                                            style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer; flex: 1;"
+                                            onclick="window.abrirModalInyeccion()">
+                                        <button type="button" onclick="window.abrirModalInyeccion()"
+                                            style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                            <i class="fas fa-list-ul"></i>
+                                        </button>
                                     </div>
-                                    <div id="formula-calc" style="font-size: 14px; 
-                                               color: rgba(255,255,255,0.9); 
-                                               text-align: center;
-                                               margin-top: 8px;">
-                                        Disparos: 0 × Cavidades: 1 = 0 piezas
+                                </div>
+                                <div class="form-group"> <label for="codigo-ensamble-inyeccion"><i
+                                            class="fas fa-link"></i> Código Ensamble</label>
+                                    <input type="text" id="codigo-ensamble-inyeccion" placeholder="Si aplica">
+                                </div>
+                                <div class="form-group"> <label for="peso-bujes-inyeccion"><i
+                                            class="fas fa-weight-hanging"></i> Peso Bujes (kg)</label>
+                                    <input type="number" id="peso-bujes-inyeccion" step="0.01" min="0" value="0">
+                                </div>
+                                <div class="form-group full-width"> <label for="observaciones-inyeccion"><i
+                                            class="fas fa-sticky-note"></i> Observaciones</label>
+                                    <textarea id="observaciones-inyeccion" rows="2"
+                                        placeholder="Notas adicionales del proceso..."></textarea>
+                                    <input type="hidden" id="criterio-pnc-hidden-inyeccion">
+                                </div>
+
+                                <!-- PRODUCCIÓN CALCULADA -->
+                                <div class="form-group full-width"
+                                    style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 8px; margin: 10px 0;">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                                        <div>
+                                            <div style="color: white; font-weight: 600; font-size: 14px;"><i
+                                                    class="fas fa-calculator"></i> Prod. Calculada (Buenas)</div>
+                                            <div id="produccion-calculada"
+                                                style="font-size: 32px; font-weight: bold; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+                                                0</div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <div id="formula-calc"
+                                                style="font-size: 13px; color: rgba(255,255,255,0.9);">Disparos: 0 ×
+                                                Cav: 1 = 0</div>
+                                            <div id="piezas-buenas"
+                                                style="font-size: 14px; color: #4ade80; font-weight: 600; margin-top: 4px;">
+                                                Total: 0 - PNC: 0</div>
+                                        </div>
                                     </div>
-                                    <div id="piezas-buenas" style="font-size: 16px; 
-                                               color: #4ade80; 
-                                               text-align: center;
-                                               margin-top: 8px;
-                                               font-weight: 600;">
-                                        Total: 0 - PNC: 0 = 0 piezas buenas
-                                    </div>
+                                </div>
+
+                                <div class="form-group full-width"
+                                    style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                                    <button type="button" id="btn-agregar-inyeccion" class="btn btn-secondary"
+                                        style="background-color: #4f46e5; border-color: #4f46e5; padding: 10px 20px; font-weight: 600;">
+                                        <i class="fas fa-plus"></i> Agregar Producto
+                                    </button>
                                 </div>
                             </div>
                         </div>
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
-                                Inyección</button>
-                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i>
-                                Limpiar</button>
+
+                        <!-- SECCIÓN 3: LISTA DE PRODUCCIÓN -->
+                        <div class="card shadow-sm border-0 mb-4" style="border-radius: 12px; overflow: hidden;">
+                            <div class="card-header bg-white py-3 border-bottom">
+                                <h5 class="mb-0 fw-bold text-dark"><i
+                                        class="fas fa-clipboard-list text-primary me-2"></i> Lista de Producción
+                                    Agregada</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle mb-0" id="tabla-items-inyeccion">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th style="font-weight: 600; color: #4b5563;">Producto</th>
+                                                <th style="font-weight: 600; color: #4b5563; text-align: center;">Cav.
+                                                </th>
+                                                <th style="font-weight: 600; color: #4b5563; text-align: center;">
+                                                    Contador</th>
+                                                <th style="font-weight: 600; color: #4b5563; text-align: center;">Real
+                                                </th>
+                                                <th style="font-weight: 600; color: #4b5563; text-align: center;">Buenas
+                                                </th>
+                                                <th style="font-weight: 600; color: #4b5563; text-align: center;">PNC
+                                                </th>
+                                                <th style="font-weight: 600; color: #4b5563; text-align: center;">
+                                                    Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="lista-inyeccion-body">
+                                            <tr>
+                                                <td colspan="7" class="text-center text-muted py-5">
+                                                    <i class="fas fa-box-open mb-3"
+                                                        style="font-size: 2rem; color: #cbd5e1;"></i>
+                                                    <p class="mb-0">No hay productos en la lista.</p>
+                                                    <small>Llena la sección de Agregar Producto y presiona "+ Agregar
+                                                        Producto".</small>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot class="bg-light" id="inyeccion-tfoot" style="display: none;">
+                                            <tr>
+                                                <td colspan="4" class="text-end fw-bold">TOTALES TURNO:</td>
+                                                <td id="inyeccion-total-buenas"
+                                                    class="text-center fw-bold text-success">0</td>
+                                                <td id="inyeccion-total-pnc" class="text-center fw-bold text-danger">0
+                                                </td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-actions mt-4"
+                            style="background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 -4px 10px rgba(0,0,0,0.05);">
+                            <button type="submit" class="btn btn-primary btn-lg"
+                                style="width: 100%; font-size: 1.1rem; padding: 12px; font-weight: bold;">
+                                <i class="fas fa-save me-2"></i> Registrar Turno Inyección
+                            </button>
                         </div>
                     </form>
                 </div>
