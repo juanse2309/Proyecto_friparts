@@ -549,6 +549,65 @@ def to_int(valor, default=0):
 # FUNCIONES DE APOYO
 # ====================================================================
 
+def append_row_seguro(worksheet, fila):
+    """
+    Agrega una fila ignorando los filtros activos de Google Sheets.
+    gspread.append_row() falla ocultando o sobrescribiendo datos si hay filtros.
+    """
+    try:
+        all_ids = worksheet.col_values(1)
+        next_row = len(all_ids) + 1
+        
+        if next_row > worksheet.row_count:
+            worksheet.add_rows(10)
+            
+        def num_to_col_letters(num):
+            letters = ''
+            while num:
+                mod = (num - 1) % 26
+                letters += chr(mod + 65)
+                num = (num - 1) // 26
+            return letters[::-1]
+            
+        end_col = num_to_col_letters(len(fila))
+        rango_celdas = f"A{next_row}:{end_col}{next_row}"
+        
+        worksheet.update(rango_celdas, [fila], value_input_option='USER_ENTERED')
+        return next_row
+    except Exception as e_update:
+        logger.error(f"Error en append_row_seguro: {e_update}")
+        worksheet.append_row(fila, value_input_option='USER_ENTERED')
+        return worksheet.row_count
+
+def append_rows_seguro(worksheet, filas):
+    """Agrega multiples filas ignorando los filtros activos."""
+    if not filas: return worksheet.row_count
+    try:
+        all_ids = worksheet.col_values(1)
+        next_row = len(all_ids) + 1
+        num_filas = len(filas)
+        
+        if (next_row + num_filas) > worksheet.row_count:
+            worksheet.add_rows(num_filas + 10)
+            
+        def num_to_col_letters(num):
+            letters = ''
+            while num:
+                mod = (num - 1) % 26
+                letters += chr(mod + 65)
+                num = (num - 1) // 26
+            return letters[::-1]
+            
+        end_col = num_to_col_letters(len(filas[0]))
+        rango_celdas = f"A{next_row}:{end_col}{next_row + num_filas - 1}"
+        
+        worksheet.update(rango_celdas, filas, value_input_option='USER_ENTERED')
+        return next_row + num_filas - 1
+    except Exception as e_update:
+        logger.error(f"Error en append_rows_seguro: {e_update}")
+        worksheet.append_rows(filas, value_input_option='USER_ENTERED')
+        return worksheet.row_count
+
 def formatear_fecha_para_sheet(fecha_str):
     """Convierte YYYY-MM-DD a D/M/YYYY de forma robusta."""
     if not fecha_str: return ""
@@ -567,7 +626,7 @@ def formatear_fecha_para_sheet(fecha_str):
                 else: 
                     # Podría ser DD-MM-YYYY
                     dt = datetime.datetime.strptime(f_val, '%d-%m-%Y')
-                return f"{dt.day}/{dt.month}/{dt.year}"
+                return dt.strftime('%d/%m/%Y')
         return f_val
     except Exception as e:
         logger.warning(f"Error formateando fecha '{fecha_str}': {e}")
@@ -847,7 +906,7 @@ def registrar_log_operacion(hoja, fila):
         if not isinstance(fila, list):
             fila = list(fila)
             
-        worksheet.append_row(fila)
+        append_row_seguro(worksheet, fila)
         logger.info("Registro exitoso en %s", hoja)
         return True
         
@@ -1273,8 +1332,7 @@ def registrar_inyeccion():
             ss = gc.open_by_key(GSHEET_KEY)
             ws = ss.worksheet(Hojas.INYECCION)
             
-            ws.append_row(row_validada, value_input_option='USER_ENTERED')
-            fila_guardada = ws.row_count
+            fila_guardada = append_row_seguro(ws, row_validada)
             
             logger.info(f" Inyeccion guardada en fila {fila_guardada}")
             
@@ -1556,7 +1614,7 @@ def handle_pulido():
         try:
             ss = gc.open_by_key(GSHEET_KEY)
             ws = ss.worksheet(Hojas.PULIDO)
-            ws.append_row(fila_pulido, value_input_option='USER_ENTERED')
+            append_row_seguro(ws, fila_pulido)
             logger.info(f" Registro guardado en PULIDO")
         except Exception as e:
             logger.error(f" Error guardando: {str(e)}")
@@ -1768,8 +1826,8 @@ def handle_ensamble():
 
             # Insertar todas las filas a la vez (si hay varias)
             if filas_a_insertar:
-                ws.append_rows(filas_a_insertar, value_input_option='USER_ENTERED')
-                logger.info(f" {len(filas_a_insertar)} registros guardados en ENSAMBLES")
+                append_rows_seguro(ws, filas_a_insertar)
+                logger.info(f" ✓ {len(filas_a_insertar)} componentes registrados en hoja ENSAMBLES")
 
         except Exception as e:
             logger.error(f" Error guardando en Sheets: {str(e)}")

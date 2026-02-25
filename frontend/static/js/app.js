@@ -10,7 +10,7 @@ window.addEventListener('unhandledrejection', event => {
 });
 
 window.AppState = {
-    paginaActual: 'dashboard',
+    paginaActual: 'metals-dashboard',
     POWER_BI_URL: 'https://app.powerbi.com/view?r=eyJrIjoiZTBlYzc0MmUtNmVmZS00NDVjLWIwNTctMDY4NDA5MjEwNjk2IiwidCI6ImMwNmZiNTU5LTFiNjgtNGI4NC1hMTRmLTQ3ZDBkODM3YTVhYiIsImMiOjR9&pageName=baaf08bf7027114dad16',
     sharedData: {
         responsables: [],
@@ -216,7 +216,7 @@ window.volverAlDashboard = function () {
     if (division === 'FRIMETALS') {
         cargarPagina('metals-produccion');
     } else {
-        cargarPagina('dashboard');
+        cargarPagina('inventario');
     }
 
     document.querySelector('.sidebar')?.classList.remove('active');

@@ -301,8 +301,6 @@
             </div>
         </div>
         <ul class="sidebar-menu"> <!-- Menú items - mantener igual -->
-            <li class="menu-item active" data-page="dashboard"> <a href="#"><i
-                        class="fas fa-chart-line"></i><span>Dashboard</span></a> </li>
             <li class="menu-item" data-page="inventario"> <a href="#"><i class="fas fa-boxes"></i><span>Productos y
                         Existencias</span></a> </li>
             <li class="menu-item" data-page="inyeccion"> <a href="#"><i
@@ -325,32 +323,13 @@
                         class="fas fa-shopping-basket"></i><span>Pedidos</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
-            <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i class="fas fa-chart-pie"></i><span>Metals
+            <li class="menu-item active" data-page="metals-dashboard"> <a href="#"><i
+                        class="fas fa-chart-pie"></i><span>Metals
                         Dashboard</span></a> </li>
+            <li class="menu-item" data-page="metals-produccion"> <a href="#"><i
+                        class="fas fa-clipboard-list"></i><span>Formularios</span></a> </li>
 
-            <li class="sidebar-divider"
-                style="padding: 10px 20px; font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">
-                Centro de Procesos</li>
-            <li class="menu-item" data-page="metals-torno"> <a href="#"><i
-                        class="fas fa-wrench"></i><span>Torno</span></a> </li>
-            <li class="menu-item" data-page="metals-laser"> <a href="#"><i class="fas fa-bolt"></i><span>Corte
-                        Láser</span></a> </li>
-            <li class="menu-item" data-page="metals-soldadura"> <a href="#"><i
-                        class="fas fa-fire"></i><span>Soldadura</span></a> </li>
-            <li class="menu-item" data-page="metals-marcadora"> <a href="#"><i
-                        class="fas fa-microchip"></i><span>Marcadora Láser</span></a> </li>
-            <li class="menu-item" data-page="metals-taladro"> <a href="#"><i
-                        class="fas fa-bore-hole"></i><span>Taladro</span></a> </li>
-            <li class="menu-item" data-page="metals-dobladora"> <a href="#"><i
-                        class="fas fa-vector-square"></i><span>Dobladora</span></a> </li>
-            <li class="menu-item" data-page="metals-pintura"> <a href="#"><i
-                        class="fas fa-palette"></i><span>Pintura</span></a> </li>
-            <li class="menu-item" data-page="metals-zincado"> <a href="#"><i
-                        class="fas fa-fill-drip"></i><span>Zincado</span></a> </li>
-            <li class="menu-item" data-page="metals-horno"> <a href="#"><i
-                        class="fas fa-temperature-high"></i><span>Horno</span></a> </li>
-            <li class="menu-item" data-page="metals-pulido-m"> <a href="#"><i
-                        class="fas fa-magic"></i><span>Pulido</span></a> </li>
+
 
         </ul>
         <div class="sidebar-footer">
@@ -549,7 +528,8 @@
                         style="width: 100%; height: 100%; border: none; position: relative; z-index: 5;"
                         allowFullScreen="true"></iframe>
                 </section>
-            </div> <!-- Inventario -->
+            </div>
+            <!-- Inventario -->
             <div id="inventario-page" class="page">
                 <header class="top-bar">
                     <button class="btn-icon" id="toggle-sidebar-inventario">
@@ -613,8 +593,8 @@
                                 class="fas fa-shopping-cart text-warning"></i> Por Pedir </button> <button type="button"
                             class="btn btn-light border rounded-pill px-3"> <i
                                 class="fas fa-check-circle text-success"></i>
-                            Stock OK </button> <button type="button" class="btn btn-light border rounded-pill px-3"> <i
-                                class="fas fa-times-circle text-danger"></i> Agotados </button> </div>
+                            Stock OK </button> <button type="button" class="btn btn-light border rounded-pill px-3">
+                            <i class="fas fa-times-circle text-danger"></i> Agotados </button> </div>
                     <!-- Tabla de productos -->
                     <div class="table-container">
                         <table class="table-inventario responsive-mobile">
@@ -667,10 +647,12 @@
                             <!-- Fila 3 -->
                             <div class="form-group"> <label for="hora-inicio-inyeccion"><i
                                         class="fas fa-play-circle"></i>
-                                    Hora Inicio</label> <input type="time" id="hora-inicio-inyeccion" required> </div>
+                                    Hora Inicio</label> <input type="time" id="hora-inicio-inyeccion" required>
+                            </div>
                             <div class="form-group"> <label for="hora-termina-inyeccion"><i
                                         class="fas fa-stop-circle"></i>
-                                    Hora Termina</label> <input type="time" id="hora-termina-inyeccion" required> </div>
+                                    Hora Termina</label> <input type="time" id="hora-termina-inyeccion" required>
+                            </div>
                             <!-- Fila 4 -->
                             <div class="form-group"> <label for="codigo-producto-inyeccion"><i
                                         class="fas fa-barcode"></i>
@@ -678,7 +660,8 @@
                                     placeholder="Buscar por código o descripción..." autocomplete="off">
                                 <div id="inyeccion-producto-suggestions" class="autocomplete-suggestions"></div>
                             </div>
-                            <div class="form-group"> <label for="cavidades-inyeccion"><i class="fas fa-cube"></i> No.
+                            <div class="form-group"> <label for="cavidades-inyeccion"><i class="fas fa-cube"></i>
+                                    No.
                                     Cavidades</label> <input type="number" id="cavidades-inyeccion" min="1" value="1"
                                     required> </div> <!-- Fila 5 -->
                             <div class="form-group"> <label for="cantidad-inyeccion"><i class="fas fa-bolt"></i>
@@ -771,7 +754,8 @@
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
                                 Inyección</button>
-                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i>
+                                Limpiar</button>
                         </div>
                     </form>
                 </div>
@@ -862,7 +846,8 @@
                                 <input type="date" id="fecha-pulido" required>
                             </div>
                             <div class="form-group">
-                                <label for="responsable-pulido"><i class="fas fa-user-circle"></i> Responsable</label>
+                                <label for="responsable-pulido"><i class="fas fa-user-circle"></i>
+                                    Responsable</label>
                                 <input type="text" id="responsable-pulido" placeholder="Buscar operario..."
                                     autocomplete="off">
                                 <div id="pulido-responsable-suggestions" class="autocomplete-suggestions"></div>
@@ -870,7 +855,8 @@
 
                             <!-- Fila 2: Horas -->
                             <div class="form-group">
-                                <label for="hora-inicio-pulido"><i class="fas fa-play-circle"></i> Hora Inicio</label>
+                                <label for="hora-inicio-pulido"><i class="fas fa-play-circle"></i> Hora
+                                    Inicio</label>
                                 <input type="time" id="hora-inicio-pulido" required>
                             </div>
                             <div class="form-group">
@@ -899,7 +885,8 @@
                                 <small class="text-muted d-block mt-1">Si no hay OP, escribe 1234 o similar.</small>
                             </div>
                             <div class="form-group">
-                                <label for="entrada-pulido"><i class="fas fa-calculator"></i> Total Procesado</label>
+                                <label for="entrada-pulido"><i class="fas fa-calculator"></i> Total
+                                    Procesado</label>
                                 <input type="number" id="entrada-pulido" min="0" readonly
                                     style="background-color: #f3f4f6; font-weight: bold;">
                             </div>
@@ -980,7 +967,8 @@
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
                                 Pulido</button>
-                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i>
+                                Limpiar</button>
                         </div>
                     </form>
                 </div>
@@ -1004,7 +992,8 @@
                                 <input type="date" id="fecha-ensamble" required>
                             </div>
                             <div class="form-group">
-                                <label for="responsable-ensamble"><i class="fas fa-user-circle"></i> Responsable</label>
+                                <label for="responsable-ensamble"><i class="fas fa-user-circle"></i>
+                                    Responsable</label>
                                 <input type="text" id="responsable-ensamble" placeholder="Buscar operario..."
                                     autocomplete="off">
                                 <div id="ensamble-responsable-suggestions" class="autocomplete-suggestions"></div>
@@ -1012,7 +1001,8 @@
 
                             <!-- Fila 2: Horas -->
                             <div class="form-group">
-                                <label for="hora-inicio-ensamble"><i class="fas fa-play-circle"></i> Hora Inicio</label>
+                                <label for="hora-inicio-ensamble"><i class="fas fa-play-circle"></i> Hora
+                                    Inicio</label>
                                 <input type="time" id="hora-inicio-ensamble" required>
                             </div>
                             <div class="form-group">
@@ -1156,7 +1146,8 @@
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar
                                 Ensamble</button>
-                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i> Limpiar</button>
+                            <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i>
+                                Limpiar</button>
                         </div>
                     </form>
                 </div>
@@ -1197,7 +1188,8 @@
                                 <input type="number" id="pnc-manual-cantidad" min="1" required>
                             </div>
                             <div class="form-group">
-                                <label for="pnc-manual-criterio"><i class="fas fa-exclamation-circle"></i> Criterio /
+                                <label for="pnc-manual-criterio"><i class="fas fa-exclamation-circle"></i> Criterio
+                                    /
                                     Defecto</label>
                                 <select id="pnc-manual-criterio" required>
                                     <option value="">Selecciona...</option>
@@ -1213,7 +1205,8 @@
 
                             <!-- Fila 3: Notas/Ensamble (Ancho completo) -->
                             <div class="form-group full-width">
-                                <label for="pnc-manual-ensamble"><i class="fas fa-sticky-note"></i> Código Ensamble /
+                                <label for="pnc-manual-ensamble"><i class="fas fa-sticky-note"></i> Código Ensamble
+                                    /
                                     Notas (Opcional)</label>
                                 <input type="text" id="pnc-manual-ensamble"
                                     placeholder="ID de operación o notas adicionales">
@@ -1314,7 +1307,8 @@
                         </div>
                         <div
                             class="card-footer bg-light border-0 py-3 d-flex justify-content-between align-items-center">
-                            <small class="text-muted"><i class="fas fa-info-circle me-1"></i> Mostrando solo pedidos con
+                            <small class="text-muted"><i class="fas fa-info-circle me-1"></i> Mostrando solo pedidos
+                                con
                                 estado PENDIENTE.</small>
                             <div id="wo-selection-count" class="fw-bold text-primary" style="display: none;">
                                 <i class="fas fa-check-circle me-1"></i> <span id="wo-count-val">0</span> pedidos
@@ -1444,7 +1438,8 @@
 
                             <!-- Tabla de Items -->
                             <div class="form-group full-width" style="margin-top: 20px;">
-                                <h4 style="margin-bottom: 15px;"><i class="fas fa-list"></i> Productos en este Pedido
+                                <h4 style="margin-bottom: 15px;"><i class="fas fa-list"></i> Productos en este
+                                    Pedido
                                 </h4>
                                 <div class="table-container"
                                     style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
@@ -1453,7 +1448,8 @@
                                         <thead style="background: #f8f9fa;">
                                             <tr>
                                                 <th style="padding: 10px; border: 1px solid #dee2e6;">Código</th>
-                                                <th style="padding: 10px; border: 1px solid #dee2e6;">Descripción</th>
+                                                <th style="padding: 10px; border: 1px solid #dee2e6;">Descripción
+                                                </th>
                                                 <th
                                                     style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">
                                                     Cantidad</th>
@@ -1597,7 +1593,8 @@
 
                     <!-- Generador de Reportes -->
                     <div class="card p-4 border-0 shadow-sm rounded-4 mb-4">
-                        <h4 class="mb-3"><i class="fas fa-file-export text-primary me-2"></i>Generar Reporte Detallado
+                        <h4 class="mb-3"><i class="fas fa-file-export text-primary me-2"></i>Generar Reporte
+                            Detallado
                         </h4>
                         <div class="row g-3">
                             <div class="col-md-3">
@@ -1636,7 +1633,8 @@
                     <div id="resultado-reporte" class="bg-white p-4 rounded-4 shadow-sm min-vh-50">
                         <div class="text-center py-5 text-muted">
                             <i class="fas fa-chart-pie fa-4x mb-3" style="opacity: 0.1;"></i>
-                            <p>Asistente de Reportes Juan Sebastian: Selecciona los criterios y haz clic en Generar para
+                            <p>Asistente de Reportes Juan Sebastian: Selecciona los criterios y haz clic en Generar
+                                para
                                 visualizar datos.</p>
                         </div>
                     </div>
@@ -1660,7 +1658,8 @@
                                 <input type="date" id="fecha-mezcla" required>
                             </div>
                             <div class="form-group">
-                                <label for="responsable-mezcla"><i class="fas fa-user-shield"></i> Responsable</label>
+                                <label for="responsable-mezcla"><i class="fas fa-user-shield"></i>
+                                    Responsable</label>
                                 <select id="responsable-mezcla" required>
                                     <option value="">Seleccionar...</option>
                                 </select>
@@ -1684,7 +1683,8 @@
                                     style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
                             </div>
                             <div class="form-group">
-                                <label for="molido-mezcla"><i class="fas fa-recycle"></i> Kg Molido (Recuperado)</label>
+                                <label for="molido-mezcla"><i class="fas fa-recycle"></i> Kg Molido
+                                    (Recuperado)</label>
                                 <input type="number" id="molido-mezcla" step="0.01" min="0" readonly
                                     style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
                             </div>
@@ -1700,7 +1700,8 @@
                             </div>
 
                             <div class="form-group full-width">
-                                <label for="observaciones-mezcla"><i class="fas fa-comment"></i> Observaciones</label>
+                                <label for="observaciones-mezcla"><i class="fas fa-comment"></i>
+                                    Observaciones</label>
                                 <textarea id="observaciones-mezcla" rows="2"
                                     placeholder="Detalles de la mezcla..."></textarea>
                             </div>
@@ -1980,7 +1981,8 @@
                                     0%</div>
                                 <div id="modal-enviado-progress"
                                     class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
-                                    style="width: 0%; background: #10b981; font-weight: bold;">0%</div>
+                                    style="width: 0%; background: #10b981; font-weight: bold;">0%
+                                </div>
                             </div>
 
                             <div id="lista-productos-alistamiento"
@@ -2086,7 +2088,8 @@
                                 </thead>
                                 <tbody id="metals-dashboard-history">
                                     <tr>
-                                        <td colspan="8" class="text-center p-4 text-muted">Haz clic en Actualizar</td>
+                                        <td colspan="8" class="text-center p-4 text-muted">Haz clic en Actualizar
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -2253,6 +2256,8 @@
     <script src="/static/js/modules/pedidos.js?v=1.3.0"></script>
     <script src="/static/js/modules/almacen.js?v=1.3.0"></script>
     <script src="/static/js/modules/metals.js?v=1.3.0"></script>
+    <script src="/static/js/modules/portal_client.js?v=1.3.0"></script>
+
     <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
     <script src="/static/js/app.js?v=1.3.0"></script>
     <!-- Script de inicialización -->
