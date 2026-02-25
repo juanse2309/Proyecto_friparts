@@ -448,7 +448,7 @@ const ModuloInyeccion = {
     limpiarFormularioProducto: function () {
         document.getElementById('codigo-producto-inyeccion').value = '';
         document.getElementById('cavidades-inyeccion').value = 1;
-        document.getElementById('cantidad-inyeccion').value = '';
+        // document.getElementById('cantidad-inyeccion').value = ''; // No limpiar, se mantiene por máquina
         document.getElementById('cantidad-real-inyeccion').value = '';
         document.getElementById('pnc-inyeccion').value = 0;
         document.getElementById('criterio-pnc-hidden-inyeccion').value = '';
@@ -481,10 +481,12 @@ const ModuloInyeccion = {
 
         let totalBuenas = 0;
         let totalPNC = 0;
+        let totalBruto = 0;
 
         tbody.innerHTML = this.items.map((item, index) => {
             totalBuenas += item.piezasBuenas;
             totalPNC += item.pnc;
+            totalBruto += item.cantidad_real;
 
             return `
             <tr>
@@ -496,12 +498,12 @@ const ModuloInyeccion = {
                     <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 90px;" value="${item.disparos}" onchange="ModuloInyeccion.editarItem(${index}, 'disparos', this.value)">
                 </td>
                 <td class="text-center align-middle">
-                    <input type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 90px;" value="${item.manual_buenas !== null ? item.manual_buenas : ''}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)" placeholder="Teórica">
+                    <input type="number" min="0" class="form-control form-control-sm text-center mx-auto fw-bold text-success" style="width: 90px;" value="${item.manual_buenas !== null ? item.manual_buenas : ''}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)" placeholder="Teórica">
                 </td>
                 <td class="text-center align-middle">
                     <div class="d-flex justify-content-center align-items-center gap-1">
-                        <input type="number" min="0" class="form-control form-control-sm text-center text-danger fw-bold" style="width: 70px; background-color: #fce8e6; cursor: pointer;" value="${item.pnc}" readonly onclick="ModuloInyeccion.editarPNCLista(${index})">
-                        <button type="button" class="btn btn-sm btn-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
+                        <input type="number" min="0" class="form-control form-control-sm text-center text-light fw-bold bg-danger border-0" style="width: 60px; cursor: pointer;" value="${item.pnc}" readonly onclick="ModuloInyeccion.editarPNCLista(${index})">
+                        <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
                     </div>
                 </td>
                 <td class="text-center align-middle">
@@ -520,6 +522,8 @@ const ModuloInyeccion = {
             tfoot.style.display = 'table-footer-group';
             document.getElementById('inyeccion-total-buenas').textContent = totalBuenas.toLocaleString();
             document.getElementById('inyeccion-total-pnc').textContent = totalPNC.toLocaleString();
+            const brutoFooter = document.getElementById('inyeccion-total-bruto');
+            if (brutoFooter) brutoFooter.textContent = totalBruto.toLocaleString();
         }
     },
 
