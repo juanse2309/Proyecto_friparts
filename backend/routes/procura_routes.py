@@ -186,6 +186,37 @@ def registrar_oc():
     except Exception as e:
         logger.error(f"Error guardando órdenes de compra: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        # Incrementar contador de frecuencia en PARAMETROS_INVENTARIO de forma asíncrona (opcional) o secuencial
+        try:
+            ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+            if ws_param:
+                registros = ws_param.get_all_records()
+                # Mapeo de producto a fila (2-indexed)
+                mapeo_filas = {}
+                for i, r in enumerate(registros):
+                    codigo = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
+                    if codigo:
+                        mapeo_filas[codigo] = i + 2
+                
+                # Obtener indices de columnas
+                headers = ws_param.row_values(1)
+                col_contador = -1
+                if 'CONTADOR_OC' in headers:
+                    col_contador = headers.index('CONTADOR_OC') + 1
+                
+                if col_contador > 0:
+                    productos_unicos = set([str(item.get("producto", "")).strip().upper() for item in items])
+                    for prod in productos_unicos:
+                        if prod in mapeo_filas:
+                            row_idx = mapeo_filas[prod]
+                            valor_actual = 0
+                            try:
+                                valor_actual = int(ws_param.cell(row_idx, col_contador).value or 0)
+                            except: pass
+                            ws_param.update_cell(row_idx, col_contador, valor_actual + 1)
+        except Exception as ex:
+            logger.error(f"Error incrementando contador OC: {ex}")
 
 
 @procura_bp.route('/siguiente_oc', methods=['GET'])
@@ -333,4 +364,83 @@ def alertas_abastecimiento():
 
     except Exception as e:
         logger.error(f"Error generando alertas de abastecimiento: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@procura_bp.route('/rotacion/prioridades', methods=['GET'])
+def rotacion_prioridades():
+    """
+    Combina PARAMETROS_INVENTARIO y ORDENES_DE_COMPRA para priorización inteligente.
+    Ordena por CLASE_ROTACION (A > B > C) y luego por déficit crítico.
+    """
+    try:
+        # 1. Traer Parámetros con Clase de Rotación
+        ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+        cat_records = ws_param.get_all_records() if ws_param else []
+        
+        catalogo = {}
+        for r in cat_records:
+            codigo = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
+            if codigo:
+                catalogo[codigo] = {
+                    "descripcion": str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")),
+                    "min": int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0),
+                    "clase": str(r.get("CLASE_ROTACION", "C")).strip().upper(),
+                    "contador_oc": int(r.get("CONTADOR_OC", 0) or 0)
+                }
+
+        # 2. Calcular Stock Real desde OCs
+        ws_oc = gc.get_worksheet(Hojas.ORDENES_DE_COMPRA)
+        oc_records = ws_oc.get_all_records() if ws_oc else []
+
+        stock_recibido = collections.defaultdict(int)
+        for oc in oc_records:
+            prod_codigo = str(oc.get("PRODUCTO", "")).strip().upper()
+            cant_rec = int(oc.get("CANTIDAD RECIBIDA", 0) or 0)
+            if prod_codigo:
+                stock_recibido[prod_codigo] += cant_rec
+
+        # 3. Consolidar Datos
+        resultado = []
+        for codigo, data in catalogo.items():
+            stock_actual = stock_recibido.get(codigo, 0)
+            diferencia = data["min"] - stock_actual
+            
+            # Cálculo de semáforo UX
+            semaforo = "VERDE"
+            porcentaje_del_minimo = (stock_actual / data["min"] * 100) if data["min"] > 0 else 100
+            
+            if stock_actual < data["min"]:
+                if porcentaje_del_minimo < 20:
+                    semaforo = "ROJO"
+                elif porcentaje_del_minimo <= 50:
+                    semaforo = "AMARILLO"
+                else:
+                    semaforo = "VERDE" # Aunque sea menor al min, si es > 50% lo tratamos como "saludable" en este contexto o ajustamos
+
+            resultado.append({
+                "codigo": codigo,
+                "descripcion": data["descripcion"],
+                "clase": data["clase"],
+                "stock_actual": stock_actual,
+                "minimo": data["min"],
+                "diferencia": diferencia,
+                "porcentaje": round(porcentaje_del_minimo),
+                "semaforo": semaforo,
+                "contador_oc": data["contador_oc"]
+            })
+
+        # 4. Ordenamiento inteligente
+        # Primero por Clase (A=0, B=1, C=2 para sorting ascendente)
+        # Luego por Déficit (diferencia más alta primero)
+        clase_map = {"A": 0, "B": 1, "C": 2}
+        resultado.sort(key=lambda x: (clase_map.get(x["clase"], 3), -x["diferencia"]))
+
+        return jsonify({
+            "status": "success",
+            "data": resultado
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en rotacion_prioridades: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500

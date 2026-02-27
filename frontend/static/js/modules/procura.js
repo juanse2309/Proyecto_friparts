@@ -187,6 +187,16 @@ const ModuloProcura = {
         if (btnAgregar) {
             btnAgregar.onclick = () => this.agregarItemOC();
         }
+
+        const inputCantidad = document.getElementById('cantidad-oc');
+        if (inputCantidad) {
+            inputCantidad.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.agregarItemOC();
+                }
+            });
+        }
     },
 
     agregarItemOC: function () {
@@ -458,7 +468,7 @@ const ModuloProcura = {
             const resp = await fetch('/api/procura/siguiente_oc');
             const data = await resp.json();
             if (data.success) {
-                document.getElementById('n-oc').value = `OC-${data.siguiente_oc}`;
+                document.getElementById('n-oc').value = data.siguiente_oc;
             } else {
                 document.getElementById('n-oc').value = '';
             }

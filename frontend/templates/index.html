@@ -349,6 +349,8 @@
                         class="fas fa-shopping-basket"></i><span>Pedidos</span></a> </li>
             <li class="menu-item" data-page="procura"> <a href="#"><i class="fas fa-truck-loading"></i><span>Gestión de
                         Procura</span></a> </li>
+            <li class="menu-item" data-page="rotacion"> <a href="#"><i class="fas fa-sync"></i><span>Gestión de
+                        Rotación</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item active" data-page="metals-dashboard"> <a href="#"><i
@@ -1151,7 +1153,132 @@
                         </div>
                     </form>
                 </div>
-            </div> <!-- Ensamble -->
+            </div>
+
+            <!-- GESTIÓN DE ROTACIÓN -->
+            <div id="rotacion-page" class="page">
+                <header class="top-bar">
+                    <button class="btn-icon" id="toggle-sidebar-rotacion">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-sync"></i> Gestión de Rotación y Prioridades</h1>
+                        <p class="subtitle">Abastecimiento inteligente basado en datos y criticidad</p>
+                    </div>
+                    <div class="top-controls">
+                        <button class="btn btn-primary" onclick="ModuloRotacion.cargarPrioridades()">
+                            <i class="fas fa-sync-alt"></i> Actualizar
+                        </button>
+                    </div>
+                </header>
+
+                <div class="container-fluid py-4">
+                    <!-- Dashboard de Resumen -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-0 shadow-sm p-3 text-center"
+                                style="border-radius: 12px; background: #fff5f5; border-left: 5px solid #dc3545 !important;">
+                                <h6 class="text-muted mb-1 small text-uppercase fw-bold">Críticos (Clase A)</h6>
+                                <h3 id="rot-count-a" class="fw-bold mb-0 text-danger">0</h3>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-0 shadow-sm p-3 text-center"
+                                style="border-radius: 12px; background: #fffbeb; border-left: 5px solid #f59e0b !important;">
+                                <h6 class="text-muted mb-1 small text-uppercase fw-bold">Precaución</h6>
+                                <h3 id="rot-count-caution" class="fw-bold mb-0 text-warning">0</h3>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-0 shadow-sm p-3 text-center"
+                                style="border-radius: 12px; background: #f0fdf4; border-left: 5px solid #10b981 !important;">
+                                <h6 class="text-muted mb-1 small text-uppercase fw-bold">Saludables</h6>
+                                <h3 id="rot-count-ok" class="fw-bold mb-0 text-success">0</h3>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-0 shadow-sm p-3 text-center"
+                                style="border-radius: 12px; background: #f8fafc; border-left: 5px solid #64748b !important;">
+                                <h6 class="text-muted mb-1 small text-uppercase fw-bold">Total Items</h6>
+                                <h3 id="rot-count-total" class="fw-bold mb-0 text-secondary">0</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECCIÓN: TOP A - CRÍTICOS -->
+                    <div class="card border-0 shadow-sm mb-4" style="border-radius: 12px;">
+                        <div
+                            class="card-header bg-danger bg-opacity-10 py-3 d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0 fw-bold text-danger"><i class="fas fa-fire me-2"></i> Prioridad de Compra
+                                (TOP A - Críticos)</h5>
+                            <span class="badge bg-danger rounded-pill px-3">Acción Inmediata</span>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th style="width: 15%;">CÓDIGO</th>
+                                            <th style="width: 30%;">DESCRIPCIÓN</th>
+                                            <th style="width: 10%; text-align: center;">STOCK</th>
+                                            <th style="width: 10%; text-align: center;">MÍNIMO</th>
+                                            <th style="width: 25%;">ESTADO / URGENCIA</th>
+                                            <th style="width: 10%; text-align: center;">FREQ. OC</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rot-table-a">
+                                        <tr>
+                                            <td colspan="6" class="text-center py-5 text-muted">
+                                                <i class="fas fa-spinner fa-spin fa-2x mb-3 text-danger"></i>
+                                                <p>Cargando prioridades críticas...</p>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECCIÓN: CLASE B/C - MANTENIMIENTO -->
+                    <div class="card border-0 shadow-sm" style="border-radius: 12px;">
+                        <div class="card-header bg-light py-3 d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0 fw-bold text-secondary"><i class="fas fa-tools me-2"></i> Mantenimiento
+                                (Clase B/C)</h5>
+                            <div class="search-box" style="max-width: 300px;">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="rot-search-bc" placeholder="Filtrar B/C..."
+                                    onkeyup="ModuloRotacion.filtrarBC()">
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th style="width: 15%;">CÓDIGO</th>
+                                            <th style="width: 30%;">DESCRIPCIÓN</th>
+                                            <th style="width: 10%; text-align: center;">CLASE</th>
+                                            <th style="width: 10%; text-align: center;">STOCK</th>
+                                            <th style="width: 25%;">ESTADO</th>
+                                            <th style="width: 10%; text-align: center;">FREQ. OC</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rot-table-bc">
+                                        <tr>
+                                            <td colspan="6" class="text-center py-5 text-muted">
+                                                <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                                                <p>Cargando lista de mantenimiento...</p>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ensamble -->
             <div id="ensamble-page" class="page">
                 <header class="top-bar">
                     <button class="btn-icon" id="toggle-sidebar-ensamble">
@@ -2264,7 +2391,8 @@
                                                     autocomplete="off">
                                             </div>
                                             <div id="procura-producto-suggestions"
-                                                class="autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border z-3">
+                                                class="autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border"
+                                                style="z-index: 9999 !important;">
                                             </div>
                                         </div>
                                         <div class="col-md-3">
