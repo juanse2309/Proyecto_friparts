@@ -8,6 +8,7 @@ const AuthModule = {
     // Matriz de Permisos
     permissions: {
         'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'Administrador': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'Gerencia': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'Comercial': ['pedidos', 'almacen'],
         'Auxiliar Inventario': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura'],
@@ -712,7 +713,7 @@ const AuthModule = {
                 // Remover explícitamente si existen
                 allowedPages = allowedPages.filter(p => !['dashboard', 'almacen', 'facturacion', 'mezcla'].includes(p));
                 // Asegurar acceso a edición global (sin facturacion ni mezcla)
-                const extras = ['inventario', 'historial', 'inyeccion', 'pulido', 'ensamble', 'pnc'];
+                const extras = ['inventario', 'historial', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'procura'];
                 extras.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
             }
         }
