@@ -28,7 +28,7 @@ const ModuloPulido = {
                     'codigo-producto-pulido', 'lote-pulido', 'orden-produccion-pulido',
                     'bujes-buenos-pulido', 'pnc-pulido', 'observaciones-pulido'
                 ],
-                actionBtnId: 'form-pulido', // El botón de submit
+                actionBtnId: 'btn-submit-pulido', // El botón de submit
                 autocomplete: {
                     inputId: 'codigo-producto-pulido',
                     suggestionsId: 'pulido-producto-suggestions'
