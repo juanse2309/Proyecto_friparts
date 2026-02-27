@@ -215,8 +215,8 @@ const ModuloProcura = {
 
         const nuevoItem = {
             id_temporal: Date.now().toString(),
-            fecha_solicitud: document.getElementById('fecha-solicitud-oc')?.value || '',
-            n_oc: document.getElementById('n-oc')?.value?.trim() || '',
+            fecha_solicitud: this.formatearFechaParaBD(document.getElementById('fecha-solicitud-oc')?.value),
+            n_oc: document.getElementById('n-oc')?.value?.replace(/OC-/gi, "")?.trim() || '',
             proveedor: document.getElementById('proveedor-oc')?.value?.trim() || '',
             producto: codeFormal,
             descripcion: descInfo,
@@ -282,6 +282,19 @@ const ModuloProcura = {
             return `${year}-${month}-${day}`;
         }
         return '';
+    },
+
+    formatearFechaParaBD: function (fecha) {
+        if (!fecha) return '';
+        if (String(fecha).includes('/')) return fecha;
+        const parts = String(fecha).split('-');
+        if (parts.length === 3) {
+            const year = parts[0];
+            const month = parts[1].padStart(2, '0');
+            const day = parts[2].padStart(2, '0');
+            return `${day}/${month}/${year}`;
+        }
+        return fecha;
     },
 
     renderTablaOC: function () {
@@ -435,6 +448,8 @@ const ModuloProcura = {
             let val = value;
             if (field === 'cantidad' || field === 'cantidad_recibida' || field === 'cantidad_fact') {
                 val = parseInt(value) || 0;
+            } else if (field.includes('fecha')) {
+                val = this.formatearFechaParaBD(value);
             }
             this.itemsOC[index][field] = val;
 
