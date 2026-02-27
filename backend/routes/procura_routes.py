@@ -386,24 +386,14 @@ def rotacion_prioridades():
                     "descripcion": str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")),
                     "min": int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0),
                     "clase": str(r.get("CLASE_ROTACION", "C")).strip().upper(),
-                    "contador_oc": int(r.get("CONTADOR_OC", 0) or 0)
+                    "contador_oc": int(r.get("CONTADOR_OC", 0) or 0),
+                    "stock_actual": int(r.get("STOCK_ACTUAL", 0) or 0)
                 }
-
-        # 2. Calcular Stock Real desde OCs
-        ws_oc = gc.get_worksheet(Hojas.ORDENES_DE_COMPRA)
-        oc_records = ws_oc.get_all_records() if ws_oc else []
-
-        stock_recibido = collections.defaultdict(int)
-        for oc in oc_records:
-            prod_codigo = str(oc.get("PRODUCTO", "")).strip().upper()
-            cant_rec = int(oc.get("CANTIDAD RECIBIDA", 0) or 0)
-            if prod_codigo:
-                stock_recibido[prod_codigo] += cant_rec
 
         # 3. Consolidar Datos
         resultado = []
         for codigo, data in catalogo.items():
-            stock_actual = stock_recibido.get(codigo, 0)
+            stock_actual = data["stock_actual"]
             diferencia = data["min"] - stock_actual
             
             # Cálculo de semáforo UX

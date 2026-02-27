@@ -21,19 +21,26 @@ window.ModuloRotacion = (function () {
 
     async function cargarPrioridades() {
         try {
-            const response = await fetch('/api/rotacion/prioridades');
+            mostrarLoading(true);
+            const response = await fetch('/api/procura/rotacion/prioridades');
             const result = await response.json();
 
             if (result.status === 'success') {
                 datosOriginales = result.data;
                 renderizarDashboard(result.data);
                 renderizarTablas(result.data);
+
+                // Opcional: Notificación silenciosa
+                console.log('✅ Prioridades actualizadas');
             } else {
                 console.error('Error al cargar prioridades:', result.message);
-                alert('No se pudieron cargar las prioridades de rotación.');
+                Swal.fire('Error', 'No se pudieron cargar las prioridades de rotación: ' + result.message, 'error');
             }
         } catch (error) {
             console.error('Error fetch rotacion:', error);
+            Swal.fire('Error de Conexión', 'No se pudo contactar con el servidor. Revisa tu conexión.', 'error');
+        } finally {
+            mostrarLoading(false);
         }
     }
 
