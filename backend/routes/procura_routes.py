@@ -86,8 +86,8 @@ def listar_proveedores():
         registros = ws.get_all_records()
         proveedores = []
         for r in registros:
-            # Asumimos que la hoja tiene una columna NOMBRE o PROVEEDOR
-            nombre = str(r.get("NOMBRE", "") or r.get("PROVEEDOR", "")).strip()
+            # Asumimos que la hoja tiene una columna NOMBRE, PROVEEDOR o PROVEEDORES
+            nombre = str(r.get("PROVEEDORES", "") or r.get("NOMBRE", "") or r.get("PROVEEDOR", "")).strip()
             if nombre:
                 proveedores.append(nombre)
 
