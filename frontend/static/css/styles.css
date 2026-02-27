@@ -4027,7 +4027,8 @@ body.loaded {
     border-bottom: none;
 }
 
-.suggestion-item:hover {
+.suggestion-item:hover,
+.suggestion-item.selected {
     background-color: #f3f4f6;
     color: #111827;
 }

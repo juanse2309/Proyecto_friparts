@@ -237,9 +237,87 @@ const ModuloUX = (() => {
                 }
             }, 500);
         },
-        playSound,
         getSoundTheme,
-        setSoundTheme
+        setSoundTheme,
+
+        /**
+         * Configura el comportamiento de la tecla Enter en un formulario
+         * @param {Object} config - { inputIds: [], actionBtnId: '', autocomplete: { inputId: '', suggestionsId: '' } }
+         */
+        setupSmartEnter: (config) => {
+            const { inputIds, actionBtnId, autocomplete } = config;
+
+            inputIds.forEach((id, idx) => {
+                const input = document.getElementById(id);
+                if (!input) return;
+
+                let selectedIndex = -1;
+
+                // Resetear selección cuando el usuario escribe
+                input.addEventListener('input', () => {
+                    selectedIndex = -1;
+                });
+
+                input.addEventListener('keydown', (e) => {
+                    const isAutocomplete = autocomplete && id === autocomplete.inputId;
+                    const suggestionsDiv = isAutocomplete ? document.getElementById(autocomplete.suggestionsId) : null;
+                    const isVisible = suggestionsDiv && (suggestionsDiv.classList.contains('active') || suggestionsDiv.style.display === 'block');
+
+                    // 1. Manejo de Flechas (Navegación)
+                    if (isVisible && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                        e.preventDefault();
+                        const items = suggestionsDiv.querySelectorAll('.suggestion-item');
+                        if (items.length === 0) return;
+
+                        // Quitar clase previa
+                        if (selectedIndex >= 0 && selectedIndex < items.length) {
+                            items[selectedIndex].classList.remove('selected');
+                        }
+
+                        if (e.key === 'ArrowDown') {
+                            selectedIndex = (selectedIndex + 1) % items.length;
+                        } else {
+                            selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+                        }
+
+                        // Añadir nueva clase y scroll
+                        const activeItem = items[selectedIndex];
+                        activeItem.classList.add('selected');
+                        activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                        return;
+                    }
+
+                    // 2. Manejo de Enter
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+
+                        if (isVisible) {
+                            const items = suggestionsDiv.querySelectorAll('.suggestion-item');
+                            const itemToClick = selectedIndex >= 0 ? items[selectedIndex] : items[0];
+
+                            if (itemToClick) {
+                                itemToClick.click();
+                                selectedIndex = -1;
+                                return;
+                            }
+                        }
+
+                        // Saltar al siguiente campo o ejecutar acción
+                        const nextId = inputIds[idx + 1];
+                        if (nextId) {
+                            document.getElementById(nextId)?.focus();
+                        } else if (actionBtnId) {
+                            const btn = document.getElementById(actionBtnId);
+                            if (btn) {
+                                btn.click();
+                                const firstInput = document.getElementById(inputIds[0]);
+                                if (firstInput) firstInput.focus();
+                            }
+                        }
+                    }
+                });
+            });
+        }
     };
 
 })();

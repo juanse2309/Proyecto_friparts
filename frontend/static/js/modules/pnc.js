@@ -146,6 +146,22 @@ const ModuloPNC = {
                 this.registrar();
             };
         }
+
+        // Configurar Smart Enter
+        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
+            window.ModuloUX.setupSmartEnter({
+                inputIds: [
+                    'pnc-manual-fecha', 'pnc-manual-producto', 'pnc-manual-cantidad',
+                    'pnc-manual-criterio', 'pnc-manual-ensamble'
+                ],
+                actionBtnId: 'form-manual-pnc',
+                autocomplete: {
+                    inputId: 'pnc-manual-producto',
+                    suggestionsId: 'pnc-manual-producto-suggestions'
+                }
+            });
+        }
+
         console.log('✅ [PNC] Módulo inicializado');
     }
 };

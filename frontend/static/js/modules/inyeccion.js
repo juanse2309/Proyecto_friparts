@@ -19,6 +19,33 @@ const ModuloInyeccion = {
         const fechaHoy = new Date().toISOString().split('T')[0];
         const fechaInput = document.getElementById('fecha-inyeccion');
         if (fechaInput && !fechaInput.value) fechaInput.value = fechaHoy;
+
+        // Configurar Smart Enter
+        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
+            window.ModuloUX.setupSmartEnter({
+                inputIds: [
+                    'fecha-inyeccion', 'maquina-inyeccion', 'responsable-inyeccion',
+                    'hora-llegada-inyeccion', 'hora-inicio-inyeccion', 'hora-termina-inyeccion',
+                    'peso-vela-inyeccion', 'orden-produccion-inyeccion',
+                    'codigo-producto-inyeccion', 'cavidades-inyeccion', 'cantidad-inyeccion',
+                    'cantidad-real-inyeccion', 'pnc-inyeccion', 'peso-bujes-inyeccion', 'observaciones-inyeccion'
+                ],
+                actionBtnId: 'btn-agregar-inyeccion',
+                autocomplete: {
+                    inputId: 'codigo-producto-inyeccion',
+                    suggestionsId: 'inyeccion-producto-suggestions'
+                }
+            });
+
+            // Autocomplete para responsable
+            window.ModuloUX.setupSmartEnter({
+                inputIds: ['responsable-inyeccion'],
+                autocomplete: {
+                    inputId: 'responsable-inyeccion',
+                    suggestionsId: 'inyeccion-responsable-suggestions'
+                }
+            });
+        }
     },
 
     cargarDatos: async function () {

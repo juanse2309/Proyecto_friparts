@@ -41,8 +41,29 @@ const ModuloPedidos = {
             inputFecha.valueAsDate = new Date();
         }
 
-        // 6. Configurar gestión de Enter
-        this.configurarManejoEnter();
+        // 6. Configurar gestión de Enter (Smart Enter)
+        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
+            window.ModuloUX.setupSmartEnter({
+                inputIds: [
+                    'ped-fecha', 'ped-cliente', 'ped-pago', 'ped-descuento-global',
+                    'ped-producto', 'ped-cantidad', 'ped-precio'
+                ],
+                actionBtnId: 'btn-agregar-item',
+                autocomplete: {
+                    inputId: 'ped-producto',
+                    suggestionsId: 'ped-producto-suggestions'
+                }
+            });
+
+            // Autocomplete para cliente
+            window.ModuloUX.setupSmartEnter({
+                inputIds: ['ped-cliente'],
+                autocomplete: {
+                    inputId: 'ped-cliente',
+                    suggestionsId: 'ped-cliente-suggestions'
+                }
+            });
+        }
     },
 
     cargarDatosIniciales: async function () {
@@ -296,56 +317,7 @@ const ModuloPedidos = {
         }
     },
 
-    configurarManejoEnter: function () {
-        const form = document.getElementById('form-pedidos');
-        if (!form) return;
 
-        // Lista de IDs de inputs que deben pasar al siguiente con Enter
-        const inputsSecuencia = [
-            'ped-fecha',
-            'ped-cliente',
-            'ped-pago',
-            'ped-descuento-global',
-            'ped-producto',
-            'ped-cantidad',
-            'ped-precio'
-        ];
-
-        form.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                const targetId = e.target.id;
-
-                // Prevenir envío accidental del formulario
-                if (e.target.type !== 'textarea' && e.target.type !== 'submit' && e.target.id !== 'ped-load-id') {
-                    e.preventDefault();
-                }
-
-                // Lógica especial para el buscador de pedidos
-                if (targetId === 'ped-load-id') {
-                    e.preventDefault();
-                    this.cargarPedidoPorId();
-                    return;
-                }
-
-                // Lógica específica para campos de producto
-                if (targetId === 'ped-cantidad' || targetId === 'ped-precio') {
-                    this.agregarItemAlCarrito();
-                    document.getElementById('ped-producto').focus();
-                    return;
-                }
-
-                // Lógica de salto de foco
-                const currentIndex = inputsSecuencia.indexOf(targetId);
-                if (currentIndex !== -1 && currentIndex < inputsSecuencia.length - 1) {
-                    const nextInput = document.getElementById(inputsSecuencia[currentIndex + 1]);
-                    if (nextInput) {
-                        nextInput.focus();
-                        if (nextInput.tagName === 'INPUT') nextInput.select();
-                    }
-                }
-            }
-        });
-    },
 
     cargarPedidoPorId: async function () {
         const inputId = document.getElementById('ped-load-id');

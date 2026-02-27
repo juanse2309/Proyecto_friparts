@@ -13,6 +13,32 @@ const ModuloEnsamble = {
         this.initAutocompleteComponente();
         this.initAutocompleteResponsable();
         this.intentarAutoSeleccionarResponsable();
+
+        // Configurar Smart Enter
+        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
+            window.ModuloUX.setupSmartEnter({
+                inputIds: [
+                    'fecha-ensamble', 'responsable-ensamble', 'hora-inicio-ensamble', 'hora-fin-ensamble',
+                    'op-ensamble', 'ens-buje-componente', 'cantidad-ensamble',
+                    'pnc-ensamble', 'ens-qty-bujes', 'almacen-origen-ensamble',
+                    'almacen-destino-ensamble', 'observaciones-ensamble'
+                ],
+                actionBtnId: 'form-ensamble', // En submit ya que no es por items
+                autocomplete: {
+                    inputId: 'ens-buje-componente',
+                    suggestionsId: 'ensamble-componente-suggestions'
+                }
+            });
+
+            // Autocomplete para responsable
+            window.ModuloUX.setupSmartEnter({
+                inputIds: ['responsable-ensamble'],
+                autocomplete: {
+                    inputId: 'responsable-ensamble',
+                    suggestionsId: 'ensamble-responsable-suggestions'
+                }
+            });
+        }
     },
 
     // Alias para compatibilidad con app.js

@@ -56,13 +56,10 @@ const ModuloMezcla = {
             if (matchingOption) {
                 select.value = nombreUsuario;
                 console.log(`✅ [Mezcla] Responsable auto-seleccionado: ${nombreUsuario}`);
-                // Bloquear para evitar cambios accidentales (opcional, como en Pedidos)
-                // select.disabled = true; 
             }
         } else {
             console.log('⏳ [Mezcla] Esperando usuario para auto-selección...');
 
-            // Listener único
             const handler = (e) => {
                 console.log("👤 [Mezcla] Evento user-ready recibido");
                 this.intentarSeleccionarResponsable(select);
@@ -70,7 +67,6 @@ const ModuloMezcla = {
             };
             window.addEventListener('user-ready', handler);
 
-            // Polling fallback
             let attempts = 0;
             const interval = setInterval(() => {
                 attempts++;
@@ -137,16 +133,14 @@ const ModuloMezcla = {
     calcularPesosAutomaticos: function () {
         const bultos = parseFloat(document.getElementById('bultos-mezcla')?.value) || 0;
 
-        // Constantes del cliente
         const KG_VIRGEN_POR_BULTO = 25;
-        const KG_MOLIDO_POR_BULTO = 3.39; // 3 tazas de 1.130 kg
+        const KG_MOLIDO_POR_BULTO = 3.39;
         const GR_PIGMENTO_POR_BULTO = 12.1;
 
         const v = (bultos * KG_VIRGEN_POR_BULTO);
         const m = (bultos * KG_MOLIDO_POR_BULTO);
         const p = (bultos * GR_PIGMENTO_POR_BULTO);
 
-        // Actualizar inputs
         const inputVirgen = document.getElementById('virgen-mezcla');
         const inputMolido = document.getElementById('molido-mezcla');
         const inputPigmento = document.getElementById('pigmento-mezcla');
@@ -176,15 +170,15 @@ const ModuloMezcla = {
             display.innerHTML = `
                 <div style="display:flex; flex-direction: column; gap: 8px;">
                     <div style="display:flex; justify-content: space-between; align-items: baseline;">
-                        <span style="color: #1e3a8a; font-weight: 800; font-size: 1.1rem;">${pV}% VIRGEN</span>
-                        <span style="color: #065f46; font-weight: 800; font-size: 1.1rem;">${pM}% MOLIDO</span>
+                        <span style="color: #1e3a8a; font-weight: 800; font-size: 1.1rem;">\${pV}% VIRGEN</span>
+                        <span style="color: #065f46; font-weight: 800; font-size: 1.1rem;">\${pM}% MOLIDO</span>
                     </div>
                     <div style="width: 100%; height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden; display: flex;">
-                        <div style="width: ${pV}%; background: #3b82f6; height: 100%;"></div>
-                        <div style="width: ${pM}%; background: #10b981; height: 100%;"></div>
+                        <div style="width: \${pV}%; background: #3b82f6; height: 100%;"></div>
+                        <div style="width: \${pM}%; background: #10b981; height: 100%;"></div>
                     </div>
                     <div style="text-align: center; color: #1e293b; font-size: 0.9rem; font-weight: 600; margin-top: 4px;">
-                        Material Total a Preparar: ${total.toFixed(2)} Kg
+                        Material Total a Preparar: \${total.toFixed(2)} Kg
                     </div>
                 </div>
             `;
@@ -220,6 +214,19 @@ const ModuloMezcla = {
         }
 
         this.limpiarProporcion();
+
+        // Configurar Smart Enter
+        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
+            window.ModuloUX.setupSmartEnter({
+                inputIds: [
+                    'fecha-mezcla', 'responsable-mezcla', 'maquina-mezcla',
+                    'bultos-mezcla', 'virgen-mezcla', 'molido-mezcla',
+                    'pigmento-mezcla', 'observaciones-mezcla'
+                ],
+                actionBtnId: 'form-mezcla'
+            });
+        }
+
         console.log('✅ [Mezcla] Módulo inicializado');
     }
 };

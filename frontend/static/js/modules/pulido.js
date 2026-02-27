@@ -20,6 +20,31 @@ const ModuloPulido = {
             loteInput.value = new Date().toISOString().split('T')[0];
         }
 
+        // Configurar Smart Enter
+        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
+            window.ModuloUX.setupSmartEnter({
+                inputIds: [
+                    'fecha-pulido', 'responsable-pulido', 'hora-inicio-pulido', 'hora-fin-pulido',
+                    'codigo-producto-pulido', 'lote-pulido', 'orden-produccion-pulido',
+                    'bujes-buenos-pulido', 'pnc-pulido', 'observaciones-pulido'
+                ],
+                actionBtnId: 'form-pulido', // El botón de submit
+                autocomplete: {
+                    inputId: 'codigo-producto-pulido',
+                    suggestionsId: 'pulido-producto-suggestions'
+                }
+            });
+
+            // Autocomplete para responsable
+            window.ModuloUX.setupSmartEnter({
+                inputIds: ['responsable-pulido'],
+                autocomplete: {
+                    inputId: 'responsable-pulido',
+                    suggestionsId: 'pulido-responsable-suggestions'
+                }
+            });
+        }
+
         console.log('✅ [Pulido] Módulo inicializado');
     },
 
