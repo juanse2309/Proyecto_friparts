@@ -4029,8 +4029,10 @@ body.loaded {
 
 .suggestion-item:hover,
 .suggestion-item.selected {
-    background-color: #f3f4f6;
-    color: #111827;
+    background-color: #e2e8f0;
+    /* Darker shade of gray-blue */
+    color: #0f172a;
+    font-weight: 500;
 }
 
 .suggestion-item strong {
