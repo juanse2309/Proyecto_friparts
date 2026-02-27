@@ -19,11 +19,10 @@ const ModuloEnsamble = {
             window.ModuloUX.setupSmartEnter({
                 inputIds: [
                     'fecha-ensamble', 'responsable-ensamble', 'hora-inicio-ensamble', 'hora-fin-ensamble',
-                    'op-ensamble', 'ens-buje-componente', 'cantidad-ensamble',
-                    'pnc-ensamble', 'ens-qty-bujes', 'almacen-origen-ensamble',
-                    'almacen-destino-ensamble', 'observaciones-ensamble'
+                    'op-ensamble', 'ens-buje-componente', 'ens-qty-bujes', 'cantidad-ensamble',
+                    'almacen-origen-ensamble', 'almacen-destino-ensamble', 'pnc-ensamble', 'observaciones-ensamble'
                 ],
-                actionBtnId: 'form-ensamble', // En submit ya que no es por items
+                actionBtnId: 'btn-submit-ensamble', // En submit ya que no es por items
                 autocomplete: {
                     inputId: 'ens-buje-componente',
                     suggestionsId: 'ensamble-componente-suggestions'

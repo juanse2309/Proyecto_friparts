@@ -151,10 +151,9 @@ const ModuloPNC = {
         if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
             window.ModuloUX.setupSmartEnter({
                 inputIds: [
-                    'pnc-manual-fecha', 'pnc-manual-producto', 'pnc-manual-cantidad',
-                    'pnc-manual-criterio', 'pnc-manual-ensamble'
+                    'pnc-manual-producto', 'pnc-manual-cantidad', 'pnc-manual-motivo', 'pnc-manual-maquina', 'pnc-manual-ensamble'
                 ],
-                actionBtnId: 'form-manual-pnc',
+                actionBtnId: 'btn-submit-pnc',
                 autocomplete: {
                     inputId: 'pnc-manual-producto',
                     suggestionsId: 'pnc-manual-producto-suggestions'

@@ -223,7 +223,7 @@ const ModuloMezcla = {
                     'bultos-mezcla', 'virgen-mezcla', 'molido-mezcla',
                     'pigmento-mezcla', 'observaciones-mezcla'
                 ],
-                actionBtnId: 'form-mezcla'
+                actionBtnId: 'btn-submit-mezcla'
             });
         }
 
