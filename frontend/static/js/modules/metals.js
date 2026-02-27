@@ -6,6 +6,11 @@
 const ModuloMetals = {
     productosData: [],
     procesoActual: null,
+    graficoTiempos: null,
+    graficoDefectos: null,
+    graficoOk: null,
+    graficoTendencia: null,
+    graficoOperarios: null,
 
     // ----------------------------------------------------------------
     // Mapa de procesos → máquinas + campos específicos
@@ -393,19 +398,56 @@ const ModuloMetals = {
                 document.getElementById('metals-kpi-pnc').textContent = stats.pnc || 0;
                 document.getElementById('metals-kpi-procesos').textContent = stats.procesos || 0;
 
+                // Preparar datos para gráficos
+                const tiemposPorMaquina = {};
+                const pncPorProceso = {};
+                const okPorMaquina = {};
+                const tendenciaDiaria = {};
+                const trabajosPorOperario = {};
+
+                data.registros.forEach(r => {
+                    const maq = r.MAQUINA || r.LOTE || 'Otro';
+                    const proc = r.PROCESO || 'Otro';
+                    const fecha = r.FECHA || 'N/A';
+
+                    const mins = r.TIEMPO_TOTAL ? ModuloMetals.parseTiempoAMinutos(r.TIEMPO_TOTAL) : 0;
+                    if (mins > 0) tiemposPorMaquina[maq] = (tiemposPorMaquina[maq] || 0) + mins;
+
+                    const pnc = parseInt(r.PNC) || 0;
+                    if (pnc > 0) pncPorProceso[proc] = (pncPorProceso[proc] || 0) + pnc;
+
+                    const ok = parseInt(r.CANTIDAD_OK) || 0;
+                    if (ok > 0) okPorMaquina[maq] = (okPorMaquina[maq] || 0) + ok;
+
+                    if (fecha !== 'N/A') {
+                        tendenciaDiaria[fecha] = (tendenciaDiaria[fecha] || 0) + ok;
+                    }
+
+                    const resp = r.RESPONSABLE || 'N/A';
+                    if (resp !== 'N/A') {
+                        trabajosPorOperario[resp] = (trabajosPorOperario[resp] || 0) + 1;
+                    }
+                });
+
+                ModuloMetals.renderizarGraficos(tiemposPorMaquina, pncPorProceso, okPorMaquina, tendenciaDiaria, trabajosPorOperario);
+
                 // Renderizar tabla
-                historyBody.innerHTML = data.registros.map(r => `
+                historyBody.innerHTML = data.registros.map(r => {
+                    const tiempoStr = r.TIEMPO_TOTAL ? r.TIEMPO_TOTAL : 'N/A';
+                    return `
                     <tr>
+                        <td class="text-secondary fw-bold small"><i class="fas fa-barcode me-1"></i>${r.ID_REGISTRO || 'N/A'}</td>
                         <td>${r.FECHA}</td>
-                        <td><span class="badge" style="background: #64748b;">${r.PROCESO}</span></td>
-                        <td>${r.MAQUINA}</td>
+                        <td><span class="badge" style="background: #64748b;">${r.MAQUINA || r.LOTE || 'N/A'}</span></td>
+                        <td class="small fw-bold">${r.CODIGO_PRODUCTO}<br><span class="text-muted fw-normal">${r.DESCRIPCION_PRODUCTO}</span></td>
+                        <td>${r.PROCESO}</td>
                         <td>${r.RESPONSABLE}</td>
-                        <td class="small">${r.CODIGO_PRODUCTO}<br><span class="text-muted">${r.DESCRIPCION_PRODUCTO}</span></td>
                         <td class="text-center fw-bold text-success">${r.CANTIDAD_OK}</td>
+                        <td class="text-center text-primary fw-bold"><i class="fas fa-clock me-1" style="opacity: 0.5;"></i>${tiempoStr}</td>
                         <td class="text-center fw-bold text-danger">${r.PNC}</td>
-                        <td>${r.TIEMPO_MIN || 0}m</td>
                     </tr>
-                `).join('') || '<tr><td colspan="8" class="text-center p-3 text-muted">No hay registros recientes</td></tr>';
+                `;
+                }).join('') || '<tr><td colspan="8" class="text-center p-3 text-muted">No hay registros recientes</td></tr>';
             }
         } catch (e) {
             console.error('Error cargando dashboard metals:', e);
@@ -498,6 +540,220 @@ const ModuloMetals = {
             mostrarLoading(false);
             console.error('Error submit metals:', err);
             mostrarNotificacion('Error de conexión', 'error');
+        }
+    },
+
+    // ----------------------------------------------------------------
+    // Gráficos y Análisis
+    // ----------------------------------------------------------------
+    parseTiempoAMinutos: function (tiempoStr) {
+        if (!tiempoStr) return 0;
+        let mins = 0;
+        const hMatch = tiempoStr.match(/(\d+)h/);
+        if (hMatch) mins += parseInt(hMatch[1]) * 60;
+        const mMatch = tiempoStr.match(/(\d+)m/);
+        if (mMatch) mins += parseInt(mMatch[1]);
+        return mins;
+    },
+
+    renderizarGraficos: function (tiempos, defectos, ok, tendencia, operarios) {
+        // Tiempos por Máquina (Doughnut)
+        const ctxTiempos = document.getElementById('metals-chart-tiempos');
+        if (ctxTiempos && window.Chart) {
+            if (this.graficoTiempos) this.graficoTiempos.destroy();
+            const bgColorsTpl = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#64748b'];
+
+            const labelsTiempos = Object.keys(tiempos).length > 0 ? Object.keys(tiempos) : ['Sin datos'];
+            const dataTiempos = Object.keys(tiempos).length > 0 ? Object.values(tiempos) : [1];
+            const colorsT = Object.keys(tiempos).length > 0 ? bgColorsTpl : ['#e2e8f0'];
+
+            this.graficoTiempos = new Chart(ctxTiempos, {
+                type: 'doughnut',
+                data: {
+                    labels: labelsTiempos.map(l => l.length > 15 ? l.substring(0, 15) + '...' : l),
+                    datasets: [{
+                        data: dataTiempos,
+                        backgroundColor: colorsT,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { boxWidth: 12, font: { size: 10 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    if (Object.keys(tiempos).length === 0) return ' Sin registros';
+                                    return ` ${ctx.label}: ${Math.floor(ctx.raw / 60)}h ${ctx.raw % 60}m`;
+                                }
+                            }
+                        }
+                    },
+                    cutout: '65%'
+                }
+            });
+        }
+
+        // Defectos por Proceso (Bar)
+        const ctxDefectos = document.getElementById('metals-chart-defectos');
+        if (ctxDefectos && window.Chart) {
+            if (this.graficoDefectos) this.graficoDefectos.destroy();
+
+            const labelsDefectos = Object.keys(defectos).length > 0 ? Object.keys(defectos) : ['Sin defectos reportados'];
+            const dataDefectos = Object.keys(defectos).length > 0 ? Object.values(defectos) : [0];
+
+            this.graficoDefectos = new Chart(ctxDefectos, {
+                type: 'bar',
+                data: {
+                    labels: labelsDefectos.map(l => l.length > 15 ? l.substring(0, 15) + '...' : l),
+                    datasets: [{
+                        label: 'Unidades Defectuosas (PNC)',
+                        data: dataDefectos,
+                        backgroundColor: '#ef4444',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 },
+                            max: Object.keys(defectos).length > 0 ? undefined : 5
+                        }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // Producción OK por Máquina (Pie)
+        const ctxOk = document.getElementById('metals-chart-ok');
+        if (ctxOk && window.Chart) {
+            if (this.graficoOk) this.graficoOk.destroy();
+            const bgColorsTpl = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#64748b', '#ef4444'];
+
+            const labelsOk = Object.keys(ok).length > 0 ? Object.keys(ok) : ['Sin datos'];
+            const dataOk = Object.keys(ok).length > 0 ? Object.values(ok) : [1];
+            const colorsO = Object.keys(ok).length > 0 ? bgColorsTpl : ['#e2e8f0'];
+
+            this.graficoOk = new Chart(ctxOk, {
+                type: 'pie',
+                data: {
+                    labels: labelsOk.map(l => l.length > 15 ? l.substring(0, 15) + '...' : l),
+                    datasets: [{
+                        data: dataOk,
+                        backgroundColor: colorsO,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { boxWidth: 12, font: { size: 10 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    if (Object.keys(ok).length === 0) return ' Sin registros';
+                                    return ` ${ctx.label}: ${ctx.raw} unidades OK`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Rendimiento Diario (Line)
+        const ctxTendencia = document.getElementById('metals-chart-tendencia');
+        if (ctxTendencia && window.Chart) {
+            if (this.graficoTendencia) this.graficoTendencia.destroy();
+
+            // Ordenar fechas cronológicamente
+            const fechas = Object.keys(tendencia).sort((a, b) => {
+                const partsA = a.split('/');
+                const partsB = b.split('/');
+                return new Date(partsA[2], partsA[1] - 1, partsA[0]) - new Date(partsB[2], partsB[1] - 1, partsB[0]);
+            });
+
+            // Tomar los últimos 7 días como máximo
+            const fechasRecientes = fechas.slice(-7);
+            const dataTendenciaStr = fechasRecientes.map(f => tendencia[f]);
+
+            const labelsTendencia = fechasRecientes.length > 0 ? fechasRecientes : ['Sin datos'];
+            const dataTendencia = fechasRecientes.length > 0 ? dataTendenciaStr : [0];
+
+            this.graficoTendencia = new Chart(ctxTendencia, {
+                type: 'line',
+                data: {
+                    labels: labelsTendencia,
+                    datasets: [{
+                        label: 'Unidades OK Producidas',
+                        data: dataTendencia,
+                        borderColor: '#0dcaf0',
+                        backgroundColor: 'rgba(13, 202, 240, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#0dcaf0',
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 },
+                            max: fechasRecientes.length > 0 ? undefined : 10
+                        }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // Trabajos por Operario (Horizontal Bar)
+        const ctxOperarios = document.getElementById('metals-chart-operarios');
+        if (ctxOperarios && window.Chart) {
+            if (this.graficoOperarios) this.graficoOperarios.destroy();
+
+            // Ordenar operarios de mayor a menor cantidad de trabajos
+            const operariosOrdenados = Object.keys(operarios).sort((a, b) => operarios[b] - operarios[a]);
+
+            const labelsOperarios = operariosOrdenados.length > 0 ? operariosOrdenados : ['Sin datos'];
+            const dataOperarios = operariosOrdenados.length > 0 ? operariosOrdenados.map(o => operarios[o]) : [0];
+
+            this.graficoOperarios = new Chart(ctxOperarios, {
+                type: 'bar',
+                data: {
+                    labels: labelsOperarios.map(l => l.length > 20 ? l.substring(0, 20) + '...' : l),
+                    datasets: [{
+                        label: 'Número de Trabajos Realizados',
+                        data: dataOperarios,
+                        backgroundColor: '#f59e0b',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Hace que las barras sean horizontales
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 },
+                            max: operariosOrdenados.length > 0 ? undefined : 5
+                        }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
         }
     }
 };

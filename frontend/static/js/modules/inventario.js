@@ -234,7 +234,6 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                 <td style="padding: 10px; text-align: center;">${imagenHtml}</td>
                 <td style="padding: 10px;">${p.codigo || '-'}</td>
                 <td style="padding: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.descripcion || '-'}</td>
-                <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_por_pulir || 0)}</td>
                 <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_terminado || 0)}</td>
                 <td style="padding: 10px; text-align: right; color: #6366f1; font-weight: 500;">${formatNumber(p.existencias_totales || 0)}</td>
                 <td style="padding: 10px; text-align: right; color: #ef4444;">${formatNumber(p.stock_comprometido || 0)}</td>

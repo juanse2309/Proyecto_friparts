@@ -212,9 +212,13 @@ const ModuloEnsamble = {
         }
     },
 
+    isSubmitting: false,
+
     configurarEventos: function () {
         const form = document.getElementById('form-ensamble');
         if (form) {
+            // Eliminar listener previo si existe para evitar duplicación
+            form.onsubmit = null;
             form.addEventListener('submit', function (e) {
                 e.preventDefault();
                 registrarEnsamble();
@@ -248,9 +252,15 @@ const ModuloEnsamble = {
 // ==========================================
 
 async function registrarEnsamble() {
+    if (ModuloEnsamble.isSubmitting) return;
+
     try {
         console.log('🚀 [Ensamble] Intentando registrar...');
+        ModuloEnsamble.isSubmitting = true;
         mostrarLoading(true);
+
+        const btnSubmit = document.querySelector('#form-ensamble button[type="submit"]');
+        if (btnSubmit) btnSubmit.disabled = true;
 
         const cantidadBolsas = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
         const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
@@ -372,6 +382,9 @@ async function registrarEnsamble() {
         mostrarNotificacion(`❌ Error de conexión: ${error.message}`, 'error');
     } finally {
         mostrarLoading(false);
+        ModuloEnsamble.isSubmitting = false;
+        const btnSubmit = document.querySelector('#form-ensamble button[type="submit"]');
+        if (btnSubmit) btnSubmit.disabled = false;
     }
 }
 

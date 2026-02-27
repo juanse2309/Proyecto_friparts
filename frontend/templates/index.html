@@ -22,6 +22,8 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* Estilos mínimos necesarios */
         .modal-custom {
@@ -226,6 +228,27 @@
             box-shadow: 0 0 0 4px rgba(255, 193, 7, 0.1);
             outline: none;
         }
+
+        /* Estilos específicos de Procura */
+        #procura-page .card {
+            border: none;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+
+        #procura-page .card-header {
+            background-color: white;
+            border-bottom: 1px solid #f1f5f9;
+            padding: 16px 24px;
+            border-radius: 12px 12px 0 0;
+            font-weight: 600;
+        }
+
+        #procura-producto-suggestions {
+            max-height: 250px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 
@@ -324,6 +347,8 @@
                         Global</span></a> </li>
             <li class="menu-item" data-page="pedidos"> <a href="#"><i
                         class="fas fa-shopping-basket"></i><span>Pedidos</span></a> </li>
+            <li class="menu-item" data-page="procura"> <a href="#"><i class="fas fa-truck-loading"></i><span>Gestión de
+                        Procura</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item active" data-page="metals-dashboard"> <a href="#"><i
@@ -606,7 +631,6 @@
                                     <th style="width: 8%;">IMAGEN</th>
                                     <th style="width: 12%;">CÓDIGO</th>
                                     <th style="width: 30%;">DESCRIPCIÓN</th>
-                                    <th style="width: 10%; text-align: right;">POR PULIR</th>
                                     <th style="width: 10%; text-align: right;">P. TERMINADO</th>
                                     <th style="width: 10%; text-align: right;">STOCK TOTAL</th>
                                     <th style="width: 10%; text-align: right;">COMPROM.</th>
@@ -857,6 +881,93 @@
                                 <h2 id="metals-kpi-pnc" class="fw-bold mb-0">0</h2>
                             </div>
                         </div>
+
+                        <!-- Gráficos del Metals Dashboard -->
+                        <div class="row g-4 mb-4">
+                            <div class="col-md-6">
+                                <div class="card shadow-sm border-0" style="border-radius: 15px; height: 100%;">
+                                    <div class="card-header bg-white pt-4 pb-0 border-0">
+                                        <h6 class="mb-0 fw-bold text-secondary text-uppercase"
+                                            style="font-size: 0.85rem; letter-spacing: 0.5px;">
+                                            <i class="fas fa-chart-pie me-2 text-primary"></i> Tiempos Operativos por
+                                            Máquina
+                                        </h6>
+                                    </div>
+                                    <div class="card-body d-flex align-items-center justify-content-center"
+                                        style="position: relative; min-height: 280px; max-height: 280px;">
+                                        <canvas id="metals-chart-tiempos"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card shadow-sm border-0" style="border-radius: 15px; height: 100%;">
+                                    <div class="card-header bg-white pt-4 pb-0 border-0">
+                                        <h6 class="mb-0 fw-bold text-secondary text-uppercase"
+                                            style="font-size: 0.85rem; letter-spacing: 0.5px;">
+                                            <i class="fas fa-chart-bar me-2 text-danger"></i> Productos Defectuosos
+                                            (PNC) por Proceso
+                                        </h6>
+                                    </div>
+                                    <div class="card-body d-flex align-items-center justify-content-center"
+                                        style="position: relative; min-height: 280px; max-height: 280px;">
+                                        <canvas id="metals-chart-defectos"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Segunda Fila de Gráficos -->
+                        <div class="row g-4 mb-4">
+                            <div class="col-md-6">
+                                <div class="card shadow-sm border-0" style="border-radius: 15px; height: 100%;">
+                                    <div class="card-header bg-white pt-4 pb-0 border-0">
+                                        <h6 class="mb-0 fw-bold text-secondary text-uppercase"
+                                            style="font-size: 0.85rem; letter-spacing: 0.5px;">
+                                            <i class="fas fa-check-circle me-2 text-success"></i> Producción OK por
+                                            Máquina
+                                        </h6>
+                                    </div>
+                                    <div class="card-body d-flex align-items-center justify-content-center"
+                                        style="position: relative; min-height: 280px; max-height: 280px;">
+                                        <canvas id="metals-chart-ok"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card shadow-sm border-0" style="border-radius: 15px; height: 100%;">
+                                    <div class="card-header bg-white pt-4 pb-0 border-0">
+                                        <h6 class="mb-0 fw-bold text-secondary text-uppercase"
+                                            style="font-size: 0.85rem; letter-spacing: 0.5px;">
+                                            <i class="fas fa-chart-line me-2 text-info"></i> Rendimiento de Producción
+                                            (Últimos Días)
+                                        </h6>
+                                    </div>
+                                    <div class="card-body d-flex align-items-center justify-content-center"
+                                        style="position: relative; min-height: 280px; max-height: 280px;">
+                                        <canvas id="metals-chart-tendencia"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tercera Fila de Gráficos (Operarios) -->
+                        <div class="row g-4 mb-4">
+                            <div class="col-12">
+                                <div class="card shadow-sm border-0" style="border-radius: 15px; height: 100%;">
+                                    <div class="card-header bg-white pt-4 pb-0 border-0">
+                                        <h6 class="mb-0 fw-bold text-secondary text-uppercase"
+                                            style="font-size: 0.85rem; letter-spacing: 0.5px;">
+                                            <i class="fas fa-users me-2 text-warning"></i> Trabajos por Operario
+                                            (Participación)
+                                        </h6>
+                                    </div>
+                                    <div class="card-body d-flex align-items-center justify-content-center"
+                                        style="position: relative; min-height: 300px; max-height: 300px;">
+                                        <canvas id="metals-chart-operarios"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="card shadow-sm border-0" style="border-radius: 15px;">
@@ -872,14 +983,15 @@
                                 <table class="table table-hover align-middle mb-0">
                                     <thead class="bg-light">
                                         <tr>
+                                            <th>ID Registro</th>
                                             <th>Fecha</th>
-                                            <th>Lote</th>
+                                            <th>Lote/Máquina</th>
                                             <th>Producto</th>
                                             <th>Proceso</th>
                                             <th>Operario</th>
-                                            <th>Cant. OK</th>
-                                            <th>Tiempo</th>
-                                            <th>Estado</th>
+                                            <th class="text-center">Cant. OK</th>
+                                            <th class="text-center">Duración</th>
+                                            <th class="text-center">PNC</th>
                                         </tr>
                                     </thead>
                                     <tbody id="metals-dashboard-history">
@@ -2068,6 +2180,126 @@
             </div>
         </div>
 
+        <!-- MÓDULO PROCURA -->
+        <div id="procura-page" class="page">
+            <header class="top-bar">
+                <button class="btn-icon" id="toggle-sidebar-procura">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="page-title">
+                    <h1><i class="fas fa-truck-loading"></i> Gestión de Procura</h1>
+                    <p class="subtitle">Órdenes de Compra y Alertas de Abastecimiento</p>
+                </div>
+                <div class="top-controls">
+                </div>
+            </header>
+
+            <div class="container-fluid py-4" style="max-width: 1400px; margin: 0 auto;">
+                <div class="row">
+                    <!-- Formulario OC Full Width -->
+                    <div class="col-12">
+                        <!-- Panel de Búsqueda OC Existente -->
+                        <div class="card mb-3 shadow-sm" style="position: sticky; top: 10px; z-index: 1020;">
+                            <div class="card-body py-3">
+                                <div class="row align-items-center">
+                                    <div class="col-md-8 position-relative">
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-white"><i
+                                                    class="fas fa-search text-muted"></i></span>
+                                            <input type="text" class="form-control bg-light" id="buscar-oc-input"
+                                                placeholder="Buscar / Cargar N° de Orden de Compra para Editar... (Ej: OC-1020)">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 d-flex gap-2">
+                                        <button class="btn btn-outline-primary w-50"
+                                            onclick="ModuloProcura.buscarOC()">Buscar O.C.</button>
+                                        <button class="btn btn-outline-secondary w-50"
+                                            onclick="ModuloProcura.nuevaOrden()"><i class="fas fa-eraser"></i> Nueva
+                                            Orden</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card h-100">
+                            <div class="card-header d-flex align-items-center justify-content-between">
+                                <h5 class="mb-0 text-primary"><i class="fas fa-file-invoice me-2"></i>Nueva Orden /
+                                    Detalle de Compra</h5>
+                            </div>
+                            <div class="card-body p-4">
+                                <form id="form-oc">
+                                    <div class="row g-3 mb-4 bg-light p-3 rounded border">
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-bold small text-muted">Fecha OC</label>
+                                            <input type="date" class="form-control" id="fecha-solicitud-oc" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-bold small text-muted">N° Orden Compra</label>
+                                            <input type="text" class="form-control" id="n-oc" placeholder="Ej: OC-1020"
+                                                required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-bold small text-muted">Proveedor</label>
+                                            <input type="text" class="form-control" id="proveedor-oc"
+                                                placeholder="Ej: Aceros S.A" required>
+                                        </div>
+                                    </div>
+
+                                    <h6 class="fw-bold mb-3"><i class="fas fa-box-open mr-2"></i> Agregar Componente
+                                    </h6>
+
+                                    <div class="row g-3 align-items-end mb-4">
+                                        <div class="col-md-7 position-relative">
+                                            <label class="form-label fw-bold small text-muted">Producto a
+                                                Comprar</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-white"><i
+                                                        class="fas fa-search text-muted"></i></span>
+                                                <input type="text" class="form-control" id="codigo-producto-oc"
+                                                    placeholder="Buscar por código (ej. CAR-3020) o descripción..."
+                                                    autocomplete="off">
+                                            </div>
+                                            <div id="procura-producto-suggestions"
+                                                class="autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border z-3">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label fw-bold small text-muted">Cantidad
+                                                Solicitada</label>
+                                            <input type="number" class="form-control" id="cantidad-oc" min="1"
+                                                placeholder="0">
+                                        </div>
+                                        <div class="col-md-2">
+                                            <button type="button" class="btn btn-secondary w-100 fw-bold"
+                                                id="btn-agregar-oc" style="background-color: #4f46e5; border: none;">
+                                                <i class="fas fa-plus"></i> Añadir
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div id="lista-oc-container" class="d-flex flex-column gap-3 mb-4">
+                                        <!-- Las tarjetas de cada componente se renderizan aquí -->
+                                        <div class="text-center text-muted py-4 border rounded bg-light">
+                                            <i class="fas fa-shopping-cart mb-2"
+                                                style="font-size: 1.5rem; color: #cbd5e1;"></i>
+                                            <p class="mb-0">No hay componentes en esta Orden.</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-grid">
+                                        <button type="submit"
+                                            class="btn btn-primary btn-lg fw-bold rounded bg-primary shadow-sm hover-lift">
+                                            <i class="fas fa-save me-2"></i> GUARDAR ORDEN DE COMPRA
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- METALS: Producción FRIMETALS -->
         <div id="metals-produccion-page" class="page">
             <header class="top-bar" style="justify-content: flex-start; gap: 20px;">
@@ -2324,6 +2556,7 @@
     <script src="/static/js/modules/almacen.js?v=1.3.0"></script>
     <script src="/static/js/modules/metals.js?v=1.3.1"></script>
     <script src="/static/js/modules/portal_client.js?v=1.3.0"></script>
+    <script src="/static/js/modules/procura.js?v=1.0.0"></script>
 
     <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
     <script src="/static/js/app.js?v=1.3.0"></script>

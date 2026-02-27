@@ -52,7 +52,9 @@ class Hojas:
     CLIENTES = "DB_Clientes"
     PEDIDOS = "PEDIDOS"
     DB_PRODUCTOS = "DB_Productos"
-
+    PARAMETROS_INVENTARIO = "PARAMETROS_INVENTARIO"
+    ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
+    DB_PROVEEDORES = "DB_PROVEEDORES"
 
 class Almacenes:
     """Nombres de almacenes estandarizados."""

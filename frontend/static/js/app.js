@@ -129,7 +129,8 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'portal-cliente': window.ModuloPortal,
         'admin-clientes': window.ModuloAdminClientes,
         'metals-produccion': window.ModuloMetals,
-        'metals-dashboard': window.ModuloMetals
+        'metals-dashboard': window.ModuloMetals,
+        'procura': window.ModuloProcura
     };
 
     if (window.AppState.paginaActual) {
@@ -249,7 +250,8 @@ function inicializarModulo(nombrePagina) {
         'metals-pintura': window.ModuloMetals,
         'metals-zincado': window.ModuloMetals,
         'metals-horno': window.ModuloMetals,
-        'metals-pulido-m': window.ModuloMetals
+        'metals-pulido-m': window.ModuloMetals,
+        'procura': window.ModuloProcura
     };
 
     const modulo = modulos[nombrePagina];
@@ -316,15 +318,13 @@ function inicializarModulo(nombrePagina) {
                 return false;
             };
 
-            // Escuchar evento de usuario listo
+            // Escuchar evento de usuario listo (Solo una vez)
             const onUserReadyApp = () => {
                 if (intentarInicializar()) {
                     window.removeEventListener('user-ready', onUserReadyApp);
-                    document.removeEventListener('user-ready', onUserReadyApp);
                 }
             };
             window.addEventListener('user-ready', onUserReadyApp);
-            document.addEventListener('user-ready', onUserReadyApp);
 
             // Safety Retry (por si el evento se disparó justo antes)
             setTimeout(() => {
@@ -368,7 +368,8 @@ function inicializarModulo(nombrePagina) {
                 'almacen': window.AlmacenModule,
                 'admin-clientes': window.ModuloAdminClientes,
                 'metals-produccion': window.ModuloMetals,
-                'metals-dashboard': window.ModuloMetals
+                'metals-dashboard': window.ModuloMetals,
+                'procura': window.ModuloProcura
             };
             const moduloRetry = modulosRetry[nombrePagina];
             if (moduloRetry?.inicializar) {

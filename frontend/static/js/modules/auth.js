@@ -7,10 +7,10 @@ const AuthModule = {
 
     // Matriz de Permisos
     permissions: {
-        'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'Gerencia': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'Gerencia': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'Comercial': ['pedidos', 'almacen'],
-        'Auxiliar Inventario': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial'],
+        'Auxiliar Inventario': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura'],
         'Inyección': ['inyeccion', 'mezcla'],
         'Pulido': ['pulido'],
         'Ensamble': ['ensamble'],
@@ -643,7 +643,7 @@ const AuthModule = {
         if (this.currentUser.tipo === 'METALS_STAFF') {
             // Si es de metales, damos acceso a todo lo de metales por defecto
             const metalsPages = [
-                'metals-dashboard', 'metals-torno', 'metals-laser', 'metals-soldadura',
+                'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura',
                 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura',
                 'metals-zincado', 'metals-horno', 'metals-pulido-m'
             ];
