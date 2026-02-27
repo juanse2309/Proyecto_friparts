@@ -34,6 +34,7 @@ from backend.routes.common_routes import common_bp
 from backend.routes.facturacion_routes import facturacion_bp
 from backend.routes.inventario_routes import inventario_bp
 from backend.routes.metals_routes import metals_bp
+from backend.routes.procura_routes import procura_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -41,6 +42,7 @@ app.register_blueprint(imagenes_bp, url_prefix='/imagenes')
 app.register_blueprint(facturacion_bp)
 app.register_blueprint(inventario_bp)
 app.register_blueprint(metals_bp)
+app.register_blueprint(procura_bp)
 app.register_blueprint(common_bp, url_prefix='/api')
 
 
@@ -142,6 +144,9 @@ class Hojas:
     FACTURACION = "FACTURACION"
     CLIENTES = "DB_Clientes"
     MEZCLA = "MEZCLA"
+    PARAMETROS_INVENTARIO = "PARAMETROS_INVENTARIO"
+    ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
+    DB_PROVEEDORES = "DB_PROVEEDORES"
 
 # ====================================================================
 # CONFIGURACIÓN DE CREDENCIALES (compatible con desarrollo y producción)
@@ -666,7 +671,7 @@ def normalizar_codigo(codigo):
     codigo = codigo.replace("-", "")
     logger.info(f"   Paso 3 - Sin guiones: '{codigo}'")
     
-    # Quitar prefijos comunes SI EXISTEN
+    # Quitar prefijos comunes SI EXISTEN (Ignora CAR- e INT-)
     if codigo.startswith('FR'):
         codigo = codigo[2:]
         logger.info(f"   Paso 4 - Quitado prefijo FR: '{codigo}'")
@@ -2555,7 +2560,16 @@ def obtener_historial_global():
                         'Detalle': f"ID: {reg.get('ID_ENSAMBLE', '')} | Buje: {reg.get('BUJE_ORIGEN', '')}",
                         'Extra': '',
                         'hoja': Hojas.ENSAMBLES,
-                        'fila': idx + 2
+                        'fila': idx + 2,
+                        # Campos adicionales para edicion Juan Sebastian
+                        'ID_ENSAMBLE': str(safe_get_ignore_case(reg, 'ID ENSAMBLE', safe_get_ignore_case(reg, 'ID_ENSAMBLE'))),
+                        'HORA_INICIO': str(safe_get_ignore_case(reg, 'HORA INICIO')),
+                        'HORA_FIN': str(safe_get_ignore_case(reg, 'HORA FIN')),
+                        'BUJE_ENSAMBLE': str(safe_get_ignore_case(reg, 'BUJE ENSAMBLE', safe_get_ignore_case(reg, 'BUJE_ORIGEN'))),
+                        'QTY_UNITARIA': str(safe_get_ignore_case(reg, 'QTY (Unitaria)', safe_get_ignore_case(reg, 'QTY_UNITARIA'))),
+                        'ALMACEN_ORIGEN': str(safe_get_ignore_case(reg, 'ALMACEN ORIGEN')),
+                        'ALMACEN_DESTINO': str(safe_get_ignore_case(reg, 'ALMACEN DESTINO')),
+                        'OBSERVACIONES': str(safe_get_ignore_case(reg, 'OBSERVACIONES'))
                     })
                 
                 logger.info(f" ENSAMBLES: {procesados} procesados, {saltados} saltados de {len(registros_ens)} totales")

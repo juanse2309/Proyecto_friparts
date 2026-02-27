@@ -409,9 +409,23 @@
                 <div class="edit-section mb-4">
                     <h6 class="section-title"><i class="fas fa-puzzle-piece me-2"></i> Datos de Ensamble</h6>
                     <div class="row g-3">
-                        <div class="col-md-12">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
-                        <div class="col-md-12">${crearCampoEdicion('Cantidad', r.Cant, 'number', 'CANTIDAD')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('ID Código Final', r.Producto, 'text', 'ID CODIGO')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Cantidad', r.Cant, 'number', 'CANTIDAD')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('OP Número', r.Orden, 'text', 'OP NUMERO')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('ID Ensamble', r.ID_ENSAMBLE, 'text', 'ID ENSAMBLE')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Buje Ensamble', r.BUJE_ENSAMBLE, 'text', 'BUJE ENSAMBLE')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Qty Unitaria', r.QTY_UNITARIA, 'text', 'QTY (Unitaria)')}</div>
+                        <div class="col-md-4">${crearCampoEdicion('Almacén Origen', r.ALMACEN_ORIGEN, 'text', 'ALMACEN ORIGEN')}</div>
+                        <div class="col-md-6">${crearCampoEdicion('Almacén Destino', r.ALMACEN_DESTINO, 'text', 'ALMACEN DESTINO')}</div>
+                        <div class="col-md-3">${crearCampoEdicion('Hora Inicio', r.HORA_INICIO, 'text', 'HORA INICIO')}</div>
+                        <div class="col-md-3">${crearCampoEdicion('Hora Fin', r.HORA_FIN, 'text', 'HORA FIN')}</div>
                     </div>
+                </div>
+                <div class="edit-section mb-3">
+                    <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
+                    <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                        style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${r.OBSERVACIONES || ''}</textarea>
                 </div>
             `;
         } else if (r.Tipo === 'MEZCLA') {
