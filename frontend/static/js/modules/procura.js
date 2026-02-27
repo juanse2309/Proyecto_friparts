@@ -88,6 +88,20 @@ const ModuloProcura = {
             }, 300);
         });
 
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (suggestionsDiv.classList.contains('active')) {
+                    const firstSuggestion = suggestionsDiv.querySelector('.suggestion-item');
+                    if (firstSuggestion) {
+                        firstSuggestion.click();
+                    }
+                } else {
+                    document.getElementById('cantidad-oc')?.focus();
+                }
+            }
+        });
+
         document.addEventListener('click', (e) => {
             if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
                 suggestionsDiv.classList.remove('active');
@@ -188,12 +202,29 @@ const ModuloProcura = {
             btnAgregar.onclick = () => this.agregarItemOC();
         }
 
+        // --- Manejo Inteligente de Enter para evitar envíos accidentales ---
+        const inputsCabecera = ['fecha-solicitud-oc', 'n-oc', 'proveedor-oc'];
+        inputsCabecera.forEach((id, idx) => {
+            const input = document.getElementById(id);
+            if (input) {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const nextId = inputsCabecera[idx + 1] || 'codigo-producto-oc';
+                        document.getElementById(nextId)?.focus();
+                    }
+                });
+            }
+        });
+
         const inputCantidad = document.getElementById('cantidad-oc');
         if (inputCantidad) {
             inputCantidad.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     this.agregarItemOC();
+                    // Volver al campo de producto para el siguiente item
+                    document.getElementById('codigo-producto-oc')?.focus();
                 }
             });
         }
