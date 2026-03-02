@@ -147,6 +147,7 @@ class Hojas:
     PARAMETROS_INVENTARIO = "PARAMETROS_INVENTARIO"
     ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
     DB_PROVEEDORES = "DB_PROVEEDORES"
+    FICHAS_INT_CAR = "FICHAS_INT_CAR"
 
 # ====================================================================
 # CONFIGURACIÓN DE CREDENCIALES (compatible con desarrollo y producción)
