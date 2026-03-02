@@ -1615,6 +1615,20 @@ def obtener_ensamble_desde_producto():
         ss = get_spreadsheet()
         opciones = []
         
+        # 1. Cargar FICHAS original para extraer QTYs previamente mapeados
+        qty_map = {}
+        registros_fichas = []
+        try:
+            ws_fichas = ss.worksheet(Hojas.FICHAS)
+            registros_fichas = ws_fichas.get_all_records()
+            for r in registros_fichas:
+                r_cod = obtener_codigo_sistema_real(str(r.get('ID CODIGO', '')).strip())
+                r_buje = obtener_codigo_sistema_real(str(r.get('BUJE ENSAMBLE', '')).strip())
+                r_qty = float(r.get('QTY', 1) or 1)
+                qty_map[f"{r_cod}_{r_buje}"] = r_qty
+        except Exception as e:
+            logger.warning(f"No se pudo cargar FICHAS para QTY mappings: {e}")
+
         # Intentar FICHAS_INT_CAR primero
         is_new_format = False
         try:
@@ -1641,10 +1655,15 @@ def obtener_ensamble_desde_producto():
                         comp_upper = comp.upper()
                         if comp and comp != "-" and comp_upper != "INYECCIÓN" and comp_upper != "INYECCION":
                             comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
+                            comp_norm = obtener_codigo_sistema_real(comp_clean)
+                            
+                            # Buscar en el mapeo de FICHAS si existe un QTY guardado para este padre-hijo
+                            qty_desc = qty_map.get(f"{codigo_sistema}_{comp_norm}", 1.0)
+                            
                             opciones.append({
                                 'codigo_ensamble': ref,
                                 'buje_origen': comp_clean,
-                                'qty': 1.0,
+                                'qty': qty_desc,
                                 'tipo': 'producto'
                             })
             
@@ -1657,17 +1676,19 @@ def obtener_ensamble_desde_producto():
                         comp_upper = comp.upper()
                         if comp and comp != "-" and comp_upper != "INYECCIÓN" and comp_upper != "INYECCION":
                             comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
-                            if obtener_codigo_sistema_real(comp_clean) == codigo_sistema:
+                            comp_norm = obtener_codigo_sistema_real(comp_clean)
+                            if comp_norm == codigo_sistema:
+                                # Buscar su QTY para el ensamble superior
+                                ref_norm = obtener_codigo_sistema_real(ref)
+                                qty_desc = qty_map.get(f"{ref_norm}_{codigo_sistema}", 1.0)
                                 opciones.append({
                                     'codigo_ensamble': ref,
                                     'buje_origen': comp_clean,
-                                    'qty': 1.0,
+                                    'qty': qty_desc,
                                     'tipo': 'componente'
                                 })
         else:
-            # Fallback a FICHAS original
-            ws_fichas = ss.worksheet(Hojas.FICHAS)
-            registros_fichas = ws_fichas.get_all_records()
+            # Fallback a FICHAS original si INT_CAR no existe o falla
             for r in registros_fichas:
                 id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
                 id_cod_norm = obtener_codigo_sistema_real(id_cod_ficha)
@@ -2000,12 +2021,16 @@ def handle_ensamble():
             headers = ws.row_values(1)
             
             filas_a_insertar = []
-            for comp in componentes_procesados_exito:
+            for i, comp in enumerate(componentes_procesados_exito):
+                # Para evitar duplicar Cantidad Final en Dashboard/PowerBI, 
+                # anotamos la CANTIDAD REAL solo en el primer ítem, en los extras va 0.
+                cant_volcado = cantidad_real if i == 0 else 0
+                
                 fila = [
                     fecha_ensamble_f,                                # 1. FECHA
                     id_ensamble,                                     # 2. ID ENSAMBLE
                     codigo_sis,                                     # 3. ID CODIGO (Final)
-                    cantidad_real,                                  # 4. CANTIDAD
+                    cant_volcado,                                   # 4. CANTIDAD
                     data.get('orden_produccion', ''),               # 5. OP NUMERO
                     data.get('responsable', ''),                    # 6. RESPONSABLE
                     data.get('hora_inicio', ''),                    # 7. HORA INICIO
