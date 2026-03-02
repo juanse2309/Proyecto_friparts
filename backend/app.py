@@ -1687,8 +1687,9 @@ def obtener_ensamble_desde_producto():
                                     'qty': qty_desc,
                                     'tipo': 'componente'
                                 })
-        else:
-            # Fallback a FICHAS original si INT_CAR no existe o falla
+        
+        # Fallback a FICHAS original si INT_CAR no existe, o si no se encontro el producto ahi
+        if not opciones:
             for r in registros_fichas:
                 id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
                 id_cod_norm = obtener_codigo_sistema_real(id_cod_ficha)
