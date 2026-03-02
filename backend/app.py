@@ -1629,7 +1629,7 @@ def obtener_ensamble_desde_producto():
             # BUSQUEDA 1: ¿Es el producto final? (Referencia) -> Array de BOM
             for r in registros_fichas_int:
                 ref = str(r.get('Referencia', '')).strip()
-                ref_norm = normalizar_codigo(ref)
+                ref_norm = obtener_codigo_sistema_real(ref)
                 if ref_norm == codigo_sistema:
                     componentes_crudos = [
                         str(r.get('Buje', '')).strip(),
@@ -1656,7 +1656,7 @@ def obtener_ensamble_desde_producto():
                         comp_upper = comp.upper()
                         if comp and comp != "-" and comp_upper != "INYECCIÓN" and comp_upper != "INYECCION":
                             comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
-                            if normalizar_codigo(comp_clean) == codigo_sistema:
+                            if obtener_codigo_sistema_real(comp_clean) == codigo_sistema:
                                 opciones.append({
                                     'codigo_ensamble': ref,
                                     'buje_origen': comp_clean,
@@ -1669,7 +1669,7 @@ def obtener_ensamble_desde_producto():
             registros_fichas = ws_fichas.get_all_records()
             for r in registros_fichas:
                 id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
-                id_cod_norm = normalizar_codigo(id_cod_ficha)
+                id_cod_norm = obtener_codigo_sistema_real(id_cod_ficha)
                 if id_cod_norm == codigo_sistema:
                     buje = str(r.get('BUJE ENSAMBLE', '')).strip()
                     qty = float(r.get('QTY', 1) or 1)
@@ -1677,7 +1677,7 @@ def obtener_ensamble_desde_producto():
             if not opciones:
                 for r in registros_fichas:
                     buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
-                    buje_norm = normalizar_codigo(buje_ficha)
+                    buje_norm = obtener_codigo_sistema_real(buje_ficha)
                     if buje_norm == codigo_sistema:
                         prod_final = str(r.get('ID CODIGO', '')).strip()
                         qty = float(r.get('QTY', 1) or 1)
