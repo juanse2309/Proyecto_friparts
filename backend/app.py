@@ -682,6 +682,12 @@ def normalizar_codigo(codigo):
     elif codigo.startswith('CB'):
         codigo = codigo[2:]
         logger.info(f"   Paso 4 - Quitado prefijo CB: '{codigo}'")
+    elif codigo.startswith('MT'):
+        codigo = codigo[2:]
+        logger.info(f"   Paso 4 - Quitado prefijo MT: '{codigo}'")
+    elif codigo.startswith('IM'):
+        codigo = codigo[2:]
+        logger.info(f"   Paso 4 - Quitado prefijo IM: '{codigo}'")
     elif codigo.startswith('DE'):
         codigo = codigo[2:]
         logger.info(f"   Paso 4 - Quitado prefijo DE: '{codigo}'")
