@@ -1214,8 +1214,13 @@
                     <div class="card border-0 shadow-sm mb-4" style="border-radius: 12px;">
                         <div
                             class="card-header bg-danger bg-opacity-10 py-3 d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0 fw-bold text-danger"><i class="fas fa-fire me-2"></i> Prioridad de Compra
-                                (TOP A - Críticos)</h5>
+                            <h5 class="mb-0 fw-bold text-danger">
+                                <i class="fas fa-fire me-2"></i> Prioridad de Compra (TOP A - Críticos)
+                                <span class="badge bg-secondary ms-2" style="font-size: 0.7rem;"
+                                    title="Clasificación asignada automáticamente por IA según Volumen y Frecuencia Histórica">
+                                    <i class="fas fa-robot"></i> Bot Procura
+                                </span>
+                            </h5>
                             <span class="badge bg-danger rounded-pill px-3">Acción Inmediata</span>
                         </div>
                         <div class="card-body p-0">
@@ -1228,7 +1233,8 @@
                                             <th style="width: 10%; text-align: center;">STOCK</th>
                                             <th style="width: 10%; text-align: center;">MÍNIMO</th>
                                             <th style="width: 25%;">ESTADO / URGENCIA</th>
-                                            <th style="width: 10%; text-align: center;">FREQ. OC</th>
+                                            <th style="width: 10%; text-align: center;"
+                                                title="Frecuencia Histórica de Compra">🛒FREQ. OC</th>
                                         </tr>
                                     </thead>
                                     <tbody id="rot-table-a">
@@ -1247,8 +1253,13 @@
                     <!-- SECCIÓN: CLASE B/C - MANTENIMIENTO -->
                     <div class="card border-0 shadow-sm" style="border-radius: 12px;">
                         <div class="card-header bg-light py-3 d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0 fw-bold text-secondary"><i class="fas fa-tools me-2"></i> Mantenimiento
-                                (Clase B/C)</h5>
+                            <h5 class="mb-0 fw-bold text-secondary">
+                                <i class="fas fa-tools me-2"></i> Mantenimiento General (Clase B/C)
+                                <span class="badge bg-secondary opacity-50 ms-2" style="font-size: 0.7rem;"
+                                    title="Clases calculadas por rotación inteligente">
+                                    <i class="fas fa-robot"></i> Bot Procura
+                                </span>
+                            </h5>
                             <div class="search-box" style="max-width: 300px;">
                                 <i class="fas fa-search"></i>
                                 <input type="text" id="rot-search-bc" placeholder="Filtrar B/C..."

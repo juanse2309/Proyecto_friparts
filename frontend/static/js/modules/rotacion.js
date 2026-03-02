@@ -101,12 +101,43 @@ window.ModuloRotacion = (function () {
                     ${progressBar}
                 </td>
                 <td class="text-center">
-                    <span class="badge rounded-pill bg-light text-dark border fw-normal">
-                        <i class="fas fa-shopping-cart me-1 text-primary" style="font-size:0.7rem;"></i> ${item.contador_oc}
+                    <span class="badge rounded-pill bg-light text-dark border fw-normal shadow-sm hover-lift" 
+                          style="cursor:pointer;" title="Crear Orden de Compra" 
+                          onclick="ModuloRotacion.prepararCompra('${item.codigo}')">
+                        <i class="fas fa-shopping-cart me-1 text-primary" style="font-size:0.75rem;"></i> ${item.contador_oc}
                     </span>
                 </td>
             </tr>
         `;
+    }
+
+    function prepararCompra(codigo) {
+        // Encontrar y clickear la pestaña de Abastecimiento/Procura
+        const tabProcura = document.querySelector('button[data-bs-target="#nav-abastecimiento"]');
+        if (tabProcura) {
+            tabProcura.click();
+            // Esperar un instante a que el tab se active
+            setTimeout(() => {
+                const inputCodigo = document.getElementById('codigo-producto-oc');
+                if (inputCodigo) {
+                    inputCodigo.value = codigo;
+                    inputCodigo.focus();
+
+                    // Disparar el evento input para que el autocomplete busque el producto
+                    inputCodigo.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    Swal.fire({
+                        title: 'Modo Compra',
+                        text: `Agregando ${codigo} a la orden actual. Indica la cantidad.`,
+                        icon: 'info',
+                        toast: true,
+                        position: 'top-end',
+                        showConfirmButton: false,
+                        timer: 2000
+                    });
+                }
+            }, 300);
+        }
     }
 
     function filtrarBC() {

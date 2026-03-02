@@ -371,10 +371,11 @@ def alertas_abastecimiento():
 def rotacion_prioridades():
     """
     Combina PARAMETROS_INVENTARIO y ORDENES_DE_COMPRA para priorización inteligente.
+    Asigna Clase A, B o C dinámicamente según el contador de compras y los mínimos.
     Ordena por CLASE_ROTACION (A > B > C) y luego por déficit crítico.
     """
     try:
-        # 1. Traer Parámetros con Clase de Rotación
+        # 1. Traer Parámetros con sus históricos
         ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
         cat_records = ws_param.get_all_records() if ws_param else []
         
@@ -382,11 +383,21 @@ def rotacion_prioridades():
         for r in cat_records:
             codigo = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
             if codigo:
+                minimo = int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0)
+                contador_oc = int(r.get("CONTADOR_OC", 0) or 0)
+                
+                # REGLAS DEL BOT DE PROCURA PARA CLASIFICACION ABC ESTATICA-DINAMICA
+                clase_calculada = "C"
+                if contador_oc >= 10 or minimo >= 1000:
+                    clase_calculada = "A"
+                elif contador_oc >= 4 or minimo >= 400:
+                    clase_calculada = "B"
+                
                 catalogo[codigo] = {
                     "descripcion": str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")),
-                    "min": int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0),
-                    "clase": str(r.get("CLASE_ROTACION", "C")).strip().upper(),
-                    "contador_oc": int(r.get("CONTADOR_OC", 0) or 0),
+                    "min": minimo,
+                    "clase": clase_calculada,
+                    "contador_oc": contador_oc,
                     "stock_actual": int(r.get("STOCK_ACTUAL", 0) or 0)
                 }
 
