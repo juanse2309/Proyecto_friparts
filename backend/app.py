@@ -1610,46 +1610,80 @@ def obtener_ensamble_desde_producto():
         # Normalizar a CODIGO SISTEMA real (ej: FR-9304 -> 9304)
         codigo_sistema = obtener_codigo_sistema_real(codigo_entrada)
 
-        # Buscar TODAS las opciones en FICHAS (no solo la primera)
+        # Buscar TODAS las opciones
         ss = get_spreadsheet()
-        ws_fichas = ss.worksheet(Hojas.FICHAS)
-        registros_fichas = ws_fichas.get_all_records()
-        
         opciones = []
         
-        # BUSQUEDA 1: ¿Es el producto final? → buscar SUS bujes
-        for r in registros_fichas:
-            id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
-            id_cod_norm = normalizar_codigo(id_cod_ficha)
-            if id_cod_norm == codigo_sistema:
-                buje = str(r.get('BUJE ENSAMBLE', '')).strip()
-                qty = float(r.get('QTY', 1) or 1)
-                opciones.append({
-                    'codigo_ensamble': id_cod_ficha,
-                    'buje_origen': buje,
-                    'qty': qty,
-                    'tipo': 'producto'
-                })
-        
-        # BUSQUEDA 2: ¿Es el componente? → buscar productos que lo usan
-        if not opciones:
+        # Intentar FICHAS_INT_CAR primero
+        is_new_format = False
+        try:
+            ws_fichas_int = ss.worksheet(Hojas.FICHAS_INT_CAR)
+            registros_fichas_int = ws_fichas_int.get_all_records()
+            if registros_fichas_int and 'Referencia' in registros_fichas_int[0]:
+                is_new_format = True
+        except Exception:
+            registros_fichas_int = []
+
+        if is_new_format:
+            # Lógica para FICHAS_INT_CAR
+            # BUSQUEDA 1: ¿Es el producto final? (Referencia) -> Array de BOM
+            for r in registros_fichas_int:
+                ref = str(r.get('Referencia', '')).strip()
+                ref_norm = normalizar_codigo(ref)
+                if ref_norm == codigo_sistema:
+                    componentes_crudos = [
+                        str(r.get('Buje', '')).strip(),
+                        str(r.get('INT', '')).strip(),
+                        str(r.get('Carcaza', '')).strip()
+                    ]
+                    for comp in componentes_crudos:
+                        comp_upper = comp.upper()
+                        if comp and comp != "-" and comp_upper != "INYECCIÓN" and comp_upper != "INYECCION":
+                            comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
+                            opciones.append({
+                                'codigo_ensamble': ref,
+                                'buje_origen': comp_clean,
+                                'qty': 1.0,
+                                'tipo': 'producto'
+                            })
+            
+            # BUSQUEDA 2: ¿Es un componente (Buje, INT, Carcaza)?
+            if not opciones:
+                for r in registros_fichas_int:
+                    ref = str(r.get('Referencia', '')).strip()
+                    comps = [str(r.get('Buje', '')).strip(), str(r.get('INT', '')).strip(), str(r.get('Carcaza', '')).strip()]
+                    for comp in comps:
+                        comp_upper = comp.upper()
+                        if comp and comp != "-" and comp_upper != "INYECCIÓN" and comp_upper != "INYECCION":
+                            comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
+                            if normalizar_codigo(comp_clean) == codigo_sistema:
+                                opciones.append({
+                                    'codigo_ensamble': ref,
+                                    'buje_origen': comp_clean,
+                                    'qty': 1.0,
+                                    'tipo': 'componente'
+                                })
+        else:
+            # Fallback a FICHAS original
+            ws_fichas = ss.worksheet(Hojas.FICHAS)
+            registros_fichas = ws_fichas.get_all_records()
             for r in registros_fichas:
-                buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
-                buje_norm = normalizar_codigo(buje_ficha)
-                if buje_norm == codigo_sistema:
-                    prod_final = str(r.get('ID CODIGO', '')).strip()
+                id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
+                id_cod_norm = normalizar_codigo(id_cod_ficha)
+                if id_cod_norm == codigo_sistema:
+                    buje = str(r.get('BUJE ENSAMBLE', '')).strip()
                     qty = float(r.get('QTY', 1) or 1)
-                    opciones.append({
-                        'codigo_ensamble': prod_final,
-                        'buje_origen': buje_ficha,
-                        'qty': qty,
-                        'tipo': 'componente'
-                    })
+                    opciones.append({'codigo_ensamble': id_cod_ficha, 'buje_origen': buje, 'qty': qty, 'tipo': 'producto'})
+            if not opciones:
+                for r in registros_fichas:
+                    buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
+                    buje_norm = normalizar_codigo(buje_ficha)
+                    if buje_norm == codigo_sistema:
+                        prod_final = str(r.get('ID CODIGO', '')).strip()
+                        qty = float(r.get('QTY', 1) or 1)
+                        opciones.append({'codigo_ensamble': prod_final, 'buje_origen': buje_ficha, 'qty': qty, 'tipo': 'componente'})
         
         if opciones:
-            # Retornar todas las opciones encontradas
-            # Si hay más de una, el frontend decidirá si es un BOM (AND) o Opciones (OR)
-            # Para el reporte de Power BI y consistencia, enviamos la lista completa
             return jsonify({
                 'success': True,
                 'codigo_sistema': codigo_sistema,
