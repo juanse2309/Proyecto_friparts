@@ -170,15 +170,15 @@ const ModuloMezcla = {
             display.innerHTML = `
                 <div style="display:flex; flex-direction: column; gap: 8px;">
                     <div style="display:flex; justify-content: space-between; align-items: baseline;">
-                        <span style="color: #1e3a8a; font-weight: 800; font-size: 1.1rem;">\${pV}% VIRGEN</span>
-                        <span style="color: #065f46; font-weight: 800; font-size: 1.1rem;">\${pM}% MOLIDO</span>
+                        <span style="color: #1e3a8a; font-weight: 800; font-size: 1.1rem;">${pV}% VIRGEN</span>
+                        <span style="color: #065f46; font-weight: 800; font-size: 1.1rem;">${pM}% MOLIDO</span>
                     </div>
                     <div style="width: 100%; height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden; display: flex;">
-                        <div style="width: \${pV}%; background: #3b82f6; height: 100%;"></div>
-                        <div style="width: \${pM}%; background: #10b981; height: 100%;"></div>
+                        <div style="width: ${pV}%; background: #3b82f6; height: 100%;"></div>
+                        <div style="width: ${pM}%; background: #10b981; height: 100%;"></div>
                     </div>
                     <div style="text-align: center; color: #1e293b; font-size: 0.9rem; font-weight: 600; margin-top: 4px;">
-                        Material Total a Preparar: \${total.toFixed(2)} Kg
+                        Material Total a Preparar: ${total.toFixed(2)} Kg
                     </div>
                 </div>
             `;

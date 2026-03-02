@@ -336,10 +336,15 @@ async function registrarEnsamble() {
             componentes: componentes.length > 0 ? componentes : [] // Enviar lista si existe
         };
 
-        if (!datos.codigo_producto || datos.codigo_producto === 'NO DEFINIDO') {
-            mostrarNotificacion('⚠️ Selecciona un buje componente válido', 'error');
-            mostrarLoading(false);
-            return;
+        // Si digitó algo manualmente pero el backend devolvió "NO DEFINIDO", asumimos que es un ensamble directo sin receta (o un BOM si ya armó el array)
+        if (datos.componentes.length === 0 && (!datos.codigo_producto || datos.codigo_producto === 'NO DEFINIDO')) {
+            // Hacemos que el código producto asuma el valor del componente ingresado 
+            datos.codigo_producto = document.getElementById('ens-buje-componente')?.value || '';
+            if (!datos.codigo_producto) {
+                mostrarNotificacion('⚠️ Selecciona un buje componente válido', 'error');
+                mostrarLoading(false);
+                return;
+            }
         }
 
         console.log('📤 [Ensamble] DATOS ENVIADOS:', JSON.stringify(datos, null, 2));

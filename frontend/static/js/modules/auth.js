@@ -680,7 +680,7 @@ const AuthModule = {
             const forbiddenInMetals = [
                 'dashboard', 'inyeccion', 'pulido', 'ensamble', 'pnc',
                 'facturacion', 'mezcla', 'almacen', 'pedidos', 'reportes',
-                'admin-clientes', 'portal-cliente'
+                'admin-clientes', 'portal-cliente', 'procura', 'rotacion'
             ];
 
             console.log("🚫 Filtrando módulos de FriParts en sesión de Metales...");
