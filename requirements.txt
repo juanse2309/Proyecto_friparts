@@ -9,3 +9,4 @@ gunicorn
 pandas
 openpyxl
 pytz
+reportlab
