@@ -15,6 +15,9 @@ class Settings:
     GSHEET_KEY = os.getenv('GSHEET_KEY', '1mhZ71My6VegbBFLZb2URvaI7eWW4ekQgncr4s_C_CpM')
     GSHEET_FILE_NAME = os.getenv('GSHEET_FILE_NAME', 'BASES PARA NUEVA APP')
     
+    # Google Drive Reports Folder (New!)
+    DRIVE_REPORTS_FOLDER_ID = os.getenv('DRIVE_REPORTS_FOLDER_ID', '1qI-v_B-0C1y2D3E4F5G6H7I8J9K0L1M2') # Placeholder ID
+    
     # Cache
     CACHE_TTL = int(os.getenv('CACHE_TTL', 120))
     CACHE_ENABLED = os.getenv('CACHE_ENABLED', 'true').lower() == 'true'

@@ -13,6 +13,12 @@ import math
 from google.oauth2.service_account import Credentials
 import logging
 from backend.core.database import sheets_client
+from concurrent.futures import ThreadPoolExecutor
+from backend.utils.report_service import PDFGenerator
+from backend.utils.drive_service import drive_service
+
+# Global executor for background tasks (PDF, Drive, etc)
+bg_executor = ThreadPoolExecutor(max_workers=3)
 
 
 # Configurar logging detallado
@@ -35,6 +41,7 @@ from backend.routes.facturacion_routes import facturacion_bp
 from backend.routes.inventario_routes import inventario_bp
 from backend.routes.metals_routes import metals_bp
 from backend.routes.procura_routes import procura_bp
+from backend.routes.dashboard_routes import dashboard_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -43,6 +50,7 @@ app.register_blueprint(facturacion_bp)
 app.register_blueprint(inventario_bp)
 app.register_blueprint(metals_bp)
 app.register_blueprint(procura_bp)
+app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
 app.register_blueprint(common_bp, url_prefix='/api')
 
 
@@ -148,6 +156,7 @@ class Hojas:
     ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
     DB_PROVEEDORES = "DB_PROVEEDORES"
     FICHAS_INT_CAR = "FICHAS_INT_CAR"
+    PROGRAMACION_INYECCION = "PROGRAMACION_INYECCION"
 
 # ====================================================================
 # CONFIGURACIÓN DE CREDENCIALES (compatible con desarrollo y producción)
@@ -241,23 +250,45 @@ def invalidar_cache_productos():
 # HELPERS (NUEVO)
 # ====================================================================
 
+# Singleton para la conexión a Google Sheets
+_spreadsheet_singleton = None
+_worksheets_cache = {}
+
 def get_spreadsheet():
     """
-    Obtiene la instancia de la hoja de cálculo principal.
-    Encapsula la lógica de conexión para evitar duplicación.
+    Obtiene la instancia de la hoja de cálculo principal (Singleton).
     """
+    global _spreadsheet_singleton
     try:
-        return gc.open_by_key(GSHEET_KEY)
+        if _spreadsheet_singleton is None:
+            logger.info("📡 [GSHEET] Abriendo conexión principal (Singleton)...")
+            _spreadsheet_singleton = gc.open_by_key(GSHEET_KEY)
+        return _spreadsheet_singleton
     except Exception as e:
         logger.error(f"Error conectando a Sheet: {e}")
+        _spreadsheet_singleton = None # Reset para reintentar en la próxima llamada
         raise e
 
 def get_worksheet(nombre_hoja):
     """
-    Obtiene una pestaña específica del spreadsheet.
+    Obtiene una pestaña específica del spreadsheet (con caché de objeto).
     """
-    ss = get_spreadsheet()
-    return ss.worksheet(nombre_hoja)
+    global _worksheets_cache
+    try:
+        if nombre_hoja in _worksheets_cache:
+            return _worksheets_cache[nombre_hoja]
+            
+        ss = get_spreadsheet()
+        logger.info(f"📄 [GSHEET] Cargando pestaña: {nombre_hoja}")
+        ws = ss.worksheet(nombre_hoja)
+        _worksheets_cache[nombre_hoja] = ws
+        return ws
+    except Exception as e:
+        logger.error(f"Error obteniendo worksheet {nombre_hoja}: {e}")
+        # Si hay error de conexión, resetear singleton para forzar reconexión
+        global _spreadsheet_singleton
+        _spreadsheet_singleton = None
+        raise e
 
 def obtener_precio_db(codigo):
     """
@@ -1310,6 +1341,10 @@ def registrar_inyeccion():
         # ========================================
         # PREPARAR FILA (22 COLUMNAS)
         # ========================================
+        # PREPARAR FILA (27 COLUMNAS - SOPORTE MES)
+        # ========================================
+        produccion_teorica = disparos * cavidades
+        
         row_validada = [
             id_inyeccion,            # 1  ID INYECCION
             str(fecha_inicia_f),     # 2  FECHA INICIA
@@ -1326,13 +1361,18 @@ def registrar_inyeccion():
             int(disparos),           # 13 CANT. CONTADOR
             int(tomados_proceso),    # 14 TOMADOS EN PROCESO
             float(peso_tomadas),     # 15 PESO TOMADAS EN PROCESO
-            int(cantidad_final_reportada), # 16 CANTIDAD REAL (Ahora puede ser manual)
+            int(cantidad_final_reportada), # 16 CANTIDAD REAL
             str(almacen_destino),    # 17 ALMACEN DESTINO
             str(codigo_ensamble),    # 18 CODIGO ENSAMBLE
             str(orden_produccion),   # 19 ORDEN PRODUCCION
             str(observaciones),      # 20 OBSERVACIONES
             float(peso_vela_maquina),# 21 PESO VELA MAQUINA
-            float(peso_bujes)        # 22 PESO BUJES
+            float(peso_bujes),       # 22 PESO BUJES
+            'FINALIZADO',            # 23 ESTADO (MES)
+            'LEGACY',                # 24 ID_PROGRAMACION (MES)
+            produccion_teorica,      # 25 PRODUCCION_TEORICA (MES)
+            pnc,                     # 26 PNC_TOTAL (MES)
+            "{}"                     # 27 PNC_DETALLE (MES)
         ]
         
         logger.debug(f" Fila validada: {row_validada}")
@@ -1345,14 +1385,25 @@ def registrar_inyeccion():
             ws = ss.worksheet(Hojas.INYECCION)
             
             fila_guardada = append_row_seguro(ws, row_validada)
-            
             logger.info(f" Inyeccion guardada en fila {fila_guardada}")
             
+            # ---------------------------------------------------------
+            # DISPARAR PROCESO ASÍNCRONO PARA PDF Y DRIVE (REQUERIMIENTO ARQUITECTO)
+            # ---------------------------------------------------------
+            try:
+                # Pasar PNC y nombre de producto descriptivo
+                bg_executor.submit(process_pdf_and_drive, row_validada, pnc, codigo_sistema_completo)
+                logger.info(f" Tarea de PDF y Drive enviada al worker para ID: {id_inyeccion}")
+            except Exception as e:
+                logger.error(f" Error enviando tarea a background worker: {e}")
+            # ---------------------------------------------------------
+
         except Exception as e:
             logger.error(f" Error guardando en INYECCION: {str(e)}")
             traceback.print_exc()
             return jsonify({'success': False, 'error': f'Error guardando: {str(e)}'}), 500
-        
+
+        # Proceso de stock y PNC restaurado
         # ========================================
         #  ACTUALIZAR STOCK EN PRODUCTOS (Solo piezas BUENAS Juan Sebastian)
         # ========================================
@@ -1388,8 +1439,9 @@ def registrar_inyeccion():
                 logger.warning(f" PNC no se registro correctamente")
         
         # ========================================
-        # RESPUESTA EXITOSA
+        # FINALIZAR
         # ========================================
+        clear_mes_cache()
         return jsonify({
             'success': True,
             'mensaje': 'Inyección guardada correctamente',
@@ -1411,7 +1463,729 @@ def registrar_inyeccion():
     except Exception as e:
         logger.error(f" Error general en registrar_inyeccion: {str(e)}")
         traceback.print_exc()
-        return jsonify({'success': False, 'error': f'Error interno del servidor: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': f'Error interno: {str(e)}'}), 500
+
+# ====================================================================
+# MES (MANUFACTURING EXECUTION SYSTEM) - CONTROL DE PRODUCCIÓN
+# ====================================================================
+
+@app.route('/api/mes/programar', methods=['POST'])
+def mes_programar():
+    """Fase 1: El Jefe de Planta 'pone en cola' uno o varios productos para una máquina (Mismo Molde)."""
+    try:
+        data = request.json
+        maquina = data.get('maquina')
+        productos = data.get('productos', []) # Lista de {codigo, cavidades, molde}
+        
+        # Retrocompatibilidad: si mandan solo un producto directo
+        if not productos and data.get('codigo_producto'):
+            productos = [{
+                'codigo': data.get('codigo_producto'),
+                'cavidades': data.get('no_cavidades', 1),
+                'molde': data.get('molde', '')
+            }]
+            
+        if not productos:
+            return jsonify({'success': False, 'error': 'No se enviaron productos para programar'}), 400
+
+        id_montaje = f"MTJ-{str(uuid.uuid4())[:6].upper()}"
+        fecha_creacion = datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        responsable = data.get('responsable_planta', 'ADMIN')
+        observaciones = data.get('observaciones', '')
+        
+        # Un solo ID de lote para TODOS los productos del montaje
+        id_batch = f"PRG-{str(uuid.uuid4())[:8].upper()}"
+        filas = []
+        ids_creados = []
+
+        for p in productos:
+            row = [
+                id_batch,        # <-- mismo ID para todo el lote
+                fecha_creacion,
+                maquina,
+                str(p.get('codigo')).strip(),
+                p.get('molde') or data.get('molde', ''),
+                int(p.get('cavidades', 1)),
+                'PROGRAMADO',
+                responsable,
+                observaciones
+            ]
+            filas.append(row)
+            ids_creados.append(id_batch)  # mismo ID repetido
+        
+        ws = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+        append_rows_seguro(ws, filas) # Usar versión masiva
+        
+        clear_mes_cache()
+        return jsonify({
+            'success': True, 
+            'id_montaje': id_montaje, 
+            'ids_programacion': ids_creados,
+            'count': len(filas)
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en mes_programar: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mes/cancelar/<id_prog>', methods=['POST'])
+def mes_cancelar(id_prog):
+    """Fase 1b: Liberar máquina cancelando todos los SKUs bajo el mismo ID_PROGRAMACION."""
+    try:
+        ws = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+        all_ids = ws.col_values(1)  # Columna A = ID_PROGRAMACION
+        
+        # Encontrar todas las filas con este ID (Multi-SKU)
+        indices = [i + 1 for i, id_val in enumerate(all_ids) if id_val == id_prog]
+        
+        if not indices:
+            return jsonify({'success': False, 'error': 'Programación no encontrada'}), 404
+            
+        updates = []
+        for row_index in indices:
+            updates.append({'range': f'G{row_index}', 'values': [['CANCELADO']]}) # Col G es ESTADO
+            
+        ws.batch_update(updates, value_input_option='USER_ENTERED')
+        clear_mes_cache()
+        return jsonify({'success': True, 'count': len(updates)}), 200
+        
+    except Exception as e:
+        logger.error(f"Error en mes_cancelar: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- CACHE MES (Consolidado y Protegido contra 429) ---
+_mes_cache = {
+    'dashboard': {'data': None, 'ts': 0},
+    'prog_todas': {'data': None, 'ts': 0},
+    'pendientes_calidad': {'data': None, 'ts': 0},
+    'pendientes_validacion': {'data': None, 'ts': 0}
+}
+MES_CACHE_TTL = 60 # Aumentado a 60s para proteger cuota de API
+
+def clear_mes_cache():
+    """Limpia todos los caches de lectura del MES (Llamar en toda operación de escritura)."""
+    global _mes_cache
+    logger.info("🗑️  [CACHE] Invalidando caché MES por operación de escritura")
+    for key in _mes_cache:
+        _mes_cache[key]['ts'] = 0
+
+@app.route('/api/mes/programaciones/<maquina>', methods=['GET'])
+def mes_get_programaciones(maquina):
+    """Obtiene programaciones activas para una máquina específica o TODAS."""
+    try:
+        global _mes_cache
+        maquina_upper = maquina.upper()
+        
+        if maquina_upper == 'TODAS':
+            if time.time() - _mes_cache['prog_todas']['ts'] < MES_CACHE_TTL and _mes_cache['prog_todas']['data']:
+                return jsonify(_mes_cache['prog_todas']['data']), 200
+
+        ws = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+        registros = ws.get_all_records()
+        if not registros:
+            return jsonify([]), 200
+
+        # Filtrar por máquina y estado
+        estados_excluir = ['COMPLETADO', 'CANCELADO', 'EN_PROCESO']
+        if maquina_upper == 'TODAS':
+            pendientes = [r for r in registros if str(r.get('ESTADO', '')).upper() not in estados_excluir]
+        else:
+            pendientes = [r for r in registros if str(r.get('MAQUINA', '')).strip().upper() == maquina_upper 
+                          and str(r.get('ESTADO', '')).upper() not in estados_excluir]
+
+        # Agrupar por ID_PROGRAMACION (Multi-SKU)
+        grupos = {}
+        for r in pendientes:
+            id_prog = r.get('ID_PROGRAMACION', '')
+            if id_prog not in grupos:
+                grupos[id_prog] = {
+                    'ID_Programacion':  id_prog,
+                    'Maquina':          r.get('MAQUINA', ''),
+                    'Molde':            r.get('MOLDE', ''),
+                    'Estado':           r.get('ESTADO', ''),
+                    'Responsable':      r.get('RESPONSABLE_PLANTA', ''),
+                    'Observaciones':    r.get('OBSERVACIONES', ''),
+                    'FechaCreacion':    r.get('FECHA_CREACION', ''),
+                    'productos':        []
+                }
+            grupos[id_prog]['productos'].append({
+                'codigo':    r.get('CODIGO_PRODUCTO', ''),
+                'cavidades': to_int_seguro(r.get('CAVIDADES', 1)),
+            })
+
+        result = list(grupos.values())
+
+        if maquina_upper == 'TODAS':
+            _mes_cache['prog_todas']['data'] = result
+            _mes_cache['prog_todas']['ts'] = time.time()
+
+        return jsonify(result), 200
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error en mes_get_programaciones: {e}\n{error_detail}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'traceback': error_detail
+        }), 500
+
+
+@app.route('/api/mes/dashboard', methods=['GET'])
+def mes_dashboard():
+    """Endpoint unificado: devuelve el estado completo de las 4 máquinas en una sola llamada."""
+    try:
+        global _mes_cache
+        if time.time() - _mes_cache['dashboard']['ts'] < MES_CACHE_TTL and _mes_cache['dashboard']['data']:
+            return jsonify({'maquinas': _mes_cache['dashboard']['data']}), 200
+
+        # Leer hojas usando get_all_records() para robustez
+        ws_iny = get_worksheet(Hojas.INYECCION)
+        ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+        
+        registros_iny  = ws_iny.get_all_records()
+        registros_prog = ws_prog.get_all_records()
+
+        # Obtener lista de máquinas
+        maquinas_set = []
+        seen = set()
+
+        try:
+            ws_maq = get_worksheet(Hojas.MAQUINAS)
+            for r in ws_maq.get_all_records():
+                nombre = str(r.get('NOMBRE') or r.get('MAQUINA') or '').strip()
+                if nombre and nombre.upper() not in seen:
+                    maquinas_set.append(nombre)
+                    seen.add(nombre.upper())
+        except Exception:
+            pass
+
+        for r in registros_prog:
+            nombre = str(r.get('MAQUINA') or '').strip()
+            if nombre and nombre.upper() not in seen:
+                maquinas_set.append(nombre)
+                seen.add(nombre.upper())
+
+        for r in registros_iny:
+            if str(r.get('ESTADO', '')).upper() == 'EN_PROCESO':
+                nombre = str(r.get('MAQUINA') or '').strip()
+                if nombre and nombre.upper() not in seen:
+                    maquinas_set.append(nombre)
+                    seen.add(nombre.upper())
+
+        if not maquinas_set:
+            maquinas_set = ['MAQUINA No.1', 'MAQUINA No.2', 'MAQUINA No.3', 'MAQUINA No.4']
+
+        resultado = []
+        for maquina in maquinas_set:
+            maquina_upper = maquina.upper()
+
+            activo = next(
+                (r for r in registros_iny
+                 if str(r.get('MAQUINA') or '').strip().upper() == maquina_upper
+                 and str(r.get('ESTADO', '')).upper() == 'EN_PROCESO'),
+                None
+            )
+
+            trabajo_activo = None
+            if activo:
+                trabajo_activo = {
+                    'id_inyeccion':       activo.get('ID INYECCION'),
+                    'id_programacion':    activo.get('ID_PROG'),
+                    'codigo_producto':    activo.get('ID CODIGO'),
+                    'molde':              activo.get('OBSERVACIONES', ''),
+                    'cavidades':          to_int_seguro(activo.get('No. CAVIDADES') or activo.get('CAV', 1)),
+                    'hora_inicio':        activo.get('HORA INICIO', ''),
+                    'produccion_teorica': to_int_seguro(activo.get('PRODUCCION_TEORICA', 0)),
+                }
+                estado_maquina = 'EN_PROCESO'
+            else:
+                estado_maquina = 'LIBRE'
+
+            cola = [
+                {
+                    'id_programacion': r.get('ID_PROGRAMACION'),
+                    'codigo_producto': r.get('CODIGO_PRODUCTO'),
+                    'molde':           r.get('MOLDE', ''),
+                    'cavidades':       to_int_seguro(r.get('CAVIDADES', 1)),
+                    'observaciones':   r.get('OBSERVACIONES', ''),
+                }
+                for r in registros_prog
+                if str(r.get('MAQUINA') or '').strip().upper() == maquina_upper
+                and str(r.get('ESTADO', '')).upper() == 'PROGRAMADO'
+            ]
+
+            if cola and estado_maquina == 'LIBRE':
+                estado_maquina = 'PROGRAMADO'
+
+            resultado.append({
+                'nombre':         maquina,
+                'estado':         estado_maquina,
+                'trabajo_activo': trabajo_activo,
+                'cola':           cola
+            })
+
+        # --- GUARDAR EN CACHE ---
+        _mes_cache['dashboard']['data'] = resultado
+        _mes_cache['dashboard']['ts'] = time.time()
+        # ------------------------
+
+        return jsonify({'maquinas': resultado}), 200
+
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error en mes_dashboard: {e}\n{error_detail}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'traceback': error_detail
+        }), 500
+
+@app.route('/api/mes/pendientes_calidad', methods=['GET'])
+def mes_get_pendientes_calidad():
+    """Obtiene registros de inyección en estado PENDIENTE_CALIDAD."""
+    try:
+        global _mes_cache
+        if time.time() - _mes_cache['pendientes_calidad']['ts'] < MES_CACHE_TTL and _mes_cache['pendientes_calidad']['data']:
+            return jsonify(_mes_cache['pendientes_calidad']['data']), 200
+
+        ws = get_worksheet(Hojas.INYECCION)
+        registros = ws.get_all_records()
+        if not registros:
+            return jsonify([]), 200
+        
+        pendientes = [r for r in registros if str(r.get('ESTADO', '')).upper() == 'PENDIENTE_CALIDAD']
+        
+        _mes_cache['pendientes_calidad']['data'] = pendientes
+        _mes_cache['pendientes_calidad']['ts'] = time.time()
+        return jsonify(pendientes), 200
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error en mes_get_pendientes_calidad: {e}\n{error_detail}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'traceback': error_detail
+        }), 500
+
+@app.route('/api/mes/programacion/<id_prog>/productos', methods=['GET'])
+def mes_get_productos_programacion(id_prog):
+    """Fase 4: Obtener todos los productos asociados a una Programación (Multi-SKU)."""
+    try:
+        ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+        programaciones = ws_prog.get_all_records()
+        if not programaciones:
+            return jsonify({'success': False, 'error': 'Hoja vacía'}), 404
+        
+        # Filtrar los productos de este ID_PROGRAMACION
+        productos = [p for p in programaciones if str(p.get('ID_PROGRAMACION', '')).strip() == str(id_prog).strip()]
+        
+        if not productos:
+            return jsonify({'success': False, 'error': 'No se encontraron productos para esta programación'}), 404
+            
+        return jsonify({
+            'success': True,
+            'productos': [{
+                'codigo': p.get('CODIGO_PRODUCTO'),
+                'cavidades': to_int_seguro(p.get('CAVIDADES', 1)),
+                'molde': p.get('MOLDE', '')
+            } for p in productos]
+        }), 200
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error fetching productos de programacion: {e}\n{error_detail}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'traceback': error_detail
+        }), 500
+
+
+@app.route('/api/mes/status/<maquina>', methods=['GET'])
+def mes_get_status_maquina(maquina):
+    """Obtiene el estado actual de una máquina (Activo, Programado o Libre)."""
+    try:
+        maquina_upper = str(maquina).strip().upper()
+        # 1. Buscar en INYECCION si hay algo EN_PROCESO
+        ws_iny = get_worksheet(Hojas.INYECCION)
+        registros_iny = ws_iny.get_all_records()
+        activo = next((r for r in registros_iny 
+                       if str(r.get('MAQUINA', '')).strip().upper() == maquina_upper 
+                       and str(r.get('ESTADO', '')).upper() == 'EN_PROCESO'), None)
+        
+        if activo:
+            return jsonify({
+                'estado': 'EN_PROCESO',
+                'id_inyeccion': activo.get('ID INYECCION'),
+                'id_programacion': activo.get('ID_PROG'),
+                'producto': activo.get('ID CODIGO'),
+                'molde': activo.get('OBSERVACIONES'),
+                'cavidades': to_int_seguro(activo.get('CAV') or activo.get('No. CAVIDADES', 1)),
+                'inicio': activo.get('HORA INICIO'),
+                'teorica': to_int_seguro(activo.get('TEORICA') or activo.get('PRODUCCION_TEORICA', 0))
+            }), 200
+            
+        # 2. Si no hay activo, buscar en PROGRAMACION_INYECCION el siguiente PROGRAMADO
+        ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+        registros_prog = ws_prog.get_all_records()
+        programado = next((r for r in registros_prog 
+                           if str(r.get('MAQUINA', '')).strip().upper() == maquina_upper 
+                           and str(r.get('ESTADO', '')).upper() == 'PROGRAMADO'), None)
+        
+        if programado:
+             return jsonify({
+                'estado': 'PROGRAMADO',
+                'id_programacion': programado.get('ID_PROGRAMACION'),
+                'producto': programado.get('CODIGO_PRODUCTO'),
+                'molde': programado.get('MOLDE'),
+                'cavidades': to_int_seguro(programado.get('CAVIDADES', 1))
+            }), 200
+            
+        return jsonify({'estado': 'LIBRE'}), 200
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error en status_maquina: {e}\n{error_detail}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'traceback': error_detail
+        }), 500
+
+@app.route('/api/mes/iniciar', methods=['POST'])
+def mes_iniciar():
+    """Fase 2a: Operario inicia físicamente la máquina. Crea registro base en INYECCION."""
+    try:
+        data = request.json
+        id_prog = data.get('id_programacion')
+        id_inyeccion = f"INY-{str(uuid.uuid4())[:8].upper()}"
+        fecha_ahora = datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')  # kept for legacy reference
+        
+        # Datos desde programación
+        ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+        programaciones = ws_prog.get_all_records()
+        progs = [r for r in programaciones if r.get('ID_PROGRAMACION') == id_prog]
+        
+        if not progs:
+            return jsonify({'success': False, 'error': 'Programación no encontrada'}), 404
+            
+        # Determinar si es MULTI-SKU (más de un producto bajo el mismo ID_PROGRAMACION)
+        es_multi_sku = len(progs) > 1
+        
+        # ── Preparar variables de fecha/hora ──────────────────────────────
+        ahora        = datetime.datetime.now()
+        fecha_solo   = ahora.strftime('%d/%m/%Y')
+        fecha_corta  = f"{ahora.day}/{ahora.month}/{ahora.year}"
+        
+        hora_inicio  = ahora.strftime('%H:%M')
+        hora_llegada = "06:00"
+
+        codigo_display = 'MULTI-SKU' if es_multi_sku else str(progs[0].get('CODIGO_PRODUCTO', ''))
+        cavidades_display = 1 if es_multi_sku else int(progs[0].get('CAVIDADES', 1))
+        molde_display = progs[0].get('MOLDE', '')
+        maquina_display = progs[0].get('MAQUINA', '')
+
+        # Mapa de columnas — alineado exactamente con el histórico de INYECCION
+        row = [
+            id_inyeccion,                         #  1  ID INYECCION
+            fecha_solo,                           #  2  FECHA INICIA
+            fecha_corta,                          #  3  FECHA FIN
+            "INYECCION",                          #  4  DEPARTAMENTO
+            maquina_display,                      #  5  MAQUINA
+            data.get('operario', ''),             #  6  RESPONSABLE
+            codigo_display,                       #  7  ID CODIGO (MULTI-SKU si > 1)
+            cavidades_display,                    #  8  No. CAVIDADES
+            hora_llegada,                         #  9  HORA LLEGADA
+            hora_inicio,                          # 10  HORA INICIO
+            "",                                   # 11  HORA TERMINA
+            0,                                    # 12  CONTADOR MAQ.
+            0,                                    # 13  CANT. CONTADOR
+            0,                                    # 14  TOMADOS EN PROCESO
+            0,                                    # 15  PESO TOMADAS EN PROCESO
+            0,                                    # 16  CANTIDAD REAL
+            "POR PULIR",                          # 17  ALMACEN DESTINO
+            "",                                   # 18  CODIGO ENSAMBLE
+            "",                                   # 19  ORDEN PRODUCCION
+            molde_display,                        # 20  OBSERVACIONES (MOLDE)
+            0,                                    # 21  PESO VELA MAQUINA
+            0,                                    # 22  PESO BUJES
+            'EN_PROCESO',                         # 23  ESTADO (MES)
+            id_prog,                              # 24  ID_PROGRAMACION (MES)
+            0,                                    # 25  PRODUCCION_TEORICA (MES)
+            0,                                    # 26  PNC_TOTAL (MES)
+            "{}",                                 # 27  PNC_DETALLE (MES)
+            0,                                    # 28  PESO_LOTE (Calidad)
+            "",                                   # 29  CALIDAD_RESPONSABLE (Calidad)
+        ]
+        
+        ws_iny = get_worksheet(Hojas.INYECCION)
+        append_row_seguro(ws_iny, row)
+
+        # Marcar programación como EN_PROCESO en PROGRAMACION_INYECCION
+        try:
+            ws_prog2 = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+            prog_ids = ws_prog2.col_values(1)  # Columna A = ID_PROGRAMACION
+            idx_prog = prog_ids.index(id_prog) + 1  # 1-based
+            ws_prog2.update_cell(idx_prog, 7, 'EN_PROCESO')  # Columna G = ESTADO
+        except Exception as e_prog:
+            logger.warning(f"[MES] No se pudo actualizar estado en PROGRAMACION: {e_prog}")
+
+        clear_mes_cache()
+        return jsonify({'success': True, 'id_inyeccion': id_inyeccion}), 200
+    except Exception as e:
+        logger.error(f"Error en mes_iniciar: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mes/reportar', methods=['POST'])
+def mes_reportar():
+    """Fase 2b: Operario finaliza el turno e ingresa cierres y horas reales."""
+    try:
+        data = request.json
+        id_iny = data.get('id_inyeccion')
+        cierres = int(data.get('cierres', 0))
+        
+        # Obtener las horas que el operario digitó explícitamente en el modal
+        hora_inicio_real = data.get('hora_inicio', '')
+        hora_termina_real = data.get('hora_fin', datetime.datetime.now().strftime('%H:%M'))
+        
+        ws_iny = get_worksheet(Hojas.INYECCION)
+        iny_records = ws_iny.get_all_records()
+        # Encontrar el índice (fila) para actualizar
+        # Columna 0 es ID INYECCION. gspread index es 1-based.
+        all_ids = ws_iny.col_values(1)
+        try:
+            fila_index = all_ids.index(id_iny) + 1
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Registro no encontrado'}), 404
+        
+        # Obtener datos de la fila para calcular teórica
+        cavidades = int(ws_iny.cell(fila_index, 8).value or 1)
+        teorica_calculada = cierres * cavidades
+        
+        # Actualizar columnas clave, sobrescribiendo el HORA INICIO y llenando HORA FIN
+        updates = [
+            {'range': f'J{fila_index}', 'values': [[hora_inicio_real]]},   # HORA INICIO (Sobrescrita por la real)
+            {'range': f'K{fila_index}', 'values': [[hora_termina_real]]},  # HORA TERMINA
+            {'range': f'L{fila_index}', 'values': [[cierres]]},            # CONTADOR
+            {'range': f'M{fila_index}', 'values': [[cierres]]},            # CANT CONTADOR
+            {'range': f'P{fila_index}', 'values': [[0]]},                  # CANT REAL (Se deja en 0 temporalmente, Paola digita)
+            {'range': f'W{fila_index}', 'values': [['PENDIENTE_VALIDACION']]}, # ESTADO (Directo a Paola)
+            {'range': f'Y{fila_index}', 'values': [[cierres]]}             # PRODUCCION_TEORICA (Se guardan los cierres aquí temporalmente para referencia)
+        ]
+        
+        for up in updates:
+            ws_iny.update(up['range'], up['values'], value_input_option='USER_ENTERED')
+            
+        # ── Cerrar la programación original en PROGRAMACION_INYECCION ── (Actualización en Bloque)
+        try:
+            # Obtener ID_PROGRAMACION guardado en Columna X (index 23) de INYECCION
+            id_prog = ws_iny.cell(fila_index, 24).value
+            if id_prog and id_prog != 'LEGACY':
+                ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+                all_ids = ws_prog.col_values(1)
+                updates_prog = []
+                for idx, pid in enumerate(all_ids):
+                    if pid == id_prog:
+                        # Convert 0-index to 1-base: idx + 1
+                        updates_prog.append({
+                            'range': f'G{idx+1}',
+                            'values': [['COMPLETADO']]
+                        })
+                
+                if updates_prog:
+                    ws_prog.batch_update(updates_prog, value_input_option='USER_ENTERED')
+                    logger.info(f"[MES] Se marcaron {len(updates_prog)} filas como COMPLETADO en PROGRAMACION_INYECCION (Bloque)")
+        except Exception as e_prog:
+            logger.warning(f"[MES] No se pudo marcar completado en PROGRAMACION_INYECCION: {e_prog}")
+            
+        clear_mes_cache()
+        return jsonify({'success': True, 'teorica': teorica_calculada}), 200
+    except Exception as e:
+        logger.error(f"Error en mes_reportar: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mes/calidad', methods=['POST'])
+def mes_calidad():
+    """Fase 3: Calidad (Paola) valida el lote y cierra el registro de producción."""
+    try:
+        data = request.json
+        id_iny              = data.get('id_inyeccion')
+        cantidad_real_final = int(data.get('cantidad_real', 0))
+        pnc_detalle         = data.get('pnc_detalle', {})
+        pnc_total           = int(data.get('pnc_total', 0)) or (sum(pnc_detalle.values()) if pnc_detalle else 0)
+        peso_bujes          = float(data.get('peso_bujes', 0.0))
+        peso_vela           = float(data.get('peso_vela', 0.0))
+        responsable_calidad = data.get('responsable_calidad', '')
+        orden_produccion    = data.get('orden_produccion', '')   # Col S (19)
+
+        ws_iny = get_worksheet(Hojas.INYECCION)
+        all_ids = ws_iny.col_values(1)
+        try:
+            fila_index = all_ids.index(id_iny) + 1
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Registro de inyección no encontrado'}), 404
+
+        # --- Mapa de columnas MES en INYECCION ---
+        # Col P  (16) = CANTIDAD REAL
+        # Col S  (19) = ORDEN PRODUCCION
+        # Col U  (21) = PESO VELA MAQUINA
+        # Col V  (22) = PESO BUJES
+        # Col W  (23) = ESTADO
+        # Col Z  (26) = PNC_TOTAL
+        # Col AC (29) = CALIDAD_RESPONSABLE
+
+        updates = [
+            {'range': f'P{fila_index}',  'values': [[cantidad_real_final]]},        # Col 16: CANTIDAD REAL
+            {'range': f'S{fila_index}',  'values': [[orden_produccion]]},           # Col 19: ORDEN PRODUCCION
+            {'range': f'U{fila_index}',  'values': [[peso_vela]]},                  # Col 21: PESO VELA MAQUINA
+            {'range': f'V{fila_index}',  'values': [[peso_bujes]]},                 # Col 22: PESO BUJES
+            {'range': f'W{fila_index}',  'values': [['PENDIENTE_VALIDACION']]},     # Col 23: ESTADO
+            {'range': f'Z{fila_index}',  'values': [[pnc_total]]},                  # Col 26: PNC_TOTAL
+            {'range': f'AC{fila_index}', 'values': [[responsable_calidad]]},        # Col 29: CALIDAD_RESPONSABLE
+        ]
+        for up in updates:
+            ws_iny.update(up['range'], up['values'], value_input_option='USER_ENTERED')
+
+        # Leer fila completa para triggers post-calidad
+        row_data = ws_iny.row_values(fila_index)
+        codigo_entrada = row_data[6] if len(row_data) > 6 else ''
+        almacen        = row_data[16] if len(row_data) > 16 else 'ALMACEN_POR_PULIR'
+
+        # Trigger 1: Actualizar Inventario y Generar PDF
+        # Se ha movido al flujo de Validación Final por Paola (Fase 4 - Legacy)
+        # El inventario y el PDF solo se sumarán/generarán cuando Paola apruebe.
+        logger.info(f"Lote {id_iny} actualizado a PENDIENTE_VALIDACION.")
+
+        # Trigger 3: Marcar programación source como COMPLETADA
+        id_prog = row_data[23] if len(row_data) > 23 else None
+        if id_prog:
+            try:
+                ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+                prog_ids = ws_prog.col_values(1)
+                idx_p = prog_ids.index(id_prog) + 1
+                ws_prog.update_cell(idx_p, 7, 'COMPLETADO')  # Col 7 = ESTADO
+            except Exception as e_prog:
+                logger.warning(f"[MES] No se pudo marcar programación como COMPLETADO: {e_prog}")
+
+        peso_lote = peso_bujes + peso_vela
+        clear_mes_cache()
+        return jsonify({
+            'success': True,
+            'message': 'Lote cerrado con éxito',
+            'cantidad_real': cantidad_real_final,
+            'pnc_total': pnc_total,
+            'peso_lote': peso_lote,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en mes_calidad: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/mes/pendientes_validacion', methods=['GET'])
+def mes_pendientes_validacion():
+    """Fase 4: Obtiene todos los lotes en estado PENDIENTE_VALIDACION para la revisión de Paola."""
+    try:
+        global _mes_cache
+        if time.time() - _mes_cache['pendientes_validacion']['ts'] < MES_CACHE_TTL and _mes_cache['pendientes_validacion']['data']:
+            return jsonify({'success': True, 'data': _mes_cache['pendientes_validacion']['data']}), 200
+
+        ws_iny = get_worksheet(Hojas.INYECCION)
+        registros = ws_iny.get_all_records()
+        
+        pendientes = []
+        for reg in registros:
+            estado = str(reg.get('ESTADO', '')).strip().upper()
+            if estado == 'PENDIENTE_VALIDACION':
+                pendientes.append(reg)
+                
+        # --- GUARDAR EN CACHE ---
+        _mes_cache['pendientes_validacion']['data'] = pendientes
+        _mes_cache['pendientes_validacion']['ts'] = time.time()
+        # ------------------------
+
+        logger.info(f"Se encontraron {len(pendientes)} lotes pendientes de validación")
+        return jsonify({'success': True, 'data': pendientes}), 200
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error obteniendo pendientes de validación: {e}\n{error_detail}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'traceback': error_detail
+        }), 500
+
+def process_pdf_and_drive(data, pnc=0, producto_nombre="", is_batch=False, items_batch=None):
+    """
+    Proceso de fondo (ThreadPoolExecutor): 
+    1. Genera PDF temporalmente con ReportLab (Soporta Single y Multi-SKU).
+    2. Lo sube a Google Drive (Service Account).
+    3. Elimina el archivo temporal.
+    """
+    try:
+        from backend.utils.report_service import PDFGenerator
+        from backend.utils.drive_service import drive_service
+        from backend.config.settings import Settings
+        
+        # 1. Determinar Metadatos y Nombre de Archivo
+        if is_batch:
+            # data es el diccionario 'turno'
+            maquina = str(data.get('maquina', 'S-M')).replace(" ", "-")
+            fecha_raw = str(data.get('fecha_inicio', datetime.datetime.now().strftime('%Y-%m-%d')))
+            op = str(data.get('orden_produccion', 'S-OP')).replace(" ", "-")
+            id_reg = data.get('id_programacion', 'BATCH')
+            
+            # Formato solicitado: FECHA_OP_MAQUINA.pdf
+            tmp_filename = f"{fecha_raw}_{op}_{maquina}.pdf".replace("/", "-").replace(":", "-")
+        else:
+            # data es row_data (List) - Legacy
+            id_reg = data[0]
+            fecha_raw = data[1]
+            maquina = str(data[4]).replace(" ", "-")
+            op = str(data[18]).replace(" ", "-") if len(data) > 18 else "S-OP"
+            
+            # Formato solicitado: FECHA_OP_MAQUINA.pdf
+            tmp_filename = f"{fecha_raw}_{op}_{maquina}.pdf".replace("/", "-").replace(":", "-")
+
+        tmp_path = os.path.join(os.getcwd(), "temp_reports")
+        if not os.path.exists(tmp_path):
+            os.makedirs(tmp_path)
+            
+        local_file = os.path.join(tmp_path, tmp_filename)
+        
+        # 2. Generar PDF Real
+        if is_batch:
+            success = PDFGenerator.generar_reporte_inyeccion_lote(data, items_batch, local_file)
+        else:
+            success = PDFGenerator.generar_reporte_inyeccion(data, local_file, pnc, producto_nombre)
+
+        if not success:
+            logger.error(f" [PDF_FAIL] No se pudo generar el PDF para {id_reg}")
+            return
+
+        # 3. Subir a Drive
+        folder_id = Settings.DRIVE_REPORTS_FOLDER_ID
+        drive_id = drive_service.subir_archivo(local_file, tmp_filename, folder_id=folder_id)
+        
+        if drive_id:
+            logger.info(f" [DRIVE_SUCCESS] PDF subido correctamente: {tmp_filename} (ID: {drive_id})")
+        else:
+            logger.error(f" [DRIVE_FAIL] Falla al subir PDF a Drive para {id_reg}")
+
+    except Exception as e:
+        logger.error(f" ❌ ERROR CRÍTICO en PDF/Drive: {str(e)}")
+        traceback.print_exc()
+    finally:
+        # Limpiar archivo temporal
+        if 'local_file' in locals() and os.path.exists(local_file):
+            try:
+                os.remove(local_file)
+            except Exception as cleanup_err:
+                logger.warning(f" No se pudo eliminar temporal {local_file}: {cleanup_err}")
+
 
 
 @app.route('/api/inyeccion/lote', methods=['POST'])
@@ -1446,6 +2220,7 @@ def registrar_inyeccion_lote():
         almacen_destino = turno.get('almacen_destino', 'POR PULIR')
         
         rows_to_insert = []
+        rows_to_update = []
         productos_procesados = []
         
         # ========================================
@@ -1475,14 +2250,28 @@ def registrar_inyeccion_lote():
             cantidad_final = cantidad_real if cantidad_real > 0 else cantidad_teorica
             piezas_buenas = max(0, cantidad_final - pnc)
             
-            # ID unico
-            id_inyeccion = f"INY-{str(uuid.uuid4())[:8].upper()}"
+            # ID unico o existente.
+            # CRÍTICO PARA MULTI-SKU: Si el frontend manda un array, SOLO el PRIMER elemento que tenga 'id_inyeccion'
+            # heredará el ID de la cabecera (para hacer UPSERT y borrar la cabecera estéril).
+            # Los demás elementos DEL MISMO POST deben nacer con un ID nuevo para no pisar la fila en Sheets.
+            id_inyeccion_existente = str(item.get('id_inyeccion', '')).strip()
             
-            # Preparar Fila 22 columnas
+            # Verificamos si este ID ya lo procesamos en este mimso batch (Multi-SKU)
+            # o si viene vacío (Ingreso manual directo de Paola)
+            if id_inyeccion_existente and id_inyeccion_existente not in [p['id_inyeccion'] for p in productos_procesados]:
+                is_update = True
+                id_inyeccion = id_inyeccion_existente
+            else:
+                is_update = False
+                id_inyeccion = f"INY-{str(uuid.uuid4())[:8].upper()}"
+            
+            # Preparar Fila 27 columnas (Soporte MES - LEGACY)
+            id_prog_actual = turno.get('id_programacion', '') or 'LEGACY'
+            
             row_validada = [
                 id_inyeccion,            # 1 ID INYECCION
                 str(fecha_inicia_f),     # 2 FECHA INICIA
-                str(fecha_inicia_f),     # 3 FECHA FIN (Asume misma fecha en este nivel)
+                str(fecha_inicia_f),     # 3 FECHA FIN
                 "INYECCION",             # 4 DEPARTAMENTO
                 str(maquina),            # 5 MAQUINA
                 str(responsable),        # 6 RESPONSABLE
@@ -1492,18 +2281,27 @@ def registrar_inyeccion_lote():
                 str(hora_inicio),        # 10 HORA INICIO
                 str(hora_termina),       # 11 HORA TERMINA
                 int(disparos),           # 12 CONTADOR MAQ
-                int(disparos),           # 13 CANT. CONTADOR
-                0,                       # 14 TOMADOS (0 by default now)
-                0.0,                     # 15 PESO TOMADAS
-                int(cantidad_final),     # 16 CANTIDAD REAL
-                str(almacen_destino),    # 17 ALMACEN DESTINO
-                str(codigo_ensamble),    # 18 COD. ENSAMBLE
-                str(orden_produccion),   # 19 OP
-                str(observaciones),      # 20 OBS
-                float(peso_vela_maquina),# 21 PESO VELA
-                float(peso_bujes)        # 22 PESO BUJES
+                int(disparos),           # 13 CANT CONTADOR
+                int(item.get('tomados_proceso', 0) or 0), # 14 TOMADOS
+                float(item.get('peso_tomadas', 0) or 0),  # 15 PESO TOM
+                int(cantidad_final),                      # 16 CANT REAL
+                str(almacen_destino),                     # 17 ALMACEN
+                str(codigo_ensamble),                     # 18 COD ENS
+                str(orden_produccion),                    # 19 OP
+                str(observaciones),                       # 20 OBSER
+                float(turno.get('peso_vela_maquina', 0) or 0), # 21 PESO VELA
+                float(peso_bujes),                        # 22 PESO BUJES
+                'FINALIZADO',                             # 23 ESTADO (MES)
+                id_prog_actual,                           # 24 ID_PROG (MES)
+                cantidad_teorica,                         # 25 TEORICA (MES)
+                pnc,                                      # 26 PNC_TOTAL (MES)
+                "{}"                                      # 27 PNC_DETALLE (MES)
             ]
-            rows_to_insert.append(row_validada)
+            
+            if is_update:
+                rows_to_update.append({'id': id_inyeccion, 'row_data': row_validada})
+            else:
+                rows_to_insert.append(row_validada)
             
             productos_procesados.append({
                 'codigo_original': codigo_producto_entrada,
@@ -1513,22 +2311,41 @@ def registrar_inyeccion_lote():
                 'criterio_pnc': criterio_pnc,
                 'observaciones': observaciones,
                 'id_inyeccion': id_inyeccion,
-                'almacen': almacen_destino
+                'almacen': almacen_destino,
+                'row_data': row_validada
             })
             
-        if not rows_to_insert:
+        if not rows_to_insert and not rows_to_update:
             return jsonify({'success': False, 'error': 'Ningún producto válido para procesar'}), 400
             
         # ========================================
         # GUARDAR EN GOOGLE SHEETS EN BATCH
         # ========================================
         try:
-            ss = gc.open_by_key(GSHEET_KEY)
-            ws = ss.worksheet(Hojas.INYECCION)
+            ss = get_spreadsheet()
+            ws = get_worksheet(Hojas.INYECCION)
             
-            # Usar la función segura batch
-            ultima_fila = append_rows_seguro(ws, rows_to_insert)
-            logger.info(f" -> Lote guardado, {len(rows_to_insert)} filas. Última fila: {ultima_fila}")
+            if rows_to_insert:
+                # Usar la función segura batch para nuevos
+                ultima_fila = append_rows_seguro(ws, rows_to_insert)
+                logger.info(f" -> Lote guardado, {len(rows_to_insert)} filas insertadas. Última fila: {ultima_fila}")
+                
+            if rows_to_update:
+                all_ids = ws.col_values(1)
+                updates_batch = []
+                for upd in rows_to_update:
+                    try:
+                        fila_index = all_ids.index(upd['id']) + 1
+                        updates_batch.append({
+                            'range': f'A{fila_index}:AA{fila_index}',
+                            'values': [upd['row_data']]
+                        })
+                    except ValueError:
+                        logger.warning(f"ID {upd['id']} no encontrado para actualizar.")
+                
+                if updates_batch:
+                    ws.batch_update(updates_batch, value_input_option='USER_ENTERED')
+                    logger.info(f" -> Lote actualizado, {len(updates_batch)} filas modificadas.")
             
         except Exception as e:
             logger.error(f" Error batch INYECCION: {str(e)}")
@@ -1560,7 +2377,41 @@ def registrar_inyeccion_lote():
                     criterio_pnc=item['criterio_pnc'],
                     observaciones=item['observaciones']
                 )
+
                 
+        # ========================================
+        # CERRAR PROGRAMACIÓN EN BATCH
+        # ========================================
+        id_prog_to_close = turno.get('id_programacion', '')
+        if id_prog_to_close and id_prog_to_close != 'LEGACY':
+            try:
+                ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
+                all_ids = ws_prog.col_values(1)
+                updates_prog = []
+                for idx, pid in enumerate(all_ids):
+                    if pid == id_prog_to_close:
+                        updates_prog.append({
+                            'range': f'G{idx+1}',
+                            'values': [['COMPLETADO']]
+                        })
+                
+                if updates_prog:
+                    ws_prog.batch_update(updates_prog, value_input_option='USER_ENTERED')
+                    logger.info(f" -> Programación {id_prog_to_close} marcada COMPLETADO ({len(updates_prog)} filas)")
+            except Exception as e_prog:
+                logger.error(f" Error cerrando programación: {str(e_prog)}")
+        
+        # --- INVALIDACIÓN CRÍTICA DE CACHÉ ---
+        clear_mes_cache()
+        
+        # --- DISPARAR PDF Y DRIVE (ASÍNCRONO) ---
+        try:
+            bg_executor.submit(process_pdf_and_drive, turno, is_batch=True, items_batch=items)
+            logger.info(f" -> Tarea de PDF (Molde Familia) enviada para ID: {id_prog_to_close}")
+        except Exception as e_bg:
+            logger.error(f" Error enviando PDF multi-sku a background: {e_bg}")
+        # ------------------------------------
+
         return jsonify({
             'success': True,
             'mensaje': f'Lote de {len(rows_to_insert)} productos procesado exitosamente',
@@ -1647,52 +2498,79 @@ def obtener_ensamble_desde_producto():
 
         if is_new_format:
             # Lógica para FICHAS_INT_CAR
-            # BUSQUEDA 1: ¿Es el producto final? (Referencia) -> Array de BOM
+            # BUSQUEDA 1: ¿Es el producto final? (Referencia)
             for r in registros_fichas_int:
                 ref = str(r.get('Referencia', '')).strip()
                 ref_norm = obtener_codigo_sistema_real(ref)
                 if ref_norm == codigo_sistema:
-                    componentes_crudos = [
-                        str(r.get('Buje', '')).strip(),
-                        str(r.get('INT', '')).strip(),
-                        str(r.get('Carcaza', '')).strip()
-                    ]
-                    for comp in componentes_crudos:
+                    # Recopilar todos los componentes de ESTA fila/receta
+                    bom_receta = []
+                    buje_main = ""
+                    for col in ['Buje', 'INT', 'Carcaza']:
+                        comp = str(r.get(col, '')).strip()
                         comp_upper = comp.upper()
-                        if comp and comp != "-" and comp_upper != "INYECCIÓN" and comp_upper != "INYECCION":
+                        if comp and comp != "-" and comp_upper not in ["INYECCIÓN", "INYECCION"]:
                             comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
                             comp_norm = obtener_codigo_sistema_real(comp_clean)
+                            if col == 'Buje': buje_main = comp_clean
                             
-                            # Buscar en el mapeo de FICHAS si existe un QTY guardado para este padre-hijo
+                            # Buscar en el mapeo de FICHAS si existe un QTY guardado
                             qty_desc = qty_map.get(f"{codigo_sistema}_{comp_norm}", 1.0)
-                            
-                            opciones.append({
-                                'codigo_ensamble': ref,
+                            bom_receta.append({
                                 'buje_origen': comp_clean,
                                 'qty': qty_desc,
-                                'tipo': 'producto'
+                                'tipo_componente': col
                             })
+                    
+                    if bom_receta:
+                        opciones.append({
+                            'codigo_ensamble': ref,
+                            'buje_origen': buje_main or ref,
+                            'qty': 1,
+                            'tipo': 'producto',
+                            'componentes': bom_receta
+                        })
             
             # BUSQUEDA 2: ¿Es un componente (Buje, INT, Carcaza)?
             if not opciones:
                 for r in registros_fichas_int:
                     ref = str(r.get('Referencia', '')).strip()
-                    comps = [str(r.get('Buje', '')).strip(), str(r.get('INT', '')).strip(), str(r.get('Carcaza', '')).strip()]
-                    for comp in comps:
-                        comp_upper = comp.upper()
-                        if comp and comp != "-" and comp_upper != "INYECCIÓN" and comp_upper != "INYECCION":
-                            comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
-                            comp_norm = obtener_codigo_sistema_real(comp_clean)
-                            if comp_norm == codigo_sistema:
-                                # Buscar su QTY para el ensamble superior
-                                ref_norm = obtener_codigo_sistema_real(ref)
-                                qty_desc = qty_map.get(f"{ref_norm}_{codigo_sistema}", 1.0)
-                                opciones.append({
-                                    'codigo_ensamble': ref,
+                    ref_norm = obtener_codigo_sistema_real(ref)
+                    comps_cols = ['Buje', 'INT', 'Carcaza']
+                    found_in_cols = False
+                    for col in comps_cols:
+                        comp_val = str(r.get(col, '')).strip()
+                        comp_clean = comp_val.split("/")[0].strip() if "/" in comp_val else comp_val
+                        if obtener_codigo_sistema_real(comp_clean) == codigo_sistema:
+                            found_in_cols = True
+                            break
+                    
+                    if found_in_cols:
+                        # Recopilar BOM completo de esta receta donde se encontro el componente
+                        bom_receta = []
+                        buje_main = ""
+                        for col in comps_cols:
+                            comp = str(r.get(col, '')).strip()
+                            comp_upper = comp.upper()
+                            if comp and comp != "-" and comp_upper not in ["INYECCIÓN", "INYECCION"]:
+                                comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
+                                comp_norm = obtener_codigo_sistema_real(comp_clean)
+                                if col == 'Buje': buje_main = comp_clean
+                                qty_desc = qty_map.get(f"{ref_norm}_{comp_norm}", 1.0)
+                                bom_receta.append({
                                     'buje_origen': comp_clean,
                                     'qty': qty_desc,
-                                    'tipo': 'componente'
+                                    'tipo_componente': col
                                 })
+                        
+                        if bom_receta:
+                            opciones.append({
+                                'codigo_ensamble': ref,
+                                'buje_origen': buje_main or ref,
+                                'qty': 1,
+                                'tipo': 'componente',
+                                'componentes': bom_receta
+                            })
         
         # Fallback a FICHAS original si INT_CAR no existe, o si no se encontro el producto ahi
         if not opciones:
@@ -3467,6 +4345,8 @@ def detalle_producto(codigo_sistema):
                 'descripcion_larga': producto.get('DESCRIPCION LARGA', '') or producto.get('DESCRIPCION', ''),
                 'marca': producto.get('MARCA', ''),
                 'categoria': producto.get('CATEGORIA', ''),
+                'moldes': producto.get('MOLDE', '') or producto.get('MOLDES', ''),
+                'cavidades': producto.get('CAVIDADES', 1) or producto.get('CAV', 1),
                 'stock_total': stock_total,
                 'stock_por_pulir': stock_por_pulir,
                 'stock_terminado': stock_terminado,
@@ -5616,13 +6496,7 @@ def resolver_pnc(id_pnc):
     # En el futuro, esto buscaria la fila y actualizaria una celda
     return jsonify({"success": True, "mensaje": f"PNC {id_pnc} marcado como resuelto"}), 200
 
-def to_int_seguro(valor):
-    """Helper local para historial Juan Sebastian."""
-    try:
-        if valor is None or str(valor).strip() == '': return 0
-        return int(float(str(valor).replace(',', '')))
-    except:
-        return 0
+# Helper local para historial Juan Sebastian se eliminó por redundancia con to_int_seguro general.
 
 # ==========================================
 # NUEVAS FUNCIONES PARA SISTEMA DE SEMFORO
@@ -5741,64 +6615,7 @@ def handle_mezcla():
         # Devolver JSON con error específico, no 500 genérico HTML
         return jsonify({'success': False, 'error': f"Error interno: {str(e)}"}), 500
 
-@app.route('/api/historial', methods=['GET'])
-def handle_historial():
-    """Obtiene historial unificado de movimientos."""
-    try:
-        proceso = request.args.get('proceso', '').upper()
-        fecha_desde = request.args.get('desde', '')
-        fecha_hasta = request.args.get('hasta', '')
-        
-        # Por ahora, implementamos una búsqueda básica en INYECCION y PULIDO
-        # (En una fase pro, esto debería buscar en todas las hojas)
-        sh = get_spreadsheet()
-        registros = []
-        
-        # Ejemplo: Buscar en Inyección
-        if not proceso or proceso == 'INYECCION':
-            ws = sh.worksheet("INYECCION")
-            vals = ws.get_all_records()
-            for r in vals[-50:]: # Últimos 50
-                r['proceso_tipo'] = 'INYECCION'
-                registros.append(r)
-                
-        # Ejemplo: Buscar en Pulido
-        if not proceso or proceso == 'PULIDO':
-            ws = sh.worksheet("PULIDO")
-            vals = ws.get_all_records()
-            for r in vals[-50:]:
-                r['proceso_tipo'] = 'PULIDO'
-                registros.append(r)
-
-        # Ordenar por fecha (descendente)
-        registros.sort(key=lambda x: str(x.get('FECHA', '')), reverse=True)
-        
-        return jsonify({'success': True, 'data': registros[:100]}), 200
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/estadisticas', methods=['GET'])
-def handle_estadisticas():
-    """Obtiene métricas para el Dashboard y Reportes."""
-    try:
-        sh = get_spreadsheet()
-        
-        # 1. Producción Total (Inyección + Ensamble)
-        # 2. Ventas Totales (Facturación)
-        # 3. PNC Semanal
-        
-        # Por ahora retornamos datos dummy para que la UI no rompa, 
-        # mientras calculamos los reales en el siguiente paso.
-        return jsonify({
-            'success': True,
-            'produccion_total': 12500,
-            'ventas_totales': 45000,
-            'eficiencia_global': 94.5,
-            'stock_critico': 5,
-            'pnc_tasa': 2.3
-        }), 200
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+# Los endpoints /api/historial y /api/estadisticas han sido deprecados en favor de /api/historial-global y los endpoints de dashboard específicos.
 @app.route('/static/<path:path>')
 def serve_static(path):
     # Asegurar que se sirve desde la carpeta estática correcta

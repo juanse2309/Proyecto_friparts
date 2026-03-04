@@ -2136,13 +2136,13 @@ body.loaded {
     min-height: 0;
 }
 
-.tab-content {
+.modal-detalle-box .tab-content {
     display: none;
     height: 100%;
     animation: fadeIn 0.3s ease;
 }
 
-.tab-content.active {
+.modal-detalle-box .tab-content.active {
     display: block;
 }
 
@@ -4743,4 +4743,9 @@ body.loaded {
     .metals-form {
         padding: 20px;
     }
+}
+/* MES pulse animation */
+@keyframes mes-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
 }

@@ -3,26 +3,65 @@
 
 const AuthModule = {
     currentUser: null,
+    authorizedPages: [],
     currentStaffType: 'FRIPARTS', // 'FRIPARTS' o 'FRIMETALS'
+
+    // Normalización robusta de roles (quita tildes y pasa a MAYUSCULAS)
+    normalizeRole: function (role) {
+        if (!role) return 'INVITADO';
+        return role.toString()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toUpperCase()
+            .trim();
+    },
+
+    // Obtener permisos para un rol (soporta coincidencias parciales)
+    getPagesForRole: function (roleName) {
+        const normalized = this.normalizeRole(roleName);
+
+        // 1. Coincidencia exacta
+        if (this.permissions[normalized]) return [...this.permissions[normalized]];
+
+        // 2. Coincidencia parcial (ej: "ADMINISTRADOR ADMINISTRACION" contiene "ADMINISTRADOR")
+        for (const key in this.permissions) {
+            if (key !== 'INVITADO' && normalized.includes(key)) {
+                console.log(`🔍 Coincidencia parcial de rol de "${normalized}" con "${key}"`);
+                return [...this.permissions[key]];
+            }
+        }
+
+        return [...(this.permissions['INVITADO'] || [])];
+    },
+
+    // Verifica si el usuario actual tiene acceso a una página
+    isPageAllowed: function (pageName) {
+        if (!this.currentUser) return false;
+        if (this.authorizedPages && this.authorizedPages.length > 0) {
+            return this.authorizedPages.includes(pageName);
+        }
+
+        // Fallback si no se ha inicializado sidebar aún (ej: carga ultra-rápida app.js)
+        const role = this.normalizeRole(this.currentUser.rol || this.currentUser.role);
+        const allowedBase = this.getPagesForRole(role);
+        return allowedBase.includes(pageName);
+    },
 
     // Matriz de Permisos
     permissions: {
-        'Administración': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'Administrador': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'Gerencia': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'Comercial': ['pedidos', 'almacen'],
-        'Auxiliar Inventario': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura', 'rotacion'],
-        'Inyección': ['inyeccion', 'mezcla'],
-        'Pulido': ['pulido'],
-        'Ensamble': ['ensamble'],
-        'Alistamiento': ['almacen'],
-        // NUEVO ROL CLIENTE
-        'Cliente': ['portal-cliente'],
-        // NUEVOS ROLES FRIMETALS
+        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'COMERCIAL': ['pedidos', 'almacen'],
+        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura', 'rotacion'],
+        'INYECCION': ['inyeccion', 'mezcla'],
+        'PULIDO': ['pulido'],
+        'ENSAMBLE': ['ensamble'],
+        'ALISTAMIENTO': ['almacen'],
+        'CLIENTE': ['portal-cliente'],
         'METALS_PROD': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'inventario', 'historial'],
-        // Fallback
-        'Invitado': []
+        'INVITADO': []
     },
 
     // Notificación Visual
@@ -469,13 +508,15 @@ const AuthModule = {
         // 6. Verificar si Nathalia Lopez entra (HACK DE PERMISOS PARA NATHALIA)
         if (user.nombre && user.nombre.toUpperCase().includes("NATHALIA")) {
             console.log("⭐ Detectada Nathalia Lopez - Otorgando privilegios adicionales.");
+            const userRoleUpper = this.normalizeRole(user.rol);
             // Si su rol no es Admin, forzar permisos comerciales/pedidos
-            if (user.rol !== 'Administración' && user.rol !== 'Comercial') {
+            if (userRoleUpper !== 'ADMINISTRACION' && userRoleUpper !== 'ADMINISTRADOR' && userRoleUpper !== 'COMERCIAL') {
                 // Podríamos cambiar su rol dinámicamente o añadir a sus permisos
                 const permisosExtra = ['pedidos', 'almacen', 'historial'];
                 permisosExtra.forEach(p => {
-                    if (!this.permissions[user.rol].includes(p)) {
-                        this.permissions[user.rol].push(p);
+                    const normalizedRole = userRoleUpper;
+                    if (this.permissions[normalizedRole] && !this.permissions[normalizedRole].includes(p)) {
+                        this.permissions[normalizedRole].push(p);
                     }
                 });
                 this.applyPermissions(); // Re-apply
@@ -549,14 +590,16 @@ const AuthModule = {
     },
 
     showWelcomeMessage: function (user) {
+        const roleUpper = this.normalizeRole(user.rol);
         const mensajes = {
-            'Inyección': `¡Hola ${user.nombre}! Listo para la producción.`,
-            'Pulido': `¡Hola ${user.nombre}! Lista para pulir.`,
-            'Administración': `Bienvenido al Centro de Control.`,
-            'Comercial': `Bienvenido al Módulo de Pedidos.`,
-            'Cliente': `Bienvenido a su Portal FriParts.`
+            'INYECCION': `¡Hola ${user.nombre}! Listo para la producción.`,
+            'PULIDO': `¡Hola ${user.nombre}! Lista para pulir.`,
+            'ADMINISTRACION': `Bienvenido al Centro de Control.`,
+            'ADMINISTRADOR': `Bienvenido al Centro de Control.`,
+            'COMERCIAL': `Bienvenido al Módulo de Pedidos.`,
+            'CLIENTE': `Bienvenido a su Portal FriParts.`
         };
-        const mensaje = mensajes[user.rol] || `¡Bienvenido ${user.nombre}!`;
+        const mensaje = mensajes[roleUpper] || `¡Bienvenido ${user.nombre}!`;
         this.mostrarNotificacion(mensaje, 'success');
     },
 
@@ -637,7 +680,7 @@ const AuthModule = {
     applyPermissions: function (isLogin = false) {
         if (!this.currentUser) return;
 
-        const role = this.currentUser.rol || this.currentUser.role;
+        const role = this.normalizeRole(this.currentUser.rol || this.currentUser.role);
         let allowedPages = [];
 
         // Determinar permisos base
@@ -662,14 +705,14 @@ const AuthModule = {
                 if (!allowedPages.includes('historial')) allowedPages.push('historial');
             }
         } else {
-            allowedPages = [...(this.permissions[role] || [])];
+            allowedPages = this.getPagesForRole(role);
         }
 
         // =============================================================
         // FILTRADO ESTRICTO POR DIVISIÓN (Juan Sebastian request)
         // =============================================================
         const division = this.currentUser.division || window.AppState.user?.division || 'FRIPARTS';
-        console.log(`🛡️ Aplicando filtro estricto. División: ${division}, Usuario: ${this.currentUser.nombre}`);
+        console.log(`🛡️ Aplicando permisos. Rol normalizado: "${role}", División: ${division}`);
 
         if (division === 'FRIPARTS') {
             // Eliminar CUALQUIER módulo de Metales si entramos por FriParts
@@ -691,6 +734,8 @@ const AuthModule = {
                 allowedPages.push('metals-dashboard');
             }
         }
+
+        console.log(`✅ Páginas autorizadas para ${role}:`, allowedPages);
 
         // LOGICA EXCEPCIONES STAFF FRIPARTS (Solo si no es METALS_STAFF)
         if (this.currentUser.tipo !== 'METALS_STAFF') {
@@ -761,28 +806,32 @@ const AuthModule = {
         const activePage = document.querySelector('.page.active');
         // Determinar destino ideal basado en DIVISION y ROL
         // Landing FRIMETALS -> metals-produccion (Grid) por solicitud de Juan
-        let targetPage = division === 'FRIMETALS' ? 'metals-produccion' : 'dashboard';
+        // Landing FRIPARTS -> inyeccion (MES Dashboard de producción)
+        let targetPage = division === 'FRIMETALS' ? 'metals-produccion' : 'inyeccion';
 
-        if (role === 'Cliente') targetPage = 'portal-cliente';
-        else if (role === 'Comercial') targetPage = 'pedidos';
-        else if (firstAllowed && !allowedPages.includes(targetPage)) targetPage = firstAllowed;
+        if (role === 'CLIENTE') targetPage = 'portal-cliente';
+        else if (role === 'COMERCIAL') targetPage = 'pedidos';
+        else if (role === 'ALISTAMIENTO') targetPage = 'almacen';
+        else if (!allowedPages.includes(targetPage)) targetPage = firstAllowed || allowedPages[0];
+        else if (!this.isPageAllowed(targetPage)) targetPage = firstAllowed || allowedPages[0];
+
+        console.log(`🎯 Target Page detectado: ${targetPage}`);
 
         if (activePage) {
             const pageId = activePage.id.replace('-page', '');
 
-            // Juan Sebastian: Si es Login de Metales, forzar redirección a la cuadrícula de procesos
-            if (isLogin && division === 'FRIMETALS' && !pageId.startsWith('metals-')) {
-                console.log(`🏭 Login Metales: Forzando redirección desde ${pageId} a ${targetPage}`);
-                this.navigateTo(targetPage);
-            }
-            else if (!allowedPages.includes(pageId)) {
-                console.warn(`🛑 ACCESO DENEGADO a ${pageId} para rol ${role}. Redirigiendo a ${targetPage}...`);
+            // Si la página actual no es permitida, redirigir
+            if (!this.isPageAllowed(pageId)) {
+                console.warn(`🛑 ACCESO DENEGADO a ${pageId}. Redirigiendo a ${targetPage}...`);
                 this.navigateTo(targetPage);
             }
         } else {
-            // Si no hay pagina activa (carga inicial), ir a target
+            // Si no hay pagina activa, ir a target
             this.navigateTo(targetPage);
         }
+
+        this.authorizedPages = allowedPages;
+        return allowedPages; // Retornar para uso externo
     },
 
     navigateTo: function (pageName) {

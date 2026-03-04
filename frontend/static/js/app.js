@@ -109,6 +109,21 @@ async function cargarDatosCompartidos() {
  * Cargar una página específica
  */
 function cargarPagina(nombrePagina, pushToHistory = true) {
+    // SECURITY GUARD: Solo cargar si está permitido
+    if (typeof AuthModule !== 'undefined' && AuthModule.currentUser) {
+        if (!AuthModule.isPageAllowed(nombrePagina)) {
+            console.warn(`🔐 Acceso denegado a "${nombrePagina}". Redirigiendo...`);
+            // Evitar recursión infinita
+            const loginLanding = (AuthModule.currentUser.division === 'FRIMETALS') ? 'metals-produccion' : 'inyeccion';
+            const safeLanding = AuthModule.authorizedPages?.[0] || loginLanding;
+
+            if (nombrePagina !== safeLanding) {
+                return cargarPagina(safeLanding);
+            }
+            return; // Bloqueo total si incluso la landing falla
+        }
+    }
+
     console.log('📄 Cargando página:', nombrePagina);
 
 
@@ -117,7 +132,7 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'dashboard': window.ModuloDashboard,
         'inventario': window.ModuloInventario,
         'productos': window.ModuloProductos,
-        'inyeccion': window.ModuloInyeccion,
+        'inyeccion': window.ModuloMes || window.ModuloInyeccion,
         'pulido': window.ModuloPulido,
         'ensamble': window.ModuloEnsamble,
         'pnc': window.ModuloPNC,
@@ -180,12 +195,11 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
     window.AppState.paginaActual = nombrePagina;
     inicializarModulo(nombrePagina);
 
-    // Guardar en localStorage para persistencia al recargar
-    try {
+    // Guardar última página visitada (excepto login) Juan Sebastian Request
+    if (nombrePagina !== 'login') {
         localStorage.setItem('friparts_last_page', nombrePagina);
-    } catch (e) {
-        console.warn('No se pudo guardar página en localStorage:', e);
     }
+
 
     // Controlar visibilidad del botón 'Volver' en móviles
     const backBtnContainer = document.getElementById('back-button-container');
@@ -230,7 +244,7 @@ function inicializarModulo(nombrePagina) {
         'dashboard': window.ModuloDashboard,
         'inventario': window.ModuloInventario,
         'productos': window.ModuloProductos,
-        'inyeccion': window.ModuloInyeccion,
+        'inyeccion': window.ModuloMes || window.ModuloInyeccion,
         'pulido': window.ModuloPulido,
         'ensamble': window.ModuloEnsamble,
         'pnc': window.ModuloPNC,
@@ -433,7 +447,13 @@ function configurarNavegacion() {
     window.addEventListener('hashchange', () => {
         const hashPage = window.location.hash.replace('#', '');
         console.log("🔄 Hash changed:", hashPage);
+
         if (hashPage && document.getElementById(`${hashPage}-page`)) {
+            // SEGURIDAD: Validar antes de cargar desde hash
+            if (typeof AuthModule !== 'undefined' && !AuthModule.isPageAllowed(hashPage)) {
+                console.warn("🛡️ Hash bloqueado por seguridad:", hashPage);
+                return;
+            }
             cargarPagina(hashPage);
         }
     });
@@ -491,6 +511,7 @@ async function inicializarAplicacion() {
             pageToLoad = 'metals-produccion';
             console.log('🏭 Forzando landing de Metales (Grid):', pageToLoad);
         } else {
+            // Restaurar última página visitada Juan Sebastian Request
             try {
                 const lastPage = localStorage.getItem('friparts_last_page');
                 if (lastPage && document.getElementById(`${lastPage}-page`)) {
@@ -503,10 +524,20 @@ async function inicializarAplicacion() {
         }
 
         if (pageToLoad) {
-            cargarPagina(pageToLoad);
+            // Validar que la página esté permitida antes de cargarla
+            if (typeof AuthModule !== 'undefined' && !AuthModule.isPageAllowed(pageToLoad)) {
+                console.warn(`🛑 Página ${pageToLoad} no permitida. Dejando que AuthModule maneje la redirección.`);
+                // No llamamos a cargarPagina, AuthModule.applyPermissions se encargará tras inicializarse
+            } else {
+                cargarPagina(pageToLoad);
+            }
         } else {
-            // Fallback default
-            cargarPagina('dashboard');
+            // Fallback default: Solo si está permitido, si no dejar que AuthModule decida
+            if (typeof AuthModule !== 'undefined' && AuthModule.isPageAllowed('dashboard')) {
+                cargarPagina('dashboard');
+            } else {
+                console.log('🛡️ Dashboard no permitido como inicio. Esperando a AuthModule.');
+            }
         }
 
         console.log('✅ Aplicación inicializada correctamente');

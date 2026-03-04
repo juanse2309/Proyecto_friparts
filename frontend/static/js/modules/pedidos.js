@@ -13,6 +13,11 @@ const ModuloPedidos = {
     init: function () {
         console.log("🛒 Inicializando Módulo Pedidos...");
 
+        // Registrar persistencia Juan Sebastian Request
+        if (window.FormHelpers) {
+            window.FormHelpers.registrarPersistencia('form-pedidos');
+        }
+
         // 1. Inicializar autocomplete
         this.inicializarAutocompleteCliente();
         this.inicializarAutocompleteProducto();
@@ -710,6 +715,7 @@ const ModuloPedidos = {
 
                 // Limpiar formulario y lista SOLO después de éxito
                 limpiarFormulario('form-pedidos');
+                if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-pedidos');
                 this.listaProductos = [];
                 this.clienteSeleccionado = null;
                 this.idPedidoEdicion = null;

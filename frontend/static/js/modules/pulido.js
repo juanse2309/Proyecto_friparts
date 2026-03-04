@@ -45,6 +45,11 @@ const ModuloPulido = {
             });
         }
 
+        // Registrar persistencia de formulario Juan Sebastian Request
+        if (window.FormHelpers) {
+            window.FormHelpers.registrarPersistencia('form-pulido');
+        }
+
         console.log('✅ [Pulido] Módulo inicializado');
     },
 
@@ -314,7 +319,7 @@ const ModuloPulido = {
                 };
                 mostrarNotificacion('✅ Registro exitoso', 'success', metaConCallback);
                 document.getElementById('form-pulido')?.reset();
-                this.intentarAutoSeleccionarResponsable();
+                if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-pulido');
                 window.tmpDefectosPulido = [];
                 this.actualizarCalculo();
                 const loteInput = document.getElementById('lote-pulido');

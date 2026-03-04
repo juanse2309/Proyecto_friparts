@@ -6,7 +6,6 @@ const ModuloInyeccion = {
     productosData: [],
     responsablesData: [],
     items: [],
-
     init: async function () {
         console.log('🔧 [Inyeccion] Inicializando módulo Smart...');
         await this.cargarDatos();
@@ -46,6 +45,11 @@ const ModuloInyeccion = {
                 }
             });
         }
+
+        // Registrar persistencia de formulario Juan Sebastian Request
+        if (window.FormHelpers) {
+            window.FormHelpers.registrarPersistencia('form-inyeccion');
+        }
     },
 
     cargarDatos: async function () {
@@ -59,6 +63,9 @@ const ModuloInyeccion = {
                 // Mapear de objetos a strings para mantener compatibilidad con el buscador
                 this.responsablesData = responsables.map(r => typeof r === 'object' ? r.nombre : r);
             }
+
+            // 1.5 Cargar pendientes de validacion
+            await this.cargarPendientesValidacion();
 
             // 2. Cargar Productos (Cache Compartido)
             if (window.AppState.sharedData.productos && window.AppState.sharedData.productos.length > 0) {
@@ -79,6 +86,217 @@ const ModuloInyeccion = {
             console.error('Error [Inyeccion] cargarDatos:', error);
             mostrarLoading(false);
         }
+    },
+
+    pendientesData: [], // Store the raw data from backend
+
+    formatearFechaParaInput: function (fechaStr) {
+        if (!fechaStr) return '';
+        // DD/MM/YYYY -> YYYY-MM-DD
+        const parts = fechaStr.split('/');
+        if (parts.length === 3) {
+            return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+        return fechaStr;
+    },
+
+    formatearHoraParaInput: function (horaStr) {
+        if (!horaStr) return '';
+        // H:mm -> HH:mm
+        const parts = horaStr.split(':');
+        if (parts.length === 2) {
+            return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+        }
+        return horaStr;
+    },
+
+    cargarPendientesValidacion: async function () {
+        try {
+            const select = document.getElementById('select-validar-lote');
+            if (!select) return;
+
+            select.innerHTML = '<option value="">Cargando...</option>';
+            const res = await fetchData('/api/mes/pendientes_validacion');
+
+            select.innerHTML = '<option value="">-- Seleccionar lote a validar (o dejar vacío para registro manual) --</option>';
+
+            if (res && res.success && res.data) {
+                this.pendientesData = res.data;
+                console.log(`📋 [Inyeccion] ${res.data.length} pendientes cargados:`, res.data);
+                res.data.forEach(lote => {
+                    // Mapeo robusto a ID (Backend usa "ID INYECCION", frontend a veces "ID_INYECCION")
+                    const id = lote['ID INYECCION'] || lote['ID_INYECCION'];
+                    const maquina = lote['MAQUINA'] || 'S/M';
+                    const producto = lote['ID CODIGO'] || lote['CODIGO_PRODUCTO'] || lote['ID_PRODUCTO_SISTEMA'] || 'VARIOS';
+                    const qty = lote['CANTIDAD REAL'] || lote['CANTIDAD_REAL_FINAL'] || lote['CANTIDAD_REAL'] || 0;
+
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = `[${maquina}] ${producto} - ${qty} pzs (${id})`;
+                    select.appendChild(opt);
+                });
+            }
+        } catch (err) {
+            console.error("Error cargando pendientes validacion:", err);
+            const select = document.getElementById('select-validar-lote');
+            if (select) select.innerHTML = '<option value="">Error cargando pendientes</option>';
+        }
+    },
+
+    seleccionarLoteValidacion: async function () {
+        const select = document.getElementById('select-validar-lote');
+        const idValidacion = select ? select.value : '';
+        console.log(`🎯 [Inyeccion] Lote seleccionado ID: "${idValidacion}"`);
+
+        if (!idValidacion) {
+            console.log('🧹 [Inyeccion] No hay ID, limpiando foormulario.');
+            this.limpiarFormularioValidacion();
+            return;
+        }
+
+        // Búsqueda robusta del lote
+        const lote = this.pendientesData.find(l => (l['ID INYECCION'] || l['ID_INYECCION']) === idValidacion);
+        console.log('📦 [Inyeccion] Datos encontrados del lote:', lote);
+
+        if (!lote) {
+            console.error('❌ [Inyeccion] No se encontró el objeto de datos para este ID.');
+            return;
+        }
+
+        // Extraer id_programacion para traer los SKUs (columna 24 de inyeccion es ID_PROG)
+        const idProg = lote['ID_PROG'] || lote['ID_PROGRAMACION_MES'] || lote['ID_PROGRAMACION'] || lote['ID_PROGRAMACION (MES)'];
+        console.log(`🔗 [Inyeccion] ID PROGRAMACION detectado: "${idProg}"`);
+
+        if (!idProg) {
+            Swal.fire('Error', 'Este lote no tiene ID de Programación asociado', 'error');
+            return;
+        }
+
+        if (idProg && document.getElementById('legacy-id-programacion')) {
+            document.getElementById('legacy-id-programacion').value = idProg;
+        }
+
+        // Ocultar sección de agregar producto para enfoque en validación
+        const container = document.getElementById('contenedor-agregar-producto-inyeccion');
+        if (container) container.classList.add('d-none');
+
+        this.limpiarFormularioValidacion(false); // Limpiar pero no el select
+
+        // 1. Llenar la Cabecera (Turno) - MAPEOS ROBUSTOS (Espacios vs Underscores)
+        const fechaRaw = (lote['FECHA INICIA'] || lote['FECHA_INICIO'] || '').split(' ')[0];
+        const fechaISO = this.formatearFechaParaInput(fechaRaw);
+        console.log(`📅 [Inyeccion] Mapeando cabecera - Fecha Orig: ${fechaRaw}, ISO: ${fechaISO}`);
+
+        if (fechaISO && document.getElementById('fecha-inyeccion')) {
+            document.getElementById('fecha-inyeccion').value = fechaISO;
+        }
+
+        if (document.getElementById('maquina-inyeccion')) document.getElementById('maquina-inyeccion').value = lote['MAQUINA'] || '';
+        if (document.getElementById('responsable-inyeccion')) document.getElementById('responsable-inyeccion').value = lote['RESPONSABLE'] || '';
+
+        if (document.getElementById('hora-llegada-inyeccion')) {
+            const h = lote['HORA LLEGADA'] || lote['HORA_LLEGADA'] || '';
+            document.getElementById('hora-llegada-inyeccion').value = this.formatearHoraParaInput(h);
+        }
+        if (document.getElementById('hora-inicio-inyeccion')) {
+            const h = lote['HORA INICIO'] || lote['HORA_INICIO'] || '';
+            document.getElementById('hora-inicio-inyeccion').value = this.formatearHoraParaInput(h);
+        }
+        if (document.getElementById('hora-termina-inyeccion')) {
+            const h = lote['HORA TERMINA'] || lote['HORA_TERMINA'] || '';
+            document.getElementById('hora-termina-inyeccion').value = this.formatearHoraParaInput(h);
+        }
+
+        if (document.getElementById('orden-produccion-inyeccion')) document.getElementById('orden-produccion-inyeccion').value = lote['ORDEN PRODUCCION'] || lote['ORDEN_PRODUCCION'] || lote['OP'] || '';
+        if (document.getElementById('peso-vela-inyeccion')) document.getElementById('peso-vela-inyeccion').value = lote['PESO VELA MAQUINA'] || lote['PESO_VELA_MAQUINA'] || 0;
+
+        // Los cierres reportados por el operario
+        const disparosBase = parseInt(lote['CONTADOR MAQ.'] || lote['CONTADOR MAQ'] || lote['DISPAROS'] || 0);
+        console.log(`🔢 [Inyeccion] Disparos base detectados: ${disparosBase}`);
+
+        // 2. Fetch de los SKUs asociados a esta Programación
+        try {
+            console.log(`🌐 [Inyeccion] Fetching productos para programacion: ${idProg}`);
+            const dataProd = await fetchData(`/api/mes/programacion/${idProg}/productos`);
+            console.log('📦 [Inyeccion] Respuesta productos:', dataProd);
+
+            if (dataProd && dataProd.success && dataProd.productos?.length > 0) {
+
+                // 3. Poblar la lista de agregar (simulando que Paola los agregó manually)
+                for (let i = 0; i < dataProd.productos.length; i++) {
+                    const p = dataProd.productos[i];
+
+                    const cavs = parseInt(p.cavidades || 1);
+                    const teorica = disparosBase * cavs;
+
+                    // El primero hereda el ID de la cabecera para Upsert. El resto nace nuevo.
+                    const idAsignado = (i === 0) ? idValidacion : undefined;
+
+                    const nuevoItem = {
+                        codigo_producto: p.codigo,
+                        no_cavidades: cavs,
+                        disparos: disparosBase,
+                        cantidad_real: teorica, // Iniciar con la teórica para facilitar el trabajo de Paola
+                        piezasBuenas: teorica,
+                        manual_buenas: null,
+                        pnc: 0,
+                        peso_bujes: 0,
+                        codigo_ensamble: '',
+                        criterio_pnc: '',
+                        observaciones: p.molde || '',
+                        id_inyeccion: idAsignado
+                    };
+
+                    this.items.push(nuevoItem);
+                }
+
+                this.renderTablaItems();
+
+                Swal.fire({
+                    title: 'Familia de Productos Cargada',
+                    text: `Se han precargado ${dataProd.productos.length} productos del ${lote['MAQUINA']}. Por favor ingrese las Buenas (Real), PNC y Peso para cada uno en la tabla y presione Guardar.`,
+                    icon: 'info',
+                    toast: true,
+                    position: 'top-end',
+                    timer: 6000,
+                    showConfirmButton: false
+                });
+
+            } else {
+                Swal.fire('Advertencia', 'No se encontraron productos programados para este lote.', 'warning');
+            }
+        } catch (error) {
+            console.error('[MES] Error fetching productos asociados:', error);
+            Swal.fire('Error', 'No se pudo obtener la lista de productos de este molde', 'error');
+        }
+    },
+
+    limpiarFormularioValidacion: function (limpiarSelect = true) {
+        if (limpiarSelect) {
+            const select = document.getElementById('select-validar-lote');
+            if (select) select.value = '';
+
+            // Mostrar sección de agregar producto si es manual/limpieza
+            const container = document.getElementById('contenedor-agregar-producto-inyeccion');
+            if (container) container.classList.remove('d-none');
+        }
+
+        if (document.getElementById('legacy-id-inyeccion')) {
+            document.getElementById('legacy-id-inyeccion').value = '';
+        }
+        if (document.getElementById('legacy-id-programacion')) {
+            document.getElementById('legacy-id-programacion').value = '';
+        }
+
+        this.items = [];
+        this.renderTablaItems();
+        this.limpiarFormularioProducto();
+        document.getElementById('hora-llegada-inyeccion').value = '';
+        document.getElementById('hora-inicio-inyeccion').value = '';
+        document.getElementById('hora-termina-inyeccion').value = '';
+        document.getElementById('orden-produccion-inyeccion').value = '';
+        document.getElementById('peso-vela-inyeccion').value = 0;
+        this.intentarAutoSeleccionarResponsable();
     },
 
     actualizarSelect: function (id, datos) {
@@ -351,6 +569,8 @@ const ModuloInyeccion = {
         const piezasBuenas = isManual ? manualBuenas : Math.max(0, produccionTeorica - pnc);
         const cantidadRealBruta = isManual ? (manualBuenas + pnc) : produccionTeorica;
 
+        const legacyId = document.getElementById('legacy-id-inyeccion')?.value || '';
+
         const nuevoItem = {
             id_item: Date.now().toString() + Math.random().toString(36).substr(2, 5),
             codigo_producto,
@@ -363,12 +583,17 @@ const ModuloInyeccion = {
             codigo_ensamble,
             peso_bujes,
             observaciones,
-            piezasBuenas // Solo para visualizacion
+            piezasBuenas, // Solo para visualizacion
+            id_inyeccion: legacyId ? legacyId : undefined // <-- INYECTAR ID AQUÍ
         };
 
         this.items.push(nuevoItem);
         this.renderTablaItems();
         this.limpiarFormularioProducto();
+
+        // Limpiar el legacy ID luego de agregarlo para evitar duplicados en el mismo turno manual
+        document.getElementById('legacy-id-inyeccion').value = '';
+
         Swal.fire({
             title: 'Agregado',
             text: 'Producto agregado a la lista',
@@ -519,25 +744,37 @@ const ModuloInyeccion = {
             <tr>
                 <td class="fw-bold align-middle">${item.codigo_producto}</td>
                 <td class="text-center align-middle">
-                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 70px;" value="${item.no_cavidades}" onchange="ModuloInyeccion.editarItem(${index}, 'no_cavidades', this.value)">
+                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 60px;" value="${item.no_cavidades}" onchange="ModuloInyeccion.editarItem(${index}, 'no_cavidades', this.value)">
                 </td>
                 <td class="text-center align-middle">
-                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 90px;" value="${item.disparos}" onchange="ModuloInyeccion.editarItem(${index}, 'disparos', this.value)">
+                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 70px;" value="${item.disparos}" onchange="ModuloInyeccion.editarItem(${index}, 'disparos', this.value)">
                 </td>
                 <td class="text-center align-middle">
-                    <input type="number" min="0" class="form-control form-control-sm text-center mx-auto fw-bold text-success" style="width: 90px;" value="${item.manual_buenas !== null ? item.manual_buenas : ''}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)" placeholder="Teórica">
+                    <div class="d-flex flex-column align-items-center">
+                        <small class="text-muted" style="font-size: 0.65rem;">Buenas</small>
+                        <input type="number" min="0" class="form-control form-control-sm text-center mx-auto fw-bold text-success border-success" style="width: 85px;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
+                    </div>
                 </td>
                 <td class="text-center align-middle">
-                    <div class="d-flex justify-content-center align-items-center gap-1">
-                        <input type="number" min="0" class="form-control form-control-sm text-center text-light fw-bold bg-danger border-0" style="width: 60px; cursor: pointer;" value="${item.pnc}" readonly onclick="ModuloInyeccion.editarPNCLista(${index})">
-                        <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
+                    <div class="d-flex flex-column align-items-center">
+                        <small class="text-muted" style="font-size: 0.65rem;">PNC</small>
+                        <div class="d-flex justify-content-center align-items-center gap-1">
+                            <input type="number" min="0" class="form-control form-control-sm text-center text-danger fw-bold border-danger" style="width: 65px;" value="${item.pnc}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc', this.value)">
+                            <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
+                        </div>
+                    </div>
+                </td>
+                <td class="text-center align-middle">
+                    <div class="d-flex flex-column align-items-center">
+                        <small class="text-muted" style="font-size: 0.65rem;">Peso (kg)</small>
+                        <input type="number" step="0.01" min="0" class="form-control form-control-sm text-center mx-auto border-primary" style="width: 80px;" value="${item.peso_bujes || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'peso_bujes', this.value)">
                     </div>
                 </td>
                 <td class="text-center align-middle">
                     <span class="badge bg-secondary fs-6">${item.cantidad_real.toLocaleString()}</span>
                 </td>
                 <td class="text-center align-middle">
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="ModuloInyeccion.removerItem(${index})" title="Eliminar">
+                    <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="ModuloInyeccion.removerItem(${index})" title="Eliminar">
                         <i class="fas fa-trash"></i>
                     </button>
                 </td>
@@ -576,6 +813,7 @@ const ModuloInyeccion = {
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
                 orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
                 peso_vela_maquina: parseFloat(document.getElementById('peso-vela-inyeccion')?.value) || 0,
+                id_programacion: document.getElementById('legacy-id-programacion')?.value || '',
                 almacen_destino: 'POR PULIR' // Hardcoded as requested
             };
 
@@ -613,17 +851,17 @@ const ModuloInyeccion = {
                 // Reiniciar todo
                 this.items = [];
                 this.renderTablaItems();
+                document.getElementById('form-inyeccion')?.reset();
+                if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-inyeccion');
+                this.intentarAutoSeleccionarResponsable();
 
                 // Limpiar turno parcialmente (mantener maquina, fecha, responsable si se desea)
                 // Usualmente se deja responsable y maquina, quizas limpiar hora.
                 document.getElementById('hora-llegada-inyeccion').value = '';
-                document.getElementById('hora-inicio-inyeccion').value = '';
-                document.getElementById('hora-termina-inyeccion').value = '';
                 document.getElementById('peso-vela-inyeccion').value = 0;
                 // document.getElementById('orden-produccion-inyeccion').value = '';  // Opcional
 
-                this.limpiarFormularioProducto();
-                this.intentarAutoSeleccionarResponsable();
+                this.limpiarFormularioValidacion(true);
             } else {
                 Swal.fire('Error', resultado.error || 'Error procesando lote', 'error');
             }

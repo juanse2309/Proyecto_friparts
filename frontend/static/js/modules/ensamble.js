@@ -5,7 +5,6 @@
 const ModuloEnsamble = {
     productosData: [],
     responsablesData: [],
-
     init: async function () {
         console.log('🔧 [Ensamble] Inicializando módulo Smart...');
         await this.cargarDatos();
@@ -37,6 +36,11 @@ const ModuloEnsamble = {
                     suggestionsId: 'ensamble-responsable-suggestions'
                 }
             });
+        }
+
+        // Registrar persistencia de formulario Juan Sebastian Request
+        if (window.FormHelpers) {
+            window.FormHelpers.registrarPersistencia('form-ensamble');
         }
     },
 
@@ -398,6 +402,7 @@ async function registrarEnsamble() {
             };
             mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', metaConCallback);
             document.getElementById('form-ensamble')?.reset();
+            if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-ensamble');
             ModuloEnsamble.intentarAutoSeleccionarResponsable();
 
             // Reset state
@@ -440,25 +445,27 @@ async function actualizarMapeoEnsamble() {
         const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(bujeCode)}`);
 
         if (data && data.success) {
-            // Si hay múltiples opciones, decidir si es BOM o Selector
-            if (data.opciones && data.opciones.length > 0) {
-                console.log('🔀 Múltiples registros encontrados:', data.opciones);
+            // Si hay múltiples opciones, mostrar el selector para que el usuario decida
+            if (data.opciones && data.opciones.length > 1) {
+                console.log('🔀 Múltiples recetas encontradas:', data.opciones);
+                mostrarSelectorOpciones(data.opciones);
 
-                // Detectar si es un BOM (Estructura de múltiples componentes para un mismo producto final)
-                // Se asume BOM si la búsqueda fue por PRODUCTO FINAL y devolvió varias filas
-                const esBOM = data.opciones.every(o => o.tipo === 'producto');
+                // Limpiar campos mientras elige
+                document.getElementById('ens-id-codigo').value = '⚠️ Seleccione receta...';
+                document.getElementById('ens-qty-bujes').value = '1';
+            } else if (data.opciones && data.opciones.length === 1) {
+                // Una sola receta: aplicar directamente
+                const opcion = data.opciones[0];
+                console.log('✅ Una sola receta encontrada:', opcion);
 
-                if (esBOM) {
-                    renderBOM(data.opciones);
-                    // Llenar campos principales con el primer componente (compatibilidad)
-                    document.getElementById('ens-id-codigo').value = data.opciones[0].codigo_ensamble || '';
-                    document.getElementById('ens-qty-bujes').value = data.opciones[0].qty || 1;
-                } else {
-                    // Es un selector de opciones (Un componente usado en varios productos posibles)
-                    mostrarSelectorOpciones(data.opciones);
+                document.getElementById('ens-id-codigo').value = opcion.codigo_ensamble || '';
+                document.getElementById('ens-qty-bujes').value = opcion.qty || 1;
+
+                if (opcion.componentes && opcion.componentes.length > 0) {
+                    renderBOM(opcion.componentes);
                 }
             } else if (data.codigo_ensamble) {
-                // Una sola opción: asignar directamente
+                // Caso legacy o fallback directo
                 document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
                 const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
                 document.getElementById('ens-qty-bujes').value = qtyValue;
@@ -560,6 +567,12 @@ function mostrarSelectorOpciones(opciones) {
             // Seleccionar esta opción
             document.getElementById('ens-id-codigo').value = opcion.codigo_ensamble || '';
             document.getElementById('ens-qty-bujes').value = opcion.qty || 1;
+
+            // RENDERIZAR BOM PARA ESTA RECETA ESPECÍFICA (Juan Sebastian request)
+            if (opcion.componentes && opcion.componentes.length > 0) {
+                renderBOM(opcion.componentes);
+            }
+
             actualizarCalculoEnsamble();
 
             // Marcar como seleccionado visualmente
@@ -584,15 +597,11 @@ function mostrarSelectorOpciones(opciones) {
     // Insertar después del campo de Código Ensamble
     const codigoField = document.getElementById('ens-id-codigo');
     if (codigoField) {
-        const parentGroup = codigoField.closest('.form-group');
+        const parentGroup = codigoField.closest('.form-group') || codigoField.parentElement;
         if (parentGroup) {
             parentGroup.appendChild(container);
         }
     }
-
-    // Poner "Seleccionar..." en el campo hasta que elijan
-    document.getElementById('ens-id-codigo').value = '⚠️ Seleccionar componente...';
-    document.getElementById('ens-qty-bujes').value = '1';
 }
 
 function actualizarCalculoEnsamble() {

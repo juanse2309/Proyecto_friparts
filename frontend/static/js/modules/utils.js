@@ -241,15 +241,29 @@ function mostrarLoading(mostrar) {
  */
 async function fetchData(url, options = {}) {
     try {
-        console.log(`Fetching: ${url}`);
+        console.log(`📡 [Fetching]: ${url}`);
         const response = await fetch(url, options);
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+            try {
+                // Intentar extraer el detalle del error JSON (traceback)
+                const errorData = await response.json();
+                if (errorData.traceback) {
+                    console.group(`❌ [Backend Error Detail] ${url}`);
+                    console.error('Message:', errorData.message || errorData.error);
+                    console.error('Traceback:\n', errorData.traceback);
+                    console.groupEnd();
+                }
+                errorMsg = errorData.message || errorData.error || errorMsg;
+            } catch (e) {
+                // Si no es JSON, fallar silenciosamente y usar el error original
+            }
+            throw new Error(errorMsg);
         }
 
         const data = await response.json();
-        console.log(`✅ [API Success] ${url}`); // Log profesional Juan Sebastian
+        console.log(`✅ [API Success] ${url}`);
         return data;
     } catch (error) {
         console.error(`❌ [API Error] ${url}:`, error);

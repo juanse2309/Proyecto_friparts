@@ -735,3 +735,47 @@ html {
         margin: 0 !important;
     }
 }
+/* ===== MES TABS SCROLLABLE (Juan Sebastian Mobile Fix) ===== */
+@media (max-width: 576px) {
+    #mes-tabs {
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        justify-content: flex-start !important;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 5px !important;
+        border-radius: 12px !important;
+        scrollbar-width: none; /* Firefox */
+    }
+
+    #mes-tabs::-webkit-scrollbar {
+        display: none; /* Chrome/Safari */
+    }
+
+    #mes-tabs .nav-item {
+        flex: 0 0 auto !important;
+        margin-right: 5px;
+    }
+
+    #mes-tabs .nav-link {
+        white-space: nowrap !important;
+        padding: 10px 15px !important;
+        font-size: 13px !important;
+    }
+}
+
+/* ===== ENSAMBLE RECIPE SELECTOR MÓVIL ===== */
+@media (max-width: 768px) {
+    #ens-opciones-btns {
+        flex-direction: column !important;
+    }
+
+    #ens-opciones-btns button {
+        width: 100% !important;
+        margin-bottom: 5px;
+    }
+    
+    .bom-item {
+        min-width: 100% !important;
+        margin-bottom: 10px !important;
+    }
+}

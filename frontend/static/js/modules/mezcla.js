@@ -115,6 +115,7 @@ const ModuloMezcla = {
             if (res.success) {
                 mostrarNotificacion('✅ Mezcla registrada!', 'success');
                 document.getElementById('form-mezcla')?.reset();
+                if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-mezcla');
                 this.limpiarProporcion();
             } else {
                 mostrarNotificacion(`❌ Error: ${res.error}`, 'error');
@@ -198,6 +199,11 @@ const ModuloMezcla = {
     inicializar: function () {
         console.log('🔧 [Mezcla] Inicializando...');
         this.cargarDatos();
+
+        // Registrar persistencia Juan Sebastian Request
+        if (window.FormHelpers) {
+            window.FormHelpers.registrarPersistencia('form-mezcla');
+        }
 
         // Listener para bultos
         document.getElementById('bultos-mezcla')?.addEventListener('input', () => this.calcularPesosAutomaticos());

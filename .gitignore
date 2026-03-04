@@ -1,28 +1,67 @@
-# Python
+# --- Python Standard ---
 __pycache__/
 *.py[cod]
 *$py.class
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- Virtual Environments ---
 .venv/
 venv/
 ENV/
-.env
+env/
+active_env/
 
-# Google Credentials
+# --- Environment & Secrets (CRITICO) ---
+.env
+.flaskenv
+*.json
+!requirements.txt
+# Permitir solo JSONs de configuración NO sensibles si existieran
+# (En este proyecto, todos los .json detectados son sensibles)
+
+# --- Google / Identity ---
+token.json
+client_secrets.json
 credentials_apps.json
 
-# IDEs
+# --- Database & Logs ---
+*.log
+*.sqlite
+*.db
+instance/
+
+# --- Temporary & Reports ---
+temp_reports/
+backups/
+debug.txt
+debug_param.txt
+
+# --- IDEs & OS ---
 .vscode/
 .idea/
 .cursor/
 .antigravity/
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Project Logs/DB
-*.log
-*.sqlite
-*.db
-backend/__pycache__/
-frontend/node_modules/
+# --- Cleanup Maintenance ---
+# Ignorar scripts de prueba temporales en la raíz si no son parte de la app
+test_*.py
+debug_*.py
+check_*.py
+verify_*.py

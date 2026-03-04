@@ -230,7 +230,71 @@ const FormHelpers = (() => {
         establecerFechaActual,
         configurarCalculoAutomatico,
         configurarFormularioSubmit,
-        configurarFormularioReset
+        configurarFormularioReset,
+        /**
+         * Registra la persistencia automática de un formulario.
+         * Guarda los valores en localStorage al cambiar y los restaura al cargar.
+         * 
+         * @param {string} formId - ID del formulario
+         * @returns {void}
+         */
+        registrarPersistencia: function (formId) {
+            const form = document.getElementById(formId);
+            if (!form) return;
+
+            const storageKey = `form_cache_${formId}`;
+
+            // 1. Restaurar valores guardados
+            try {
+                const savedData = JSON.parse(localStorage.getItem(storageKey));
+                if (savedData) {
+                    console.log(`💾 Restaurando datos para formulario: ${formId}`);
+                    Object.keys(savedData).forEach(name => {
+                        const input = form.querySelector(`[name="${name}"], #${name}`);
+                        if (input) {
+                            if (input.type === 'checkbox' || input.type === 'radio') {
+                                input.checked = savedData[name];
+                            } else {
+                                input.value = savedData[name];
+                                // Disparar evento input para que otros cálculos se actualicen
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn(`Error restaurando persistencia para ${formId}:`, e);
+            }
+
+            // 2. Guardar cambios automáticamente
+            form.addEventListener('input', (e) => {
+                const target = e.target;
+                if (!target.name && !target.id) return;
+
+                const currentData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+                const key = target.name || target.id;
+
+                if (target.type === 'checkbox' || target.type === 'radio') {
+                    currentData[key] = target.checked;
+                } else {
+                    currentData[key] = target.value;
+                }
+
+                localStorage.setItem(storageKey, JSON.stringify(currentData));
+            });
+
+            // 3. Limpiar al hacer submit exitoso
+            // Nota: El módulo que maneje el submit debe llamar a limpiarPersistencia(formId)
+        },
+
+        /**
+         * Limpia los datos guardados de un formulario.
+         * @param {string} formId 
+         */
+        limpiarPersistencia: function (formId) {
+            localStorage.removeItem(`form_cache_${formId}`);
+            console.log(`🧹 Caché de formulario limpiado: ${formId}`);
+        }
     };
 })();
 
