@@ -2789,6 +2789,38 @@ def handle_pulido():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/pulido/ultimo_registro/<responsable>', methods=['GET'])
+def get_ultimo_registro_pulido(responsable):
+    """Obtiene el último registro de pulido para un responsable específico desde Sheets."""
+    try:
+        ws = get_worksheet(Hojas.PULIDO)
+        all_data = ws.get_all_values()
+        
+        if not all_data or len(all_data) <= 1:
+            return jsonify({'success': True, 'registro': None})
+            
+        # Buscar de abajo hacia arriba para encontrar el más reciente
+        # Columnas (0-indexed): 3=Responsable, 6=Producto, 8=OP, 10=PNC, 11=Buenas
+        responsable_busqueda = responsable.strip().lower()
+        
+        for row in reversed(all_data[1:]):
+            if len(row) > 3 and row[3].strip().lower() == responsable_busqueda:
+                return jsonify({
+                    'success': True,
+                    'registro': {
+                        'producto': row[6] if len(row) > 6 else 'N/A',
+                        'op': row[8] if len(row) > 8 else 'N/A',
+                        'pnc': int(float(row[10] or 0)) if len(row) > 10 else 0,
+                        'buenas': int(float(row[11] or 0)) if len(row) > 11 else 0
+                    }
+                })
+        
+        return jsonify({'success': True, 'registro': None})
+    except Exception as e:
+        logger.error(f"Error en get_ultimo_registro_pulido: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 
 @app.route('/api/ensamble', methods=['POST'])
 def handle_ensamble():

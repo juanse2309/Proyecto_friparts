@@ -1,6 +1,9 @@
-# Proyecto Bujes - Sistema de Gestión de Producción ![v1.4.1](https://img.shields.io/badge/versión-1.4.1-green)
+# Proyecto Bujes - Sistema de Gestión de Producción ![v1.4.2](https://img.shields.io/badge/versión-1.4.2-green)
 
 Este proyecto es una aplicación web full-stack diseñada para gestionar la producción, inventario y facturación de una fábrica de bujes. Utiliza **Google Sheets** como base de datos en tiempo real.
+
+## ✨ Novedades Versión 1.4.2 (Sincronización de Pulido)
+- **Historial Global de Pulido**: Ahora el banner de último registro se sincroniza con Google Sheets. Esto permite que los operarios vean su último trabajo incluso si cambian de dispositivo o borran el historial del navegador.
 
 ## ✨ Novedades Versión 1.4.1 (UX Pulido & PDF Fix)
 - **UX Pulido Optimizado**: Campos "pegajosos" (Sticky Inputs) para Fecha y Responsable, junto con un banner de notificación del último registro para agilizar ingresos masivos.
@@ -32,7 +35,7 @@ Esta versión se enfoca en mejorar la experiencia del operario, haciéndola más
 ## 🚀 Características
 
 ### 📊 Dashboard y Analítica
-- **Dashboard en Tiempo Real**: KPIs y gráficos de producción integrados con Power BI
+- **Dashboard en Tiempo Real**: KPIs y analítica avanzada integrada con **Chart.js** (reemplaza Power BI externo)
 - **Modo TV**: Vista de monitoreo continuo para planta con auto-refresco (30s) y fuentes de alto contraste
 - **Semáforo de Inventario**: Alertas visuales de stock (Verde/Amarillo/Rojo)
 
@@ -75,6 +78,7 @@ Esta versión se enfoca en mejorar la experiencia del operario, haciéndola más
 
 ### Frontend
 - **JavaScript (ES6+)** / **Vanilla CSS3**
+- **Chart.js**: Visualización de datos y analítica en tiempo real.
 - **Arquitectura Modular**: Módulos independientes para cada proceso (inyeccion.js, pulido.js, etc.)
 
 ## 🛠️ Instalación Local

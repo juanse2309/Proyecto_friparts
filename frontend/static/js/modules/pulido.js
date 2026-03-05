@@ -101,7 +101,7 @@ const ModuloPulido = {
         }
     },
 
-    mostrarNotificacionUltimoRegistro: function () {
+    mostrarNotificacionUltimoRegistro: async function () {
         const responsable = document.getElementById('responsable-pulido')?.value?.trim();
         const bannerInfo = document.getElementById('pulido-last-record-banner');
         const bannerText = document.getElementById('pulido-last-record-text');
@@ -113,12 +113,36 @@ const ModuloPulido = {
             return;
         }
 
-        const record = localStorage.getItem(`pulido_last_record_${responsable}`);
-        if (record) {
-            bannerText.innerHTML = record;
+        // 1. Mostrar cache local inmediatamente (si existe)
+        const localRecord = localStorage.getItem(`pulido_last_record_${responsable}`);
+        if (localRecord) {
+            bannerText.innerHTML = localRecord;
             bannerInfo.style.display = 'flex';
-        } else {
-            bannerInfo.style.display = 'none';
+        }
+
+        // 2. Consultar al servidor para sincronizar (especialmente útil para nuevos dispositivos)
+        try {
+            const response = await fetch(`/api/pulido/ultimo_registro/${encodeURIComponent(responsable)}`);
+            const data = await response.json();
+
+            if (data.success && data.registro) {
+                const reg = data.registro;
+                const pncHtml = reg.pnc > 0 ? `<span style="color:#dc3545;font-weight:bold;">${reg.pnc}</span>` : '0';
+                const recordInfo = `Producto: <strong>${reg.producto}</strong> | OP: ${reg.op || 'N/A'} | Buenas: <span style="color:#10b981;font-weight:bold;">${reg.buenas}</span> | PNC: ${pncHtml}`;
+
+                // Solo actualizar si es diferente o si no había nada local
+                if (recordInfo !== localRecord) {
+                    bannerText.innerHTML = recordInfo;
+                    bannerInfo.style.display = 'flex';
+                    localStorage.setItem(`pulido_last_record_${responsable}`, recordInfo);
+                    console.log(`🔄 [Pulido] Historial sincronizado desde el servidor para ${responsable}`);
+                }
+            } else if (!localRecord) {
+                // Si no hay nada en el servidor ni local, ocultar
+                bannerInfo.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Error sincronizando historial de pulido:', error);
         }
     },
 
