@@ -1,6 +1,10 @@
-# Proyecto Bujes - Sistema de Gestión de Producción ![v1.4.0](https://img.shields.io/badge/versión-1.4.0-green)
+# Proyecto Bujes - Sistema de Gestión de Producción ![v1.4.1](https://img.shields.io/badge/versión-1.4.1-green)
 
 Este proyecto es una aplicación web full-stack diseñada para gestionar la producción, inventario y facturación de una fábrica de bujes. Utiliza **Google Sheets** como base de datos en tiempo real.
+
+## ✨ Novedades Versión 1.4.1 (UX Pulido & PDF Fix)
+- **UX Pulido Optimizado**: Campos "pegajosos" (Sticky Inputs) para Fecha y Responsable, junto con un banner de notificación del último registro para agilizar ingresos masivos.
+- **Fix PDF Inyección**: Robustez mejorada para evitar fallos silenciosos ante datos nulos o mal formateados en el proceso de inyección multi-sku.
 
 ## ✨ Novedades Versión 1.4.0 (Arquitectura & Persistencia)
 - **Persistencia Global de Formularios**: Los formularios de producción (Inyección, Pulido, Ensamble, Mezcla) y Pedidos ahora guardan el progreso automáticamente en el navegador. No más pérdida de datos al recargar.

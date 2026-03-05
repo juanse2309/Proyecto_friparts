@@ -12,7 +12,7 @@ const ModuloPulido = {
         this.configurarEventos();
         this.initAutocompleteProducto();
         this.initAutocompleteResponsable();
-        this.intentarAutoSeleccionarResponsable();
+        this.cargarMemoriaUI();
 
         // Inicializar Lote con fecha de hoy
         const loteInput = document.getElementById('lote-pulido');
@@ -80,6 +80,48 @@ const ModuloPulido = {
         }
     },
 
+    cargarMemoriaUI: function () {
+        const fechaMemoria = localStorage.getItem('pulido_last_fecha');
+        const responsableMemoria = localStorage.getItem('pulido_last_responsable');
+
+        const fechaInput = document.getElementById('fecha-pulido');
+        const responsableInput = document.getElementById('responsable-pulido');
+
+        if (fechaMemoria && fechaInput) {
+            fechaInput.value = fechaMemoria;
+        } else if (fechaInput && !fechaInput.value) {
+            fechaInput.value = new Date().toISOString().split('T')[0];
+        }
+
+        if (responsableMemoria && responsableInput) {
+            responsableInput.value = responsableMemoria;
+            this.mostrarNotificacionUltimoRegistro();
+        } else {
+            this.intentarAutoSeleccionarResponsable();
+        }
+    },
+
+    mostrarNotificacionUltimoRegistro: function () {
+        const responsable = document.getElementById('responsable-pulido')?.value?.trim();
+        const bannerInfo = document.getElementById('pulido-last-record-banner');
+        const bannerText = document.getElementById('pulido-last-record-text');
+
+        if (!bannerInfo || !bannerText) return;
+
+        if (!responsable) {
+            bannerInfo.style.display = 'none';
+            return;
+        }
+
+        const record = localStorage.getItem(`pulido_last_record_${responsable}`);
+        if (record) {
+            bannerText.innerHTML = record;
+            bannerInfo.style.display = 'flex';
+        } else {
+            bannerInfo.style.display = 'none';
+        }
+    },
+
     intentarAutoSeleccionarResponsable: function () {
         const input = document.getElementById('responsable-pulido');
         if (!input) return;
@@ -95,6 +137,7 @@ const ModuloPulido = {
         if (nombreUsuario) {
             input.value = nombreUsuario;
             console.log(`✅ [Pulido] Responsable auto-asignado: ${nombreUsuario}`);
+            this.mostrarNotificacionUltimoRegistro();
         } else {
             console.log('⏳ [Pulido] Esperando usuario para auto-asignación...');
             const handler = () => {
@@ -174,8 +217,11 @@ const ModuloPulido = {
             this.renderSuggestions(suggestionsDiv, resultados, (item) => {
                 input.value = item;
                 suggestionsDiv.classList.remove('active');
+                this.mostrarNotificacionUltimoRegistro();
             }, false);
         });
+
+        input.addEventListener('blur', () => { setTimeout(() => this.mostrarNotificacionUltimoRegistro(), 200); });
 
         document.addEventListener('click', (e) => {
             if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
@@ -318,8 +364,21 @@ const ModuloPulido = {
                     }
                 };
                 mostrarNotificacion('✅ Registro exitoso', 'success', metaConCallback);
+
+                // Guardar persistencia UI
+                localStorage.setItem('pulido_last_fecha', datos.fecha_inicio);
+                localStorage.setItem('pulido_last_responsable', datos.responsable);
+
+                const pncHtml = datos.pnc > 0 ? `<span style="color:#dc3545;font-weight:bold;">${datos.pnc}</span>` : '0';
+                const recordInfo = `Producto: <strong>${datos.codigo_producto}</strong> | OP: ${datos.orden_produccion || 'N/A'} | Buenas: <span style="color:#10b981;font-weight:bold;">${datos.cantidad_real}</span> | PNC: ${pncHtml}`;
+                localStorage.setItem(`pulido_last_record_${datos.responsable}`, recordInfo);
+
                 document.getElementById('form-pulido')?.reset();
                 if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-pulido');
+
+                // Restaurar inmediatamente el sticky state
+                setTimeout(() => { ModuloPulido.cargarMemoriaUI(); }, 50);
+
                 window.tmpDefectosPulido = [];
                 this.actualizarCalculo();
                 const loteInput = document.getElementById('lote-pulido');

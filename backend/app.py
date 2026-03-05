@@ -2133,13 +2133,15 @@ def process_pdf_and_drive(data, pnc=0, producto_nombre="", is_batch=False, items
         # 1. Determinar Metadatos y Nombre de Archivo
         if is_batch:
             # data es el diccionario 'turno'
-            maquina = str(data.get('maquina', 'S-M')).replace(" ", "-")
-            fecha_raw = str(data.get('fecha_inicio', datetime.datetime.now().strftime('%Y-%m-%d')))
-            op = str(data.get('orden_produccion', 'S-OP')).replace(" ", "-")
-            id_reg = data.get('id_programacion', 'BATCH')
+            maquina = str(data.get('maquina') or 'S-M').replace(" ", "-")
+            fecha_raw = str(data.get('fecha_inicio') or datetime.datetime.now().strftime('%Y-%m-%d'))
+            # Fix: .split('/') could fail if None
+            fecha_clean = fecha_raw.split(' ')[0].replace('/', '-') 
+            op = str(data.get('orden_produccion') or 'S-OP').replace(" ", "-")
+            id_reg = data.get('id_programacion') or 'BATCH'
             
             # Formato solicitado: FECHA_OP_MAQUINA.pdf
-            tmp_filename = f"{fecha_raw}_{op}_{maquina}.pdf".replace("/", "-").replace(":", "-")
+            tmp_filename = f"{fecha_clean}_{op}_{maquina}.pdf".replace(" ", "_")
         else:
             # data es row_data (List) - Legacy
             id_reg = data[0]
@@ -2148,7 +2150,11 @@ def process_pdf_and_drive(data, pnc=0, producto_nombre="", is_batch=False, items
             op = str(data[18]).replace(" ", "-") if len(data) > 18 else "S-OP"
             
             # Formato solicitado: FECHA_OP_MAQUINA.pdf
-            tmp_filename = f"{fecha_raw}_{op}_{maquina}.pdf".replace("/", "-").replace(":", "-")
+            tmp_filename = f"{fecha_raw}_{op}_{maquina}.pdf".replace("/", "-").replace(":", "-").replace(" ", "_")
+        
+        # Limpieza adicional de nombre de archivo para evitar caracteres inválidos en OS
+        import re
+        tmp_filename = re.sub(r'[\\/*?:"<>|]', "", tmp_filename)
 
         tmp_path = os.path.join(os.getcwd(), "temp_reports")
         if not os.path.exists(tmp_path):
@@ -2406,7 +2412,21 @@ def registrar_inyeccion_lote():
         
         # --- DISPARAR PDF Y DRIVE (ASÍNCRONO) ---
         try:
-            bg_executor.submit(process_pdf_and_drive, turno, is_batch=True, items_batch=items)
+            # Sanitizar items antes de enviar al executor para evitar problemas de tipos en el hilo de fondo
+            items_cleaned = []
+            for it in items:
+                items_cleaned.append({
+                    'codigo_producto': str(it.get('codigo_producto', '')),
+                    'no_cavidades': it.get('no_cavidades'),
+                    'disparos': it.get('disparos'),
+                    'cantidad_real': it.get('cantidad_real'),
+                    'pnc': it.get('pnc'),
+                    'peso_bujes': it.get('peso_bujes'),
+                    'manual_buenas': it.get('manual_buenas'),
+                    'observaciones': str(it.get('observaciones', ''))
+                })
+            
+            bg_executor.submit(process_pdf_and_drive, turno, is_batch=True, items_batch=items_cleaned)
             logger.info(f" -> Tarea de PDF (Molde Familia) enviada para ID: {id_prog_to_close}")
         except Exception as e_bg:
             logger.error(f" Error enviando PDF multi-sku a background: {e_bg}")

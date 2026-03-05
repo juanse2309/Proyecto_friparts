@@ -13,6 +13,22 @@ class PDFGenerator:
     """Servicio para generar reportes PDF de registros de producción."""
     
     @staticmethod
+    def _safe_int(val, default=0):
+        try:
+            if val is None or str(val).strip() == "": return default
+            return int(float(val))
+        except (ValueError, TypeError):
+            return default
+
+    @staticmethod
+    def _safe_float(val, default=0.0):
+        try:
+            if val is None or str(val).strip() == "": return default
+            return float(val)
+        except (ValueError, TypeError):
+            return default
+
+    @staticmethod
     def generar_reporte_inyeccion(datos_fila, filepath, pnc=0, producto_nombre=""):
         """
         Genera un PDF profesional basado en los 22 campos de inyección.
@@ -88,12 +104,12 @@ class PDFGenerator:
             elements.append(Paragraph("<b>PRODUCCIÓN Y CALIDAD</b>", styles['Heading4']))
             
             # Cálculo de Proyección Proyectada (Teórica)
-            cierres = int(datos_fila[11]) if str(datos_fila[11]).isdigit() else 0
-            cavidades = int(datos_fila[7]) if str(datos_fila[7]).isdigit() else 1
+            cierres = PDFGenerator._safe_int(datos_fila[11])
+            cavidades = PDFGenerator._safe_int(datos_fila[7], default=1)
             proyeccion_teorica = cierres * cavidades
             
-            cant_inyectada = int(datos_fila[15])
-            pnc_val = int(pnc)
+            cant_inyectada = PDFGenerator._safe_int(datos_fila[15])
+            pnc_val = PDFGenerator._safe_int(pnc)
             buenas_val = cant_inyectada - pnc_val
             eficiencia = (cant_inyectada / proyeccion_teorica * 100) if proyeccion_teorica > 0 else 0
             
@@ -127,7 +143,7 @@ class PDFGenerator:
             # Observaciones / Novedades
             elements.append(Paragraph("<b>OBSERVACIONES / NOVEDADES</b>", styles['Heading4']))
             obs_text = str(datos_fila[19]) if datos_fila[19] else "Ninguna"
-            elements.append(Paragraph(obs_text, styles['Normal']))
+            elements.append(Paragraph(str(obs_text), styles['Normal']))
 
             # Pie de página
             footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, textColor=colors.grey, alignment=1)
@@ -205,14 +221,20 @@ class PDFGenerator:
             total_peso = 0
             
             for it in items:
-                cav = int(it.get('no_cavidades', 1))
-                disp = int(it.get('disparos', 0))
+                cav = PDFGenerator._safe_int(it.get('no_cavidades'), default=1)
+                disp = PDFGenerator._safe_int(it.get('disparos'))
                 proyectado = disp * cav
                 
-                real = int(it.get('cantidad_real', 0)) or proyectado
-                pnc = int(it.get('pnc', 0))
-                buenas = int(it.get('manual_buenas') if it.get('manual_buenas') is not None else (real - pnc))
-                peso = float(it.get('peso_bujes', 0))
+                real = PDFGenerator._safe_int(it.get('cantidad_real')) or proyectado
+                pnc = PDFGenerator._safe_int(it.get('pnc'))
+                # Lógica robusta para buenas
+                manual_buenas = it.get('manual_buenas')
+                if manual_buenas is not None and str(manual_buenas).strip() != "":
+                    buenas = PDFGenerator._safe_int(manual_buenas)
+                else:
+                    buenas = real - pnc
+                
+                peso = PDFGenerator._safe_float(it.get('peso_bujes'))
                 
                 total_proyectado += proyectado
                 total_real += real
@@ -221,7 +243,7 @@ class PDFGenerator:
                 total_peso += peso
                 
                 data_items.append([
-                    Paragraph(it.get('codigo_producto', 'S/C'), styles['Normal']),
+                    Paragraph(str(it.get('codigo_producto') or 'S/C'), styles['Normal']),
                     cav,
                     disp,
                     proyectado,
@@ -275,7 +297,7 @@ class PDFGenerator:
             elements.append(Paragraph("<b>OBSERVACIONES / NOVEDADES</b>", styles['Heading4']))
             # Buscar observaciones en el turno o en el primer item (usualmente se envían en el payload principal)
             obs_text = str(turno.get('observaciones') or turno.get('observaciones_generales') or "Ninguna")
-            elements.append(Paragraph(obs_text, styles['Normal']))
+            elements.append(Paragraph(str(obs_text), styles['Normal']))
 
             # Pie de página
             footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, textColor=colors.grey, alignment=1)

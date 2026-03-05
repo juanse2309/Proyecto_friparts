@@ -842,10 +842,10 @@ const ModuloInyeccion = {
             if (response.ok && resultado.success) {
                 Swal.fire({
                     title: '¡Registrado!',
-                    text: `Lote de ${this.items.length} productos procesado correctamente`,
+                    text: `Lote de ${this.items.length} productos procesado correctamente. El PDF se está generando en segundo plano y se subirá a Google Drive.`,
                     icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
+                    timer: 5000,
+                    showConfirmButton: true
                 });
 
                 // Reiniciar todo
