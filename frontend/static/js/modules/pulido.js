@@ -137,6 +137,15 @@ const ModuloPulido = {
                     localStorage.setItem(`pulido_last_record_${responsable}`, recordInfo);
                     console.log(`🔄 [Pulido] Historial sincronizado desde el servidor para ${responsable}`);
                 }
+
+                // NUEVO: Sincronizar fecha si viene en el registro (ayuda a ingresos históricos)
+                if (reg.fecha) {
+                    const fechaInput = document.getElementById('fecha-pulido');
+                    if (fechaInput) {
+                        fechaInput.value = reg.fecha;
+                        localStorage.setItem('pulido_last_fecha', reg.fecha);
+                    }
+                }
             } else if (!localRecord) {
                 // Si no hay nada en el servidor ni local, ocultar
                 bannerInfo.style.display = 'none';

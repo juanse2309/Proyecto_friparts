@@ -2805,9 +2805,22 @@ def get_ultimo_registro_pulido(responsable):
         
         for row in reversed(all_data[1:]):
             if len(row) > 3 and row[3].strip().lower() == responsable_busqueda:
+                # Formatear fecha de DD/MM/YYYY a YYYY-MM-DD para el input[type=date]
+                fecha_raw = row[1] if len(row) > 1 else ""
+                fecha_input = ""
+                if fecha_raw and '/' in fecha_raw:
+                    try:
+                        partes = fecha_raw.split('/')
+                        if len(partes) == 3:
+                            d, m, y = partes
+                            fecha_input = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+                    except:
+                        pass
+
                 return jsonify({
                     'success': True,
                     'registro': {
+                        'fecha': fecha_input,
                         'producto': row[6] if len(row) > 6 else 'N/A',
                         'op': row[8] if len(row) > 8 else 'N/A',
                         'pnc': int(float(row[10] or 0)) if len(row) > 10 else 0,
