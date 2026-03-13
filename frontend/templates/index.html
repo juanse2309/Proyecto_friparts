@@ -3092,402 +3092,485 @@
                 <div class="row">
                     <!-- Formulario OC Full Width -->
                     <div class="col-12">
-                        <!-- Dashboard de Resumen de Rotación -->
-                        <div class="row g-3 mb-4">
-                            <div class="col-md-3">
-                                <div class="card border-0 shadow-sm p-3 text-center"
-                                    style="border-radius: 12px; background: #fff5f5; border-left: 5px solid #dc3545 !important;">
-                                    <h6 class="text-muted mb-1 small text-uppercase fw-bold">Críticos (Clase A)
-                                    </h6>
-                                    <h3 id="rot-count-a" class="fw-bold mb-0 text-danger">0</h3>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card border-0 shadow-sm p-3 text-center"
-                                    style="border-radius: 12px; background: #fffbeb; border-left: 5px solid #f59e0b !important;">
-                                    <h6 class="text-muted mb-1 small text-uppercase fw-bold">Precaución</h6>
-                                    <h3 id="rot-count-caution" class="fw-bold mb-0 text-warning">0</h3>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card border-0 shadow-sm p-3 text-center"
-                                    style="border-radius: 12px; background: #f0fdf4; border-left: 5px solid #10b981 !important;">
-                                    <h6 class="text-muted mb-1 small text-uppercase fw-bold">Saludables</h6>
-                                    <h3 id="rot-count-ok" class="fw-bold mb-0 text-success">0</h3>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card border-0 shadow-sm p-3 text-center"
-                                    style="border-radius: 12px; background: #f8fafc; border-left: 5px solid #64748b !important;">
-                                    <h6 class="text-muted mb-1 small text-uppercase fw-bold">Total Items</h6>
-                                    <h3 id="rot-count-total" class="fw-bold mb-0 text-secondary">0</h3>
-                                </div>
-                            </div>
-                        </div>
+                        <style>
+                            .custom-procura-tabs {
+                                border-bottom: 2px solid #e2e8f0 !important;
+                            }
 
-                        <div class="row mb-4">
-                            <div class="col-md-9">
-                                <!-- Panel de Búsqueda OC Existente -->
-                                <div class="card shadow-sm h-100">
-                                    <div class="card-body d-flex align-items-center">
-                                        <div class="row w-100 align-items-center">
-                                            <div class="col-md-8 position-relative">
-                                                <div class="input-group">
-                                                    <span class="input-group-text bg-white border-end-0"><i
-                                                            class="fas fa-search text-muted"></i></span>
-                                                    <input type="text" class="form-control bg-light border-start-0"
-                                                        id="buscar-oc-input"
-                                                        placeholder="Buscar / Cargar N° de Orden de Compra para Editar... (Ej: OC-1020)">
+                            .custom-procura-tabs .nav-link:hover,
+                            .custom-procura-tabs .nav-link.active {
+                                color: #4361ee !important;
+                                background: transparent !important;
+                            }
+
+                            .custom-procura-tabs .nav-link::after {
+                                content: '';
+                                position: absolute;
+                                bottom: -2px;
+                                left: 0;
+                                width: 0;
+                                height: 3px;
+                                background-color: #4361ee;
+                                transition: width 0.3s ease;
+                                border-radius: 3px 3px 0 0;
+                            }
+
+                            .custom-procura-tabs .nav-link.active::after {
+                                width: 100%;
+                            }
+                        </style>
+                        <ul class="nav nav-tabs custom-procura-tabs mb-4 border-0" id="procuraTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button
+                                    class="nav-link active fw-bold px-4 py-3 border-0 bg-transparent position-relative text-secondary d-flex align-items-center gap-2"
+                                    id="directorio-tab" data-bs-toggle="tab" data-bs-target="#directorio" type="button"
+                                    role="tab" aria-controls="directorio" aria-selected="true"
+                                    style="transition: all 0.3s;">
+                                    <i class="fas fa-address-book fs-5"></i>
+                                    <span>Directorio de Proveedores</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button
+                                    class="nav-link fw-bold px-4 py-3 border-0 bg-transparent position-relative text-secondary d-flex align-items-center gap-2"
+                                    id="ordenes-tab" data-bs-toggle="tab" data-bs-target="#ordenes" type="button"
+                                    role="tab" aria-controls="ordenes" aria-selected="false"
+                                    style="transition: all 0.3s;">
+                                    <i class="fas fa-file-invoice-dollar fs-5"></i>
+                                    <span>Órdenes de Compra</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button
+                                    class="nav-link fw-bold px-4 py-3 border-0 bg-transparent position-relative text-secondary d-flex align-items-center gap-2"
+                                    id="prioridades-tab" data-bs-toggle="tab" data-bs-target="#prioridades"
+                                    type="button" role="tab" aria-controls="prioridades" aria-selected="false"
+                                    style="transition: all 0.3s;">
+                                    <i class="fas fa-layer-group fs-5"></i>
+                                    <span>Prioridades y Rotación</span>
+                                </button>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content" id="procuraTabContent">
+                            <!-- TAB 1: DIRECTORIO DE PROVEEDORES -->
+                            <div class="tab-pane fade show active" id="directorio" role="tabpanel"
+                                aria-labelledby="directorio-tab">
+                                <!-- SECCIÓN: Directorio Maestro de Proveedores -->
+                                <div class="card border-0 shadow-sm overflow-hidden mb-4">
+                                    <div
+                                        class="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between">
+                                        <h5 class="mb-0 text-dark fw-bold">
+                                            <i class="fas fa-address-book text-primary me-2"></i> Directorio Maestro de
+                                            Proveedores
+                                        </h5>
+                                        <div class="badge bg-primary bg-opacity-10 text-primary px-3 py-2 rounded-pill"
+                                            id="counter-proveedores">
+                                            0 Proveedores
+                                        </div>
+                                    </div>
+                                    <div class="card-body bg-light bg-opacity-50 p-4">
+                                        <!-- Buscador Indexado -->
+                                        <div class="row mb-4">
+                                            <div class="col-md-6 mx-auto">
+                                                <div class="input-group shadow-sm rounded-pill overflow-hidden border">
+                                                    <span class="input-group-text bg-white border-0 ps-3">
+                                                        <i class="fas fa-search text-muted"></i>
+                                                    </span>
+                                                    <input type="text"
+                                                        class="form-control border-0 py-2 bg-white search-focus-effect"
+                                                        id="buscar-proveedor-directorio"
+                                                        placeholder="Buscar por Empresa o Proceso (ej: tijeras, pintura, acero)..."
+                                                        oninput="ModuloProcura.filtrarDirectorio(this.value)">
+                                                    <button class="btn btn-white border-0 px-3 text-muted"
+                                                        onclick="document.getElementById('buscar-proveedor-directorio').value=''; ModuloProcura.filtrarDirectorio('')">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
                                                 </div>
                                             </div>
-                                            <div class="col-md-4 d-flex gap-2">
-                                                <button class="btn btn-outline-primary w-50 fw-bold"
-                                                    onclick="ModuloProcura.buscarOC()">Buscar O.C.</button>
-                                                <button class="btn btn-outline-secondary w-50 fw-bold"
-                                                    onclick="ModuloProcura.nuevaOrden()"><i class="fas fa-plus"></i>
-                                                    Nueva Orden</button>
-                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- Grid de Proveedores -->
+                                    <div id="proveedores-grid" class="row g-3 p-4 pt-0">
+                                        <div class="col-12 text-center py-5">
+                                            <i class="fas fa-spinner fa-spin fa-2x text-primary mb-3"></i>
+                                            <p class="text-muted">Cargando directorio de proveedores...</p>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
-                                <!-- Quick Alert Indicators -->
-                                <div class="card shadow-sm border-0 bg-white h-100 overflow-hidden"
-                                    style="cursor: pointer;"
-                                    onclick="document.getElementById('section-alertas').scrollIntoView({behavior: 'smooth'})">
-                                    <div class="card-body p-0 d-flex">
-                                        <div
-                                            class="bg-warning w-25 d-flex align-items-center justify-content-center text-white">
-                                            <i class="fas fa-bell fa-lg pulse"></i>
-                                        </div>
-                                        <div class="p-3">
-                                            <h6 class="mb-0 fw-bold">Alertas de Stock</h6>
-                                            <small class="text-muted" id="mini-alert-count">Revisar
-                                                faltantes</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
 
-                        <div class="card h-100">
-                            <div class="card-header d-flex align-items-center justify-content-between">
-                                <h5 class="mb-0 text-primary"><i class="fas fa-file-invoice me-2"></i>Nueva
-                                    Orden /
-                                    Detalle de Compra</h5>
-                            </div>
-                            <div class="card-body p-4">
-                                <form id="form-oc">
-                                    <div class="row g-3 mb-4 bg-light p-3 rounded border">
-                                        <div class="col-md-4">
-                                            <label class="form-label fw-bold small text-muted">Fecha
-                                                OC</label>
-                                            <input type="date" class="form-control" id="fecha-solicitud-oc" required>
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label class="form-label fw-bold small text-muted">N° Orden
-                                                Compra</label>
-                                            <input type="text" class="form-control" id="n-oc" placeholder="Ej: OC-1020"
-                                                required>
-                                        </div>
-                                        <div class="col-md-4 position-relative">
-                                            <label class="form-label fw-bold small text-muted">Proveedor</label>
-                                            <input type="text" class="form-control" id="proveedor-oc"
-                                                placeholder="Ej: Aceros S.A" required autocomplete="off">
-                                            <div id="procura-proveedor-suggestions"
-                                                class="autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border"
-                                                style="z-index: 9999 !important;">
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <h6 class="fw-bold mb-3"><i class="fas fa-box-open mr-2"></i> Agregar
-                                        Componente
-                                    </h6>
-
-                                    <div class="row g-3 align-items-end mb-4">
-                                        <div class="col-md-7 position-relative">
-                                            <label class="form-label fw-bold small text-muted">Producto a
-                                                Comprar</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-white"><i
-                                                        class="fas fa-search text-muted"></i></span>
-                                                <input type="text" class="form-control" id="codigo-producto-oc"
-                                                    placeholder="Buscar por código (ej. CAR-3020) o descripción..."
-                                                    autocomplete="off">
-                                            </div>
-                                            <div id="procura-producto-suggestions"
-                                                class="autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border"
-                                                style="z-index: 9999 !important;">
-                                            </div>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <label class="form-label fw-bold small text-muted">Cantidad
-                                                Solicitada</label>
-                                            <input type="number" class="form-control" id="cantidad-oc" min="1"
-                                                placeholder="0">
-                                        </div>
-                                        <div class="col-md-2">
-                                            <button type="button" class="btn btn-secondary w-100 fw-bold"
-                                                id="btn-agregar-oc" style="background-color: #4f46e5; border: none;">
-                                                <i class="fas fa-plus"></i> Añadir
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div id="lista-oc-container" class="d-flex flex-column gap-3 mb-4">
-                                        <!-- Las tarjetas de cada componente se renderizan aquí -->
-                                        <div class="text-center text-muted py-4 border rounded bg-light">
-                                            <i class="fas fa-shopping-cart mb-2"
-                                                style="font-size: 1.5rem; color: #cbd5e1;"></i>
-                                            <p class="mb-0">No hay componentes en esta Orden.</p>
-                                        </div>
-                                    </div>
-
-                                    <div class="d-grid">
-                                        <button type="submit"
-                                            class="btn btn-primary btn-lg fw-bold rounded bg-primary shadow-sm hover-lift">
-                                            <i class="fas fa-save me-2"></i> GUARDAR ORDEN DE COMPRA
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-
-                        <!-- SECCIÓN: Directorio Maestro de Proveedores -->
-                        <div class="card mt-4 border-0 shadow-sm overflow-hidden">
-                            <div
-                                class="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between">
-                                <h5 class="mb-0 text-dark fw-bold">
-                                    <i class="fas fa-address-book text-primary me-2"></i> Directorio Maestro de
-                                    Proveedores
-                                </h5>
-                                <div class="badge bg-primary bg-opacity-10 text-primary px-3 py-2 rounded-pill"
-                                    id="counter-proveedores">
-                                    0 Proveedores
-                                </div>
-                            </div>
-                            <div class="card-body bg-light bg-opacity-50 p-4">
-                                <!-- Buscador Indexado -->
+                            <!-- TAB 2: ÓRDENES DE COMPRA -->
+                            <div class="tab-pane fade" id="ordenes" role="tabpanel" aria-labelledby="ordenes-tab">
                                 <div class="row mb-4">
-                                    <div class="col-md-6 mx-auto">
-                                        <div class="input-group shadow-sm rounded-pill overflow-hidden border">
-                                            <span class="input-group-text bg-white border-0 ps-3">
-                                                <i class="fas fa-search text-muted"></i>
-                                            </span>
-                                            <input type="text"
-                                                class="form-control border-0 py-2 bg-white search-focus-effect"
-                                                id="buscar-proveedor-directorio"
-                                                placeholder="Buscar por Empresa o Proceso (ej: tijeras, pintura, acero)..."
-                                                oninput="ModuloProcura.filtrarDirectorio(this.value)">
-                                            <button class="btn btn-white border-0 px-3 text-muted"
-                                                onclick="document.getElementById('buscar-proveedor-directorio').value=''; ModuloProcura.filtrarDirectorio('')">
-                                                <i class="fas fa-times"></i>
-                                            </button>
+                                    <div class="col-md-9">
+                                        <!-- Panel de Búsqueda OC Existente -->
+                                        <div class="card shadow-sm mb-4">
+                                            <div class="card-body d-flex align-items-center py-4">
+                                                <div class="row w-100 align-items-center">
+                                                    <div class="col-md-8 position-relative">
+                                                        <div class="input-group">
+                                                            <span class="input-group-text bg-white border-end-0"><i
+                                                                    class="fas fa-search text-muted"></i></span>
+                                                            <input type="text"
+                                                                class="form-control bg-light border-start-0"
+                                                                id="buscar-oc-input"
+                                                                placeholder="Buscar / Cargar N° de Orden de Compra para Editar... (Ej: OC-1020)">
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4 d-flex gap-2">
+                                                        <button class="btn btn-outline-primary w-50 fw-bold"
+                                                            onclick="ModuloProcura.buscarOC()">Buscar O.C.</button>
+                                                        <button class="btn btn-outline-secondary w-50 fw-bold"
+                                                            onclick="ModuloProcura.nuevaOrden()"><i
+                                                                class="fas fa-plus"></i> Nueva Orden</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <!-- Quick Alert Indicators -->
+                                        <div class="card shadow-sm border-0 bg-white mb-4 overflow-hidden"
+                                            style="cursor: pointer;"
+                                            onclick="const tab = new bootstrap.Tab(document.querySelector('#prioridades-tab')); tab.show(); setTimeout(()=>document.getElementById('section-alertas').scrollIntoView({behavior: 'smooth'}), 300)">
+                                            <div class="card-body p-0 d-flex h-100 align-items-stretch">
+                                                <div
+                                                    class="bg-warning w-25 d-flex align-items-center justify-content-center text-white p-3">
+                                                    <i class="fas fa-bell fa-lg pulse"></i>
+                                                </div>
+                                                <div class="p-3 d-flex flex-column justify-content-center">
+                                                    <h6 class="mb-0 fw-bold">Alertas de Stock</h6>
+                                                    <small class="text-muted" id="mini-alert-count">Revisar
+                                                        faltantes</small>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
+                                <div class="card mb-4 shadow-sm border-0">
+                                    <div
+                                        class="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between">
+                                        <h5 class="mb-0 text-primary fw-bold"><i
+                                                class="fas fa-file-invoice me-2"></i>Nueva Orden / Detalle de Compra
+                                        </h5>
+                                    </div>
+                                    <div class="card-body p-4">
+                                        <form id="form-oc">
+                                            <div class="row g-3 mb-4 bg-light p-3 rounded border">
+                                                <div class="col-md-4">
+                                                    <label class="form-label fw-bold small text-muted">Fecha OC</label>
+                                                    <input type="date" class="form-control shadow-sm"
+                                                        id="fecha-solicitud-oc" required>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label fw-bold small text-muted">N° Orden
+                                                        Compra</label>
+                                                    <input type="text" class="form-control shadow-sm" id="n-oc"
+                                                        placeholder="Ej: OC-1020" required>
+                                                </div>
+                                                <div class="col-md-4 position-relative">
+                                                    <label class="form-label fw-bold small text-muted">Proveedor</label>
+                                                    <input type="text" class="form-control shadow-sm" id="proveedor-oc"
+                                                        placeholder="Ej: Aceros S.A" required autocomplete="off">
+                                                    <div id="procura-proveedor-suggestions"
+                                                        class="autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border"
+                                                        style="z-index: 9999 !important;"></div>
+                                                </div>
+                                            </div>
+
+                                            <h6 class="fw-bold mb-3"><i class="fas fa-box-open mr-2 text-primary"></i>
+                                                Agregar Componente</h6>
+
+                                            <div class="row g-3 align-items-end mb-4">
+                                                <div class="col-md-7 position-relative">
+                                                    <label class="form-label fw-bold small text-muted">Producto a
+                                                        Comprar</label>
+                                                    <div class="input-group shadow-sm">
+                                                        <span class="input-group-text bg-white border-end-0"><i
+                                                                class="fas fa-search text-muted"></i></span>
+                                                        <input type="text" class="form-control border-start-0"
+                                                            id="codigo-producto-oc"
+                                                            placeholder="Buscar por código (ej. CAR-3020) o descripción..."
+                                                            autocomplete="off">
+                                                    </div>
+                                                    <div id="procura-producto-suggestions"
+                                                        class="autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border"
+                                                        style="z-index: 9999 !important;"></div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label fw-bold small text-muted">Cantidad
+                                                        Solicitada</label>
+                                                    <input type="number" class="form-control shadow-sm" id="cantidad-oc"
+                                                        min="1" placeholder="0">
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <button type="button"
+                                                        class="btn btn-primary w-100 fw-bold shadow-sm"
+                                                        id="btn-agregar-oc">
+                                                        <i class="fas fa-plus"></i> Añadir
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div id="lista-oc-container" class="d-flex flex-column gap-3 mb-4">
+                                                <!-- Las tarjetas de cada componente se renderizan aquí -->
+                                                <div class="text-center text-muted py-5 border rounded bg-light">
+                                                    <i class="fas fa-shopping-cart mb-3"
+                                                        style="font-size: 2.5rem; color: #cbd5e1;"></i>
+                                                    <p class="mb-0">No hay componentes en esta Orden.</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="d-grid mt-2">
+                                                <button type="submit"
+                                                    class="btn btn-success btn-lg fw-bold rounded shadow-sm hover-lift">
+                                                    <i class="fas fa-save me-2"></i> GUARDAR ORDEN DE COMPRA
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
                             </div>
 
-                            <!-- Grid de Proveedores -->
-                            <div id="proveedores-grid" class="row g-3">
-                                <div class="col-12 text-center py-5">
-                                    <i class="fas fa-spinner fa-spin fa-2x text-primary mb-3"></i>
-                                    <p class="text-muted">Cargando directorio de proveedores...</p>
+                            <!-- TAB 3: PRIORIDADES Y ROTACIÓN -->
+                            <div class="tab-pane fade" id="prioridades" role="tabpanel"
+                                aria-labelledby="prioridades-tab">
+                                <!-- Dashboard de Resumen de Rotación -->
+                                <div class="row g-3 mb-4 mt-2">
+                                    <div class="col-md-3">
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
+                                            style="border-radius: 12px; background: #fff5f5; border-left: 5px solid #dc3545 !important;">
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Críticos (Clase A)
+                                            </h6>
+                                            <h2 id="rot-count-a" class="fw-bold mb-0 text-danger display-6">0</h2>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
+                                            style="border-radius: 12px; background: #fffbeb; border-left: 5px solid #f59e0b !important;">
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Precaución</h6>
+                                            <h2 id="rot-count-caution" class="fw-bold mb-0 text-warning display-6">0
+                                            </h2>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
+                                            style="border-radius: 12px; background: #f0fdf4; border-left: 5px solid #10b981 !important;">
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Saludables</h6>
+                                            <h2 id="rot-count-ok" class="fw-bold mb-0 text-success display-6">0</h2>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
+                                            style="border-radius: 12px; background: #f8fafc; border-left: 5px solid #64748b !important;">
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Total Items</h6>
+                                            <h2 id="rot-count-total" class="fw-bold mb-0 text-secondary display-6">0
+                                            </h2>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- SECCIÓN: PRIORIDADES DE ROTACIÓN -->
+                                <div id="section-alertas" class="card mt-4 border-0 shadow-sm overflow-hidden"
+                                    style="border-radius: 12px;">
+                                    <div
+                                        class="card-header bg-danger bg-opacity-10 py-3 d-flex justify-content-between align-items-center border-bottom-0">
+                                        <h5 class="mb-0 fw-bold text-danger">
+                                            <i class="fas fa-fire me-2"></i> Prioridad de Compra (TOP A - Críticos)
+                                            <span class="badge bg-white text-dark ms-2 shadow-sm border"
+                                                style="font-size: 0.7rem;"
+                                                title="Clasificación asignada automáticamente por IA según Volumen y Frecuencia Histórica">
+                                                <i class="fas fa-robot text-primary"></i> Bot Procura
+                                            </span>
+                                        </h5>
+                                        <span class="badge bg-danger rounded-pill px-3 py-2 shadow-sm">Acción
+                                            Inmediata</span>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-hover align-middle mb-0">
+                                                <thead class="bg-light text-muted small text-uppercase">
+                                                    <tr>
+                                                        <th class="ps-4" style="width: 15%;">CÓDIGO</th>
+                                                        <th style="width: 30%;">DESCRIPCIÓN</th>
+                                                        <th style="width: 10%; text-align: center;">STOCK</th>
+                                                        <th style="width: 10%; text-align: center;">MÍNIMO</th>
+                                                        <th style="width: 25%;">ESTADO / URGENCIA</th>
+                                                        <th style="width: 10%; text-align: center;"
+                                                            title="Frecuencia Histórica de Compra">🛒FREQ. OC</th>
+                                                        <th style="width: 5%;" class="pe-4"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="rot-table-a">
+                                                    <tr>
+                                                        <td colspan="7" class="text-center py-5 text-muted">
+                                                            <i
+                                                                class="fas fa-spinner fa-spin fa-2x mb-3 text-danger pulse"></i>
+                                                            <p>Cargando prioridades críticas...</p>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- SECCIÓN: CLASE B/C - MANTENIMIENTO -->
+                                <div class="card border-0 shadow-sm mt-4 mb-4" style="border-radius: 12px;">
+                                    <div
+                                        class="card-header bg-white py-4 border-bottom d-flex justify-content-between align-items-center">
+                                        <h5 class="mb-0 fw-bold text-secondary">
+                                            <i class="fas fa-tools me-2 text-primary"></i> Mantenimiento General (Clase
+                                            B/C)
+                                            <span class="badge bg-light text-dark ms-2 border"
+                                                style="font-size: 0.7rem;"
+                                                title="Clases calculadas por rotación inteligente">
+                                                <i class="fas fa-robot text-primary"></i> Bot Procura
+                                            </span>
+                                        </h5>
+                                        <div class="search-box position-relative" style="max-width: 300px;">
+                                            <i class="fas fa-search position-absolute top-50 translate-middle-y text-muted"
+                                                style="left: 15px;"></i>
+                                            <input type="text" id="rot-search-bc"
+                                                class="form-control rounded-pill ps-5 bg-light border-0 py-2"
+                                                placeholder="Filtrar B/C..."
+                                                onkeyup="typeof ModuloRotacion !== 'undefined' ? ModuloRotacion.filtrarBC() : null">
+                                        </div>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-hover align-middle mb-0">
+                                                <thead class="bg-light text-muted small text-uppercase">
+                                                    <tr>
+                                                        <th class="ps-4" style="width: 15%;">CÓDIGO</th>
+                                                        <th style="width: 30%;">DESCRIPCIÓN</th>
+                                                        <th style="width: 10%; text-align: center;">CLASE</th>
+                                                        <th style="width: 10%; text-align: center;">STOCK</th>
+                                                        <th style="width: 25%;">ESTADO</th>
+                                                        <th style="width: 10%; text-align: center;">FREQ. OC</th>
+                                                        <th style="width: 5%;" class="pe-4"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="rot-table-bc">
+                                                    <tr>
+                                                        <td colspan="7" class="text-center py-5 text-muted">
+                                                            <i
+                                                                class="fas fa-spinner fa-spin fa-2x mb-3 text-secondary pulse"></i>
+                                                            <p>Cargando lista de mantenimiento...</p>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-
-                    <!-- SECCIÓN: PRIORIDADES DE ROTACIÓN -->
-                    <div id="section-alertas" class="card mt-4 border-0 shadow-sm overflow-hidden"
-                        style="border-radius: 12px;">
-                        <div
-                            class="card-header bg-danger bg-opacity-10 py-3 d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0 fw-bold text-danger">
-                                <i class="fas fa-fire me-2"></i> Prioridad de Compra (TOP A - Críticos)
-                                <span class="badge bg-secondary ms-2" style="font-size: 0.7rem;"
-                                    title="Clasificación asignada automáticamente por IA según Volumen y Frecuencia Histórica">
-                                    <i class="fas fa-robot"></i> Bot Procura
-                                </span>
-                            </h5>
-                            <span class="badge bg-danger rounded-pill px-3">Acción Inmediata</span>
-                        </div>
-                        <div class="card-body p-0">
-                            <div class="table-responsive">
-                                <table class="table table-hover align-middle mb-0">
-                                    <thead class="bg-light">
-                                        <tr>
-                                            <th style="width: 15%;">CÓDIGO</th>
-                                            <th style="width: 30%;">DESCRIPCIÓN</th>
-                                            <th style="width: 10%; text-align: center;">STOCK</th>
-                                            <th style="width: 10%; text-align: center;">MÍNIMO</th>
-                                            <th style="width: 25%;">ESTADO / URGENCIA</th>
-                                            <th style="width: 10%; text-align: center;"
-                                                title="Frecuencia Histórica de Compra">🛒FREQ. OC</th>
-                                            <th style="width: 5%;"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="rot-table-a">
-                                        <tr>
-                                            <td colspan="7" class="text-center py-5 text-muted">
-                                                <i class="fas fa-spinner fa-spin fa-2x mb-3 text-danger"></i>
-                                                <p>Cargando prioridades críticas...</p>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- SECCIÓN: CLASE B/C - MANTENIMIENTO -->
-                    <div class="card border-0 shadow-sm mt-4" style="border-radius: 12px;">
-                        <div class="card-header bg-light py-3 d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0 fw-bold text-secondary">
-                                <i class="fas fa-tools me-2"></i> Mantenimiento General (Clase B/C)
-                                <span class="badge bg-secondary opacity-50 ms-2" style="font-size: 0.7rem;"
-                                    title="Clases calculadas por rotación inteligente">
-                                    <i class="fas fa-robot"></i> Bot Procura
-                                </span>
-                            </h5>
-                            <div class="search-box" style="max-width: 300px;">
-                                <i class="fas fa-search"></i>
-                                <input type="text" id="rot-search-bc" placeholder="Filtrar B/C..."
-                                    onkeyup="typeof ModuloRotacion !== 'undefined' ? ModuloRotacion.filtrarBC() : null">
-                            </div>
-                        </div>
-                        <div class="card-body p-0">
-                            <div class="table-responsive">
-                                <table class="table table-hover align-middle mb-0">
-                                    <thead class="bg-light">
-                                        <tr>
-                                            <th style="width: 15%;">CÓDIGO</th>
-                                            <th style="width: 30%;">DESCRIPCIÓN</th>
-                                            <th style="width: 10%; text-align: center;">CLASE</th>
-                                            <th style="width: 10%; text-align: center;">STOCK</th>
-                                            <th style="width: 25%;">ESTADO</th>
-                                            <th style="width: 10%; text-align: center;">FREQ. OC</th>
-                                            <th style="width: 5%;"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="rot-table-bc">
-                                        <tr>
-                                            <td colspan="7" class="text-center py-5 text-muted">
-                                                <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
-                                                <p>Cargando lista de mantenimiento...</p>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
-        </div>
-        </div>
 
-        <!-- METALS: Producción FRIMETALS -->
-        <div id="metals-produccion-page" class="page">
-            <header class="top-bar" style="justify-content: flex-start; gap: 20px;">
-                <button class="btn-icon" id="toggle-sidebar-metals">
-                    <i class="fas fa-bars"></i>
-                </button>
-                <div class="page-title">
-                    <h1><i class="fas fa-hammer"></i> Registro de Producción</h1>
-                    <p class="subtitle">Modulo Metalmecánica</p>
-                </div>
-            </header>
-            <div id="metals-contenido" class="metals-page-body">
-                <div class="text-center py-5 text-muted">
-                    <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
-                    <p>Cargando módulo...</p>
-                </div>
-            </div>
-        </div>
 
-        <!-- METALS: Dashboard -->
-        <div id="metals-dashboard-page" class="page">
-            <header class="top-bar" style="justify-content: flex-start; gap: 20px;">
-                <button class="btn-icon" id="toggle-sidebar-metals-db">
-                    <i class="fas fa-bars"></i>
-                </button>
-                <div class="page-title">
-                    <h1><i class="fas fa-chart-pie"></i> Dashboard de Metales</h1>
-                    <p class="subtitle">Estadísticas Generales</p>
-                </div>
-                <div class="top-controls">
-                    <button class="btn btn-primary" onclick="ModuloMetals.cargarDashboard()">
-                        <i class="fas fa-sync-alt"></i> Actualizar
+            <!-- METALS: Producción FRIMETALS -->
+            <div id="metals-produccion-page" class="page">
+                <header class="top-bar" style="justify-content: flex-start; gap: 20px;">
+                    <button class="btn-icon" id="toggle-sidebar-metals">
+                        <i class="fas fa-bars"></i>
                     </button>
-                </div>
-            </header>
-            <div class="content-container p-4">
-                <div class="row g-3 mb-4">
-                    <div class="col-6 col-md-3">
-                        <div class="card border-0 shadow-sm text-center p-3"
-                            style="border-left: 4px solid #3b82f6 !important;">
-                            <div class="fw-bold text-muted small text-uppercase">Hoy (Qty OK)</div>
-                            <div class="display-6 fw-bold text-primary" id="metals-kpi-hoy">0</div>
-                        </div>
+                    <div class="page-title">
+                        <h1><i class="fas fa-hammer"></i> Registro de Producción</h1>
+                        <p class="subtitle">Modulo Metalmecánica</p>
                     </div>
-                    <div class="col-6 col-md-3">
-                        <div class="card border-0 shadow-sm text-center p-3"
-                            style="border-left: 4px solid #10b981 !important;">
-                            <div class="fw-bold text-muted small text-uppercase">Registros Mes</div>
-                            <div class="display-6 fw-bold text-success" id="metals-kpi-mes">0</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="card border-0 shadow-sm text-center p-3"
-                            style="border-left: 4px solid #ef4444 !important;">
-                            <div class="fw-bold text-muted small text-uppercase">PNC Total</div>
-                            <div class="display-6 fw-bold text-danger" id="metals-kpi-pnc">0</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="card border-0 shadow-sm text-center p-3"
-                            style="border-left: 4px solid #f59e0b !important;">
-                            <div class="fw-bold text-muted small text-uppercase">Procesos Hoy</div>
-                            <div class="display-6 fw-bold text-warning" id="metals-kpi-procesos">0</div>
-                        </div>
+                </header>
+                <div id="metals-contenido" class="metals-page-body">
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                        <p>Cargando módulo...</p>
                     </div>
                 </div>
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white fw-bold">
-                        <i class="fas fa-list me-2 text-primary"></i>Últimos Registros
+            </div>
+
+            <!-- METALS: Dashboard -->
+            <div id="metals-dashboard-page" class="page">
+                <header class="top-bar" style="justify-content: flex-start; gap: 20px;">
+                    <button class="btn-icon" id="toggle-sidebar-metals-db">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-pie"></i> Dashboard de Metales</h1>
+                        <p class="subtitle">Estadísticas Generales</p>
                     </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0 align-middle small">
-                                <thead class="bg-light">
-                                    <tr>
-                                        <th>Fecha</th>
-                                        <th>Proceso</th>
-                                        <th>Máquina</th>
-                                        <th>Operario</th>
-                                        <th>Producto</th>
-                                        <th class="text-center">OK</th>
-                                        <th class="text-center">PNC</th>
-                                        <th>Tiempo</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="metals-dashboard-history">
-                                    <tr>
-                                        <td colspan="8" class="text-center p-4 text-muted">Haz clic en
-                                            Actualizar
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                    <div class="top-controls">
+                        <button class="btn btn-primary" onclick="ModuloMetals.cargarDashboard()">
+                            <i class="fas fa-sync-alt"></i> Actualizar
+                        </button>
+                    </div>
+                </header>
+                <div class="content-container p-4">
+                    <div class="row g-3 mb-4">
+                        <div class="col-6 col-md-3">
+                            <div class="card border-0 shadow-sm text-center p-3"
+                                style="border-left: 4px solid #3b82f6 !important;">
+                                <div class="fw-bold text-muted small text-uppercase">Hoy (Qty OK)</div>
+                                <div class="display-6 fw-bold text-primary" id="metals-kpi-hoy">0</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card border-0 shadow-sm text-center p-3"
+                                style="border-left: 4px solid #10b981 !important;">
+                                <div class="fw-bold text-muted small text-uppercase">Registros Mes</div>
+                                <div class="display-6 fw-bold text-success" id="metals-kpi-mes">0</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card border-0 shadow-sm text-center p-3"
+                                style="border-left: 4px solid #ef4444 !important;">
+                                <div class="fw-bold text-muted small text-uppercase">PNC Total</div>
+                                <div class="display-6 fw-bold text-danger" id="metals-kpi-pnc">0</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card border-0 shadow-sm text-center p-3"
+                                style="border-left: 4px solid #f59e0b !important;">
+                                <div class="fw-bold text-muted small text-uppercase">Procesos Hoy</div>
+                                <div class="display-6 fw-bold text-warning" id="metals-kpi-procesos">0</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-white fw-bold">
+                            <i class="fas fa-list me-2 text-primary"></i>Últimos Registros
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0 align-middle small">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Proceso</th>
+                                            <th>Máquina</th>
+                                            <th>Operario</th>
+                                            <th>Producto</th>
+                                            <th class="text-center">OK</th>
+                                            <th class="text-center">PNC</th>
+                                            <th>Tiempo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="metals-dashboard-history">
+                                        <tr>
+                                            <td colspan="8" class="text-center p-4 text-muted">Haz clic en
+                                                Actualizar
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
 
         </div>
     </main> <!-- Modal para nuevo producto -->

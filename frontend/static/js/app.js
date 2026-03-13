@@ -240,7 +240,8 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'admin-clientes': window.ModuloAdminClientes,
         'metals-produccion': window.ModuloMetals,
         'metals-dashboard': window.ModuloMetals,
-        'procura': window.ModuloProcura
+        'procura': window.ModuloProcura,
+        'rotacion': window.ModuloProcura // Alias por si acaso
     };
 
     if (window.AppState.paginaActual) {
@@ -361,7 +362,7 @@ function inicializarModulo(nombrePagina) {
         'metals-horno': window.ModuloMetals,
         'metals-pulido-m': window.ModuloMetals,
         'procura': window.ModuloProcura,
-        'rotacion': window.ModuloRotacion
+        'rotacion': window.ModuloRotacion // Este inicializa su propia lógica si existe
     };
 
     const modulo = modulos[nombrePagina];

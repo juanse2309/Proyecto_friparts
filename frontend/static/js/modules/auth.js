@@ -49,18 +49,19 @@ const AuthModule = {
 
     // Matriz de Permisos
     permissions: {
-        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'COMERCIAL': ['pedidos', 'almacen'],
-        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura'],
+        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'COMERCIAL': ['pedidos', 'almacen', 'procura'],
+        'COMPRAS': ['inventario', 'almacen', 'procura', 'historial', 'reportes'],
+        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura', 'rotacion'],
         'INYECCION': ['dashboard', 'inyeccion', 'mezcla'],
         'PULIDO': ['dashboard', 'pulido'],
         'ENSAMBLE': ['ensamble'],
         'ALISTAMIENTO': ['almacen'],
         'CLIENTE': ['portal-cliente'],
         'METALS_PROD': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'inventario', 'historial'],
+        'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'inventario', 'historial', 'procura'],
         'INVITADO': []
     },
 
@@ -153,15 +154,15 @@ const AuthModule = {
     },
 
     hideLandingScreen: function () {
-        const landing = document.getElementById('landing-screen');
-        if (landing) {
-            landing.style.setProperty('display', 'none', 'important');
+        console.log("🔓 Ocultando pantalla de entrada...");
+        const screen = document.getElementById('landing-screen');
+        if (screen) {
+            screen.style.display = 'none';
             document.body.style.overflow = 'auto';
         }
 
-        // Only auto-apply/redirect if estamos en el boot normal, 
-        // pero app.js ahora toma el control del primer renderizado.
-        this.applyPermissions();
+        // Al restaurar sesión, NO forzar redirección para dejar que app.js cargue el hash o la última página
+        this.applyPermissions(false, true);
     },
     openStaffLogin: function (type = 'FRIPARTS') {
         this.currentStaffType = type;
@@ -662,11 +663,16 @@ const AuthModule = {
         } else if (division === 'FRIMETALS') {
             // Eliminar módulos exclusivos de FriParts si entramos por Metales
             // Incluimos TODO lo que no sea compartido o exclusivo de Metales
-            const forbiddenInMetals = [
+            let forbiddenInMetals = [
                 'dashboard', 'inyeccion', 'pulido', 'ensamble', 'pnc',
                 'facturacion', 'mezcla', 'almacen', 'pedidos', 'reportes',
-                'admin-clientes', 'portal-cliente', 'procura'
+                'admin-clientes', 'portal-cliente', 'procura', 'rotacion'
             ];
+
+            // EXCEPCIÓN: Admins y Gerencia siempre pueden ver Procura y Clientes
+            if (role.includes('ADMIN') || role.includes('GERENCIA')) {
+                forbiddenInMetals = forbiddenInMetals.filter(p => !['admin-clientes', 'procura', 'rotacion'].includes(p));
+            }
 
             console.log("🚫 Filtrando módulos de FriParts en sesión de Metales...");
             allowedPages = allowedPages.filter(p => !forbiddenInMetals.includes(p));
@@ -772,10 +778,9 @@ const AuthModule = {
                 console.warn(`🛑 ACCESO DENEGADO a ${pageId}. Redirigiendo a ${targetPage}...`);
                 if (!skipRedirect) this.navigateTo(targetPage);
             }
-        } else {
-            // Si no hay pagina activa, ir a target
-            if (!skipRedirect) this.navigateTo(targetPage);
         }
+        // Eliminado el bloque else que forzaba redirección si no había página activa,
+        // esto causaba bugs al recargar (F5) antes de que app.js cargara la página.
 
         this.authorizedPages = allowedPages;
         return allowedPages; // Retornar para uso externo

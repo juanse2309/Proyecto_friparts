@@ -551,7 +551,7 @@ window.ModuloDashboard = (function () {
                     <input type="checkbox" class="comparison-checkbox form-check-input" 
                         ${isChecked ? 'checked' : ''} 
                         data-op="${op}"
-                        onchange="window.ModuloDashboard.toggleOperatorSelection('${op}', ${buenas}, ${pnc}, ${costoPnc}, ${eficiencia}, ${dataOp.puntos || 0}, ${dataOp.tiempo_estandar || 0})">
+                        onchange="window.ModuloDashboard.toggleOperatorSelection('${op}', ${buenas}, ${pnc}, ${costoPnc}, ${eficiencia}, ${dataOp.puntos || 0}, ${dataOp.tiempo_estandar || 0}, '${detalleMix}')">
                 </td>
                 <td>
                     <div class="fw-bold">${op}</div>
@@ -905,8 +905,8 @@ window.ModuloDashboard = (function () {
             customClass: {
                 confirmButton: 'btn rounded-pill px-4 shadow-sm'
             },
-            width: '32em',
-            padding: '2rem'
+            width: window.innerWidth > 768 ? '32em' : '95%',
+            padding: window.innerWidth > 768 ? '2rem' : '1rem'
         });
     }
 
@@ -952,7 +952,7 @@ window.ModuloDashboard = (function () {
                 </div>
                 <div class="mt-2 text-muted small"><i class="fas fa-hand-pointer"></i> Haz clic en un operador para ver su detalle</div>
             `,
-            width: '36em',
+            width: window.innerWidth > 768 ? '36em' : '100%',
             showConfirmButton: true,
             confirmButtonText: 'Cerrar',
             confirmButtonColor: '#3b82f6'
@@ -1449,7 +1449,7 @@ window.ModuloDashboard = (function () {
                     </div>
                 </div>
             `,
-            width: '65em',
+            width: window.innerWidth > 768 ? '65em' : '100%',
             confirmButtonText: '<i class="fas fa-times me-2"></i> Cerrar Análisis',
             confirmButtonColor: '#334155',
             customClass: {
@@ -1458,7 +1458,7 @@ window.ModuloDashboard = (function () {
         });
     }
 
-    function toggleOperatorSelection(nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar) {
+    function toggleOperatorSelection(nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar, detalleMix = null) {
         const index = selectedOperators.findIndex(s => s.nombre === nombre);
         if (index > -1) {
             selectedOperators.splice(index, 1);
@@ -1473,7 +1473,7 @@ window.ModuloDashboard = (function () {
                 renderTablaPulido(lastJefaturaData?.profundo_pulido || {}); // Refrescar para desmarcar el checkbox
                 return;
             }
-            selectedOperators.push({ nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar });
+            selectedOperators.push({ nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar, detalleMix });
         }
 
         actualizarUIComparativa();
@@ -1511,6 +1511,30 @@ window.ModuloDashboard = (function () {
             const esGanadorPuntos = (op.puntos || 0) === maxPuntos && maxPuntos > 0;
             const esGanadorCalidad = op.costoPnc === minCosto;
 
+            // Procesar Mix para el Top 5
+            let mixHtml = '<div class="text-muted small py-2">Sin datos de referencias</div>';
+            if (op.detalleMix) {
+                const lines = op.detalleMix.split(/\\n|\n/).slice(0, 5); // Tomar solo los primeros 5
+                mixHtml = lines.map(l => {
+                    const parts = l.split(':');
+                    if (parts.length >= 4) {
+                        const ref = parts[0].trim().substring(0, 25); // Truncar si es muy largo
+                        const qty = parseFloat(String(parts[1]).replace(/[^0-9.-]/g, '')) || 0;
+                        const pts = parseFloat(String(parts[3]).replace(/[^0-9.-]/g, '')) || 0;
+                        return `
+                            <div class="d-flex justify-content-between align-items-center mb-1 pb-1 border-bottom border-light">
+                                <span style="font-size: 0.65rem; color: #475569;" class="text-truncate" title="${parts[0].trim()}">${ref}</span>
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="badge bg-light text-dark" style="font-size: 0.6rem;">${qty.toLocaleString()} pz</span>
+                                    <span class="badge bg-white text-primary border border-primary border-opacity-10" style="font-size: 0.6rem; min-width: 45px;">${Math.round(pts).toLocaleString()} pts</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    return '';
+                }).join('');
+            }
+
             const html = `
                 <div class="comparison-column ${esGanadorPuntos ? 'winner-column' : ''}">
                     ${esGanadorPuntos ? '<div class="winner-badge"><i class="fas fa-medal me-1"></i> Líder de Esfuerzo</div>' : ''}
@@ -1518,8 +1542,8 @@ window.ModuloDashboard = (function () {
                         <div class="comparison-avatar">
                             <i class="fas fa-user-ninja"></i>
                         </div>
-                        <h4 class="fw-bold text-dark mb-1">${op.nombre}</h4>
-                        <span class="text-muted small">Investigador de Pulido</span>
+                        <h4 class="fw-bold text-dark mb-1" style="font-size: 1.1rem;">${op.nombre}</h4>
+                        <span class="text-muted small">Experto en Pulido</span>
                     </div>
 
                     <div class="comparison-metric bg-light">
@@ -1535,17 +1559,16 @@ window.ModuloDashboard = (function () {
                         </div>
                     </div>
 
-                    <div class="comparison-metric">
-                        <div class="metric-row">
-                            <div class="metric-label-group">
-                                <div class="metric-icon"><i class="fas fa-clock text-info"></i></div>
-                                <span class="metric-label">Tiempo Est (min)</span>
-                            </div>
-                            <span class="metric-value">${(op.tiempoEstandar || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                    <div class="mb-3 px-3">
+                        <div class="text-uppercase text-secondary fw-bold mb-2" style="font-size: 0.65rem; letter-spacing: 0.05em;">
+                            <i class="fas fa-trophy text-info me-1"></i> Top 5 Referencias
+                        </div>
+                        <div class="bg-white rounded-2 p-2 shadow-sm border border-light">
+                            ${mixHtml}
                         </div>
                     </div>
 
-                    <div class="comparison-metric bg-light">
+                    <div class="comparison-metric">
                         <div class="metric-row">
                             <div class="metric-label-group">
                                 <div class="metric-icon"><i class="fas fa-hand-holding-usd text-danger"></i></div>
@@ -1553,16 +1576,25 @@ window.ModuloDashboard = (function () {
                             </div>
                             <span class="metric-value ${esGanadorCalidad ? 'metric-highlight text-success' : 'text-danger'}">${fmtMoney(op.costoPnc)}</span>
                         </div>
-                        <p class="text-muted mt-2 mb-0" style="font-size: 0.65rem;">${esGanadorCalidad ? 'Menor impacto económico ✨' : 'Costo por scrap generado'}</p>
                     </div>
 
-                    <div class="comparison-metric">
+                    <div class="comparison-metric bg-light">
                         <div class="metric-row">
                             <div class="metric-label-group">
                                 <div class="metric-icon"><i class="fas fa-chart-line text-success"></i></div>
                                 <span class="metric-label">Efectividad</span>
                             </div>
                             <span class="metric-value ${op.eficiencia === maxEfi ? 'metric-highlight' : ''}">${precisionEfi}%</span>
+                        </div>
+                    </div>
+
+                    <div class="comparison-metric">
+                        <div class="metric-row">
+                            <div class="metric-label-group">
+                                <div class="metric-icon"><i class="fas fa-clock text-info"></i></div>
+                                <span class="metric-label">Tiempo Est (min)</span>
+                            </div>
+                            <span class="metric-value" style="font-size: 1rem;">${(op.tiempoEstandar || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}'</span>
                         </div>
                     </div>
                 </div>
