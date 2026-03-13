@@ -817,38 +817,38 @@ window.ModuloDashboard = (function () {
                     const pts = parseFloat(String(parts[3]).replace(/[^0-9.-]/g, '')) || 0;
 
                     return `
-                        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                            <span class="fw-medium text-dark" style="font-size: 0.85rem;"><i class="fas fa-cube text-muted me-1"></i> Ref: ${ref}</span>
-                            <div class="d-flex align-items-center gap-1">
-                                <span class="badge bg-light text-secondary border-0" style="font-size: 0.75rem;">${qty.toLocaleString()} pz</span>
+                        <div class="d-flex flex-wrap flex-column flex-md-row justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
+                            <span class="fw-medium text-dark text-nowrap" style="font-size: 0.85rem;"><i class="fas fa-cube text-muted me-1"></i> Ref: ${ref}</span>
+                            <div class="d-flex align-items-center gap-1 flex-wrap">
+                                <span class="badge bg-light text-secondary border-0 text-nowrap" style="font-size: 0.75rem;">${qty.toLocaleString()} pz</span>
                                 <span class="text-muted small">×</span>
-                                <span class="badge bg-light text-secondary border-0" style="font-size: 0.75rem;">${unitPts.toLocaleString()} pts</span>
+                                <span class="badge bg-light text-secondary border-0 text-nowrap" style="font-size: 0.75rem;">${unitPts.toLocaleString()} pts</span>
                                 <span class="text-muted small">=</span>
-                                <span class="badge bg-white text-primary border-primary border-opacity-25 fw-bold" style="min-width: 65px; color: #3b82f6 !important;">${Math.round(pts).toLocaleString()} pts</span>
+                                <span class="badge bg-white text-primary border-primary border-opacity-25 fw-bold text-nowrap" style="min-width: 65px; color: #3b82f6 !important;">${Math.round(pts).toLocaleString()} pts</span>
                             </div>
                         </div>`;
                 } else if (parts.length >= 2) {
                     const ref = parts[0].trim();
                     const val = parts[1].trim();
                     return `
-                        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                            <span class="fw-medium text-dark"><i class="fas fa-cube text-muted me-2"></i> Ref: ${ref}</span>
-                            <span class="badge bg-light text-primary border">${val}</span>
+                        <div class="d-flex flex-wrap flex-column flex-md-row justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
+                            <span class="fw-medium text-dark text-nowrap"><i class="fas fa-cube text-muted me-2"></i> Ref: ${ref}</span>
+                            <span class="badge bg-light text-primary border text-nowrap">${val}</span>
                         </div>`;
                 }
                 return `<li>${l}</li>`;
             }).join('');
 
             extraHtml = `
-                <div class="mt-4 text-start">
+                < div class="mt-4 text-start" >
                     <h6 class="fw-bold text-uppercase text-secondary mb-3" style="font-size: 0.8rem; letter-spacing: 1px;">
                         <i class="fas fa-list-ol ms-1"></i> Referencias Trabajadas
                     </h6>
                     <div class="bg-white rounded-3 shadow-sm border p-3">
                         ${mixLines}
                     </div>
-                </div>
-            `;
+                </div >
+                `;
         }
 
         // Definir un color temático según el proceso
@@ -858,8 +858,8 @@ window.ModuloDashboard = (function () {
         Swal.fire({
             title: null, // Quitamos el título estándar para customizar el header completo
             html: `
-                <div class="modal-operador-custom">
-                    <!-- Cabecera Principal -->
+                < div class="modal-operador-custom" >
+                    < !--Cabecera Principal-- >
                     <div class="text-center mb-4">
                         <div class="d-inline-flex justify-content-center align-items-center rounded-circle mb-3 shadow-sm border" 
                              style="width: 70px; height: 70px; background-color: #f8fafc;">
@@ -871,14 +871,14 @@ window.ModuloDashboard = (function () {
                         </span>
                     </div>
 
-                    <!-- Insight Box (El tip del Bot) -->
+                    <!--Insight Box(El tip del Bot)-- >
                     <div class="p-3 bg-light rounded-3 border-start border-4 mb-4 shadow-sm text-start" style="border-left-color: #f59e0b !important;">
                         <p class="mb-0 fst-italic text-secondary small" style="line-height: 1.5;">
                             <i class="fas fa-lightbulb text-warning me-1"></i> "${insightStr}"
                         </p>
                     </div>
 
-                    <!-- Grid de Estadísticas Rápidas -->
+                    <!--Grid de Estadísticas Rápidas-- >
                     <div class="row g-2 mb-2 text-center">
                         <div class="col-6">
                             <div class="p-3 rounded-3" style="background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2);">
@@ -894,10 +894,10 @@ window.ModuloDashboard = (function () {
                         </div>
                     </div>
 
-                    <!-- Desglose de Mix -->
-                    ${extraHtml}
-                </div>
-            `,
+                    <!--Desglose de Mix-- >
+                ${extraHtml}
+                </div >
+                `,
             showConfirmButton: true,
             confirmButtonText: '<i class="fas fa-times me-1"></i> Cerrar Resumen',
             confirmButtonColor: '#334155', // Slate 700 para que sea sobrio
@@ -917,24 +917,24 @@ window.ModuloDashboard = (function () {
         let rowsHtml = ops.map((op, idx) => {
             const topProd = op.mix && op.mix[0] ? op.mix[0].prod : "N/A";
             // Usamos cuádruple backslash para que en el atributo HTML llegue como doble backslash (literal \n)
-            const detalleMixText = op.mix ? op.mix.slice(0, 5).map(p => `${p.prod}:${p.qty}:${p.u_pts || 1}:${p.pts || 0}`).join('\\\\n').replace(/'/g, "\\'") : '';
+            const detalleMixText = op.mix ? op.mix.slice(0, 5).map(p => `${p.prod}:${p.qty}:${p.u_pts || 1}:${p.pts || 0} `).join('\\\\n').replace(/'/g, "\\'") : '';
             const nombreEscaped = op.nombre.replace(/'/g, "\\'");
             const insightEscaped = (op.insight || "Sin insights disponibles para Inyección.").replace(/'/g, "\\'");
 
             return `
-                <tr style="cursor: pointer" onclick="ModuloDashboard.mostrarModalOperador('${nombreEscaped}', ${op.valor}, 'Inyección', '${insightEscaped}', '${detalleMixText}')">
+                < tr style = "cursor: pointer" onclick = "ModuloDashboard.mostrarModalOperador('${nombreEscaped}', ${op.valor}, 'Inyección', '${insightEscaped}', '${detalleMixText}')" >
                     <td class="ps-3"><span class="badge bg-light text-dark border">${idx + 1}</span></td>
                     <td class="text-start">
                         <div class="fw-bold">${op.nombre}</div>
                         <small class="text-muted">Expertiz: <span class="badge bg-info text-white">${topProd}</span></small>
                     </td>
                     <td class="text-center fw-bold text-success">${op.valor.toLocaleString()}</td>
-                </tr>
-            `;
+                </tr >
+                `;
         }).join('');
 
         Swal.fire({
-            title: `<i class="fas fa-users text-primary mb-2"></i><br>Todos los Operadores (Inyección)`,
+            title: `< i class="fas fa-users text-primary mb-2" ></i > <br>Todos los Operadores (Inyección)`,
             html: `
                 <div class="table-responsive" style="max-height: 400px;">
                     <table class="table table-hover align-middle small mb-0">
@@ -951,7 +951,7 @@ window.ModuloDashboard = (function () {
                     </table>
                 </div>
                 <div class="mt-2 text-muted small"><i class="fas fa-hand-pointer"></i> Haz clic en un operador para ver su detalle</div>
-            `,
+                `,
             width: window.innerWidth > 768 ? '36em' : '100%',
             showConfirmButton: true,
             confirmButtonText: 'Cerrar',
@@ -1412,7 +1412,7 @@ window.ModuloDashboard = (function () {
                     <td class="text-end pe-3 py-3 text-danger fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.04);">${formatNumber(item.f_unds)}</td>
                     <td class="text-end pe-4 py-3 text-success fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(item.money)}</td>
                 </tr>
-            `;
+                `;
         });
 
         Swal.fire({
@@ -1445,10 +1445,10 @@ window.ModuloDashboard = (function () {
                 </div>
                 <div class="mt-4 d-flex justify-content-between align-items-center gap-3">
                     <div class="p-3 bg-light rounded-2 flex-grow-1 text-start" style="font-size: 0.75rem; border-left: 4px solid #ef4444;">
-                         <strong>Definición:</strong> Estos datos representan productos que no pudieron ser entregados en ventas pasadas por falta de disponibilidad.
+                        <strong>Definición:</strong> Estos datos representan productos que no pudieron ser entregados en ventas pasadas por falta de disponibilidad.
                     </div>
                 </div>
-            `,
+                `,
             width: window.innerWidth > 768 ? '65em' : '100%',
             confirmButtonText: '<i class="fas fa-times me-2"></i> Cerrar Análisis',
             confirmButtonColor: '#334155',
@@ -1522,14 +1522,14 @@ window.ModuloDashboard = (function () {
                         const qty = parseFloat(String(parts[1]).replace(/[^0-9.-]/g, '')) || 0;
                         const pts = parseFloat(String(parts[3]).replace(/[^0-9.-]/g, '')) || 0;
                         return `
-                            <div class="d-flex justify-content-between align-items-center mb-1 pb-1 border-bottom border-light">
-                                <span style="font-size: 0.65rem; color: #475569;" class="text-truncate" title="${parts[0].trim()}">${ref}</span>
-                                <div class="d-flex align-items-center gap-1">
-                                    <span class="badge bg-light text-dark" style="font-size: 0.6rem;">${qty.toLocaleString()} pz</span>
-                                    <span class="badge bg-white text-primary border border-primary border-opacity-10" style="font-size: 0.6rem; min-width: 45px;">${Math.round(pts).toLocaleString()} pts</span>
-                                </div>
-                            </div>
-                        `;
+                <div class="d-flex justify-content-between align-items-center mb-1 pb-1 border-bottom border-light">
+                    <span style="font-size: 0.65rem; color: #475569;" class="text-truncate" title="${parts[0].trim()}">${ref}</span>
+                    <div class="d-flex align-items-center gap-1">
+                        <span class="badge bg-light text-dark" style="font-size: 0.6rem;">${qty.toLocaleString()} pz</span>
+                        <span class="badge bg-white text-primary border border-primary border-opacity-10" style="font-size: 0.6rem; min-width: 45px;">${Math.round(pts).toLocaleString()} pts</span>
+                    </div>
+                </div>
+                `;
                     }
                     return '';
                 }).join('');
@@ -1598,7 +1598,7 @@ window.ModuloDashboard = (function () {
                         </div>
                     </div>
                 </div>
-            `;
+                `;
             grid.insertAdjacentHTML('beforeend', html);
         });
 
