@@ -840,14 +840,14 @@ window.ModuloDashboard = (function () {
             }).join('');
 
             extraHtml = `
-                < div class="mt-4 text-start" >
+                <div class="mt-4 text-start">
                     <h6 class="fw-bold text-uppercase text-secondary mb-3" style="font-size: 0.8rem; letter-spacing: 1px;">
                         <i class="fas fa-list-ol ms-1"></i> Referencias Trabajadas
                     </h6>
                     <div class="bg-white rounded-3 shadow-sm border p-3">
                         ${mixLines}
                     </div>
-                </div >
+                </div>
                 `;
         }
 
@@ -858,8 +858,8 @@ window.ModuloDashboard = (function () {
         Swal.fire({
             title: null, // Quitamos el título estándar para customizar el header completo
             html: `
-                < div class="modal-operador-custom" >
-                    < !--Cabecera Principal-- >
+                <div class="modal-operador-custom">
+                    <!-- Cabecera Principal -->
                     <div class="text-center mb-4">
                         <div class="d-inline-flex justify-content-center align-items-center rounded-circle mb-3 shadow-sm border" 
                              style="width: 70px; height: 70px; background-color: #f8fafc;">
@@ -871,14 +871,14 @@ window.ModuloDashboard = (function () {
                         </span>
                     </div>
 
-                    <!--Insight Box(El tip del Bot)-- >
+                    <!-- Insight Box (El tip del Bot) -->
                     <div class="p-3 bg-light rounded-3 border-start border-4 mb-4 shadow-sm text-start" style="border-left-color: #f59e0b !important;">
                         <p class="mb-0 fst-italic text-secondary small" style="line-height: 1.5;">
                             <i class="fas fa-lightbulb text-warning me-1"></i> "${insightStr}"
                         </p>
                     </div>
 
-                    <!--Grid de Estadísticas Rápidas-- >
+                    <!-- Grid de Estadísticas Rápidas -->
                     <div class="row g-2 mb-2 text-center">
                         <div class="col-6">
                             <div class="p-3 rounded-3" style="background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2);">
@@ -894,9 +894,9 @@ window.ModuloDashboard = (function () {
                         </div>
                     </div>
 
-                    <!--Desglose de Mix-- >
+                    <!-- Desglose de Mix -->
                 ${extraHtml}
-                </div >
+                </div>
                 `,
             showConfirmButton: true,
             confirmButtonText: '<i class="fas fa-times me-1"></i> Cerrar Resumen',
