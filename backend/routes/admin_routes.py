@@ -339,9 +339,28 @@ def get_admin_dashboard_data():
                 "peores_productos_dinero": top_peores_d_dedup[:10],
                 "peores_productos_unidades": top_peores_u_dedup[:10],
                 "incumplimiento_unidades": sorted(inc_unidades, key=lambda x: x["unidades_fallidas"], reverse=True),
-                "incumplimiento_dinero": sorted(inc_dinero, key=lambda x: x["dinero_perdido"], reverse=True)
+                "incumplimiento_dinero": sorted(inc_dinero, key=lambda x: x["dinero_perdido"], reverse=True),
+                "incumplimiento_consolidado": [] # Se calcula abajo
             }
         }
+
+        # --- CONSOLIDACIÓN POR CLIENTE PARA PANEL GERENCIAL ---
+        consolidado_map = defaultdict(lambda: {"unidades": 0, "dinero": 0, "ano": ano_contexto})
+        for item in inc_unidades:
+            consolidado_map[item["cliente"]]["unidades"] += item["unidades_fallidas"]
+        for item in inc_dinero:
+            consolidado_map[item["cliente"]]["dinero"] += item["dinero_perdido"]
+            
+        inc_consolidado = []
+        for cli, vals in consolidado_map.items():
+            inc_consolidado.append({
+                "cliente": cli,
+                "unidades_fallidas": vals["unidades"],
+                "dinero_perdido": vals["dinero"],
+                "ano": vals["ano"]
+            })
+        
+        response_data["data"]["incumplimiento_consolidado"] = sorted(inc_consolidado, key=lambda x: x["unidades_fallidas"], reverse=True)
 
         # Guardar en cache
         ADMIN_DASHBOARD_CACHE[cache_key] = {"timestamp": _time.time(), "data": response_data}

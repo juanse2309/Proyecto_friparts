@@ -12,6 +12,8 @@ window.ModuloDashboard = (function () {
     let chartTopMejoresInst = null;
     let chartTopPeoresInst = null;
     let lastJefaturaData = null;
+    let inc_consolidado_original = [];
+    let currentIncSortMode = 'units'; // 'units' or 'money'
     let searchListenerAttached = false;
     let isInitialized = false;
     let isFetching = false;
@@ -253,11 +255,13 @@ window.ModuloDashboard = (function () {
 
                 if (lastJefaturaData.incumplimiento_unidades) {
                     inc_unidades_original = lastJefaturaData.incumplimiento_unidades;
-                    renderTablaIncumplimientoUnidades(inc_unidades_original);
                 }
                 if (lastJefaturaData.incumplimiento_dinero) {
                     inc_dinero_original = lastJefaturaData.incumplimiento_dinero;
-                    renderTablaIncumplimientoDinero(inc_dinero_original);
+                }
+                if (lastJefaturaData.incumplimiento_consolidado) {
+                    inc_consolidado_original = lastJefaturaData.incumplimiento_consolidado;
+                    renderTablaIncumplimientoConsolidada(inc_consolidado_original);
                 }
             }
             console.log("✅ Renderizado completado sin errores.");
@@ -649,33 +653,25 @@ window.ModuloDashboard = (function () {
 
                 console.log(`🔍 Filtrando por: "${term}"`);
 
-                // Determinar qué pestaña está activa para optimizar
-                const unitsTab = document.getElementById('units-tab');
-                const isUnitsActive = unitsTab ? unitsTab.classList.contains('active') : true;
-                const activeTbodyId = isUnitsActive ? 'incumplimiento-unidades-body' : 'incumplimiento-dinero-body';
+                const activeTbodyId = 'incumplimiento-consolidado-body';
 
                 // Filtrar Tablas vía Cache (Ultra performance)
                 const filtrarTablaPorNodos = (tbodyId) => {
                     const tbody = document.getElementById(tbodyId);
                     if (!tbody) return;
 
-                    if (!tableRowCache[tbodyId]) {
-                        tableRowCache[tbodyId] = Array.from(tbody.querySelectorAll('tr'));
-                    }
-
-                    const rows = tableRowCache[tbodyId];
-                    let count = 0;
-
-                    // Usar requestAnimationFrame para sincronizar con el refresco de pantalla
                     requestAnimationFrame(() => {
+                        const rows = tbody.querySelectorAll('tr');
+                        let count = 0;
+
                         rows.forEach((row, index) => {
                             const searchStr = row.getAttribute('data-search') || "";
                             const matches = !term || searchStr.indexOf(term) !== -1;
 
                             // Determinamos el estado objetivo
-                            const targetDisplay = matches ? (isFiltering ? '' : (index < 10 ? '' : 'none')) : 'none';
+                            const targetDisplay = matches ? (isFiltering ? '' : (index < 12 ? '' : 'none')) : 'none';
 
-                            // SOLO escribimos al DOM si el estado cambió (Ahorra mucho CPU)
+                            // SOLO escribimos al DOM si el estado cambió
                             if (row.style.display !== targetDisplay) {
                                 row.style.display = targetDisplay;
                             }
@@ -683,49 +679,33 @@ window.ModuloDashboard = (function () {
                             if (matches) count++;
                         });
 
-                        // Actualizar contador solo si es la activa
+                        // Actualizar contador
                         if (tbodyId === activeTbodyId) {
                             const countSpan = document.getElementById('bo-count');
                             if (countSpan) {
-                                if (!isFiltering) {
-                                    // Mostrar solo el conteo de la pestaña activa
-                                    countSpan.textContent = isUnitsActive ? inc_unidades_original.length : inc_dinero_original.length;
-                                } else {
-                                    countSpan.textContent = count;
-                                }
+                                countSpan.textContent = isFiltering ? count : inc_consolidado_original.length;
                             }
                         }
                     });
                 };
 
-                // SOLO filtrar la tabla que está visible actualmente
                 filtrarTablaPorNodos(activeTbodyId);
 
             } catch (err) {
                 console.error("❌ Error en filterIncumplimiento:", err);
             }
-        }, 600); // 600ms para permitir escritura fluida de códigos largos
+        }, 600);
 
         if (inputBusca && !searchListenerAttached) {
             inputBusca.addEventListener('input', filterIncumplimiento);
-
-            // También re-filtrar cuando cambias de pestaña para que el resultado sea coherente
-            const boTabs = document.querySelectorAll('#incumplimientoTabs button[data-bs-toggle="tab"]');
-            boTabs.forEach(tabEl => {
-                tabEl.addEventListener('shown.bs.tab', () => {
-                    console.log("🔄 Cambio de pestaña detectado, re-aplicando filtro...");
-                    filterIncumplimiento();
-                });
-            });
-
             searchListenerAttached = true;
-            console.log("✅ Event Listener del buscador y pestañas registrado");
+            console.log("✅ Event Listener del buscador registrado");
         }
 
         // ── PERSISTENCIA DE FILTROS (localStorage) ────────────────────────────
         const LS_DESDE = 'db_filtro_desde';
         const LS_HASTA = 'db_filtro_hasta';
-        const LS_TOGGLE = 'db_toggle_mode'; // 'money' | 'units'
+        const LS_TOGGLE = 'db_toggle_mode';
 
         const f_desde = document.getElementById('db-fecha-desde');
         const f_hasta = document.getElementById('db-fecha-hasta');
@@ -744,29 +724,85 @@ window.ModuloDashboard = (function () {
             f_hasta.addEventListener('change', () => localStorage.setItem(LS_HASTA, f_hasta.value));
         }
 
-        // Restaurar toggle $ / 📦
         const savedToggle = localStorage.getItem(LS_TOGGLE) || 'money';
-        // Aplicar estado guardado al toggle si existe
-        const toggleBtn = document.querySelector('[onclick*="toggleChartView"]') ||
-            document.querySelector('.btn-toggle-chart');
-        if (toggleBtn && savedToggle === 'units') {
-            // Simular click para poner en modo unidades
-            setTimeout(() => {
-                const tBtn = document.querySelector('[data-chart-mode]') ||
-                    document.querySelector('[onclick*="toggleChart"]');
-                if (tBtn) tBtn.click();
-            }, 800);
-        }
-
-        // Guardar toggle cada vez que se cambia
-        const origToggle = window.ModuloDashboard?.toggleChartView;
         window._db_toggleMode = savedToggle;
 
         cargarDatos();
-
-        // Comparativa Pulido ahora usa onclick inline en el HTML por seguridad
     }
 
+    function sortIncumplimiento(mode) {
+        currentIncSortMode = mode;
+
+        // Update Buttons UI
+        document.getElementById('btn-sort-units')?.classList.toggle('active', mode === 'units');
+        document.getElementById('btn-sort-money')?.classList.toggle('active', mode === 'money');
+
+        if (!inc_consolidado_original || inc_consolidado_original.length === 0) return;
+
+        let sorted = [...inc_consolidado_original];
+        if (mode === 'units') {
+            sorted.sort((a, b) => (b.unidades_fallidas || 0) - (a.unidades_fallidas || 0));
+        } else {
+            sorted.sort((a, b) => (b.dinero_perdido || 0) - (a.dinero_perdido || 0));
+        }
+
+        renderTablaIncumplimientoConsolidada(sorted);
+    }
+
+    /**
+     * Renderiza tabla consolidada de Incumplimiento (Panel Gerencial)
+     */
+    function renderTablaIncumplimientoConsolidada(data) {
+        try {
+            const tbody = document.getElementById('incumplimiento-consolidado-body');
+            const countSpan = document.getElementById('bo-count');
+            if (!tbody) return;
+
+            if (!Array.isArray(data)) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-muted small">Error en formato de datos.</td></tr>`;
+                return;
+            }
+
+            if (countSpan) countSpan.textContent = data.length;
+
+            let html = '';
+            data.forEach((item, index) => {
+                const cli = String(item.cliente || "S/N");
+                const units = Number(item.unidades_fallidas) || 0;
+                const money = Number(item.dinero_perdido) || 0;
+                const ano = String(item.ano || "-");
+
+                const searchIndex = `${cli} ${ano}`.toLowerCase().trim();
+                const displayStyle = (index < 12) ? '' : 'none'; // Show top 12 by default
+                const safeCli = cli.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+
+                html += `
+                    <tr class="table-row-hover" style="display: ${displayStyle}; cursor: pointer; transition: background-color 0.2s;" data-search="${searchIndex}" onclick="window.ModuloDashboard.mostrarDetalleIncumplimiento('${safeCli}')">
+                        <td class="ps-4 py-2" style="font-size: 0.85rem;">
+                            <div class="fw-bold text-dark text-truncate" style="max-width: 300px;" title="${cli}">${cli}</div>
+                        </td>
+                        <td class="text-center text-danger fw-bold py-2" style="font-size: 0.95rem;">
+                            ${formatNumber(units)}
+                        </td>
+                        <td class="text-center text-success fw-bold py-2" style="font-size: 0.95rem;">
+                            ${formatCOP(money)}
+                        </td>
+                        <td class="text-center py-2">
+                             <span class="badge bg-light text-dark border" style="font-size: 0.75rem;">${ano}</span>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html || '<tr><td colspan="4" class="text-center py-4 text-muted">No hay registros de incumplimiento.</td></tr>';
+
+        } catch (e) {
+            console.error("❌ Error en renderTablaIncumplimientoConsolidada:", e);
+        }
+    }
+
+    /**
+     * Alterna la vista de las gráficas entre Dinero y Unidades
+     */
     function mostrarModalOperador(nombre, totalOks, proceso, insightStr, detalleMix = null, puntos = null) {
 
         let extraHtml = '';
@@ -1290,121 +1326,6 @@ window.ModuloDashboard = (function () {
     }
 
     /**
-     * Renderiza tabla de Incumplimiento por UNIDADES
-     */
-    function renderTablaIncumplimientoUnidades(data, isFiltering = false) {
-        try {
-            const tbody = document.getElementById('incumplimiento-unidades-body');
-            const countSpan = document.getElementById('bo-count');
-            if (!tbody) return;
-
-            if (!Array.isArray(data)) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-muted small">Error en formato de datos.</td></tr>`;
-                return;
-            }
-
-            try {
-                // Ordenar por fallo desc (mayor a menor) para ver problemas reales primero
-                const sorted = [...data].sort((a, b) => (Number(b.unidades_fallidas) || 0) - (Number(a.unidades_fallidas) || 0));
-
-                let html = '';
-                sorted.forEach((item, index) => {
-                    const cli = String(item.cliente || "S/N");
-                    const prod = String(item.producto || "Sin Referencia");
-                    const qty = Number(item.unidades_fallidas) || 0;
-                    const ano = String(item.ano || "-");
-
-                    // Indice de búsqueda pre-calculado para performance
-                    const searchIndex = `${cli} ${prod} ${ano}`.toLowerCase().trim();
-                    const displayStyle = (index < 10) ? '' : 'none';
-                    // Escapar comillas dobles y simples para no romper el onclick
-                    const safeCli = cli.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-
-                    html += `
-                        <tr class="table-row-hover" style="display: ${displayStyle}; cursor: pointer; transition: background-color 0.2s;" data-search="${searchIndex}" onclick="window.ModuloDashboard.mostrarDetalleIncumplimiento('${safeCli}', 'unidades')">
-                            <td class="ps-4 py-2" style="font-size: 0.85rem;">
-                                <div class="fw-bold text-dark text-truncate" style="max-width: 250px;" title="${cli}">${cli}</div>
-                            </td>
-                            <td class="py-2" style="font-size: 0.85rem;">
-                                <div class="text-muted text-truncate" style="max-width: 300px;" title="${prod}">${prod}</div>
-                            </td>
-                            <td class="text-center text-danger fw-bold py-2" style="font-size: 0.9rem;">
-                                ${formatNumber(qty)}
-                            </td>
-                            <td class="text-center py-2">
-                                 <span class="badge bg-light text-dark border" style="font-size: 0.75rem;">${ano}</span>
-                            </td>
-                        </tr>
-                    `;
-                });
-                tbody.innerHTML = html;
-            } catch (innerErr) {
-                console.error("❌ Error en loop renderTablaIncumplimientoUnidades:", innerErr);
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-3 text-warning">Error procesando registros.</td></tr>`;
-            }
-        } catch (e) {
-            console.error("❌ Error fatal renderTablaIncumplimientoUnidades:", e);
-        }
-    }
-
-    /**
-     * Renderiza tabla de Incumplimiento por DINERO (Impacto Financiero)
-     */
-    function renderTablaIncumplimientoDinero(data, isFiltering = false) {
-        try {
-            const tbody = document.getElementById('incumplimiento-dinero-body');
-            if (!tbody) return;
-
-            if (!Array.isArray(data)) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-muted small">Error en formato de datos.</td></tr>`;
-                return;
-            }
-
-            try {
-                // Ordenar por dinero desc (mayor a menor) para ver problemas reales primero
-                const sorted = [...data].sort((a, b) => (Number(b.dinero_perdido) || 0) - (Number(a.dinero_perdido) || 0));
-
-                let html = '';
-                sorted.forEach((item, index) => {
-                    const cli = String(item.cliente || "S/N");
-                    const prod = String(item.producto || "Sin Referencia");
-                    const money = Number(item.dinero_perdido) || 0;
-                    const ano = String(item.ano || "-");
-
-                    // Indice de búsqueda pre-calculado para performance
-                    const searchIndex = `${cli} ${prod} ${ano}`.toLowerCase().trim();
-                    const displayStyle = (index < 10) ? '' : 'none';
-                    // Escapar comillas dobles y simples para no romper el onclick
-                    const safeCli = cli.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-
-                    html += `
-                        <tr class="table-row-hover" style="display: ${displayStyle}; cursor: pointer; transition: background-color 0.2s;" data-search="${searchIndex}" onclick="window.ModuloDashboard.mostrarDetalleIncumplimiento('${safeCli}', 'dinero')">
-                            <td class="ps-4 py-2" style="font-size: 0.85rem;">
-                                <div class="fw-bold text-dark text-truncate" style="max-width: 250px;" title="${cli}">${cli}</div>
-                            </td>
-                            <td class="py-2" style="font-size: 0.85rem;">
-                                <div class="text-muted text-truncate" style="max-width: 300px;" title="${prod}">${prod}</div>
-                            </td>
-                            <td class="text-center text-success fw-bold py-2" style="font-size: 0.9rem;">
-                                ${formatCOP(money)}
-                            </td>
-                             <td class="text-center py-2">
-                                  <span class="badge bg-light text-dark border" style="font-size: 0.75rem;">${ano}</span>
-                            </td>
-                        </tr>
-                    `;
-                });
-                tbody.innerHTML = html;
-            } catch (innerErr) {
-                console.error("❌ Error en loop renderTablaIncumplimientoDinero:", innerErr);
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-3 text-warning">Error procesando registros.</td></tr>`;
-            }
-        } catch (e) {
-            console.error("❌ Error fatal renderTablaIncumplimientoDinero:", e);
-        }
-    }
-
-    /**
      * Alterna la vista de las gráficas entre Dinero y Unidades
      */
     function toggleChartView(chartType, mode) {
@@ -1432,126 +1353,109 @@ window.ModuloDashboard = (function () {
         }
     }
 
-    function mostrarDetalleIncumplimiento(cliente, mode) {
+    function mostrarDetalleIncumplimiento(cliente) {
         if (!inc_unidades_original || !inc_dinero_original) return;
 
-        // Extraer los listados de este cliente en ambos universos
         const cliStr = (cliente || "").trim().toLowerCase();
         const f_unidades = inc_unidades_original.filter(d => (d.cliente || "").trim().toLowerCase() === cliStr);
         const f_dinero = inc_dinero_original.filter(d => (d.cliente || "").trim().toLowerCase() === cliStr);
 
-        // Crear un diccionario unificado por producto
         const mapProductos = {};
         const normalizeProd = p => (p || 'Sin Referencia').trim().toLowerCase();
 
         f_unidades.forEach(d => {
             const rawP = d.producto || 'Sin Referencia';
             const normP = normalizeProd(rawP);
-            if (!mapProductos[normP]) mapProductos[normP] = { prod: rawP, unds: {}, money: {} };
-            mapProductos[normP].unds = {
-                pedidos: Number(d.pedidos) || 0,
-                ventas: Number(d.ventas) || 0,
-                fallo: Number(d.unidades_fallidas) || 0
-            };
+            if (!mapProductos[normP]) {
+                mapProductos[normP] = { prod: rawP, p_unds: 0, v_unds: 0, f_unds: 0, money: 0 };
+            }
+            mapProductos[normP].p_unds += (Number(d.pedidos) || 0);
+            mapProductos[normP].v_unds += (Number(d.ventas) || 0);
+            mapProductos[normP].f_unds += (Number(d.unidades_fallidas) || 0);
         });
 
         f_dinero.forEach(d => {
             const rawP = d.producto || 'Sin Referencia';
             const normP = normalizeProd(rawP);
-            if (!mapProductos[normP]) mapProductos[normP] = { prod: rawP, unds: { pedidos: 0, ventas: 0, fallo: 0 }, money: {} };
-            mapProductos[normP].money = {
-                pedidos: Number(d.pedidos) || 0,
-                ventas: Number(d.ventas) || 0,
-                fallo: Number(d.dinero_perdido) || 0
-            };
+            if (!mapProductos[normP]) {
+                mapProductos[normP] = { prod: rawP, p_unds: 0, v_unds: 0, f_unds: 0, money: 0 };
+            }
+            mapProductos[normP].money += (Number(d.dinero_perdido) || 0);
         });
 
-        // Convertir a array y ordenar (menor a mayor)
-        let arrayProductos = Object.values(mapProductos);
-        arrayProductos.sort((a, b) => {
-            if (mode === 'unidades') return (Number(a.unds.fallo) || 0) - (Number(b.unds.fallo) || 0);
-            return (Number(a.money.fallo) || 0) - (Number(b.money.fallo) || 0);
-        });
+        const listado = Object.values(mapProductos).sort((a, b) => b.f_unds - a.f_unds);
+
+        if (listado.length === 0) {
+            Swal.fire("Información", `No hay detalle de faltantes para ${cliente}`, "info");
+            return;
+        }
 
         const decodedCliente = cliente.replace(/&quot;/g, '"');
-        document.getElementById('modal-inc-cliente').innerText = decodedCliente;
+        let rowsHtml = '';
+        let totP = 0, totV = 0, totF = 0, totM = 0;
 
-        const tbody = document.getElementById('modal-inc-tbody');
-        const tfoot = document.getElementById('modal-inc-tfoot');
-        let html = '';
+        listado.forEach((item, idx) => {
+            totP += item.p_unds;
+            totV += item.v_unds;
+            totF += item.f_unds;
+            totM += item.money;
 
-        let tp_u = 0, tv_u = 0, tf_u = 0;
-        let tp_d = 0, tv_d = 0, tf_d = 0;
+            const rowBg = idx % 2 === 0 ? 'rgba(248, 250, 252, 0.8)' : '#ffffff';
 
-        const fmtMoney = (v) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
-        const fmtUnit = (v) => formatNumber(v);
-
-        arrayProductos.forEach(item => {
-            tp_u += item.unds.pedidos || 0;
-            tv_u += item.unds.ventas || 0;
-            tf_u += item.unds.fallo || 0;
-
-            tp_d += item.money.pedidos || 0;
-            tv_d += item.money.ventas || 0;
-            tf_d += item.money.fallo || 0;
-
-            // Render dependiendo de qué pestaña se seleccionó
-            const pd_val = mode === 'unidades' ? fmtUnit(item.unds.pedidos || 0) : fmtMoney(item.money.pedidos || 0);
-            const vt_val = mode === 'unidades' ? fmtUnit(item.unds.ventas || 0) : fmtMoney(item.money.ventas || 0);
-            const df_val = mode === 'unidades' ? fmtUnit(item.unds.fallo || 0) : fmtMoney(item.money.fallo || 0);
-
-            // El equivalente "en el otro mundo"
-            const eq_text = mode === 'unidades'
-                ? `<span style="font-size: 0.75rem; color: #64748b;">Eqv: ${fmtMoney(item.money.fallo || 0)}</span>`
-                : `<span style="font-size: 0.75rem; color: #64748b;">Eqv: ${fmtUnit(item.unds.fallo || 0)} unds</span>`;
-
-            html += `
-                <tr style="border-bottom: 1px solid #f1f5f9; transition: background-color 0.2s;">
-                    <td style="padding: 14px 20px;">
-                        <div style="display: flex; align-items: flex-start;">
-                            <i class="fas fa-box text-slate-300 mt-1 me-3" style="color: #cbd5e1; font-size: 0.9rem;"></i>
-                            <div style="display: flex; flex-direction: column;">
-                                <span style="color: #334155; font-weight: 500; font-size: 0.85rem; line-height: 1.4;">${item.prod}</span>
-                                <span style="font-size: 0.7rem; color: #94a3b8; margin-top: 2px;">Resta bruta: ${mode === 'unidades' ? `${item.unds.pedidos || 0} - ${item.unds.ventas || 0}` : `${fmtMoney(item.money.pedidos || 0)} - ${fmtMoney(item.money.ventas || 0)}`}</span>
-                            </div>
-                        </div>
+            rowsHtml += `
+                <tr style="background-color: ${rowBg}; border-bottom: 1px solid #f1f5f9;">
+                    <td class="text-start ps-3 py-3" style="font-size: 0.85rem; width: 42%;">
+                        <div class="fw-bold text-slate-800">${item.prod}</div>
                     </td>
-                    <td class="text-center align-middle" style="padding: 14px 12px;">
-                        <span style="font-family: 'Inter', monospace; font-size: 0.95rem; color: #475569; font-weight: 500;">${pd_val}</span>
-                    </td>
-                    <td class="text-center align-middle" style="padding: 14px 12px;">
-                        <span style="font-family: 'Inter', monospace; font-size: 0.95rem; color: #10b981; font-weight: 500;">${vt_val}</span>
-                    </td>
-                    <td class="text-center align-middle" style="padding: 14px 12px;">
-                        <div style="display: flex; flex-direction: column; align-items: center;">
-                            <span style="font-family: 'Inter', monospace; font-size: 0.95rem; color: #ef4444; font-weight: 700; background: #fef2f2; padding: 4px 10px; border-radius: 6px;">${df_val}</span>
-                            <div style="margin-top: 4px;">${eq_text}</div>
-                        </div>
-                    </td>
+                    <td class="text-end pe-3 py-3 text-muted" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.p_unds)}</td>
+                    <td class="text-end pe-3 py-3 text-primary" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.v_unds)}</td>
+                    <td class="text-end pe-3 py-3 text-danger fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.04);">${formatNumber(item.f_unds)}</td>
+                    <td class="text-end pe-4 py-3 text-success fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(item.money)}</td>
                 </tr>
             `;
         });
 
-        tbody.innerHTML = html;
-
-        const t_pd = mode === 'unidades' ? fmtUnit(tp_u) : fmtMoney(tp_d);
-        const t_vt = mode === 'unidades' ? fmtUnit(tv_u) : fmtMoney(tv_d);
-        const t_df = mode === 'unidades' ? fmtUnit(tf_u) : fmtMoney(tf_d);
-        const t_eq = mode === 'unidades' ? `Eqv: ${fmtMoney(tf_d)}` : `Eqv: ${fmtUnit(tf_u)} unds`;
-
-        tfoot.innerHTML = `
-            <tr>
-                <td class="text-end" style="padding: 18px 20px; color: #64748b; font-weight: 600; font-size: 0.8rem; text-transform: uppercase;">Total Afectación:</td>
-                <td class="text-center" style="padding: 18px 12px; font-family: 'Inter', monospace; font-size: 1.05rem; color: #334155; font-weight: 700;">${t_pd}</td>
-                <td class="text-center" style="padding: 18px 12px; font-family: 'Inter', monospace; font-size: 1.05rem; color: #10b981; font-weight: 700;">${t_vt}</td>
-                <td class="text-center" style="padding: 18px 12px;">
-                    <span style="font-family: 'Inter', monospace; font-size: 1.1rem; color: #ef4444; font-weight: 800; display: block;">${t_df}</span>
-                    <span style="font-size: 0.8rem; color: #64748b; font-weight: 500;">${t_eq}</span>
-                </td>
-            </tr>
-        `;
-
-        document.getElementById('modal-detalle-incumplimiento').style.display = 'flex';
+        Swal.fire({
+            title: `<div class="mb-1"><i class="fas fa-history text-danger fs-3"></i></div><div style="font-size:1.25rem; font-weight:800; color: #1e293b;">KPI: Faltantes de Facturación</div><div class="text-muted small fw-normal">${decodedCliente}</div>`,
+            html: `
+                <div class="table-responsive border rounded-3" style="max-height: 520px; overflow-y: auto; position: relative;">
+                    <table class="table table-sm table-hover align-middle mb-0" style="min-width: 900px; border-collapse: separate; border-spacing: 0;">
+                        <thead style="position: sticky; top: 0; z-index: 20; background-color: #1e293b; color: #f8fafc;">
+                            <tr>
+                                <th class="text-start ps-3 py-3" style="font-size:0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: none;">REFERENCIA / PRODUCTO</th>
+                                <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">PEDIDO</th>
+                                <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">FACTURADO</th>
+                                <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">FALTANTE</th>
+                                <th class="text-end pe-4 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">IMPACTO ($)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                        </tbody>
+                        <tfoot style="position: sticky; bottom: 0; z-index: 20; background-color: #f8fafc; border-top: 2px solid #cbd5e1; box-shadow: 0 -4px 6px -1px rgb(0 0 0 / 0.1);">
+                            <tr class="fw-bolder">
+                                <td class="ps-3 py-3 text-uppercase" style="font-size: 0.8rem; color: #475569;">Total Consolidado Historico</td>
+                                <td class="text-end pe-3 py-3 text-dark" style="font-size: 1rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(totP)}</td>
+                                <td class="text-end pe-3 py-3 text-primary" style="font-size: 1rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(totV)}</td>
+                                <td class="text-end pe-3 py-3 text-danger" style="font-size: 1.1rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.06);">${formatNumber(totF)}</td>
+                                <td class="text-end pe-4 py-3 text-success" style="font-size: 1.1rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(totM)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div class="mt-4 d-flex justify-content-between align-items-center gap-3">
+                    <div class="p-3 bg-light rounded-2 flex-grow-1 text-start" style="font-size: 0.75rem; border-left: 4px solid #ef4444;">
+                         <strong>Definición:</strong> Estos datos representan productos que no pudieron ser entregados en ventas pasadas por falta de disponibilidad.
+                    </div>
+                </div>
+            `,
+            width: '65em',
+            confirmButtonText: '<i class="fas fa-times me-2"></i> Cerrar Análisis',
+            confirmButtonColor: '#334155',
+            customClass: {
+                confirmButton: 'btn rounded-pill px-5 py-2 fw-bold shadow-lg mt-2'
+            }
+        });
     }
 
     function toggleOperatorSelection(nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar) {
@@ -1596,9 +1500,7 @@ window.ModuloDashboard = (function () {
 
         grid.innerHTML = '';
 
-        // Determinar ganadores por categoría
         const maxPuntos = Math.max(...selectedOperators.map(o => o.puntos || 0));
-        const maxTiempo = Math.max(...selectedOperators.map(o => o.tiempoEstandar || 0));
         const minCosto = Math.min(...selectedOperators.map(o => o.costoPnc));
         const maxEfi = Math.max(...selectedOperators.map(o => o.eficiencia));
 
@@ -1620,7 +1522,6 @@ window.ModuloDashboard = (function () {
                         <span class="text-muted small">Investigador de Pulido</span>
                     </div>
 
-                    <!-- NUEVO: Comparativa de Puntos -->
                     <div class="comparison-metric bg-light">
                         <div class="metric-row">
                             <div class="metric-label-group">
@@ -1634,7 +1535,6 @@ window.ModuloDashboard = (function () {
                         </div>
                     </div>
 
-                    <!-- NUEVO: Tiempo Estándar -->
                     <div class="comparison-metric">
                         <div class="metric-row">
                             <div class="metric-label-group">
@@ -1645,7 +1545,6 @@ window.ModuloDashboard = (function () {
                         </div>
                     </div>
 
-                    <!-- Eficiencia de Calidad (Pérdida $) -->
                     <div class="comparison-metric bg-light">
                         <div class="metric-row">
                             <div class="metric-label-group">
@@ -1683,6 +1582,7 @@ window.ModuloDashboard = (function () {
         mostrarModalOperador: mostrarModalOperador,
         toggleChartView: toggleChartView,
         mostrarDetalleIncumplimiento: mostrarDetalleIncumplimiento,
+        sortIncumplimiento: sortIncumplimiento,
         toggleOperatorSelection,
         abrirModalComparativa
     };

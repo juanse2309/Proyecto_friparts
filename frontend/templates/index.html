@@ -799,10 +799,9 @@
                                     <div
                                         class="card-header bg-white border-bottom-0 pb-0 d-flex justify-content-between align-items-center mt-3 mx-2">
                                         <h5 class="card-title fw-bold text-danger mb-0" style="font-size: 1.2rem;">
-                                            <i class="fas fa-history me-2"></i>Análisis de Incumplimiento (Demanda
-                                            Insatisfecha)
+                                            <i class="fas fa-history me-2"></i>Análisis de Faltantes (Backorder)
                                             <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
-                                                title="Detalle de pedidos no despachados agrupados por cliente y producto (Dato Histórico General)."></i>
+                                                title="Detalle de productos facturados parcialmente o no enviados por agotamiento de stock (Backorder)."></i>
                                         </h5>
 
                                         <div class="d-flex align-items-center">
@@ -811,7 +810,15 @@
                                         </div>
                                     </div>
 
-                                    <div class="card-body mt-3">
+                                    <div class="card-body mt-2">
+                                        <!-- Texto Descriptivo (UX Improvement) -->
+                                        <p class="text-muted px-3 mb-3" style="font-size: 0.9rem;">
+                                            Este panel muestra el ranking de clientes con <strong>faltantes de
+                                                facturación</strong> (productos solicitados que no pudieron enviarse por
+                                            falta de inventario). Haga clic en un cliente para ver el detalle exacto por
+                                            referencia.
+                                        </p>
+
                                         <div class="row px-3">
                                             <!-- Buscador Izquierda -->
                                             <div class="col-12 col-md-5 mb-3">
@@ -823,95 +830,54 @@
                                                     <input type="text" id="buscador-incumplimiento"
                                                         class="form-control border-start-0 py-2 shadow-sm"
                                                         style="border-radius: 0 12px 12px 0;"
-                                                        placeholder="Buscar por cliente o referencia de producto...">
+                                                        placeholder="Buscar cliente...">
                                                 </div>
                                             </div>
-                                            <!-- Tabs Derecha -->
+                                            <!-- Controles de Ordenamiento -->
                                             <div class="col-12 col-md-7 mb-3">
-                                                <ul class="nav nav-pills nav-fill bg-light p-1 rounded-pill"
-                                                    id="incumplimientoTabs" role="tablist">
-                                                    <li class="nav-item" role="presentation">
-                                                        <button class="nav-link active rounded-pill fw-bold"
-                                                            id="units-tab" data-bs-toggle="tab"
-                                                            data-bs-target="#units-pane" type="button" role="tab"
-                                                            aria-controls="units-pane" aria-selected="true">
-                                                            <i class="fas fa-cubes me-2"></i> Impacto en Unidades
-                                                        </button>
-                                                    </li>
-                                                    <li class="nav-item" role="presentation">
-                                                        <button class="nav-link rounded-pill fw-bold" id="money-tab"
-                                                            data-bs-toggle="tab" data-bs-target="#money-pane"
-                                                            type="button" role="tab" aria-controls="money-pane"
-                                                            aria-selected="false">
-                                                            <i class="fas fa-dollar-sign me-2"></i> Impacto Financiero
-                                                            ($)
-                                                        </button>
-                                                    </li>
-                                                </ul>
+                                                <div class="d-flex gap-2 justify-content-md-end"
+                                                    id="incumplimientoSortButtons">
+                                                    <button
+                                                        class="btn btn-outline-danger btn-sm rounded-pill fw-bold active"
+                                                        id="btn-sort-units"
+                                                        onclick="window.ModuloDashboard.sortIncumplimiento('units')">
+                                                        <i class="fas fa-cubes me-1"></i> Impacto en Unidades
+                                                    </button>
+                                                    <button class="btn btn-outline-danger btn-sm rounded-pill fw-bold"
+                                                        id="btn-sort-money"
+                                                        onclick="window.ModuloDashboard.sortIncumplimiento('money')">
+                                                        <i class="fas fa-dollar-sign me-1"></i> Impacto Financiero ($)
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div class="tab-content mt-3" id="incumplimientoTabsContent">
-                                            <!-- Panel Unidades -->
-                                            <div class="tab-pane fade show active px-3" id="units-pane" role="tabpanel"
-                                                aria-labelledby="units-tab">
-                                                <div class="table-responsive"
-                                                    style="max-height: 480px; overflow-y: auto; border-radius: 12px;">
-                                                    <table class="table table-hover align-middle mb-0"
-                                                        id="tabla-incumplimiento-unidades">
-                                                        <thead class="bg-light"
-                                                            style="position: sticky; top: 0; z-index: 10;">
-                                                            <tr>
-                                                                <th class="ps-4 border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    CLIENTE</th>
-                                                                <th class="border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    REFERENCIA PRODUCTO</th>
-                                                                <th class="text-center border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    UNDS. NO DESPACHADAS</th>
-                                                                <th class="text-center border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    AÑO</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody id="incumplimiento-unidades-body">
-                                                            <!-- Contenido dinámico -->
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-
-                                            <!-- Panel Dinero -->
-                                            <div class="tab-pane fade px-3" id="money-pane" role="tabpanel"
-                                                aria-labelledby="money-tab">
-                                                <div class="table-responsive"
-                                                    style="max-height: 480px; overflow-y: auto; border-radius: 12px;">
-                                                    <table class="table table-hover align-middle mb-0"
-                                                        id="tabla-incumplimiento-dinero">
-                                                        <thead class="bg-light"
-                                                            style="position: sticky; top: 0; z-index: 10;">
-                                                            <tr>
-                                                                <th class="ps-4 border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    CLIENTE</th>
-                                                                <th class="border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    REFERENCIA PRODUCTO</th>
-                                                                <th class="text-center border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    VALOR PERDIDO ($)</th>
-                                                                <th class="text-center border-0 text-muted"
-                                                                    style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                    AÑO</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody id="incumplimiento-dinero-body">
-                                                            <!-- Contenido dinámico -->
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                        <div class="px-3">
+                                            <div class="table-responsive"
+                                                style="max-height: 480px; overflow-y: auto; border-radius: 12px; border: 1px solid #eee;">
+                                                <table class="table table-hover align-middle mb-0"
+                                                    id="tabla-incumplimiento-consolidada">
+                                                    <thead class="bg-light"
+                                                        style="position: sticky; top: 0; z-index: 10;">
+                                                        <tr>
+                                                            <th class="ps-4 border-0 text-muted"
+                                                                style="font-size: 0.75rem; text-transform: uppercase;">
+                                                                CLIENTE</th>
+                                                            <th class="text-center border-0 text-muted"
+                                                                style="font-size: 0.75rem; text-transform: uppercase;">
+                                                                TOTAL UNIDS. FALTANTES</th>
+                                                            <th class="text-center border-0 text-muted"
+                                                                style="font-size: 0.75rem; text-transform: uppercase;">
+                                                                TOTAL IMPACTO ($)</th>
+                                                            <th class="text-center border-0 text-muted"
+                                                                style="font-size: 0.75rem; text-transform: uppercase;">
+                                                                AÑO</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="incumplimiento-consolidado-body">
+                                                        <!-- Contenido dinámico -->
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </div>
                                     </div>
@@ -3711,7 +3677,7 @@
                 </button>
             </form>
             <div class="mt-3 text-muted" style="font-size: 0.8rem;">
-                v1.3.0 - FriParts
+                v1.5.0 - FriParts
             </div>
         </div>
     </div>
@@ -3734,41 +3700,41 @@
     </datalist>
 
     <!-- Scripts de utilería y comunes -->
-    <script src="/static/js/modules/utils.js?v=1.4.0"></script>
-    <script src="/static/js/modules/auth.js?v=1.3.0"></script>
+    <script src="/static/js/modules/utils.js?v=1.5.0"></script>
+    <script src="/static/js/modules/auth.js?v=1.5.0"></script>
 
-    <script src="/static/js/modules/ui_ux.js?v=1.4.0"></script>
+    <script src="/static/js/modules/ui_ux.js?v=1.5.0"></script>
 
     <!-- Módulo de UI y Validaciones -->
-    <script src="/static/js/modules/validation.js?v=1.3.0"></script>
-    <script src="/static/js/modules/touch-feedback.js?v=1.3.0"></script>
+    <script src="/static/js/modules/validation.js?v=1.5.0"></script>
+    <script src="/static/js/modules/touch-feedback.js?v=1.5.0"></script>
 
     <!-- Funcionalidades de Módulos (IMPORTANTE: ui_ux debe ir ANTES) -->
-    <script src="/static/js/modules/dashboard.js?v=1.3.0"></script>
+    <script src="/static/js/modules/dashboard.js?v=1.5.0"></script>
     <script>console.log("✅ dashboard.js cargado");</script>
-    <script src="/static/js/modules/inventario.js?v=1.3.0"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1.4.1"></script>
-    <script src="/static/js/modules/mes_control.js?v=1.0.0"></script>
-    <script src="/static/js/modules/pulido.js?v=1.4.1"></script>
-    <script src="/static/js/modules/ensamble.js?v=1.4.1"></script>
-    <script src="/static/js/modules/pnc.js?v=1.4.1"></script>
-    <script src="/static/js/modules/facturacion.js?v=1.3.0"></script>
-    <script src="/static/js/modules/reportes.js?v=1.3.0"></script>
-    <script src="/static/js/modules/mezcla.js?v=1.4.1"></script>
-    <script src="/static/js/modules/historial.js?v=1.3.0"></script>
+    <script src="/static/js/modules/inventario.js?v=1.5.0"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1.5.0"></script>
+    <script src="/static/js/modules/mes_control.js?v=1.5.0"></script>
+    <script src="/static/js/modules/pulido.js?v=1.5.0"></script>
+    <script src="/static/js/modules/ensamble.js?v=1.5.0"></script>
+    <script src="/static/js/modules/pnc.js?v=1.5.0"></script>
+    <script src="/static/js/modules/facturacion.js?v=1.5.0"></script>
+    <script src="/static/js/modules/reportes.js?v=1.5.0"></script>
+    <script src="/static/js/modules/mezcla.js?v=1.5.0"></script>
+    <script src="/static/js/modules/historial.js?v=1.5.0"></script>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 
-    <script src="/static/js/modules/pedidos.js?v=1.4.0"></script>
-    <script src="/static/js/modules/almacen.js?v=1.3.0"></script>
-    <script src="/static/js/modules/metals.js?v=1.3.1"></script>
-    <script src="/static/js/modules/portal_client.js?v=1.3.0"></script>
-    <script src="/static/js/modules/procura.js?v=1.4.0"></script>
-    <script src="/static/js/modules/rotacion.js?v=1.1.0"></script>
+    <script src="/static/js/modules/pedidos.js?v=1.5.0"></script>
+    <script src="/static/js/modules/almacen.js?v=1.5.0"></script>
+    <script src="/static/js/modules/metals.js?v=1.5.0"></script>
+    <script src="/static/js/modules/portal_client.js?v=1.5.0"></script>
+    <script src="/static/js/modules/procura.js?v=1.5.0"></script>
+    <script src="/static/js/modules/rotacion.js?v=1.5.0"></script>
 
     <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
-    <script src="/static/js/app.js?v=1.3.0"></script>
+    <script src="/static/js/app.js?v=1.5.0"></script>
     <script>console.log("✅ app.js cargado");</script>
     <!-- Script de inicialización -->
     <script>
