@@ -778,9 +778,11 @@ const AuthModule = {
                 console.warn(`🛑 ACCESO DENEGADO a ${pageId}. Redirigiendo a ${targetPage}...`);
                 if (!skipRedirect) this.navigateTo(targetPage);
             }
+        } else if (!skipRedirect) {
+            // Restore redirection for fresh logins where no page is active yet
+            console.log(`🎯 No hay página activa. Redirigiendo a landing por defecto: ${targetPage}`);
+            this.navigateTo(targetPage);
         }
-        // Eliminado el bloque else que forzaba redirección si no había página activa,
-        // esto causaba bugs al recargar (F5) antes de que app.js cargara la página.
 
         this.authorizedPages = allowedPages;
         return allowedPages; // Retornar para uso externo

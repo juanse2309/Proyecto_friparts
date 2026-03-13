@@ -812,12 +812,41 @@
 
                                     <div class="card-body mt-2">
                                         <!-- Texto Descriptivo (UX Improvement) -->
-                                        <p class="text-muted px-3 mb-3" style="font-size: 0.9rem;">
-                                            Este panel muestra el ranking de clientes con <strong>faltantes de
-                                                facturación</strong> (productos solicitados que no pudieron enviarse por
-                                            falta de inventario). Haga clic en un cliente para ver el detalle exacto por
-                                            referencia.
                                         </p>
+
+                                        <!-- Indicadores KPI Globales (Backorder) -->
+                                        <div class="row px-3 mb-4 g-3">
+                                            <div class="col-12 col-md-6">
+                                                <div
+                                                    class="p-3 rounded-4 shadow-sm border-start border-4 border-danger h-100 bg-white d-flex align-items-center justify-content-between">
+                                                    <div>
+                                                        <h6 class="text-secondary text-uppercase mb-1 fw-bold"
+                                                            style="font-size: 0.7rem; letter-spacing: 0.5px;">Gran Total
+                                                            Unidades Faltantes</h6>
+                                                        <h4 class="fw-extrabold mb-0 text-danger" id="bo-total-units">0
+                                                        </h4>
+                                                    </div>
+                                                    <div class="bg-danger bg-opacity-10 p-3 rounded-circle">
+                                                        <i class="fas fa-boxes text-danger fs-3"></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <div
+                                                    class="p-3 rounded-4 shadow-sm border-start border-4 border-success h-100 bg-white d-flex align-items-center justify-content-between">
+                                                    <div>
+                                                        <h6 class="text-secondary text-uppercase mb-1 fw-bold"
+                                                            style="font-size: 0.7rem; letter-spacing: 0.5px;">Gran Total
+                                                            Impacto Financiero ($)</h6>
+                                                        <h4 class="fw-extrabold mb-0 text-success" id="bo-total-money">
+                                                            $0</h4>
+                                                    </div>
+                                                    <div class="bg-success bg-opacity-10 p-3 rounded-circle">
+                                                        <i class="fas fa-dollar-sign text-success fs-3"></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
 
                                         <div class="row px-3">
                                             <!-- Buscador Izquierda -->
@@ -869,9 +898,6 @@
                                                             <th class="text-center border-0 text-muted"
                                                                 style="font-size: 0.75rem; text-transform: uppercase;">
                                                                 TOTAL IMPACTO ($)</th>
-                                                            <th class="text-center border-0 text-muted"
-                                                                style="font-size: 0.75rem; text-transform: uppercase;">
-                                                                AÑO</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody id="incumplimiento-consolidado-body">

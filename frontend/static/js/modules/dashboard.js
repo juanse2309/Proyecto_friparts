@@ -756,23 +756,35 @@ window.ModuloDashboard = (function () {
         try {
             const tbody = document.getElementById('incumplimiento-consolidado-body');
             const countSpan = document.getElementById('bo-count');
+
+            // Nuevos IDs para KPIs Globales
+            const kpiUnits = document.getElementById('bo-total-units');
+            const kpiMoney = document.getElementById('bo-total-money');
+
             if (!tbody) return;
 
             if (!Array.isArray(data)) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-muted small">Error en formato de datos.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="3" class="text-center py-4 text-muted small">Error en formato de datos.</td></tr>`;
                 return;
             }
 
             if (countSpan) countSpan.textContent = data.length;
+
+            // Cálculos Globales (Grand Totals) para el Jefe
+            let totalUnitsGlobal = 0;
+            let totalMoneyGlobal = 0;
 
             let html = '';
             data.forEach((item, index) => {
                 const cli = String(item.cliente || "S/N");
                 const units = Number(item.unidades_fallidas) || 0;
                 const money = Number(item.dinero_perdido) || 0;
-                const ano = String(item.ano || "-");
 
-                const searchIndex = `${cli} ${ano}`.toLowerCase().trim();
+                // Sumatoria
+                totalUnitsGlobal += units;
+                totalMoneyGlobal += money;
+
+                const searchIndex = `${cli}`.toLowerCase().trim();
                 const displayStyle = (index < 12) ? '' : 'none'; // Show top 12 by default
                 const safeCli = cli.replace(/'/g, "\\'").replace(/"/g, "&quot;");
 
@@ -787,13 +799,15 @@ window.ModuloDashboard = (function () {
                         <td class="text-center text-success fw-bold py-2" style="font-size: 0.95rem;">
                             ${formatCOP(money)}
                         </td>
-                        <td class="text-center py-2">
-                             <span class="badge bg-light text-dark border" style="font-size: 0.75rem;">${ano}</span>
-                        </td>
                     </tr>
                 `;
             });
-            tbody.innerHTML = html || '<tr><td colspan="4" class="text-center py-4 text-muted">No hay registros de incumplimiento.</td></tr>';
+
+            // Inyectar Totales Globales
+            if (kpiUnits) kpiUnits.textContent = formatNumber(totalUnitsGlobal);
+            if (kpiMoney) kpiMoney.textContent = formatCOP(totalMoneyGlobal);
+
+            tbody.innerHTML = html || '<tr><td colspan="3" class="text-center py-4 text-muted">No hay registros de incumplimiento.</td></tr>';
 
         } catch (e) {
             console.error("❌ Error en renderTablaIncumplimientoConsolidada:", e);
@@ -817,7 +831,7 @@ window.ModuloDashboard = (function () {
                     const pts = parseFloat(String(parts[3]).replace(/[^0-9.-]/g, '')) || 0;
 
                     return `
-                        <div class="d-flex flex-wrap flex-column flex-md-row justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
+                        <div class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
                             <span class="fw-medium text-dark text-nowrap" style="font-size: 0.85rem;"><i class="fas fa-cube text-muted me-1"></i> Ref: ${ref}</span>
                             <div class="d-flex align-items-center gap-1 flex-wrap">
                                 <span class="badge bg-light text-secondary border-0 text-nowrap" style="font-size: 0.75rem;">${qty.toLocaleString()} pz</span>
@@ -831,7 +845,7 @@ window.ModuloDashboard = (function () {
                     const ref = parts[0].trim();
                     const val = parts[1].trim();
                     return `
-                        <div class="d-flex flex-wrap flex-column flex-md-row justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
+                        <div class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
                             <span class="fw-medium text-dark text-nowrap"><i class="fas fa-cube text-muted me-2"></i> Ref: ${ref}</span>
                             <span class="badge bg-light text-primary border text-nowrap">${val}</span>
                         </div>`;
