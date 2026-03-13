@@ -72,10 +72,11 @@ def listar_parametros():
 @procura_bp.route('/listar_proveedores', methods=['GET'])
 def listar_proveedores():
     """
-    Lista los proveedores desde la hoja DB_PROVEEDORES.
+    Lista los proveedores con detalles completos desde la hoja DB_PROVEEDORES.
     """
     try:
         ahora = time.time()
+        # Cache de corta duración para permitir actualizaciones
         if PROVEEDORES_CACHE["data"] and (ahora - PROVEEDORES_CACHE["timestamp"] < PROVEEDORES_CACHE["ttl"]):
             return jsonify({"status": "success", "data": PROVEEDORES_CACHE["data"]}), 200
 
@@ -85,21 +86,33 @@ def listar_proveedores():
 
         registros = ws.get_all_records()
         proveedores = []
+        
         for r in registros:
-            # Asumimos que la hoja tiene una columna NOMBRE, PROVEEDOR o PROVEEDORES
-            nombre = str(r.get("PROVEEDORES", "") or r.get("NOMBRE", "") or r.get("PROVEEDOR", "")).strip()
-            if nombre:
-                proveedores.append(nombre)
+            # Extraer y limpiar campos según los encabezados solicitados
+            nombre = str(r.get("PROVEEDORES", "") or r.get("NOMBRE", "") or "").strip()
+            if not nombre: continue
 
-        # Hacerlos únicos y ordenados
-        proveedores = sorted(list(set(proveedores)))
+            proveedores.append({
+                "nombre": nombre,
+                "nit": str(r.get("NIT", "")).strip(),
+                "direccion": str(r.get("DIRECCIÓN", "") or r.get("DIRECCION", "")).strip(),
+                "contacto": str(r.get("PERSONA DE CONTACTO", "") or r.get("CONTACTO", "")).strip(),
+                "telefono": str(r.get("TELEFONO", "") or r.get("TELÉFONO", "")).strip(),
+                "correo": str(r.get("CORREO", "") or r.get("EMAIL", "")).strip(),
+                "proceso": str(r.get("PROCESO", "")).strip(),
+                "forma_pago": str(r.get("FORMA DE PAGO", "")).strip(),
+                "evaluacion": str(r.get("ULTIMA EVALUACIÓN", "") or r.get("EVALUACION", "")).strip()
+            })
+
+        # Ordenar por nombre
+        proveedores.sort(key=lambda x: x["nombre"])
 
         PROVEEDORES_CACHE["data"] = proveedores
         PROVEEDORES_CACHE["timestamp"] = ahora
 
         return jsonify({"status": "success", "data": proveedores}), 200
     except Exception as e:
-        logger.error(f"Error listando proveedores: {e}")
+        logger.error(f"Error listando proveedores detallados: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -156,67 +169,63 @@ def registrar_oc():
         rows_to_insert.append(row)
 
     try:
-        ws = gc.get_worksheet(Hojas.ORDENES_DE_COMPRA)
-        if not ws:
+        ws_oc = gc.get_worksheet(Hojas.ORDENES_DE_COMPRA)
+        if not ws_oc:
             return jsonify({"success": False, "error": f"Hoja {Hojas.ORDENES_DE_COMPRA} no encontrada"}), 500
 
-        # Primero, si es una OC existente, eliminamos los items anteriores para poder insertar los actualizados
-        # Como es complicado eliminar múltiples filas sueltas sin romper, vamos a buscar si "n_oc" ya existe
-        # Buscamos todas las filas donde la columna B (n_oc) coincida para borrarlas de abajo hacia arriba.
+        # 1. Calcular DELTA de stock antes de actualizar la OC
         n_oc_ref = items[0].get("n_oc", "")
-        
-        registros = ws.get_all_values()
-        
-        # Encuentra los indices (1-indexed) de las filas que corresponden a esta OC
-        filas_a_borrar = []
-        for i, r in enumerate(registros):
-            if len(r) > 1 and str(r[1]).strip() == str(n_oc_ref).strip():
-                filas_a_borrar.append(i + 1)
-        
-        # Eliminar las filas si existen (de abajo hacia arriba para no dañar índices)
-        for row_index in reversed(filas_a_borrar):
-            ws.delete_rows(row_index)
+        old_records = ws_oc.get_all_records()
+        old_qty_map = collections.defaultdict(int)
+        for r in old_records:
+            if str(r.get("N° OC", "")).strip() == str(n_oc_ref).strip():
+                prod_key = str(r.get("PRODUCTO", "")).strip().upper()
+                old_qty_map[prod_key] += int(r.get("CANTIDAD RECIBIDA", 0) or 0)
 
-        # Función de batch insert manual 
-        from flask import current_app
-        # append_rows_seguro(ws, rows_to_insert) -> Reemplazo por WS normal. Para seguro se puede usar direct ws.append_rows()
-        ws.append_rows(rows_to_insert, value_input_option='USER_ENTERED')
-        return jsonify({"success": True, "message": f"Orden {n_oc_ref} guardada excitoxamente."}), 200
+        new_qty_map = collections.defaultdict(int)
+        for it in items:
+            prod_key = str(it.get("producto", "")).strip().upper()
+            new_qty_map[prod_key] += int(it.get("cantidad_recibida", 0) or 0)
+
+        # 2. Eliminar filas antiguas
+        registros_values = ws_oc.get_all_values()
+        filas_a_borrar = [i + 1 for i, r in enumerate(registros_values) if len(r) > 1 and str(r[1]).strip() == str(n_oc_ref).strip()]
+        for row_index in reversed(filas_a_borrar):
+            ws_oc.delete_rows(row_index)
+
+        # 3. Insertar nuevas filas
+        ws_oc.append_rows(rows_to_insert, value_input_option='USER_ENTERED')
+
+        # 4. Actualizar STOCK_ACTUAL en PARAMETROS_INVENTARIO basado en el DELTA
+        ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+        if ws_param:
+            param_records = ws_param.get_all_records()
+            headers = ws_param.row_values(1)
+            col_stock = headers.index('STOCK_ACTUAL') + 1 if 'STOCK_ACTUAL' in headers else -1
+            col_contador = headers.index('CONTADOR_OC') + 1 if 'CONTADOR_OC' in headers else -1
+
+            for i, r in enumerate(param_records):
+                cod = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
+                row_idx = i + 2
+                
+                # Actualizar Stock
+                if cod in new_qty_map or cod in old_qty_map:
+                    delta = new_qty_map.get(cod, 0) - old_qty_map.get(cod, 0)
+                    if delta != 0 and col_stock > 0:
+                        current_s = int(r.get("STOCK_ACTUAL", 0) or 0)
+                        ws_param.update_cell(row_idx, col_stock, current_s + delta)
+                
+                # Incrementar contador si es producto nuevo en esta OC
+                # (Solo si pasamos de 0 items a N items para esta OC en la sesión)
+                if cod in new_qty_map and cod not in old_qty_map and col_contador > 0:
+                    val_c = int(r.get("CONTADOR_OC", 0) or 0)
+                    ws_param.update_cell(row_idx, col_contador, val_c + 1)
+
+        return jsonify({"success": True, "message": f"Orden {n_oc_ref} guardada y stock actualizado."}), 200
 
     except Exception as e:
-        logger.error(f"Error guardando órdenes de compra: {e}")
+        logger.error(f"Error guardando órdenes de compra y actualizando stock: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-    finally:
-        # Incrementar contador de frecuencia en PARAMETROS_INVENTARIO de forma asíncrona (opcional) o secuencial
-        try:
-            ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
-            if ws_param:
-                registros = ws_param.get_all_records()
-                # Mapeo de producto a fila (2-indexed)
-                mapeo_filas = {}
-                for i, r in enumerate(registros):
-                    codigo = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
-                    if codigo:
-                        mapeo_filas[codigo] = i + 2
-                
-                # Obtener indices de columnas
-                headers = ws_param.row_values(1)
-                col_contador = -1
-                if 'CONTADOR_OC' in headers:
-                    col_contador = headers.index('CONTADOR_OC') + 1
-                
-                if col_contador > 0:
-                    productos_unicos = set([str(item.get("producto", "")).strip().upper() for item in items])
-                    for prod in productos_unicos:
-                        if prod in mapeo_filas:
-                            row_idx = mapeo_filas[prod]
-                            valor_actual = 0
-                            try:
-                                valor_actual = int(ws_param.cell(row_idx, col_contador).value or 0)
-                            except: pass
-                            ws_param.update_cell(row_idx, col_contador, valor_actual + 1)
-        except Exception as ex:
-            logger.error(f"Error incrementando contador OC: {ex}")
 
 
 @procura_bp.route('/siguiente_oc', methods=['GET'])
@@ -326,24 +335,14 @@ def alertas_abastecimiento():
             if codigo:
                 catalogo[codigo] = {
                     "descripcion": str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")),
-                    "min": int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0)
+                    "min": int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0),
+                    "stock_actual": int(r.get("STOCK_ACTUAL", 0) or 0)
                 }
 
-        # 2. Sumar total CANTIDAD RECIBIDA por producto
-        ws_oc = gc.get_worksheet(Hojas.ORDENES_DE_COMPRA)
-        oc_records = ws_oc.get_all_records() if ws_oc else []
-
-        stock_recibido = collections.defaultdict(int)
-        for oc in oc_records:
-            prod_codigo = str(oc.get("PRODUCTO", "")).strip().upper()
-            cant_rec = int(oc.get("CANTIDAD RECIBIDA", 0) or 0)
-            if prod_codigo and cant_rec > 0:
-                stock_recibido[prod_codigo] += cant_rec
-
-        # 3. Generar Alertas
+        # 2. Generar Alertas basadas en STOCK_ACTUAL
         alertas = []
         for codigo, data in catalogo.items():
-            stock_actual = stock_recibido.get(codigo, 0)
+            stock_actual = data["stock_actual"]
             if stock_actual < data["min"]:
                 alertas.append({
                     "producto": codigo,
@@ -353,6 +352,8 @@ def alertas_abastecimiento():
                     "diferencia": data["min"] - stock_actual,
                     "semaforo": "ROJO" if stock_actual == 0 else "AMARILLO"
                 })
+
+        # 2. Sumar total CANTIDAD RECIBIDA por producto (Opcional: Podemos dejar la suma histórica si se quiere mostrar como dato informativo, pero el semáforo manda el real)
 
         alertas.sort(key=lambda x: x["diferencia"], reverse=True)
 

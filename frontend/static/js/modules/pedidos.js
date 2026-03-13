@@ -51,7 +51,7 @@ const ModuloPedidos = {
             window.ModuloUX.setupSmartEnter({
                 inputIds: [
                     'ped-fecha', 'ped-cliente', 'ped-pago', 'ped-descuento-global',
-                    'ped-producto', 'ped-cantidad', 'ped-precio'
+                    'ped-producto', 'ped-cantidad'
                 ],
                 actionBtnId: 'btn-agregar-item',
                 autocomplete: {

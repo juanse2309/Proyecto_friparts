@@ -49,13 +49,13 @@ const AuthModule = {
 
     // Matriz de Permisos
     permissions: {
-        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'COMERCIAL': ['pedidos', 'almacen'],
-        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura', 'rotacion'],
-        'INYECCION': ['inyeccion', 'mezcla'],
-        'PULIDO': ['pulido'],
+        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura'],
+        'INYECCION': ['dashboard', 'inyeccion', 'mezcla'],
+        'PULIDO': ['dashboard', 'pulido'],
         'ENSAMBLE': ['ensamble'],
         'ALISTAMIENTO': ['almacen'],
         'CLIENTE': ['portal-cliente'],
@@ -159,7 +159,9 @@ const AuthModule = {
             document.body.style.overflow = 'auto';
         }
 
-        this.applyPermissions(true);
+        // Only auto-apply/redirect if estamos en el boot normal, 
+        // pero app.js ahora toma el control del primer renderizado.
+        this.applyPermissions();
     },
     openStaffLogin: function (type = 'FRIPARTS') {
         this.currentStaffType = type;
@@ -491,101 +493,38 @@ const AuthModule = {
 
         console.log(`👤 Usuario Logueado: ${user.nombre} (${user.rol})`);
 
-        // DISPATCH EVENT: User Ready (Fix Race Condition)
-        window.dispatchEvent(new CustomEvent('user-ready', { detail: user }));
+        // DISPATCH EVENT: User Ready (Solo uno para evitar duplicidad)
         document.dispatchEvent(new CustomEvent('user-ready', { detail: user }));
 
-        // REDIRECCIÓN INMEDIATA para clientes (antes de cargar dashboard)
+        // REDIRECCIÓN INMEDIATA para clientes
         if (user.rol === 'Cliente') {
             console.log('🔄 Cliente detectado - Redirigiendo a portal-cliente...');
             this.navigateTo('portal-cliente');
-            return; // No ejecutar el resto
+            return;
         }
 
         this.updateProfileUI();
         this.applyPermissions();
 
-        // 6. Verificar si Nathalia Lopez entra (HACK DE PERMISOS PARA NATHALIA)
+        // 6. Verificar si Nathalia Lopez entra
         if (user.nombre && user.nombre.toUpperCase().includes("NATHALIA")) {
             console.log("⭐ Detectada Nathalia Lopez - Otorgando privilegios adicionales.");
             const userRoleUpper = this.normalizeRole(user.rol);
-            // Si su rol no es Admin, forzar permisos comerciales/pedidos
             if (userRoleUpper !== 'ADMINISTRACION' && userRoleUpper !== 'ADMINISTRADOR' && userRoleUpper !== 'COMERCIAL') {
-                // Podríamos cambiar su rol dinámicamente o añadir a sus permisos
-                const permisosExtra = ['pedidos', 'almacen', 'historial'];
+                const permisosExtra = ['pedidos', 'almacen', 'inyeccion'];
                 permisosExtra.forEach(p => {
                     const normalizedRole = userRoleUpper;
                     if (this.permissions[normalizedRole] && !this.permissions[normalizedRole].includes(p)) {
                         this.permissions[normalizedRole].push(p);
                     }
                 });
-                this.applyPermissions(); // Re-apply
+                this.applyPermissions();
             }
         }
 
-        // Si es cliente, mostrar mensaje diferente o nada
         if (user.rol !== 'Cliente') {
             this.showWelcomeMessage(user);
             this.autoFillForms();
-        }
-
-        // Re-iniciar modulo actual después del login
-        // Esperar a que los datos compartidos estén listos antes de re-inicializar
-        const reiniciarModulo = () => {
-            // Intentar obtener página actual del estado, del hash o fallback a dashboard
-            let currentPage = window.AppState?.paginaActual;
-            if (!currentPage) {
-                const hash = window.location.hash.replace('#', '');
-                if (hash && document.getElementById(`${hash}-page`)) {
-                    currentPage = hash;
-                }
-            }
-            if (!currentPage) currentPage = 'dashboard';
-
-            console.log(`🔄 Re-inicializando página ${currentPage} después del login...`);
-
-            // Usar cargarPagina para re-inicializar completamente
-            if (typeof window.cargarPagina === 'function') {
-                window.cargarPagina(currentPage, false);
-            } else {
-                // Fallback: llamar inicializar directamente
-                const modulos = {
-                    'inventario': window.ModuloInventario,
-                    'inyeccion': window.ModuloInyeccion,
-                    'pulido': window.ModuloPulido,
-                    'ensamble': window.ModuloEnsamble,
-                    'pnc': window.ModuloPNC,
-                    'facturacion': window.ModuloFacturacion,
-                    'mezcla': window.ModuloMezcla,
-                    'historial': window.ModuloHistorial,
-                    'pedidos': window.ModuloPedidos,
-                    'almacen': window.AlmacenModule
-                };
-                const modulo = modulos[currentPage];
-                if (modulo?.inicializar) modulo.inicializar();
-            }
-        };
-
-        // Si los datos compartidos ya están cargados, re-inicializar de inmediato
-        if (window.AppState?.sharedData?.productos?.length > 0) {
-            reiniciarModulo();
-        } else {
-            // Esperar a que cargarDatosCompartidos termine (máx 3s)
-            console.log('⏳ Esperando datos compartidos antes de re-inicializar módulo...');
-            const checkInterval = setInterval(() => {
-                if (window.AppState?.sharedData?.productos?.length > 0) {
-                    clearInterval(checkInterval);
-                    reiniciarModulo();
-                }
-            }, 300);
-            // Timeout de seguridad: re-inicializar de todos modos tras 3s
-            setTimeout(() => {
-                clearInterval(checkInterval);
-                if (!window.AppState?.sharedData?.productos?.length) {
-                    console.warn('⚠️ Datos compartidos no cargaron en 3s, re-inicializando de todos modos...');
-                }
-                reiniciarModulo();
-            }, 3000);
         }
     },
 
@@ -625,7 +564,10 @@ const AuthModule = {
                 this.hideLandingScreen(); // Ocultar landing
                 this.closeLoginModal();
                 this.updateProfileUI();
-                this.applyPermissions(); // Esto redirigira a la pagina correcta si la actual no es valida
+
+                // CRÍTICO: No redirigir inmediatamente en el boot inicial
+                // El control de la primera página lo tendrá app.js
+                this.applyPermissions(false, true); // isLogin=false, skipRedirect=true
 
                 if (user.tipo === 'STAFF') {
                     this.autoFillForms();
@@ -677,7 +619,7 @@ const AuthModule = {
         }
     },
 
-    applyPermissions: function (isLogin = false) {
+    applyPermissions: function (isLogin = false, skipRedirect = false) {
         if (!this.currentUser) return;
 
         const role = this.normalizeRole(this.currentUser.rol || this.currentUser.role);
@@ -723,7 +665,7 @@ const AuthModule = {
             const forbiddenInMetals = [
                 'dashboard', 'inyeccion', 'pulido', 'ensamble', 'pnc',
                 'facturacion', 'mezcla', 'almacen', 'pedidos', 'reportes',
-                'admin-clientes', 'portal-cliente', 'procura', 'rotacion'
+                'admin-clientes', 'portal-cliente', 'procura'
             ];
 
             console.log("🚫 Filtrando módulos de FriParts en sesión de Metales...");
@@ -752,6 +694,11 @@ const AuthModule = {
 
             // NATALIA LOPEZ -> Alistamiento (Ya tiene 'almacen' por rol)
             // Solo asegurar que pueda delegar (se maneja en almacen.js)
+            if (nameNorm.includes('NATHALIA') || nameNorm.includes('NATALIA')) {
+                allowedPages = allowedPages.filter(p => p !== 'historial');
+                if (!allowedPages.includes('inyeccion')) allowedPages.push('inyeccion');
+                if (!allowedPages.includes('pedidos')) allowedPages.push('pedidos');
+            }
 
             // PAOLA y ZOENIA -> Bloquear Dashboard, Almacen, Facturacion y Mezcla
             if (nameNorm.includes('PAOLA') || nameNorm.includes('ZOENIA')) {
@@ -823,11 +770,11 @@ const AuthModule = {
             // Si la página actual no es permitida, redirigir
             if (!this.isPageAllowed(pageId)) {
                 console.warn(`🛑 ACCESO DENEGADO a ${pageId}. Redirigiendo a ${targetPage}...`);
-                this.navigateTo(targetPage);
+                if (!skipRedirect) this.navigateTo(targetPage);
             }
         } else {
             // Si no hay pagina activa, ir a target
-            this.navigateTo(targetPage);
+            if (!skipRedirect) this.navigateTo(targetPage);
         }
 
         this.authorizedPages = allowedPages;

@@ -22,6 +22,13 @@ window.ModuloMes = {
         await this.cargarDatos();
         this.initAutocomplete();
 
+        // Inicializar fecha de programación (visual)
+        const fechaProg = document.getElementById('mes-prog-fecha');
+        if (fechaProg) {
+            fechaProg.value = new Date().toISOString().split('T')[0];
+        }
+
+
         // Cargar máquina desde localStorage si existe
         if (this.maquinaSeleccionada) {
             const select = document.getElementById('mes-op-maquina-sel');
@@ -29,6 +36,11 @@ window.ModuloMes = {
                 select.value = this.maquinaSeleccionada;
                 this.cambiarMaquina(this.maquinaSeleccionada);
             }
+        }
+
+        // Aplicar Reglas Granulares de RBAC (Bloqueo de Pestañas)
+        if (typeof window.applyRBACRules === 'function') {
+            window.applyRBACRules();
         }
     },
 
@@ -524,15 +536,37 @@ window.ModuloMes = {
      * Busca los detalles técnicos de un producto (molde/cavidades) para autocompletar el form.
      */
     buscarDetallesProducto: async function (codigo) {
-        if (!codigo || codigo.length < 3) return;
+        if (!codigo || codigo.length < 3) {
+            const preview = document.getElementById('preview-producto');
+            if (preview) preview.innerHTML = '';
+            return;
+        }
 
         try {
             console.log(`🔍 [MES] Buscando detalles técnicos para: ${codigo}`);
+
+            const preview = document.getElementById('preview-producto');
+            if (preview) {
+                preview.innerHTML = `<div class="text-muted small"><i class="fas fa-spinner fa-spin"></i> Buscando producto...</div>`;
+            }
+
             const res = await fetchData(`/api/productos/detalle/${codigo}`);
 
             if (res && res.status === 'success' && res.producto) {
                 const p = res.producto;
                 console.log('✅ [MES] Detalles encontrados:', p);
+
+                if (preview) {
+                    preview.innerHTML = `
+                        <div class="alert alert-success d-flex align-items-center mb-0 p-2 border-0" style="background-color: #d1fae5; color: #065f46; border-radius: 8px;">
+                            <i class="fas fa-check-circle me-2 fs-5"></i>
+                            <div>
+                                <strong class="d-block" style="font-size: 0.85rem;">Producto Válido</strong>
+                                <span style="font-size: 0.75rem;">${p.descripcion || p.codigo_sistema}</span>
+                            </div>
+                        </div>
+                    `;
+                }
 
                 const moldeInput = document.getElementById('mes-prog-molde');
                 const cavInput = document.getElementById('mes-prog-cavidades');
@@ -544,13 +578,30 @@ window.ModuloMes = {
                 }
 
                 if (cavInput && p.cavidades) {
-                    cavInput.value = p.cavidades;
-                    cavInput.classList.add('is-valid');
-                    setTimeout(() => cavInput.classList.remove('is-valid'), 2000);
+                    // FIX BUG CAVIDADES: Solo sobreescribir si está vacío o en el default de 1
+                    if (cavInput.value === '1' || cavInput.value === '') {
+                        cavInput.value = p.cavidades;
+                        cavInput.classList.add('is-valid');
+                        setTimeout(() => cavInput.classList.remove('is-valid'), 2000);
+                    }
                 }
+            } else {
+                throw new Error("Producto no encontrado");
             }
         } catch (error) {
             console.warn('[MES] No se pudieron obtener detalles para auto-completar:', error);
+
+            const preview = document.getElementById('preview-producto');
+            if (preview) preview.innerHTML = '';
+
+            const productInput = document.getElementById('mes-prog-producto');
+            if (productInput) productInput.value = '';
+
+            Swal.fire({
+                icon: 'error',
+                title: 'Producto no encontrado',
+                text: `El código "${codigo}" no existe en el catálogo. Verifica e intenta nuevamente.`
+            });
         }
     },
 
@@ -707,17 +758,48 @@ window.ModuloMes = {
             return;
         }
 
-        // Si hay productos en la lista temporal, usamos la lista. 
-        // Si no, verificamos si hay algo en el input individual (para caso simple)
-        let productosParaEnviar = [...this.tempProductList];
+        const productosParaEnviar = this.tempProductList;
 
-        const codigoInput = document.getElementById('mes-prog-producto').value.trim();
-        if (codigoInput && productosParaEnviar.length === 0) {
-            productosParaEnviar.push({
-                codigo: codigoInput,
-                cavidades: parseInt(document.getElementById('mes-prog-cavidades').value) || 1,
-                molde: document.getElementById('mes-prog-molde').value.trim()
+        // NUEVO: Bloqueo estricto para productos no existentes Juan SEBASTIAN feedback
+        for (const p of productosParaEnviar) {
+            const pCodeNorm = p.codigo.replace(/[^0-9a-zA-Z]/g, '').toUpperCase();
+
+            let existe = (this.productos || []).some(prod => {
+                const prodCodeNorm = (prod.codigo || prod.codigo_sistema || '').replace(/[^0-9a-zA-Z]/g, '').toUpperCase();
+                return prodCodeNorm === pCodeNorm || prodCodeNorm.includes(pCodeNorm) || pCodeNorm.includes(prodCodeNorm);
             });
+
+            // Fallback: Si no está en el caché local de la vista, consultar la API real
+            if (!existe) {
+                try {
+                    const res = await fetchData(`/api/productos/detalle/${p.codigo}`);
+                    if (res && res.status === 'success' && res.producto) {
+                        existe = true;
+                    }
+                } catch (e) {
+                    console.warn('[MES] Fallback de validación falló:', e);
+                }
+            }
+
+            if (!existe) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Producto no existe',
+                    text: `El código "${p.codigo}" no está en el catálogo. Por favor verifícalo.`
+                });
+                return;
+            }
+        }
+
+        // NUEVO: Control de Concurrencia (Máquina Ocupada)
+        const maquinaData = (this.dashboardData || []).find(m => m.nombre === maquina);
+        if (maquinaData && maquinaData.estado !== 'LIBRE') {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Máquina Ocupada',
+                text: `La ${maquina} ya tiene una programación activa (${maquinaData.estado}). Libérala o espera a que termine antes de programar de nuevo.`
+            });
+            return;
         }
 
         if (productosParaEnviar.length === 0) {

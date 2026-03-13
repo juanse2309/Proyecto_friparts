@@ -6,8 +6,12 @@ const ModuloInyeccion = {
     productosData: [],
     responsablesData: [],
     items: [],
+    isInitialized: false,
+    isFetching: false,
+
     init: async function () {
-        console.log('🔧 [Inyeccion] Inicializando módulo Smart...');
+        if (this.isInitialized) return;
+        console.log('🔧 [Inyeccion] Inicializando...');
         await this.cargarDatos();
         this.configurarEventos();
         this.initAutocompleteProducto();
@@ -50,12 +54,17 @@ const ModuloInyeccion = {
         if (window.FormHelpers) {
             window.FormHelpers.registrarPersistencia('form-inyeccion');
         }
+
+        this.isInitialized = true;
     },
 
     cargarDatos: async function () {
+        if (this.isFetching) return;
         try {
+            this.isFetching = true;
+            if (typeof window.mostrarLoading === 'function') window.mostrarLoading(true);
+
             console.log('📦 [Inyeccion] Cargando datos...');
-            mostrarLoading(true);
 
             // 1. Cargar Responsables
             const responsables = await fetchData('/api/obtener_responsables');
@@ -81,10 +90,12 @@ const ModuloInyeccion = {
             const maquinas = await fetchData('/api/obtener_maquinas');
             this.actualizarSelect('maquina-inyeccion', maquinas);
 
-            mostrarLoading(false);
+            if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
         } catch (error) {
             console.error('Error [Inyeccion] cargarDatos:', error);
-            mostrarLoading(false);
+            if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
+        } finally {
+            this.isFetching = false;
         }
     },
 
@@ -254,7 +265,7 @@ const ModuloInyeccion = {
 
                 Swal.fire({
                     title: 'Familia de Productos Cargada',
-                    text: `Se han precargado ${dataProd.productos.length} productos del ${lote['MAQUINA']}. Por favor ingrese las Buenas (Real), PNC y Peso para cada uno en la tabla y presione Guardar.`,
+                    text: `Se han precargado ${dataProd.productos.length} productos del ${lote['MAQUINA']}. Por favor ingrese las Cantidades Reales, PNC y Peso para cada uno en la tabla y presione Guardar.`,
                     icon: 'info',
                     toast: true,
                     position: 'top-end',
@@ -521,6 +532,28 @@ const ModuloInyeccion = {
         const displayFormula = document.getElementById('formula-calc');
         const displayBuenas = document.getElementById('piezas-buenas');
 
+        // NUEVO: Alerta visual de proyección Juan Sebastian feedback
+        const projectionAlert = document.getElementById('inyeccion-proyeccion-alert');
+        if (projectionAlert) {
+            const diff = piezasBuenas - produccionTeorica;
+            const sign = diff >= 0 ? '+' : '';
+            const color = diff >= 0 ? '#10b981' : '#ef4444'; // verde emerald / rojo
+            const bgColor = diff >= 0 ? '#f0fdf4' : '#fef2f2';
+
+            projectionAlert.style.display = 'block';
+            projectionAlert.style.background = bgColor;
+            projectionAlert.style.border = `1px solid ${color}`;
+            projectionAlert.style.padding = '10px';
+            projectionAlert.style.borderRadius = '8px';
+            projectionAlert.style.marginTop = '10px';
+            projectionAlert.style.fontWeight = 'bold';
+            projectionAlert.style.color = color;
+            projectionAlert.innerHTML = `
+                <i class="fas ${diff >= 0 ? 'fa-check-circle' : 'fa-exclamation-triangle'}"></i> 
+                Proyectado: ${produccionTeorica} | Diferencia: <span style="font-size: 1.1rem">${sign}${diff}</span>
+            `;
+        }
+
         if (displayProduccion) {
             displayProduccion.textContent = piezasBuenas.toLocaleString();
         }
@@ -537,7 +570,7 @@ const ModuloInyeccion = {
         }
 
         if (displayBuenas) {
-            displayBuenas.textContent = `Buenas: ${piezasBuenas} | PNC: ${pnc}`;
+            displayBuenas.textContent = `Real: ${piezasBuenas} | PNC: ${pnc}`;
         }
     },
 
@@ -663,17 +696,10 @@ const ModuloInyeccion = {
                     <label class="form-label fw-bold">Criterio (Opcional)</label>
                     <select id="swal-pnc-crit" class="form-select">
                         <option value="">Selecciona un motivo...</option>
-                        <option value="Manchas" ${item.criterio_pnc === 'Manchas' ? 'selected' : ''}>Manchas</option>
-                        <option value="Incompleta" ${item.criterio_pnc === 'Incompleta' ? 'selected' : ''}>Incompleta</option>
-                        <option value="Rebaba" ${item.criterio_pnc === 'Rebaba' ? 'selected' : ''}>Rebaba</option>
-                        <option value="Quemada" ${item.criterio_pnc === 'Quemada' ? 'selected' : ''}>Quemada</option>
-                        <option value="Hundimiento" ${item.criterio_pnc === 'Hundimiento' ? 'selected' : ''}>Hundimiento</option>
-                        <option value="Chupon" ${item.criterio_pnc === 'Chupon' ? 'selected' : ''}>Chupón</option>
-                        <option value="Retenida" ${item.criterio_pnc === 'Retenida' ? 'selected' : ''}>Retenida en Molde</option>
-                        <option value="Contaminacion" ${item.criterio_pnc === 'Contaminacion' ? 'selected' : ''}>Contaminación</option>
-                        <option value="Troquelado" ${item.criterio_pnc === 'Troquelado' ? 'selected' : ''}>Mal Troquelado</option>
-                        <option value="Color" ${item.criterio_pnc === 'Color' ? 'selected' : ''}>Problema Color</option>
-                        <option value="Otro" ${item.criterio_pnc === 'Otro' ? 'selected' : ''}>Otro</option>
+                        <option value="ESCASO" ${item.criterio_pnc === 'ESCASO' ? 'selected' : ''}>Escaso</option>
+                        <option value="RECHUPE" ${item.criterio_pnc === 'RECHUPE' ? 'selected' : ''}>Rechupe</option>
+                        <option value="CONTAMINADO" ${item.criterio_pnc === 'CONTAMINADO' ? 'selected' : ''}>Contaminado</option>
+                        <option value="BUJE DE PRUEBA" ${item.criterio_pnc === 'BUJE DE PRUEBA' ? 'selected' : ''}>Buje de Prueba</option>
                     </select>
                 </div>
             `,
@@ -751,7 +777,7 @@ const ModuloInyeccion = {
                 </td>
                 <td class="text-center align-middle">
                     <div class="d-flex flex-column align-items-center">
-                        <small class="text-muted" style="font-size: 0.65rem;">Buenas</small>
+                        <small class="text-muted" style="font-size: 0.65rem;">Cant. Real</small>
                         <input type="number" min="0" class="form-control form-control-sm text-center mx-auto fw-bold text-success border-success" style="width: 85px;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
                     </div>
                 </td>
@@ -801,7 +827,7 @@ const ModuloInyeccion = {
 
         try {
             if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, true);
-            mostrarLoading(true);
+            mostrarLoading(true, 'Guardando datos y generando PDF...');
 
             // Datos comunes de turno
             const datosTurno = {
@@ -812,6 +838,9 @@ const ModuloInyeccion = {
                 hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
                 orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
+                // NUEVOS CAMPOS Juan Sebastian
+                entrada_manual: parseFloat(document.getElementById('inyeccion-entrada')?.value) || 0,
+                salida_manual: parseFloat(document.getElementById('inyeccion-salida')?.value) || 0,
                 peso_vela_maquina: parseFloat(document.getElementById('peso-vela-inyeccion')?.value) || 0,
                 id_programacion: document.getElementById('legacy-id-programacion')?.value || '',
                 almacen_destino: 'POR PULIR' // Hardcoded as requested
@@ -840,12 +869,23 @@ const ModuloInyeccion = {
             const resultado = await response.json();
 
             if (response.ok && resultado.success) {
+                let title = '¡Registrado!';
+                let text = `Lote de ${this.items.length} productos procesado correctamente.`;
+                let icon = 'success';
+
+                if (resultado.pdf_generated) {
+                    text += '\nPDF generado y subido a Drive exitosamente.';
+                } else {
+                    title = 'Registro Parcial';
+                    text += '\nAtención: Los datos se guardaron, pero ocurrió un error con el PDF: ' + (resultado.pdf_error || 'Error desconocido');
+                    icon = 'warning';
+                }
+
                 Swal.fire({
-                    title: '¡Registrado!',
-                    text: `Lote de ${this.items.length} productos procesado correctamente. El PDF se está generando en segundo plano y se subirá a Google Drive.`,
-                    icon: 'success',
-                    timer: 5000,
-                    showConfirmButton: true
+                    title: title,
+                    text: text,
+                    icon: icon,
+                    confirmButtonText: 'Entendido'
                 });
 
                 // Reiniciar todo

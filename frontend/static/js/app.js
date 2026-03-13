@@ -9,6 +9,13 @@ window.addEventListener('unhandledrejection', event => {
     console.error('🚨 Unhandled Promise Rejection:', event.reason);
 });
 
+// GLOBAL FIX: Prevenir que el scroll del ratón cambie los valores de los input type="number"
+document.addEventListener('wheel', function (event) {
+    if (document.activeElement.type === 'number') {
+        document.activeElement.blur();
+    }
+});
+
 window.AppState = {
     paginaActual: 'metals-dashboard',
     POWER_BI_URL: 'https://app.powerbi.com/view?r=eyJrIjoiZTBlYzc0MmUtNmVmZS00NDVjLWIwNTctMDY4NDA5MjEwNjk2IiwidCI6ImMwNmZiNTU5LTFiNjgtNGI4NC1hMTRmLTQ3ZDBkODM3YTVhYiIsImMiOjR9&pageName=baaf08bf7027114dad16',
@@ -25,8 +32,18 @@ window.AppState = {
 
 
 let datosCargados = false;
+let isSharedDataLoading = false;
+
 async function cargarDatosCompartidos() {
-    if (datosCargados) return; // Evitar múltiples cargas
+    if (datosCargados || isSharedDataLoading) return;
+
+    isSharedDataLoading = true;
+    const overlay = document.getElementById('loading-overlay');
+    const overlayText = document.getElementById('loading-overlay-text');
+
+    if (overlay) overlay.style.display = 'flex';
+    if (overlayText) overlayText.textContent = 'Trayendo datos de Sheets...';
+
     try {
         console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
 
@@ -99,11 +116,89 @@ async function cargarDatosCompartidos() {
         }
 
         datosCargados = true;
+
+        // Disparar evento de que los datos están listos para módulos que lo necesiten
+        document.dispatchEvent(new CustomEvent('shared-data-ready'));
     } catch (error) {
-        console.error('❌ CRITICAL ERROR en cargarDatosCompartidos:', error);
-        alert('Error conectando con el servidor. Revisa la consola (F12) y asegura que el backend esté corriendo.');
+        console.error('❌ Error en cargarDatosCompartidos:', error);
+    } finally {
+        isSharedDataLoading = false;
+        if (overlay) overlay.style.display = 'none';
     }
 }
+
+/**
+ * Apply Granular RBAC Overlays
+ */
+window.applyRBACRules = function () {
+    if (typeof AuthModule === 'undefined' || !AuthModule.currentUser) return;
+
+    const userRole = AuthModule.normalizeRole(AuthModule.currentUser.rol || AuthModule.currentUser.role);
+    const userName = (AuthModule.currentUser.nombre || AuthModule.currentUser.name || '').toUpperCase();
+
+    // Helper to apply overlay
+    const applyOverlay = (selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return;
+
+        // Ensure parent can handle absolute positioning of the overlay
+        if (window.getComputedStyle(el).position === 'static') {
+            el.style.position = 'relative';
+        }
+
+        el.classList.add('locked-overlay');
+        if (!el.querySelector('.locked-warning')) {
+            const warningDiv = document.createElement('div');
+            warningDiv.className = 'locked-warning';
+            warningDiv.innerHTML = `
+                 <i class="fas fa-lock fa-3x mb-3 text-secondary"></i>
+                 <h3 class="fw-bold">Acceso Restringido</h3>
+                 <p>Tu rol o departamento no tiene permisos para operar esta sección.</p>
+             `;
+            el.appendChild(warningDiv);
+        }
+    };
+
+    // Helper to remove overlay
+    const removeOverlay = (selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return;
+        el.classList.remove('locked-overlay');
+        const warning = el.querySelector('.locked-warning');
+        if (warning) warning.remove();
+    };
+
+    // Rule 1: Programación - Administración, Nathalia, OSCAR PRIETO (Solo Lectura)
+    const canAccessProg = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole) || userName.includes('NATHALIA LOPEZ');
+    const isOscarPrieto = userName.includes('OSCAR PRIETO');
+
+    if (canAccessProg) {
+        removeOverlay('#panel-programacion');
+        removeOverlay('#form-mes-programar'); // Para asegurarse de quitar el velo específico
+    } else if (isOscarPrieto) {
+        removeOverlay('#panel-programacion'); // Le permitimos ver todo el panel
+        applyOverlay('#form-mes-programar');  // Pero le bloqueamos SOLO el formulario
+    } else {
+        removeOverlay('#form-mes-programar'); // Nettoyer children overlays
+        applyOverlay('#panel-programacion');  // Bloqueo total
+    }
+
+    // Rule 2: Reporte Máquina - Inyección, Ensamble, Administración
+    const canAccessRep = ['INYECCION', 'ENSAMBLE', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
+    if (!canAccessRep) applyOverlay('#panel-operacion');
+    else removeOverlay('#panel-operacion');
+
+    // Rule 3: Validación - Auxiliar Inventario, Administración
+    const canAccessVal = ['AUXILIAR INVENTARIO', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
+    if (!canAccessVal) applyOverlay('#panel-legacy');
+    else removeOverlay('#panel-legacy');
+
+    // Rule 4: Procura - Administración, Compras y Auxiliar Inventario
+    const canAccessProcura = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'COMPRAS', 'AUXILIAR INVENTARIO'].includes(userRole);
+    if (!canAccessProcura) applyOverlay('#procura-page');
+    else removeOverlay('#procura-page');
+
+};
 
 /**
  * Cargar una página específica
@@ -145,8 +240,7 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'admin-clientes': window.ModuloAdminClientes,
         'metals-produccion': window.ModuloMetals,
         'metals-dashboard': window.ModuloMetals,
-        'procura': window.ModuloProcura,
-        'rotacion': window.ModuloRotacion
+        'procura': window.ModuloProcura
     };
 
     if (window.AppState.paginaActual) {
@@ -482,62 +576,87 @@ async function inicializarAplicacion() {
 
         // Escuchar evento de login para cargar datos si no estaban cargados
         document.addEventListener('user-ready', async () => {
-            console.log('🔔 Evento user-ready recibido. Asegurando carga de datos...');
-            await cargarDatosCompartidos();
+            if (!datosCargados && !isSharedDataLoading) {
+                console.log('🔔 Evento user-ready: Cargando datos compartidos...');
+
+                // Asegurar que el overlay sea visible
+                const overlay = document.getElementById('loading-overlay');
+                if (overlay) overlay.style.display = 'flex';
+
+                await cargarDatosCompartidos();
+
+                // Reiniciar módulo actual SOLO cuando los datos estén listos
+                const activePage = document.querySelector('.page.active');
+                if (activePage) {
+                    const pageId = activePage.id.replace('-page', '');
+                    console.log(`🔌 Re-inicializando módulo [${pageId}] tras carga de datos...`);
+                    inicializarModulo(pageId);
+                }
+
+                // Ocultar overlay tras cargar todo
+                if (overlay) overlay.style.display = 'none';
+            }
         });
 
         // 5. Cargar página inicial (Dashboard o Hash)
-        // CORRECCIÓN CRÍTICA: Si AuthModule ya activó portal-cliente, no sobreescribir.
         const activePage = document.querySelector('.page.active');
         if (activePage && activePage.id === 'portal-cliente-page') {
-            console.log("🚀 Portal Cliente ya activo. Preservando...");
             const pageId = activePage.id.replace('-page', '');
             inicializarModulo(pageId);
-            console.log('✅ Aplicación inicializada correctamente (Portal Cliente preservado)');
             return;
         }
 
         const hashPage = window.location.hash.replace('#', '');
-        const division = window.AppState.user?.division || 'FRIPARTS';
+
+        // 1. IMPORTANTE: Obtener usuario para decidir página
+        const user = window.AppState.user || (sessionUser ? JSON.parse(sessionUser) : null);
+        const division = user?.division || 'FRIPARTS';
+        const role = user?.rol ? AuthModule.normalizeRole(user.rol) : null;
 
         // Intentar restaurar última página visitada desde localStorage
         let pageToLoad = null;
 
         if (hashPage && document.getElementById(`${hashPage}-page`)) {
             pageToLoad = hashPage;
-            console.log('📍 Cargando desde hash:', hashPage);
+            console.log('📍 Detectada intención de carga desde hash:', hashPage);
         } else if (division === 'FRIMETALS') {
-            // Juan Sebastian: Forzar aterrizaje en cuadrícula para Metales
             pageToLoad = 'metals-produccion';
-            console.log('🏭 Forzando landing de Metales (Grid):', pageToLoad);
+            console.log('🏭 Sugiriendo landing de Metales (Grid):', pageToLoad);
         } else {
-            // Restaurar última página visitada Juan Sebastian Request
             try {
                 const lastPage = localStorage.getItem('friparts_last_page');
                 if (lastPage && document.getElementById(`${lastPage}-page`)) {
                     pageToLoad = lastPage;
-                    console.log('💾 Restaurando última página visitada:', lastPage);
+                    console.log('💾 Detectada última página guardada:', lastPage);
                 }
             } catch (e) {
                 console.warn('No se pudo leer localStorage:', e);
             }
         }
 
-        if (pageToLoad) {
-            // Validar que la página esté permitida antes de cargarla
-            if (typeof AuthModule !== 'undefined' && !AuthModule.isPageAllowed(pageToLoad)) {
-                console.warn(`🛑 Página ${pageToLoad} no permitida. Dejando que AuthModule maneje la redirección.`);
-                // No llamamos a cargarPagina, AuthModule.applyPermissions se encargará tras inicializarse
-            } else {
-                cargarPagina(pageToLoad);
+        // 2. VALIDACIÓN DE SEGURIDAD (RBAC) ANTES DE CARGAR
+        // Si no hay usuario, AuthModule mostrará la landing
+        if (user) {
+            // Si no tenemos una página clara, o la página guardada/hash no es permitida
+            if (!pageToLoad || (typeof AuthModule !== 'undefined' && !AuthModule.isPageAllowed(pageToLoad))) {
+
+                // Fallback inteligente
+                if (division === 'FRIMETALS') pageToLoad = 'metals-produccion';
+                else if (role === 'CLIENTE') pageToLoad = 'portal-cliente';
+                else if (role === 'COMERCIAL') pageToLoad = 'pedidos';
+                else if (role === 'ALISTAMIENTO') pageToLoad = 'almacen';
+                else pageToLoad = 'inyeccion'; // Default production for FRIPARTS
+
+                // Re-verificar que el fallback es permitido (por si acaso)
+                if (typeof AuthModule !== 'undefined' && !AuthModule.isPageAllowed(pageToLoad)) {
+                    pageToLoad = AuthModule.authorizedPages?.[0] || 'dashboard';
+                }
             }
+
+            console.log('🎯 CARGANDO PÁGINA FINAL:', pageToLoad);
+            cargarPagina(pageToLoad);
         } else {
-            // Fallback default: Solo si está permitido, si no dejar que AuthModule decida
-            if (typeof AuthModule !== 'undefined' && AuthModule.isPageAllowed('dashboard')) {
-                cargarPagina('dashboard');
-            } else {
-                console.log('🛡️ Dashboard no permitido como inicio. Esperando a AuthModule.');
-            }
+            console.log('🛡️ Sin sesión activa. Esperando interacción en Landing Screen.');
         }
 
         console.log('✅ Aplicación inicializada correctamente');

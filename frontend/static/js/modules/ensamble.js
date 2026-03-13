@@ -295,7 +295,7 @@ async function registrarEnsamble() {
         const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
         const qty = parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1;
 
-        // Cálculo: (Bolsas * QTY) - PNC = Total Piezas Buenas
+        // Cálculo: (Bolsas * QTY) - PNC = Cantidad Real
         const totalPiezas = cantidadBolsas * qty;
         const cantidadReal = Math.max(0, totalPiezas - pnc);
 
@@ -618,7 +618,7 @@ function actualizarCalculoEnsamble() {
 
     if (displaySalida) displaySalida.textContent = formatNumber(ensamblesBuenos);
     if (formulaCalc) formulaCalc.textContent = `Bolsas: ${formatNumber(cantidadBolsas)} × QTY: ${qtyPerEnsamble} = ${formatNumber(totalPiezas)} piezas`;
-    if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalPiezas)} - PNC: ${pnc} = ${formatNumber(ensamblesBuenos)} buenas`;
+    if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalPiezas)} - PNC: ${pnc} = ${formatNumber(ensamblesBuenos)} Real`;
 }
 
 function formatNumber(num) {

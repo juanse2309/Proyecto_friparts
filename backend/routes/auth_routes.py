@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from backend.core.database import sheets_client
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
@@ -215,6 +215,11 @@ def login():
         if auth_success:
              rol = user_found.get("DEPARTAMENTO", "Invitado")
              print(f"🔐 Login Staff Index OK: {usuario_nombre} - Rol: {rol}")
+             
+             # Guardar rol en sesión
+             session['user'] = usuario_nombre
+             session['role'] = str(rol).lower()
+             
              return jsonify({
                  "success": True, 
                  "user": {
@@ -233,6 +238,20 @@ def login():
     except Exception as e:
         logger.error(f"Error in login: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+# ====================================================================
+
+@auth_bp.route('/api/auth/logout', methods=['POST'])
+def logout_staff():
+    """Logout general"""
+    session.clear()
+    return jsonify({"success": True, "message": "Sesión cerrada correctamente"}), 200
+
+@auth_bp.route('/api/auth/session/status', methods=['GET'])
+def get_session_status():
+    if 'role' in session:
+        return jsonify({'success': True, 'role': session['role'], 'user': session.get('user')}), 200
+    return jsonify({'success': False}), 401
 
 # ====================================================================
 # CLIENT AUTH (Portal B2B)

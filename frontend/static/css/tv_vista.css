@@ -39,11 +39,20 @@ body.tv-mode #almacen-page {
     display: block !important;
     visibility: visible !important;
     opacity: 1 !important;
-    position: relative !important;
+    position: fixed !important; /* Forzado a top de viewport */
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    overflow-y: auto !important;
     z-index: 5000 !important;
     background: #f1f5f9 !important;
-    padding: 1.5vh 1.5vw !important;
-    /* Compactado de 2vh 2vw */
+    padding: 1rem 1.5vw !important; /* Padding ajustado */
+    margin: 0 !important;
+}
+
+body.tv-mode #almacen-page #almacen-container {
+    margin-top: 0 !important; /* Eliminar margen superior en TV */
 }
 
 /* Título de Página */

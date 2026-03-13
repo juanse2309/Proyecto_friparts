@@ -45,11 +45,21 @@ def to_int_seguro(valor, default=0):
     try:
         if valor is None: return default
         if isinstance(valor, (int, float)): return int(valor)
-        s = str(valor).strip().replace(',', '')
+        # Limpiar separadores de miles (puntos y comas)
+        s = str(valor).strip().replace('.', '').replace(',', '')
         if s == '' or s.lower() == 'none': return default
         return int(float(s))
     except:
         return default
+
+def clean_currency(val):
+    if not val: return 0
+    try:
+        s = str(val).replace('$', '').replace('.', '').replace(',', '.').strip()
+        return float(s)
+    except ValueError:
+        return 0
+
 
 def parsear_fecha_dashboard(fecha_str):
     """Parsea DD/MM/YYYY o YYYY-MM-DD o objeto date/datetime"""
@@ -113,6 +123,7 @@ def obtener_metricas_bi():
     try:
         desde_str = request.args.get('desde')
         hasta_str = request.args.get('hasta')
+        nocache = request.args.get('nocache')
         
         desde = parsear_fecha_dashboard(desde_str) if desde_str else None
         hasta = parsear_fecha_dashboard(hasta_str) if hasta_str else None
@@ -120,10 +131,11 @@ def obtener_metricas_bi():
         cache_key = (str(desde), str(hasta))
         ahora = time.time()
         
-        if cache_key in DASHBOARD_COMPLEX_CACHE:
+        if nocache != '1' and cache_key in DASHBOARD_COMPLEX_CACHE:
             entry = DASHBOARD_COMPLEX_CACHE[cache_key]
             if ahora - entry["timestamp"] < 600:
-                return jsonify({"status": "success", "data": entry["data"]}), 200
+                print(f"DEBUG: Sirviendo /stats desde CACHE para {cache_key}")
+                return jsonify({"status": "success", "success": True, "data": entry["data"]}), 200
 
         # --- RECOPILACIÓN DE DATOS ---
         # 1. Inyección
@@ -138,13 +150,40 @@ def obtener_metricas_bi():
         ws_ped = gc.get_worksheet(Hojas.PEDIDOS)
         reg_ped = get_all_records_seguro(ws_ped)
         
+        # 3.5 Costos (Opcional, no fallar si no existe)
+        costos_map = {}
+        puntos_map = {}
+        tiempo_map = {}
+        faltan_costos_pnc = set()
+        try:
+            ws_costos = gc.get_worksheet("DB_COSTOS")
+            reg_costos = get_all_records_seguro(ws_costos)
+            for r in reg_costos:
+                ref = str(r.get("Referencia") or "").strip().upper()
+                c_tot_str = r.get("Costo total")
+                if c_tot_str is None:
+                    c_tot_str = r.get("Costo_total", 0)
+                cst = clean_currency(c_tot_str)
+                if ref: 
+                    costos_map[ref] = cst
+                    pts_str = str(r.get("Puntos_por_pieza") or r.get("Puntos por pieza") or 1.0)
+                    tmp_str = str(r.get("Tiempo_estandar") or r.get("Tiempo estandar") or 0.0)
+                    try: puntos_map[ref] = float(pts_str)
+                    except: puntos_map[ref] = 1.0
+                    try: tiempo_map[ref] = float(tmp_str)
+                    except: tiempo_map[ref] = 0.0
+        except Exception as e:
+            logger.warning(f"No se pudo cargar DB_COSTOS para PNC: {e}")
+        
         # 4. PNC (Scrap)
         ws_pnc_iny = gc.get_worksheet(Hojas.PNC_INYECCION)
         ws_pnc_pul = gc.get_worksheet(Hojas.PNC_PULIDO)
-        ws_pnc_alm = gc.get_worksheet(Hojas.PNC_ENSAMBLE)
+        ws_pnc_ens = gc.get_worksheet(Hojas.PNC_ENSAMBLE)
+        ws_pnc_alm = gc.get_worksheet(Hojas.PNC)
         
         reg_pnc_iny = get_all_records_seguro(ws_pnc_iny)
         reg_pnc_pul = get_all_records_seguro(ws_pnc_pul)
+        reg_pnc_ens = get_all_records_seguro(ws_pnc_ens)
         reg_pnc_alm = get_all_records_seguro(ws_pnc_alm)
 
 
@@ -161,18 +200,31 @@ def obtener_metricas_bi():
                 "total_ok": 0, 
                 "total_pnc": 0, 
                 "operadores": collections.defaultdict(lambda: collections.defaultdict(int)),
-                "pnc_ops": collections.defaultdict(int)
+                "pnc_ops": collections.defaultdict(int),
+                "costo_pnc_ops": collections.defaultdict(float)
             },
             "pedidos": {"total_solicitado": 0},
-            "pnc_total": {"inyeccion": 0, "pulido": 0, "almacen": 0},
-            "pnc_almacen_detalle": collections.defaultdict(int),
+            "pnc_total": {"inyeccion": 0, "pulido": 0, "ensamble": 0, "almacen": 0},
+            "pnc_almacen_detalle": collections.defaultdict(lambda: {"cantidad": 0, "costo": 0}),
+            "perdida_calidad_dinero": 0,
             "tendencia": collections.defaultdict(lambda: {"inyeccion": 0, "pulido": 0})
         }
         
+        # Helper interno para totalizar el impacto monetario PNC
+        def sumar_perdida_pnc(producto, cantidad):
+            prod_clean = str(producto or "GENERICO").strip().upper()
+            if prod_clean not in costos_map and prod_clean != "GENERICO" and "SIN" not in prod_clean:
+                faltan_costos_pnc.add(prod_clean)
+            costo_unitario = costos_map.get(prod_clean, 0)
+            costo_lote = cantidad * costo_unitario
+            stats["perdida_calidad_dinero"] += costo_lote
+            return costo_lote
+
         # Mapeos auxiliares para unir PNC con operadoras de forma robusta
         id_pul_to_op = {}
         id_pul_to_date = {} 
         id_iny_to_date = {}
+        id_iny_to_prod = {}
 
 
 
@@ -198,9 +250,11 @@ def obtener_metricas_bi():
             
             if not op or op == "NONE": continue # Saneamiento
             
-            # Guardar relación ID -> Fecha para el PNC
+            # Guardar relación ID -> Fecha/Producto para el PNC
             id_iny = str(r.get("ID INYECCION") or "").strip()
-            if id_iny: id_iny_to_date[id_iny] = f_str
+            if id_iny: 
+                id_iny_to_date[id_iny] = f_str
+                id_iny_to_prod[id_iny] = prod
 
             stats["inyeccion"]["total_ok"] += ok
             stats["inyeccion"]["total_pnc"] += pnc
@@ -258,29 +312,45 @@ def obtener_metricas_bi():
             if not f_pnc and id_iny in id_iny_to_date:
                 f_pnc = id_iny_to_date[id_iny]
             
-            if not f_pnc or dentro_de_rango(f_pnc): 
-                stats["pnc_total"]["inyeccion"] += to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
+            if dentro_de_rango(f_pnc): 
+                cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
+                stats["pnc_total"]["inyeccion"] += cant
+                
+                prod_iny = id_iny_to_prod.get(id_iny, "GENERICO")
+                sumar_perdida_pnc(prod_iny, cant)
         
         for r in reg_pnc_pul:
             id_pul = str(r.get("ID PULIDO") or "").strip()
             op_pnc = id_pul_to_op.get(id_pul)
             f_pnc = r.get("FECHA") or r.get("fecha") or id_pul_to_date.get(id_pul) # Objeto date o str
             
-            if not f_pnc or dentro_de_rango(f_pnc): 
+            if dentro_de_rango(f_pnc): 
                 cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
+                prod_pnc = str(r.get("CODIGO", "") or "GENERICO").strip()
                 stats["pnc_total"]["pulido"] += cant
+                cost_lote = sumar_perdida_pnc(prod_pnc, cant)
                 if op_pnc:
                     stats["pulido"]["pnc_ops"][op_pnc] += cant
+                    stats["pulido"]["costo_pnc_ops"][op_pnc] += cost_lote
+
+        for r in reg_pnc_ens:
+            f_pnc = r.get("FECHA") or r.get("fecha")
+            if dentro_de_rango(f_pnc): 
+                cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
+                prod_pnc = str(r.get("CODIGO", "") or "GENERICO").strip()
+                stats["pnc_total"]["ensamble"] += cant
+                sumar_perdida_pnc(prod_pnc, cant)
 
         for r in reg_pnc_alm:
             f_pnc = r.get("FECHA") or r.get("fecha")
-            # El scrap de almacén (ensamble) suele tener fecha, si no, se cuenta
-            if not f_pnc or dentro_de_rango(f_pnc): 
+            if dentro_de_rango(f_pnc): 
                 cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
                 prod_pnc = str(r.get("ID CODIGO", "") or r.get("CODIGO ENSAMBLE", "") or r.get("ID PRODUCTO", "") or r.get("PRODUCTO", "") or r.get("CODIGO", "")).strip()
                 if not prod_pnc: prod_pnc = "Sin ID"
                 stats["pnc_total"]["almacen"] += cant
-                stats["pnc_almacen_detalle"][prod_pnc] += cant
+                cost_lote = sumar_perdida_pnc(prod_pnc, cant)
+                stats["pnc_almacen_detalle"][prod_pnc]["cantidad"] += cant
+                stats["pnc_almacen_detalle"][prod_pnc]["costo"] += cost_lote
 
 
 
@@ -298,24 +368,29 @@ def obtener_metricas_bi():
                 "pulido_ok": stats["pulido"]["total_ok"],
                 "pedidos_solicitado": stats["pedidos"]["total_solicitado"],
                 "cumplimiento_pct": fulfillment_rate,
+                "perdida_calidad_dinero": stats["perdida_calidad_dinero"],
                 "scrap_total": sum(stats["pnc_total"].values()),
                 "scrap_detalle": stats["pnc_total"],
-                "scrap_almacen_desglose": sorted([{"producto": k, "cantidad": v} for k, v in stats["pnc_almacen_detalle"].items()], key=lambda x: x["cantidad"], reverse=True)
+                "scrap_almacen_desglose": sorted([{"producto": k, "cantidad": v["cantidad"], "costo": v["costo"]} for k, v in stats["pnc_almacen_detalle"].items()], key=lambda x: x["cantidad"], reverse=True),
+                "faltan_costos_pnc": list(faltan_costos_pnc)
             },
             "rankings": {
                 "inyeccion_ops": sorted([
                     {
                         "nombre": op, 
                         "valor": sum(prods.values()), 
-                        "mix": sorted([{"prod": p, "qty": q} for p, q in prods.items()], key=lambda x: x["qty"], reverse=True),
+                        "mix": sorted([{"prod": p, "qty": q, "pts": q * puntos_map.get(p, 1.0), "u_pts": puntos_map.get(p, 1.0)} for p, q in prods.items()], key=lambda x: x["qty"], reverse=True),
                         "insight": f"Operador enfocado en: {sorted([{'prod': p, 'qty': q} for p, q in prods.items()], key=lambda x: x['qty'], reverse=True)[0]['prod'] if prods else 'Variado'}"
                     } for op, prods in stats["inyeccion"]["operadores"].items()
                 ], key=lambda x: x["valor"], reverse=True), # Removemos el [:10] para mandar todos
                 "pulido_profundo": {
                     op: {
-                        "mix": sorted([{"prod": p, "qty": q} for p, q in prods.items()], key=lambda x: x["qty"], reverse=True),
+                        "mix": sorted([{"prod": p, "qty": q, "pts": q * puntos_map.get(p, 1.0), "u_pts": puntos_map.get(p, 1.0)} for p, q in prods.items()], key=lambda x: x["qty"], reverse=True),
                         "buenas": sum(prods.values()),
+                        "puntos": sum([q * puntos_map.get(p, 1.0) for p, q in prods.items()]),
+                        "tiempo_estandar": sum([q * tiempo_map.get(p, 0.0) for p, q in prods.items()]),
                         "pnc": stats["pulido"]["pnc_ops"].get(op, 0),
+                        "costo_pnc": stats["pulido"]["costo_pnc_ops"].get(op, 0),
                         "insight": f"Especialista destacado en este rango, produciendo principalmente: {sorted([{'prod': p, 'qty': q} for p, q in prods.items()], key=lambda x: x['qty'], reverse=True)[0]['prod'] if prods else 'Variado'}"
                     } for op, prods in stats["pulido"]["operadores"].items()
                 }
@@ -351,15 +426,17 @@ def obtener_metricas_bi():
             insights.append(f"Líder de Inyección: {top_iny} es el operador más productivo del periodo.")
             
         if stats["pulido"]["operadores"]:
-            top_pul = max(stats["pulido"]["operadores"].items(), key=lambda x: sum(x[1].values()))[0]
-            insights.append(f"Líder de Pulido: {top_pul} mantiene el mayor volumen de piezas terminadas.")
+            top_pul = max(stats["pulido"]["operadores"].items(), key=lambda x: sum([q * puntos_map.get(p, 1.0) for p, q in x[1].items()]))[0]
+            insights.append(f"Líder de Pulido: {top_pul} mantiene el mayor puntaje de esfuerzo.")
 
         result_data["insights_ia"] = insights
         # Mantener retrocompatibilidad
-        result_data["insight_ia"] = insights[0] if insights else "Esperando datos..."
-
+        result_data["insight_ia"] = insights[0] if insights else "Esperando datos..." # Corrected line
+        # Cachear resultado
         DASHBOARD_COMPLEX_CACHE[cache_key] = {"data": result_data, "timestamp": ahora}
-        return jsonify({"status": "success", "data": result_data}), 200
+        
+        print("DEBUG: /stats procesado correctamente. Enviando datos.")
+        return jsonify({"status": "success", "success": True, "data": result_data}), 200
 
 
     except Exception as e:

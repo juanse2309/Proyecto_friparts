@@ -7,6 +7,53 @@ const ModuloProcura = {
     proveedoresData: [],
     itemsOC: [],
 
+    initAutocompleteProveedor: function () {
+        const input = document.getElementById('proveedor-oc');
+        const suggestionsDiv = document.getElementById('procura-proveedor-suggestions');
+        if (!input || !suggestionsDiv) return;
+
+        let debounceTimer;
+        input.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const query = e.target.value.trim().toLowerCase();
+            if (query.length < 2) {
+                suggestionsDiv.classList.remove('active');
+                return;
+            }
+
+            debounceTimer = setTimeout(() => {
+                const resultados = this.proveedoresData.filter(p =>
+                    (p.nombre || '').toLowerCase().includes(query)
+                ).slice(0, 10);
+
+                if (resultados.length > 0) {
+                    suggestionsDiv.innerHTML = resultados.map(p => `
+                        <div class="suggestion-item p-2 border-bottom" style="cursor:pointer">
+                            <strong>${p.nombre}</strong><br>
+                            <small class="text-muted">${p.nit || ''}</small>
+                        </div>
+                    `).join('');
+
+                    suggestionsDiv.querySelectorAll('.suggestion-item').forEach((div, idx) => {
+                        div.onclick = () => {
+                            input.value = resultados[idx].nombre;
+                            suggestionsDiv.classList.remove('active');
+                        };
+                    });
+                    suggestionsDiv.classList.add('active');
+                } else {
+                    suggestionsDiv.classList.remove('active');
+                }
+            }, 300);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.classList.remove('active');
+            }
+        });
+    },
+
     inicializar: async function () {
         console.log('📦 [Procura] Inicializando módulo...');
         await Promise.all([this.cargarParametros(), this.cargarProveedores()]);
@@ -38,6 +85,11 @@ const ModuloProcura = {
 
         // Inicializar ventana limpia de nueva orden
         this.nuevaOrden(false);
+
+        // Cargar prioridades de rotación consolidadas
+        if (window.ModuloRotacion && window.ModuloRotacion.cargarPrioridades) {
+            window.ModuloRotacion.cargarPrioridades();
+        }
     },
 
     cargarParametros: async function () {
@@ -68,10 +120,93 @@ const ModuloProcura = {
             if (data.status === 'success') {
                 this.proveedoresData = data.data;
                 console.log(`✅ [Procura] Proveedores cargados: ${this.proveedoresData.length}`);
+                this.renderDirectorioProveedores(this.proveedoresData);
             }
         } catch (error) {
             console.error('Error [Procura] fetching proveedores:', error);
         }
+    },
+
+    renderDirectorioProveedores: function (proveedores) {
+        const grid = document.getElementById('proveedores-grid');
+        const counter = document.getElementById('counter-proveedores');
+        if (!grid) return;
+
+        if (counter) counter.textContent = `${proveedores.length} Proveedores`;
+
+        if (proveedores.length === 0) {
+            grid.innerHTML = `
+                <div class="col-12 text-center py-5">
+                    <div class="p-4 bg-white rounded shadow-sm border">
+                        <i class="fas fa-search-minus fa-3x text-muted mb-3"></i>
+                        <h5>No se encontraron proveedores</h5>
+                        <p class="text-muted">Prueba con otros términos de búsqueda.</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        grid.innerHTML = proveedores.map(p => {
+            // Lógica de color para evaluación
+            let evalColor = 'bg-secondary';
+            const score = parseInt(p.evaluacion) || 0;
+            if (score >= 90) evalColor = 'bg-success';
+            else if (score >= 70) evalColor = 'bg-primary';
+            else if (score >= 50) evalColor = 'bg-warning text-dark';
+            else if (score > 0) evalColor = 'bg-danger';
+
+            return `
+                <div class="col-12 col-md-6 col-lg-4 col-xl-3">
+                    <div class="supplier-card shadow-sm border h-100">
+                        <div class="supplier-header d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="supplier-name" title="${p.nombre}">${p.nombre}</h6>
+                                <small class="text-muted" style="font-size: 0.75rem;">NIT: ${p.nit || 'N/A'}</small>
+                            </div>
+                            <span class="badge ${evalColor} eval-badge rounded-pill shadow-sm">${p.evaluacion || 'N/E'}</span>
+                        </div>
+                        <div class="supplier-body">
+                            <div class="mb-3">
+                                <span class="supplier-badge proceso-tag d-inline-block mb-2" title="Proceso Principal">
+                                    <i class="fas fa-microchip me-1"></i> ${p.proceso || 'No especificado'}
+                                </span>
+                            </div>
+                            <div class="supplier-info-item">
+                                <i class="fas fa-user-tie"></i>
+                                <span class="text-truncate" title="${p.contacto}">${p.contacto || 'Sin contacto'}</span>
+                            </div>
+                            <div class="supplier-info-item">
+                                <i class="fas fa-phone-alt"></i>
+                                <span>${p.telefono || 'Sin teléfono'}</span>
+                            </div>
+                            <div class="supplier-info-item">
+                                <i class="fas fa-envelope"></i>
+                                <span class="text-truncate" title="${p.correo}">${p.correo || 'Sin correo'}</span>
+                            </div>
+                            <div class="supplier-info-item mt-2 pt-2 border-top">
+                                <i class="fas fa-credit-card"></i>
+                                <small class="text-muted">${p.forma_pago || 'Pago: N/D'}</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    },
+
+    filtrarDirectorio: function (query) {
+        const q = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+        const filtrados = this.proveedoresData.filter(p => {
+            const nombre = (p.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const proceso = (p.proceso || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const contacto = (p.contacto || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+            return nombre.includes(q) || proceso.includes(q) || contacto.includes(q);
+        });
+
+        this.renderDirectorioProveedores(filtrados);
     },
 
     initAutocompleteProducto: function () {
@@ -147,56 +282,7 @@ const ModuloProcura = {
         container.classList.add('active');
     },
 
-    initAutocompleteProveedor: function () {
-        const input = document.getElementById('proveedor-oc');
-        if (!input) return;
 
-        // Crear contenedor para sugerencias dinámicamente
-        const container = document.createElement('div');
-        container.className = 'autocomplete-suggestions shadow-lg bg-white position-absolute w-100 mt-1 rounded border z-3';
-        container.id = 'procura-proveedor-suggestions';
-        container.style.display = 'none';
-        container.style.maxHeight = '200px';
-        container.style.overflowY = 'auto';
-        input.parentNode.insertBefore(container, input.nextSibling);
-        input.parentNode.classList.add('position-relative');
-
-        input.addEventListener('input', (e) => {
-            const query = e.target.value.trim().toLowerCase();
-            container.innerHTML = '';
-
-            if (query.length < 1) {
-                container.style.display = 'none';
-                return;
-            }
-
-            const resultados = this.proveedoresData.filter(p => p.toLowerCase().includes(query)).slice(0, 10);
-
-            if (resultados.length > 0) {
-                container.innerHTML = resultados.map(p => `
-                    <div class="suggestion-item p-2 border-bottom hover-bg-light" style="cursor:pointer">
-                        ${p}
-                    </div>
-                `).join('');
-
-                container.querySelectorAll('.suggestion-item').forEach(div => {
-                    div.addEventListener('click', () => {
-                        input.value = div.textContent.trim();
-                        container.style.display = 'none';
-                    });
-                });
-                container.style.display = 'block';
-            } else {
-                container.style.display = 'none';
-            }
-        });
-
-        document.addEventListener('click', (e) => {
-            if (!input.contains(e.target) && !container.contains(e.target)) {
-                container.style.display = 'none';
-            }
-        });
-    },
 
     configurarEventos: function () {
         const formOC = document.getElementById('form-oc');
@@ -620,59 +706,9 @@ const ModuloProcura = {
         }
     },
 
-    // ============================================
-    // PANEL DE ALERTAS DE ABASTECIMIENTO
-    // ============================================
-    cargarAlertasAbastecimiento: async function () {
-        try {
-            const container = document.getElementById('alertas-abastecimiento-container');
-            if (!container) return;
-
-            container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-primary"></i> Calculando métricas de inventario...</div>';
-
-            const response = await fetch('/api/procura/alertas_abastecimiento');
-            const result = await response.json();
-
-            if (result.status === 'success') {
-                const alertas = result.data;
-
-                if (alertas.length === 0) {
-                    container.innerHTML = `
-                    <div class="alert alert-success d-flex align-items-center" role="alert">
-                        <i class="fas fa-check-circle fa-2x me-3"></i>
-                        <div>
-                            <strong>Inventario Saludable</strong><br>
-                            Todos los componentes están por encima de su existencia mínima.
-                        </div>
-                    </div>`;
-                    return;
-                }
-
-                container.innerHTML = `
-                    <div class="list-group list-group-flush">
-                        ${alertas.map(al => `
-                        <div class="list-group-item d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
-                            <span class="fw-bold small text-dark">${al.producto}</span>
-                            <span class="badge ${al.semaforo === 'ROJO' ? 'bg-danger' : 'bg-warning text-dark'} rounded-pill shadow-sm" style="font-size: 0.85rem;">
-                                <i class="fas fa-arrow-down me-1"></i> ${al.diferencia.toLocaleString()}
-                            </span>
-                        </div>
-                        `).join('')}
-                    </div>
-                `;
-
-            } else {
-                container.innerHTML = `<div class="alert alert-danger">Error calculando alertas: ${result.message}</div>`;
-            }
-
-        } catch (e) {
-            console.error('Error cargando alertas:', e);
-        }
-    }
 };
 
 window.ModuloProcura = ModuloProcura;
 window.initProcura = () => {
     ModuloProcura.inicializar();
-    ModuloProcura.cargarAlertasAbastecimiento(); // Cargar la vista de dashboard indirecta
 };

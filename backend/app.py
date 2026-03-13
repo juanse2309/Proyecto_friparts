@@ -32,6 +32,9 @@ app = Flask(__name__,
             static_folder=os.path.join(BASE_DIR, '../frontend/static'))
 CORS(app)
 
+# Required for Flask Sessions
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_friparts_key_2026")
+
 # Login Blueprint
 from backend.routes.auth_routes import auth_bp
 from backend.routes.pedidos_routes import pedidos_bp
@@ -42,6 +45,9 @@ from backend.routes.inventario_routes import inventario_bp
 from backend.routes.metals_routes import metals_bp
 from backend.routes.procura_routes import procura_bp
 from backend.routes.dashboard_routes import dashboard_bp
+from backend.routes.admin_routes import admin_bp
+from backend.routes.inyeccion_routes import inyeccion_bp
+from backend.routes.pulido_routes import pulido_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -52,6 +58,10 @@ app.register_blueprint(metals_bp)
 app.register_blueprint(procura_bp)
 app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
 app.register_blueprint(common_bp, url_prefix='/api')
+
+app.register_blueprint(admin_bp)
+app.register_blueprint(inyeccion_bp)
+app.register_blueprint(pulido_bp)
 
 
 # --- RUTA DE DEBUG INICIAL ---
@@ -1320,7 +1330,7 @@ def registrar_inyeccion():
         # Piezas buenas = Real - PNC
         piezas_buenas = max(0, cantidad_final_reportada - pnc)
         
-        logger.info(f" Inyeccion: Disparos={disparos}, Cav={cavidades}, Teorica={cantidad_teorica}, RealManual={cantidad_real_manual}, Final={cantidad_final_reportada}, Buenas={piezas_buenas}")
+        logger.info(f" Inyeccion: Disparos={disparos}, Cav={cavidades}, Teorica={cantidad_teorica}, RealManual={cantidad_real_manual}, Final={cantidad_final_reportada}, Real={piezas_buenas}")
         
         # ========================================
         # BUSCAR CODIGO SISTEMA COMPLETO (con FR-)
@@ -1388,14 +1398,9 @@ def registrar_inyeccion():
             logger.info(f" Inyeccion guardada en fila {fila_guardada}")
             
             # ---------------------------------------------------------
-            # DISPARAR PROCESO ASÍNCRONO PARA PDF Y DRIVE (REQUERIMIENTO ARQUITECTO)
+            # GENERAR PDF Y SUBIR A DRIVE (Síncrono para feedback al usuario)
             # ---------------------------------------------------------
-            try:
-                # Pasar PNC y nombre de producto descriptivo
-                bg_executor.submit(process_pdf_and_drive, row_validada, pnc, codigo_sistema_completo)
-                logger.info(f" Tarea de PDF y Drive enviada al worker para ID: {id_inyeccion}")
-            except Exception as e:
-                logger.error(f" Error enviando tarea a background worker: {e}")
+            pdf_success, pdf_error = process_pdf_and_drive_internal(row_validada, pnc, codigo_sistema_completo)
             # ---------------------------------------------------------
 
         except Exception as e:
@@ -1410,7 +1415,7 @@ def registrar_inyeccion():
         if almacen_destino:
             exito_stock, msg_stock = registrar_entrada(
                 codigo_sistema_completo,
-                piezas_buenas,            # Solo piezas buenas
+                piezas_buenas,            # Solo cantidad real
                 almacen_destino
             )
             
@@ -1445,6 +1450,8 @@ def registrar_inyeccion():
         return jsonify({
             'success': True,
             'mensaje': 'Inyección guardada correctamente',
+            'pdf_generated': pdf_success,
+            'pdf_error': pdf_error,
             'disparos': disparos,
             'cavidades': cavidades,
             'piezasTotal': cantidad_final_reportada,
@@ -1489,7 +1496,8 @@ def mes_programar():
             return jsonify({'success': False, 'error': 'No se enviaron productos para programar'}), 400
 
         id_montaje = f"MTJ-{str(uuid.uuid4())[:6].upper()}"
-        fecha_creacion = datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        colombia_tz = datetime.timezone(datetime.timedelta(hours=-5))
+        fecha_creacion = datetime.datetime.now(colombia_tz).strftime('%d/%m/%Y %H:%M:%S')
         responsable = data.get('responsable_planta', 'ADMIN')
         observaciones = data.get('observaciones', '')
         
@@ -1861,7 +1869,8 @@ def mes_iniciar():
         data = request.json
         id_prog = data.get('id_programacion')
         id_inyeccion = f"INY-{str(uuid.uuid4())[:8].upper()}"
-        fecha_ahora = datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')  # kept for legacy reference
+        colombia_tz = datetime.timezone(datetime.timedelta(hours=-5))
+        fecha_ahora = datetime.datetime.now(colombia_tz).strftime('%d/%m/%Y %H:%M:%S')  # kept for legacy reference
         
         # Datos desde programación
         ws_prog = get_worksheet(Hojas.PROGRAMACION_INYECCION)
@@ -1875,7 +1884,7 @@ def mes_iniciar():
         es_multi_sku = len(progs) > 1
         
         # ── Preparar variables de fecha/hora ──────────────────────────────
-        ahora        = datetime.datetime.now()
+        ahora        = datetime.datetime.now(colombia_tz)
         fecha_solo   = ahora.strftime('%d/%m/%Y')
         fecha_corta  = f"{ahora.day}/{ahora.month}/{ahora.year}"
         
@@ -1948,7 +1957,8 @@ def mes_reportar():
         
         # Obtener las horas que el operario digitó explícitamente en el modal
         hora_inicio_real = data.get('hora_inicio', '')
-        hora_termina_real = data.get('hora_fin', datetime.datetime.now().strftime('%H:%M'))
+        colombia_tz = datetime.timezone(datetime.timedelta(hours=-5))
+        hora_termina_real = data.get('hora_fin', datetime.datetime.now(colombia_tz).strftime('%H:%M'))
         
         ws_iny = get_worksheet(Hojas.INYECCION)
         iny_records = ws_iny.get_all_records()
@@ -2118,7 +2128,69 @@ def mes_pendientes_validacion():
             'traceback': error_detail
         }), 500
 
+def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=False, items_batch=None):
+    """
+    Versión interna para ejecución directa o fondo.
+    Devuelve (True/False, error_msg o None)
+    """
+    try:
+        from backend.utils.report_service import PDFGenerator
+        from backend.utils.drive_service import drive_service
+        from backend.config.settings import Settings
+        
+        # 1. Determinar Metadatos y Nombre de Archivo
+        if is_batch:
+            maquina = str(data.get('maquina') or 'S-M').replace(" ", "-")
+            fecha_raw = str(data.get('fecha_inicio') or datetime.datetime.now().strftime('%Y-%m-%d'))
+            fecha_clean = fecha_raw.split(' ')[0].replace('/', '-') 
+            op = str(data.get('orden_produccion') or 'S-OP').replace(" ", "-")
+            id_reg = data.get('id_programacion') or 'BATCH'
+            tmp_filename = f"{fecha_clean}_{op}_{maquina}.pdf".replace(" ", "_")
+        else:
+            id_reg = data[0]
+            fecha_raw = data[1]
+            maquina = str(data[4]).replace(" ", "-")
+            op = str(data[18]).replace(" ", "-") if len(data) > 18 else "S-OP"
+            tmp_filename = f"{fecha_raw}_{op}_{maquina}.pdf".replace("/", "-").replace(":", "-").replace(" ", "_")
+        
+        import re
+        tmp_filename = re.sub(r'[\\/*?:"<>|]', "", tmp_filename)
+        tmp_path = os.path.join(os.getcwd(), "temp_reports")
+        if not os.path.exists(tmp_path):
+            os.makedirs(tmp_path)
+            
+        local_file = os.path.join(tmp_path, tmp_filename)
+        
+        # 2. Generar PDF Real
+        if is_batch:
+            success = PDFGenerator.generar_reporte_inyeccion_lote(data, items_batch, local_file)
+        else:
+            success = PDFGenerator.generar_reporte_inyeccion(data, local_file, pnc, producto_nombre)
+
+        if not success:
+            return False, "Error al generar el archivo PDF localmente."
+
+        # 3. Subir a Drive
+        folder_id = Settings.DRIVE_REPORTS_FOLDER_ID
+        drive_id = drive_service.subir_archivo(local_file, tmp_filename, folder_id=folder_id)
+        
+        if drive_id:
+            logger.info(f" [DRIVE_SUCCESS] PDF subido: {tmp_filename} (ID: {drive_id})")
+            return True, None
+        else:
+            return False, "No se pudo subir el PDF a Google Drive."
+
+    except Exception as e:
+        logger.error(f" ❌ ERROR CRÍTICO en PDF/Drive: {str(e)}")
+        return False, str(e)
+    finally:
+        if 'local_file' in locals() and os.path.exists(local_file):
+            try: os.remove(local_file)
+            except: pass
+
 def process_pdf_and_drive(data, pnc=0, producto_nombre="", is_batch=False, items_batch=None):
+    """Wrapper heredado para tareas de fondo sin retorno."""
+    process_pdf_and_drive_internal(data, pnc, producto_nombre, is_batch, items_batch)
     """
     Proceso de fondo (ThreadPoolExecutor): 
     1. Genera PDF temporalmente con ReportLab (Soporta Single y Multi-SKU).
@@ -2410,9 +2482,9 @@ def registrar_inyeccion_lote():
         # --- INVALIDACIÓN CRÍTICA DE CACHÉ ---
         clear_mes_cache()
         
-        # --- DISPARAR PDF Y DRIVE (ASÍNCRONO) ---
+        # --- GENERAR PDF Y SUBIR A DRIVE (Síncrono para feedback) ---
         try:
-            # Sanitizar items antes de enviar al executor para evitar problemas de tipos en el hilo de fondo
+            # Sanitizar items para el generador de reportes
             items_cleaned = []
             for it in items:
                 items_cleaned.append({
@@ -2426,15 +2498,17 @@ def registrar_inyeccion_lote():
                     'observaciones': str(it.get('observaciones', ''))
                 })
             
-            bg_executor.submit(process_pdf_and_drive, turno, is_batch=True, items_batch=items_cleaned)
-            logger.info(f" -> Tarea de PDF (Molde Familia) enviada para ID: {id_prog_to_close}")
-        except Exception as e_bg:
-            logger.error(f" Error enviando PDF multi-sku a background: {e_bg}")
+            pdf_success, pdf_error = process_pdf_and_drive_internal(turno, is_batch=True, items_batch=items_cleaned)
+        except Exception as e_pdf:
+            logger.error(f" Error en proceso de PDF lote: {e_pdf}")
+            pdf_success, pdf_error = False, str(e_pdf)
         # ------------------------------------
 
         return jsonify({
             'success': True,
             'mensaje': f'Lote de {len(rows_to_insert)} productos procesado exitosamente',
+            'pdf_generated': pdf_success,
+            'pdf_error': pdf_error,
             'items_procesados': len(rows_to_insert)
         }), 200
 
@@ -2684,7 +2758,7 @@ def handle_pulido():
         pnc = int(data.get('pnc', 0))
         cantidad_total = int(data.get('cantidad_recibida', 0)) or (cantidad_real + pnc)
 
-        logger.info(f" Procesamiento Pulido: Recibidas={cantidad_total}, Buenas={cantidad_real}, PNC={pnc}")
+        logger.info(f" Procesamiento Pulido: Recibidas={cantidad_total}, Real={cantidad_real}, PNC={pnc}")
 
         # 1. Salida de POR PULIR (Descontamos todo lo que entró a proceso)
         exito_resta, msj_resta = registrar_salida(codigo_sistema_completo, cantidad_total, "POR PULIR")
@@ -2724,7 +2798,7 @@ def handle_pulido():
             data.get('orden_produccion', ''),      # ORDEN_PRODUCCION
             int(data.get('cantidad_recibida', 0)), # CANTIDAD_RECIBIDA
             int(data.get('pnc', 0)),               # PNC
-            cantidad_real,                          # BUJES BUENOS (Antes CANTIDAD_REAL)
+            cantidad_real,                          # CANTIDAD_REAL (Antes BUJES_BUENOS)
             data.get('observaciones', ''),         # OBSERVACIONES
             "P. TERMINADO",                        # ALMACEN_DESTINO
             ""                                      # ESTADO
@@ -6459,8 +6533,10 @@ def registrar_pnc():
             return jsonify({"success": False, "error": "Criterio requerido"}), 400
         
         # Preparar fila con codigo normalizado
-        fecha = data.get("fecha", datetime.datetime.now().strftime("%Y-%m-%d"))
-        id_pnc = data.get("id_pnc", f"PNC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
+        colombia_tz = datetime.timezone(datetime.timedelta(hours=-5))
+        ahora = datetime.datetime.now(colombia_tz)
+        fecha = data.get("fecha", ahora.strftime("%Y-%m-%d"))
+        id_pnc = data.get("id_pnc", f"PNC-{ahora.strftime('%Y%m%d%H%M%S')}")
         codigo_ensamble = str(data.get("codigo_ensamble", "")).strip()
         cliente = str(data.get("cliente", "")).strip()  # NEW CLIENT FIELDS
         

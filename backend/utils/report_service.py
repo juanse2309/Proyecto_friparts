@@ -116,10 +116,10 @@ class PDFGenerator:
             data_prod = [
                 ["CONCEPTO", "DATO", "RESULTADO"],
                 ["Cierres de Máquina", f"{cierres}", "CONTADOR"],
-                ["Producción Proyectada", f"{proyeccion_teorica} pz", f"{cavidades} cav"],
-                ["Total Piezas Inyectadas", f"{cant_inyectada} pz", f"EFIC: {eficiencia:.1f}%"],
+                ["Cantidad Proyectada", f"{proyeccion_teorica} pz", f"{cavidades} cav"],
+                ["Total Inyectado (Bruto)", f"{cant_inyectada} pz", f"EFIC: {eficiencia:.1f}%"],
                 ["Piezas No Conformes (PNC)", f"{pnc_val} pz", "RECHAZO"],
-                ["Total Piezas Buenas", f"{buenas_val} pz", "NETO"],
+                ["Cantidad Real (Neto OK)", f"{buenas_val} pz", "NETO"],
                 ["Peso Consolidado", f"{datos_fila[21]} kg", "Bujes"],
                 ["Peso Vela Máquina", f"{datos_fila[20]} kg", "Material"],
             ]
@@ -189,21 +189,29 @@ class PDFGenerator:
             elements.append(Paragraph(f"Gestión Multi-SKU FRIPARTS", subtitulo_style))
             elements.append(Spacer(1, 0.1 * inch))
 
-            # Información de Turno
+            obs_text_turno = str(turno.get('observaciones') or turno.get('observaciones_generales') or "").strip()
+            if (not obs_text_turno or obs_text_turno == 'None') and items:
+                obs_text_turno = str(items[0].get('observaciones') or "").strip()
+            if not obs_text_turno or obs_text_turno == 'None':
+                obs_text_turno = "Ninguna"
+
+            # Información de Turno (Ajustada a requerimiento de trazabilidad)
             data_turno = [
-                ["FECHA:", turno.get('fecha_inicio', ''), "MÁQUINA:", turno.get('maquina', '')],
-                ["RESPONSABLE:", str(turno.get('responsable', '')).upper(), "ORDEN PROD:", turno.get('orden_produccion', '')],
-                ["HORA INICIO:", turno.get('hora_inicio', ''), "HORA TÉRMINO:", turno.get('hora_termina', '')],
-                ["PESO VELA:", f"{turno.get('peso_vela_maquina', 0)} kg", "ALMACÉN:", turno.get('almacen_destino', '')]
+                ["FECHA VALIDACIÓN:", turno.get('fecha_inicio', ''), "RESPONSABLE:", str(turno.get('responsable', '')).upper()],
+                ["MÁQUINA:", turno.get('maquina', ''), "ORDEN PROD (OP):", str(turno.get('orden_produccion', '')).upper()],
+                ["ENTRADA:", f"{turno.get('entrada_manual', 0)} kg", "SALIDA:", f"{turno.get('salida_manual', 0)} kg"],
+                ["HORA INICIO:", turno.get('hora_inicio', ''), "HORA TERMINA:", turno.get('hora_termina', '')],
+                ["PESO VELA MÁQ:", f"{turno.get('peso_vela_maquina', 0)} kg", "OBSERVACIONES:", Paragraph(obs_text_turno, styles['Normal'])]
             ]
-            t_turno = Table(data_turno, colWidths=[1.1*inch, 2.4*inch, 1.2*inch, 1.8*inch])
+            t_turno = Table(data_turno, colWidths=[1.5*inch, 2.0*inch, 1.5*inch, 2.5*inch])
             t_turno.setStyle(TableStyle([
                 ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
                 ('FONTSIZE', (0,0), (-1,-1), 8),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                 ('TEXTCOLOR', (0,0), (0,-1), colors.darkblue),
                 ('TEXTCOLOR', (2,0), (2,-1), colors.darkblue),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.whitesmoke),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
             elements.append(t_turno)
             elements.append(Spacer(1, 0.25 * inch))
@@ -211,13 +219,12 @@ class PDFGenerator:
             # Tabla de Productos
             elements.append(Paragraph("<b>DETALLE DE PRODUCTOS PROCESADOS</b>", styles['Heading4']))
             
-            headers = ["PRODUCTO", "CAV", "DISP", "PROYECT.", "REAL", "PNC", "PESO(kg)", "BUENAS"]
+            headers = ["PRODUCTO", "PESO BUJE (kg)", "CAV", "CONTADOR", "CANT. PROYECTADA", "CANTIDAD REAL", "PNC", "EFICIENCIA (%)"]
             data_items = [headers]
             
             total_proyectado = 0
-            total_real = 0
-            total_pnc = 0
             total_buenas = 0
+            total_pnc = 0
             total_peso = 0
             
             for it in items:
@@ -225,38 +232,41 @@ class PDFGenerator:
                 disp = PDFGenerator._safe_int(it.get('disparos'))
                 proyectado = disp * cav
                 
-                real = PDFGenerator._safe_int(it.get('cantidad_real')) or proyectado
+                # Cantidad Real reportada (bruto o neto según el caso, lo normalizamos a buenas después)
+                real_reportado = PDFGenerator._safe_int(it.get('cantidad_real')) or proyectado
                 pnc = PDFGenerator._safe_int(it.get('pnc'))
-                # Lógica robusta para buenas
+                
+                # Lógica de buenas (Neto OK) para la columna CANTIDAD REAL
                 manual_buenas = it.get('manual_buenas')
                 if manual_buenas is not None and str(manual_buenas).strip() != "":
                     buenas = PDFGenerator._safe_int(manual_buenas)
                 else:
-                    buenas = real - pnc
+                    buenas = real_reportado - pnc
                 
                 peso = PDFGenerator._safe_float(it.get('peso_bujes'))
+                item_efic = (buenas / proyectado * 100) if proyectado > 0 else 0
                 
                 total_proyectado += proyectado
-                total_real += real
-                total_pnc += pnc
                 total_buenas += buenas
+                total_pnc += pnc
                 total_peso += peso
                 
                 data_items.append([
                     Paragraph(str(it.get('codigo_producto') or 'S/C'), styles['Normal']),
+                    f"{peso:.3f}",
                     cav,
                     disp,
                     proyectado,
-                    real,
+                    buenas,
                     pnc,
-                    f"{peso:.2f}",
-                    buenas
+                    f"{item_efic:.1f}%"
                 ])
 
             # Fila de Totales
-            data_items.append(["TOTALES", "", "", f"{total_proyectado}", f"{total_real}", f"{total_pnc}", f"{total_peso:.2f}", f"{total_buenas}"])
+            total_efic_promedio = (total_buenas / total_proyectado * 100) if total_proyectado > 0 else 0
+            data_items.append(["TOTALES", "", "", "", f"{total_proyectado}", f"{total_buenas}", f"{total_pnc}", f"{total_efic_promedio:.1f}%"])
 
-            t_prod = Table(data_items, colWidths=[1.5*inch, 0.4*inch, 0.5*inch, 0.85*inch, 0.85*inch, 0.6*inch, 0.8*inch, 0.8*inch])
+            t_prod = Table(data_items, colWidths=[1.4*inch, 1.0*inch, 0.4*inch, 0.6*inch, 1.1*inch, 1.0*inch, 0.5*inch, 1.0*inch])
             t_prod.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.darkblue),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
@@ -276,12 +286,12 @@ class PDFGenerator:
             elements.append(Spacer(1, 0.4 * inch))
 
             # Resumen Ejecutivo
-            elements.append(Paragraph("<b>RESUMEN DE LOTE</b>", styles['Heading4']))
-            eficiencia_lote = (total_real/total_proyectado)*100 if total_proyectado>0 else 0
+            elements.append(Paragraph("<b>RESUMEN DE CUANTIFICACIÓN</b>", styles['Heading4']))
+            eficiencia_lote = (total_buenas / total_proyectado * 100) if total_proyectado > 0 else 0
             resumen_data = [
-                ["Eficiencia Real (Proy vs Bruto)", f"{eficiencia_lote:.1f}%", "Estado: FINALIZADO"],
-                ["Total Piezas Netas (Buenas)", f"{total_buenas} pz", "Total Descarte (PNC): " + f"{total_pnc} pz"],
-                ["Total Peso Bujes", f"{total_peso:.2f} kg", "Almacén: " + str(turno.get('almacen_destino', ''))]
+                ["Eficiencia Promedio OP", f"{eficiencia_lote:.1f}%", "Estado: REGISTRADO"],
+                ["Total Cantidad Real (Neto)", f"{total_buenas} pz", "Total Descarte (PNC): " + f"{total_pnc} pz"],
+                ["Total Peso Consolidado", f"{total_peso:.3f} kg", "Almacén Destino: " + str(turno.get('almacen_destino', ''))]
             ]
             t_res = Table(resumen_data, colWidths=[2.1*inch, 2.1*inch, 2.3*inch])
             t_res.setStyle(TableStyle([
@@ -296,7 +306,11 @@ class PDFGenerator:
             # Observaciones / Novedades
             elements.append(Paragraph("<b>OBSERVACIONES / NOVEDADES</b>", styles['Heading4']))
             # Buscar observaciones en el turno o en el primer item (usualmente se envían en el payload principal)
-            obs_text = str(turno.get('observaciones') or turno.get('observaciones_generales') or "Ninguna")
+            obs_text = str(turno.get('observaciones') or turno.get('observaciones_generales') or "").strip()
+            if (not obs_text or obs_text == 'None') and items:
+                obs_text = str(items[0].get('observaciones') or "").strip()
+            if not obs_text or obs_text == 'None':
+                obs_text = "Ninguna"
             elements.append(Paragraph(str(obs_text), styles['Normal']))
 
             # Pie de página

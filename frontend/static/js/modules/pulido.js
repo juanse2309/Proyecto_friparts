@@ -321,7 +321,7 @@ const ModuloPulido = {
         if (entradaInput) entradaInput.value = totalEntrada;
 
         if (displaySalida) displaySalida.textContent = formatNumber(buenos);
-        if (formulaCalc) formulaCalc.textContent = `Buenas: ${formatNumber(buenos)} + PNC: ${formatNumber(pnc)} = ${formatNumber(totalEntrada)} Total Procesado`;
+        if (formulaCalc) formulaCalc.textContent = `Real: ${formatNumber(buenos)} + PNC: ${formatNumber(pnc)} = ${formatNumber(totalEntrada)} Total Procesado`;
         if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Total a descontar: ${formatNumber(totalEntrada)}`;
     },
 
@@ -356,7 +356,7 @@ const ModuloPulido = {
             // Confirmación Pro
             const confirmar = await this.mostrarConfirmacion(
                 '¿Confirmar Registro?',
-                `Producto: ${datos.codigo_producto}<br>Entrada: ${datos.cantidad_recibida}<br>Buenas: ${datos.cantidad_real}`
+                `Producto: ${datos.codigo_producto}<br>Entrada: ${datos.cantidad_recibida}<br>Real: ${datos.cantidad_real}`
             );
 
             if (!confirmar) return;
@@ -403,7 +403,7 @@ const ModuloPulido = {
                 localStorage.setItem('pulido_last_responsable', datos.responsable);
 
                 const pncHtml = datos.pnc > 0 ? `<span style="color:#dc3545;font-weight:bold;">${datos.pnc}</span>` : '0';
-                const recordInfo = `Producto: <strong>${datos.codigo_producto}</strong> | OP: ${datos.orden_produccion || 'N/A'} | Buenas: <span style="color:#10b981;font-weight:bold;">${datos.cantidad_real}</span> | PNC: ${pncHtml}`;
+                const recordInfo = `Producto: <strong>${datos.codigo_producto}</strong> | OP: ${datos.orden_produccion || 'N/A'} | Real: <span style="color:#10b981;font-weight:bold;">${datos.cantidad_real}</span> | PNC: ${pncHtml}`;
                 localStorage.setItem(`pulido_last_record_${datos.responsable}`, recordInfo);
 
                 document.getElementById('form-pulido')?.reset();

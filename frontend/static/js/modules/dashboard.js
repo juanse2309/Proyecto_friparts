@@ -3,6 +3,28 @@ window.ModuloDashboard = (function () {
     let chartMaquinas = null;
     let chartTendencia = null;
     let chartPNC = null;
+    let selectedOperators = []; // Para comparativa cara a cara
+
+    let chartPulidoBoard = null;
+    let chartMensualInst = null;
+    let inc_unidades_original = [];
+    let inc_dinero_original = [];
+    let chartTopMejoresInst = null;
+    let chartTopPeoresInst = null;
+    let lastJefaturaData = null;
+    let searchListenerAttached = false;
+    let isInitialized = false;
+    let isFetching = false;
+    let tableRowCache = {}; // Cache para búsquedas ultra-rápidas
+
+    // Helper: Debounce function for performance
+    const debounce = (func, wait) => {
+        let timeout;
+        return function (...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    };
 
     const colores = {
         azul: ['rgba(59, 130, 246, 0.8)', 'rgba(96, 165, 250, 0.8)', 'rgba(147, 197, 253, 0.8)'],
@@ -15,8 +37,36 @@ window.ModuloDashboard = (function () {
     let insightIndex = 0;
     let insightInterval = null;
 
-    async function cargarDatos() {
+    // --- Loading overlay helper ---
+    function showLoading(show) {
+        let overlay = document.getElementById('db-loading-overlay');
+        if (!overlay && show) {
+            overlay = document.createElement('div');
+            overlay.id = 'db-loading-overlay';
+            overlay.innerHTML = `
+                <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.7);
+                    z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);">
+                    <div style="text-align:center;padding:2rem;">
+                        <i class="fas fa-sync-alt fa-spin" style="font-size:2.5rem;color:#3b82f6;"></i>
+                        <p style="margin-top:1rem;font-weight:600;color:#334155;">Cargando datos de Sheets...</p>
+                        <p style="font-size:0.8rem;color:#94a3b8;">La primera carga puede tardar unos segundos</p>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+        if (overlay) overlay.style.display = show ? 'block' : 'none';
+    }
+
+    async function cargarDatos(nocache = false) {
+        if (isFetching) {
+            console.warn("⏳ Petición cargarDatos en curso, ignorando duplicada.");
+            return;
+        }
+
         try {
+            isFetching = true;
+            showLoading(true);
+            console.log("📡 Cargando datos del dashboard...");
             const desde = document.getElementById('db-fecha-desde')?.value;
             const hasta = document.getElementById('db-fecha-hasta')?.value;
 
@@ -24,58 +74,196 @@ window.ModuloDashboard = (function () {
             const params = new URLSearchParams();
             if (desde) params.append('desde', desde);
             if (hasta) params.append('hasta', hasta);
+            if (nocache) params.append('nocache', '1');
             if (params.toString()) url += `?${params.toString()}`;
 
-            const response = await fetch(url);
-            const result = await response.json();
+            const responseStats = fetch(url).then(res => res.json());
 
-            if (result.status === 'success') {
-                const data = result.data;
-                renderizarTodo(data);
+            // RBAC: Solo cargar datos de Jefatura / Finanzas si es Admin, Gerencia o Comercial
+            let isAdminOrManagement = false;
+            let resultJefatura = null;
 
-                // Initialize Bootstrap tooltips if they exist
-                const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-                const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+            if (window.AppState && window.AppState.user && window.AppState.user.rol) {
+                const rol = window.AppState.user.rol.toUpperCase();
+                isAdminOrManagement = ['ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA', 'COMERCIAL'].includes(rol);
             }
+
+            if (isAdminOrManagement) {
+                const adminParams = new URLSearchParams();
+                if (desde) adminParams.append('start', desde);
+                if (hasta) adminParams.append('end', hasta);
+                if (nocache) adminParams.append('nocache', '1');
+
+                // Timeout de 30s para evitar que la página se congele
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+                const jefUrl = `/api/admin/dashboard?${adminParams.toString()}`;
+                console.log("📡 Consultando Jefatura:", jefUrl);
+
+                try {
+                    const reqJefatura = fetch(jefUrl, {
+                        headers: { 'Accept': 'application/json' },
+                        signal: controller.signal
+                    }).then(res => res.json());
+
+                    const [result, jefaturaData] = await Promise.all([responseStats, reqJefatura]);
+                    clearTimeout(timeoutId);
+                    console.log("📊 Datos recibidos (Admin):", { result, jefaturaData });
+
+                    if (result && result.status === 'success') {
+                        renderizarTodo(result.data, jefaturaData);
+                    }
+                } catch (fetchErr) {
+                    clearTimeout(timeoutId);
+                    if (fetchErr.name === 'AbortError') {
+                        console.warn("⏰ Timeout en /api/admin/dashboard - mostrando stats sin datos de Jefatura");
+                        const result = await responseStats;
+                        if (result && result.status === 'success') {
+                            renderizarTodo(result.data, null);
+                        }
+                    } else {
+                        throw fetchErr;
+                    }
+                }
+            } else {
+                const result = await responseStats;
+                if (result && result.status === 'success') {
+                    renderizarTodo(result.data, null);
+                }
+            }
+
+            // Initialize Bootstrap tooltips if they exist
+            const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+            const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+
         } catch (error) {
-            console.error("Error en Dashboard BI:", error);
+            console.error("Error en Dashboard BI / Jefatura:", error);
+        } finally {
+            isFetching = false;
+            showLoading(false);
         }
     }
 
-    function renderizarTodo(data) {
-        // 1. KPIs Principales
-        document.getElementById('cumplimiento-global').textContent = `${data.kpis.cumplimiento_pct}%`;
-        document.getElementById('total-iny-piezas').textContent = `${data.kpis.inyeccion_ok.toLocaleString()} Pz`;
-        document.getElementById('pnc-almacen-val').textContent = data.kpis.scrap_detalle.almacen.toLocaleString();
+    function renderizarTodo(data, jefaturaData) {
+        console.log("🚀 Iniciando renderizado de componentes...", { data, jefaturaData });
 
-        // 2. Preparar Insights IA para el carrusel
-        // Incluimos el rango como el primer insight
-        currentInsights = [
-            `Analizando datos clave del periodo: <strong>${data.rango.desde}</strong> al <strong>${data.rango.hasta}</strong>.`,
-            ...data.insights_ia
-        ];
+        // Limpiar cache de filas al renderizar datos nuevos
+        tableRowCache = {};
 
-        iniciarCarrouselBot();
-
-        // 3. Gráficos
-        const inyeccionOps = data.rankings.inyeccion_ops || [];
-        renderChartInyeccion(inyeccionOps.slice(0, 10)); // Solo el Top 10 para el gráfico visual
-
-        // Botón Ver Todos de Inyección
-        const btnVerTodosIny = document.getElementById('btn-ver-todos-iny');
-        if (btnVerTodosIny) {
-            btnVerTodosIny.onclick = () => mostrarModalTodosInyeccion(inyeccionOps);
+        if (!data || !data.kpis) {
+            console.error("❌ Error: Estructura de datos inválida para renderizarTodo. Faltan KPIs.", data);
+            // Intentamos seguir si al menos hay datos de Jefatura (para que no quede todo negro)
+            if (!jefaturaData) return;
         }
 
-        renderChartMaquinas(data.maquinas);
-        renderChartTendencia(data.tendencia);
-        renderChartPNC(data.kpis.scrap_detalle);
+        const safeSetText = (id, text) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+            else console.warn(`⚠️ Elemento no encontrado: ${id}`);
+        };
 
-        // 4. Detalle Scrap Almacén
-        renderScrapAlmacenDetalle(data.kpis.scrap_almacen_desglose || []);
+        try {
+            // 1. KPIs Principales
+            safeSetText('total-iny-piezas', `${(data.kpis.inyeccion_ok || 0).toLocaleString()} Pz`);
 
-        // 5. Tabla Pulido (Deep Ranking)
-        renderTablaPulido(data.rankings.pulido_profundo);
+            const formatCOP_PNC = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(data.kpis.perdida_calidad_dinero || 0);
+            safeSetText('perdida-calidad-global', formatCOP_PNC);
+
+            safeSetText('pnc-global-val', (data.kpis.scrap_total || 0).toLocaleString());
+
+            // 2. Insights IA Avanzados
+            let smartInsights = [];
+
+            // Insight Basico Fechas
+            smartInsights.push(`Analizando datos clave de producción y ventas: <strong>${data.rango?.desde || ''}</strong> al <strong>${data.rango?.hasta || ''}</strong>.`);
+
+            if (jefaturaData && jefaturaData.data) {
+                const jd = jefaturaData.data;
+                // Filtrar el peor cliente en incumplimiento
+                if (jd.incumplimiento_dinero && jd.incumplimiento_dinero.length > 0) {
+                    const topInc = [...jd.incumplimiento_dinero].sort((a, b) => b.dinero_perdido - a.dinero_perdido)[0];
+                    if (topInc && topInc.dinero_perdido > 0) {
+                        smartInsights.push(`<span class="text-danger"><i class="fas fa-exclamation-circle"></i> <strong>Atención Comercial (Histórico General):</strong></span> El mayor impacto global es con <b>${topInc.cliente}</b> perdiendo <b class="text-danger">${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(topInc.dinero_perdido)}</b> por faltantes del producto <i>${topInc.producto}</i>.`);
+                    }
+                }
+
+                // Productos Estrella vs Riesgo
+                if (jd.top_productos_dinero && jd.top_productos_dinero.length > 0) {
+                    const topVendido = jd.top_productos_dinero[0];
+                    smartInsights.push(`<i class="fas fa-star text-warning"></i> <strong>Líder de Ventas (Histórico General):</strong> La referencia <b>${topVendido.producto}</b> lidera los ingresos con <b class="text-success">${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(topVendido.ventas_dinero)}</b> facturados.`);
+                }
+            }
+
+            // Insight Calidad (Scrap)
+            if (data.kpis.perdida_calidad_dinero > 0) {
+                smartInsights.push(`<i class="fas fa-recycle text-secondary"></i> <strong>Alerta de Calidad:</strong> El acumulado de piezas rechazadas representa un costo hundido estimado en <b class="text-danger">${formatCOP_PNC}</b>. Revise los procesos de Pulido e Inyección.`);
+            }
+
+            // Avisos de Costos Faltantes
+            if (data.kpis.faltan_costos_pnc && data.kpis.faltan_costos_pnc.length > 0) {
+                smartInsights.push(`<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> <strong>Faltan Costos:</strong></span> Hay ${data.kpis.faltan_costos_pnc.length} referencias reportando scrap que no tienen costo asignado en DB_COSTOS. La Pérdida por Calidad mostrada es menor a la real.`);
+            }
+
+            // Darle formato visual a los insights que vienen del backend (Inyección, Pulido, Cuellos de botella)
+            const legacyInsightsFormatted = (data.insights_ia || []).map(text => {
+                if (text.includes('Cumplimiento')) return `<i class="fas fa-chart-line text-primary"></i> <strong>Eficiencia:</strong> ${text}`;
+                if (text.includes('Cuello de botella')) return `<i class="fas fa-hourglass-half text-warning"></i> <strong>Producción:</strong> ${text}`;
+                if (text.includes('Líder de Iny')) return `<i class="fas fa-industry text-info"></i> <strong>Inyección:</strong> ${text}`;
+                if (text.includes('Líder de Pul')) return `<i class="fas fa-hand-sparkles text-success"></i> <strong>Pulido:</strong> ${text}`;
+                if (text.includes('ritmo de Inyección')) return `<i class="fas fa-sync text-success"></i> <strong>Flujo Óptimo:</strong> ${text}`;
+                if (text.includes('Calidad')) return `<i class="fas fa-times-circle text-danger"></i> <strong>Control:</strong> ${text}`;
+                return `<i class="fas fa-info-circle text-muted"></i> ${text}`;
+            });
+
+            currentInsights = [
+                ...smartInsights,
+                ...legacyInsightsFormatted
+            ];
+            iniciarCarrouselBot();
+
+            // 3. Gráficos de Producción
+            if (data.rankings?.inyeccion_ops) {
+                renderChartInyeccion(data.rankings.inyeccion_ops.slice(0, 10));
+                const btnVerTodosIny = document.getElementById('btn-ver-todos-iny');
+                if (btnVerTodosIny) {
+                    btnVerTodosIny.onclick = () => mostrarModalTodosInyeccion(data.rankings.inyeccion_ops);
+                }
+            }
+
+            if (data.maquinas) renderChartMaquinas(data.maquinas);
+            if (data.tendencia) renderChartTendencia(data.tendencia);
+            if (data.kpis.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
+
+            // 4. Detalle Scrap Almacén
+            renderScrapAlmacenDetalle(data.kpis.scrap_almacen_desglose || []);
+
+            // 5. Tabla Pulido
+            renderTablaPulido(data.rankings?.pulido_profundo || []);
+            renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || []);
+
+            // 6. Datos de Jefatura
+            if (jefaturaData && (jefaturaData.success || jefaturaData.status === 'success') && jefaturaData.data) {
+                console.log("📈 Renderizando datos de Jefatura...");
+                lastJefaturaData = jefaturaData.data;
+
+                renderChartMensual(lastJefaturaData.mensual, 'money');
+                renderChartTopMejores(lastJefaturaData.top_productos_dinero, 'money');
+                renderChartTopPeores(lastJefaturaData.peores_productos_dinero, 'money');
+
+                if (lastJefaturaData.incumplimiento_unidades) {
+                    inc_unidades_original = lastJefaturaData.incumplimiento_unidades;
+                    renderTablaIncumplimientoUnidades(inc_unidades_original);
+                }
+                if (lastJefaturaData.incumplimiento_dinero) {
+                    inc_dinero_original = lastJefaturaData.incumplimiento_dinero;
+                    renderTablaIncumplimientoDinero(inc_dinero_original);
+                }
+            }
+            console.log("✅ Renderizado completado sin errores.");
+        } catch (err) {
+            console.error("❌ Error crítico durante el renderizado del dashboard:", err);
+        }
     }
 
     function iniciarCarrouselBot() {
@@ -108,21 +296,62 @@ window.ModuloDashboard = (function () {
     function renderChartInyeccion(ops) {
         const ctx = document.getElementById('chartInyeccionOperadores');
         if (!ctx) return;
+
+        const labels = ops.map(o => o.nombre);
+        const dataBuenas = ops.map(o => o.valor);
+
+        // Crear gradientes para un look más "premium"
+        const chartCtx = ctx.getContext('2d');
+        const gradientGold = chartCtx.createLinearGradient(0, 0, 0, 400);
+        gradientGold.addColorStop(0, 'rgba(251, 191, 36, 1)');
+        gradientGold.addColorStop(1, 'rgba(217, 119, 6, 0.8)');
+
+        const gradientBlue = chartCtx.createLinearGradient(0, 0, 0, 400);
+        gradientBlue.addColorStop(0, 'rgba(59, 130, 246, 1)');
+        gradientBlue.addColorStop(1, 'rgba(37, 99, 235, 0.8)');
+
+        const bgColors = dataBuenas.map((val, idx) => idx === 0 ? gradientGold : gradientBlue);
+        const borderColors = dataBuenas.map((val, idx) => idx === 0 ? 'rgba(217, 119, 6, 1)' : 'rgba(37, 99, 235, 1)');
+
         if (chartOperadores) chartOperadores.destroy();
+
         chartOperadores = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ops.map(o => o.nombre),
-                datasets: [{ label: 'Buenas', data: ops.map(o => o.valor), backgroundColor: colores.azul[0], borderRadius: 6 }]
+                labels: labels,
+                datasets: [{
+                    label: 'Buenas',
+                    data: dataBuenas,
+                    backgroundColor: bgColors,
+                    borderColor: borderColors,
+                    borderWidth: 0,
+                    borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
+                    barPercentage: 0.5,
+                    categoryPercentage: 0.7
+                }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                animation: { duration: 1500, easing: 'easeOutQuart' },
+                layout: { padding: { top: 20 } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        titleFont: { size: 14, weight: 'bold' },
+                        bodyFont: { size: 13 },
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        callbacks: {
+                            label: (context) => `🎯 ${context.raw.toLocaleString()} Piezas Inyectadas`
+                        }
+                    }
+                },
                 onClick: (event, elements) => {
                     if (elements.length > 0) {
                         const index = elements[0].index;
-                        // Aquí, 'ops' es el array que pasamos a renderChartInyeccion (que ya está limitado a 10)
                         const operador = ops[index].nombre;
                         const valor = ops[index].valor;
                         const mixData = ops[index].mix || [];
@@ -133,6 +362,17 @@ window.ModuloDashboard = (function () {
                 },
                 onHover: (event, chartElement) => {
                     event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(226, 232, 240, 0.5)', drawBorder: false },
+                        ticks: { font: { weight: '600' }, color: '#64748b', padding: 10 }
+                    },
+                    x: {
+                        grid: { display: false, drawBorder: false },
+                        ticks: { font: { weight: 'bold', size: 11 }, color: '#334155', maxRotation: 25, minRotation: 0 }
+                    }
                 }
             }
         });
@@ -142,13 +382,52 @@ window.ModuloDashboard = (function () {
         const ctx = document.getElementById('chartMaquinas');
         if (!ctx) return;
         if (chartMaquinas) chartMaquinas.destroy();
+
+        // Paleta de colores variados para máquinas
+        const palette = [
+            '#10b981', // Emerald
+            '#6366f1', // Indigo
+            '#f59e0b', // Amber
+            '#f43f5e', // Rose
+            '#8b5cf6', // Violet
+            '#06b6d4'  // Cyan
+        ];
+
         chartMaquinas = new Chart(ctx, {
             type: 'doughnut',
             data: {
                 labels: maqs.map(m => m.maquina),
-                datasets: [{ data: maqs.map(m => m.valor), backgroundColor: colores.verde, borderWidth: 2 }]
+                datasets: [{
+                    data: maqs.map(m => m.valor),
+                    backgroundColor: palette,
+                    borderWidth: 4,
+                    borderColor: '#ffffff',
+                    hoverOffset: 15
+                }]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } }, cutout: '70%' }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: {
+                        position: window.innerWidth < 768 ? 'bottom' : 'right',
+                        labels: {
+                            padding: window.innerWidth < 768 ? 10 : 20,
+                            font: { size: window.innerWidth < 768 ? 10 : 12, weight: '600' },
+                            color: '#475569'
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        padding: 12,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: (context) => ` ⚙️ ${context.label}: ${context.raw.toLocaleString()} Pz`
+                        }
+                    }
+                }
+            }
         });
     }
 
@@ -176,8 +455,8 @@ window.ModuloDashboard = (function () {
         chartPNC = new Chart(ctx, {
             type: 'polarArea',
             data: {
-                labels: ['Inyección', 'Pulido', 'Almacén'],
-                datasets: [{ data: [pnc.inyeccion, pnc.pulido, pnc.almacen], backgroundColor: ['#3b82f6cc', '#10b981cc', '#ef4444cc'] }]
+                labels: ['Inyección', 'Pulido', 'Ensamble', 'Almacén'],
+                datasets: [{ data: [pnc.inyeccion, pnc.pulido, pnc.ensamble, pnc.almacen], backgroundColor: ['#3b82f6cc', '#10b981cc', '#f59e0bcc', '#ef4444cc'] }]
             },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
         });
@@ -197,13 +476,17 @@ window.ModuloDashboard = (function () {
         // Tomar top 5
         const top5 = desglose.slice(0, 5);
         top5.forEach((item, index) => {
+            const fCosto = item.costo > 0 ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(item.costo) : 'S/C';
             const html = `
-                <div class="list-group-item d-flex justify-content-between align-items-center py-2" style="border-left: 3px solid #ef4444;">
-                    <div class="text-truncate" style="max-width: 75%;" title="${item.producto}">
-                        <span class="text-muted me-1 fw-bold fs-6">${index + 1}.</span> 
-                        <span class="fw-medium">${item.producto}</span>
+                <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3" style="border-left: 4px solid #ef4444; background-color: #fafafa; margin-bottom: 8px; border-radius: 8px;">
+                    <div class="text-truncate me-3" style="max-width: 65%;" title="${item.producto}">
+                        <span class="text-muted me-2 fw-bold fs-6">${index + 1}.</span> 
+                        <span class="fw-bold text-dark" style="font-size: 0.95rem;">${item.producto}</span>
                     </div>
-                    <span class="badge bg-danger rounded-pill">${item.cantidad.toLocaleString()} Pz</span>
+                    <div class="d-flex flex-column align-items-end justify-content-center">
+                        <span class="fw-bold text-danger" style="font-size: 1.05rem; letter-spacing: -0.5px;">${fCosto}</span>
+                        <span class="badge rounded-pill mt-1" style="background-color: #cbd5e1; color: #334155; font-size: 0.75rem;"><i class="fas fa-cubes me-1"></i>${item.cantidad.toLocaleString()} Pz</span>
+                    </div>
                 </div>
             `;
             container.insertAdjacentHTML('beforeend', html);
@@ -222,41 +505,56 @@ window.ModuloDashboard = (function () {
             return;
         }
 
-        // Ordenar por piezas buenas desc
-        const sortedOps = operadoras.sort((a, b) => profundo[b].buenas - profundo[a].buenas);
+        // Ordenar por puntaje de esfuerzo desc (Requerimiento 2)
+        const sortedOps = operadoras.sort((a, b) => (profundo[b].puntos || 0) - (profundo[a].puntos || 0));
 
         sortedOps.forEach((op, idx) => {
             const dataOp = profundo[op];
             const mix = dataOp.mix || [];
             const buenas = dataOp.buenas || 0;
             const pnc = dataOp.pnc || 0;
+            const costoPnc = dataOp.costo_pnc || 0;
 
             const total = buenas + pnc;
-            const eficiencia = total > 0 ? Math.round((buenas / total) * 100) : 100;
-            const efColor = eficiencia > 95 ? 'success' : (eficiencia > 85 ? 'warning' : 'danger');
+            // Evitar el "100%" falso si hay scrap (PNC)
+            const eficienciaRaw = total > 0 ? (buenas / total) * 100 : 100;
+            const eficiencia = (buenas > 0 && pnc > 0 && eficienciaRaw > 99) ? eficienciaRaw.toFixed(2) : Math.round(eficienciaRaw);
+            const efColor = eficienciaRaw > 95 ? 'success' : (eficienciaRaw > 85 ? 'warning' : 'danger');
 
             const topProd = mix[0] ? mix[0].prod : "N/A";
 
             // Preparar el detalle para el alert (escapar saltos de línea y comillas simples)
-            const detalleMix = mix.slice(0, 5).map(p => `${p.prod}: ${p.qty.toLocaleString()}`).join('\\n').replace(/'/g, "\\'");
+            const detalleMix = mix.slice(0, 5).map(p => `${p.prod}:${p.qty}:${p.u_pts || 1}:${p.pts || 0}`).join('\\n').replace(/'/g, "\\'");
+
+            const isChecked = selectedOperators.some(s => s.nombre === op);
 
             const tr = document.createElement('tr');
             tr.style.cursor = 'pointer';
             tr.onclick = (e) => {
-                // Evitar que el botón de 'Ver Mix' dispare esto también si hacen clic en él
+                // Si es clic en checkbox, lo maneja el onchange
+                if (e.target.closest('.comparison-checkbox')) return;
+                // Si es clic en botón (si hubiera), lo maneja el botón
                 if (e.target.closest('button')) return;
                 const insightText = dataOp.insight || "Sin insights disponibles para Pulido.";
-                mostrarModalOperador(op, buenas, 'Pulido', insightText, detalleMix);
+                mostrarModalOperador(op, buenas, 'Pulido', insightText, detalleMix, dataOp.puntos || 0);
             };
             tr.classList.add('hover-scale');
             tr.innerHTML = `
-                <td class="ps-4"><span class="badge bg-light text-dark border">${idx + 1}</span></td>
+                <td class="ps-4">
+                    ${idx === 0 ? '<i class="fas fa-medal text-warning fs-5" title="Líder de Esfuerzo"></i>' : `<span class="badge bg-light text-dark border">${idx + 1}</span>`}
+                </td>
+                <td class="text-center">
+                    <input type="checkbox" class="comparison-checkbox form-check-input" 
+                        ${isChecked ? 'checked' : ''} 
+                        data-op="${op}"
+                        onchange="window.ModuloDashboard.toggleOperatorSelection('${op}', ${buenas}, ${pnc}, ${costoPnc}, ${eficiencia}, ${dataOp.puntos || 0}, ${dataOp.tiempo_estandar || 0})">
+                </td>
                 <td>
                     <div class="fw-bold">${op}</div>
                     <small class="text-muted">Expertiz: <span class="badge bg-info text-white">${topProd}</span></small>
                 </td>
-                <td class="text-center fw-bold text-success">${buenas.toLocaleString()}</td>
-                <td class="text-center fw-bold text-danger">${pnc.toLocaleString()}</td>
+                <td class="text-center fw-bold text-primary">${Math.round(dataOp.puntos || 0).toLocaleString()} pts</td>
+                <td class="text-center fw-bold text-dark">${total.toLocaleString()}</td>
                 <td>
                     <div class="d-flex align-items-center gap-2">
                         <div class="progress flex-grow-1" style="height: 8px; border-radius: 10px; background-color: #e2e8f0;">
@@ -265,71 +563,314 @@ window.ModuloDashboard = (function () {
                         <span class="fw-bold text-${efColor}" style="min-width: 40px;">${eficiencia}%</span>
                     </div>
                 </td>
-                <td class="text-center">
-                    <button class="btn btn-sm btn-outline-primary py-1 px-3" onclick="alert('Mix de producción de ${op}:\n\n${detalleMix}')">
-                        <i class="fas fa-list-ol me-1"></i> Ver Mix
-                    </button>
-                </td>
             `;
             tbody.appendChild(tr);
         });
     }
 
 
+    function aplicarPermisosVisuales() {
+        console.log("🔒 Aplicando permisos visuales al Dashboard IA...");
+
+        let rolUsuario = 'DESCONOCIDO';
+        if (window.AppState && window.AppState.user && window.AppState.user.rol) {
+            rolUsuario = window.AppState.user.rol.toUpperCase();
+        } else if (window.AuthModule && window.AuthModule.currentUser && window.AuthModule.currentUser.rol) {
+            rolUsuario = window.AuthModule.currentUser.rol.toUpperCase();
+        }
+
+        // Mapear roles antiguos/generales a los roles de acceso que configuramos en HTML
+        let rolesEfectivos = [];
+        if (['ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA'].includes(rolUsuario)) {
+            rolesEfectivos.push('ADMIN');
+            rolesEfectivos.push('GERENCIA');
+        }
+        if (['INYECCION', 'INYECCIÓN'].includes(rolUsuario)) rolesEfectivos.push('INYECCION');
+        if (['PULIDO'].includes(rolUsuario)) rolesEfectivos.push('PULIDO');
+        if (['COMERCIAL', 'VENTAS'].includes(rolUsuario)) rolesEfectivos.push('COMERCIAL');
+
+        console.log(`Rol Usuario: ${rolUsuario} -> Evaluando como [${rolesEfectivos.join(', ')}]`);
+
+        // Preparar flow-container para reordenar
+        const container = document.querySelector('#dashboard-page .container-fluid');
+        if (container) {
+            container.classList.add('d-flex', 'flex-column');
+        }
+
+        const chartPulido = document.getElementById('dashboard-section-pulido-leaderboard');
+        const tablaPulido = document.getElementById('dashboard-section-pulido-table');
+
+        if (rolUsuario === 'PULIDO') {
+            if (chartPulido) chartPulido.style.order = '-2';
+            if (tablaPulido) tablaPulido.style.order = '-1';
+        } else {
+            if (chartPulido) chartPulido.style.order = '';
+            if (tablaPulido) tablaPulido.style.order = '';
+        }
+
+        const secciones = document.querySelectorAll('[data-role-access]');
+        secciones.forEach(seccion => {
+            const accessStr = seccion.getAttribute('data-role-access');
+            if (!accessStr) return;
+
+            const rolesPermitidos = accessStr.split(',').map(r => r.trim().toUpperCase());
+
+            // Ver si al menos uno de los roles efectivos está permitido en esta sección
+            const accesoPermitido = rolesEfectivos.some(r => rolesPermitidos.includes(r));
+
+            if (accesoPermitido) {
+                // Mantener visibilidad original (block o flex, quitar d-none preventivo)
+                seccion.style.display = '';
+            } else {
+                // Ocultar sección completa
+                seccion.style.setProperty('display', 'none', 'important');
+            }
+        });
+    }
+
+
     function iniciar() {
+        if (isInitialized) {
+            console.log("🛡️ Dashboard ya inicializado. Abortando secuencia redundante.");
+            return;
+        }
+        isInitialized = true;
         console.log("🚀 Iniciando BI Dashboard...");
 
-        // Predeterminar fechas (Últimos 30 días para ver más historial por defecto)
-        const hoy = new Date();
-        const hace30 = new Date();
-        hace30.setDate(hoy.getDate() - 30);
+        aplicarPermisosVisuales();
+
+        // Filtros de Incumplimiento (Interactive)
+        const inputBusca = document.getElementById('buscador-incumplimiento');
+
+        const filterIncumplimiento = debounce(() => {
+            try {
+                const term = inputBusca && inputBusca.value ? String(inputBusca.value).toLowerCase().trim() : "";
+                const isFiltering = term !== "";
+
+                console.log(`🔍 Filtrando por: "${term}"`);
+
+                // Determinar qué pestaña está activa para optimizar
+                const unitsTab = document.getElementById('units-tab');
+                const isUnitsActive = unitsTab ? unitsTab.classList.contains('active') : true;
+                const activeTbodyId = isUnitsActive ? 'incumplimiento-unidades-body' : 'incumplimiento-dinero-body';
+
+                // Filtrar Tablas vía Cache (Ultra performance)
+                const filtrarTablaPorNodos = (tbodyId) => {
+                    const tbody = document.getElementById(tbodyId);
+                    if (!tbody) return;
+
+                    if (!tableRowCache[tbodyId]) {
+                        tableRowCache[tbodyId] = Array.from(tbody.querySelectorAll('tr'));
+                    }
+
+                    const rows = tableRowCache[tbodyId];
+                    let count = 0;
+
+                    // Usar requestAnimationFrame para sincronizar con el refresco de pantalla
+                    requestAnimationFrame(() => {
+                        rows.forEach((row, index) => {
+                            const searchStr = row.getAttribute('data-search') || "";
+                            const matches = !term || searchStr.indexOf(term) !== -1;
+
+                            // Determinamos el estado objetivo
+                            const targetDisplay = matches ? (isFiltering ? '' : (index < 10 ? '' : 'none')) : 'none';
+
+                            // SOLO escribimos al DOM si el estado cambió (Ahorra mucho CPU)
+                            if (row.style.display !== targetDisplay) {
+                                row.style.display = targetDisplay;
+                            }
+
+                            if (matches) count++;
+                        });
+
+                        // Actualizar contador solo si es la activa
+                        if (tbodyId === activeTbodyId) {
+                            const countSpan = document.getElementById('bo-count');
+                            if (countSpan) {
+                                if (!isFiltering) {
+                                    // Mostrar solo el conteo de la pestaña activa
+                                    countSpan.textContent = isUnitsActive ? inc_unidades_original.length : inc_dinero_original.length;
+                                } else {
+                                    countSpan.textContent = count;
+                                }
+                            }
+                        }
+                    });
+                };
+
+                // SOLO filtrar la tabla que está visible actualmente
+                filtrarTablaPorNodos(activeTbodyId);
+
+            } catch (err) {
+                console.error("❌ Error en filterIncumplimiento:", err);
+            }
+        }, 600); // 600ms para permitir escritura fluida de códigos largos
+
+        if (inputBusca && !searchListenerAttached) {
+            inputBusca.addEventListener('input', filterIncumplimiento);
+
+            // También re-filtrar cuando cambias de pestaña para que el resultado sea coherente
+            const boTabs = document.querySelectorAll('#incumplimientoTabs button[data-bs-toggle="tab"]');
+            boTabs.forEach(tabEl => {
+                tabEl.addEventListener('shown.bs.tab', () => {
+                    console.log("🔄 Cambio de pestaña detectado, re-aplicando filtro...");
+                    filterIncumplimiento();
+                });
+            });
+
+            searchListenerAttached = true;
+            console.log("✅ Event Listener del buscador y pestañas registrado");
+        }
+
+        // ── PERSISTENCIA DE FILTROS (localStorage) ────────────────────────────
+        const LS_DESDE = 'db_filtro_desde';
+        const LS_HASTA = 'db_filtro_hasta';
+        const LS_TOGGLE = 'db_toggle_mode'; // 'money' | 'units'
 
         const f_desde = document.getElementById('db-fecha-desde');
         const f_hasta = document.getElementById('db-fecha-hasta');
 
-        if (f_desde && !f_desde.value) f_desde.value = hace30.toISOString().split('T')[0];
-        if (f_hasta && !f_hasta.value) f_hasta.value = hoy.toISOString().split('T')[0];
+        // Restaurar desde localStorage o usar valores por defecto (últimos 30 días)
+        const hoy = new Date();
+        const hace30 = new Date();
+        hace30.setDate(hoy.getDate() - 30);
+
+        if (f_desde) {
+            f_desde.value = localStorage.getItem(LS_DESDE) || hace30.toISOString().split('T')[0];
+            f_desde.addEventListener('change', () => localStorage.setItem(LS_DESDE, f_desde.value));
+        }
+        if (f_hasta) {
+            f_hasta.value = localStorage.getItem(LS_HASTA) || hoy.toISOString().split('T')[0];
+            f_hasta.addEventListener('change', () => localStorage.setItem(LS_HASTA, f_hasta.value));
+        }
+
+        // Restaurar toggle $ / 📦
+        const savedToggle = localStorage.getItem(LS_TOGGLE) || 'money';
+        // Aplicar estado guardado al toggle si existe
+        const toggleBtn = document.querySelector('[onclick*="toggleChartView"]') ||
+            document.querySelector('.btn-toggle-chart');
+        if (toggleBtn && savedToggle === 'units') {
+            // Simular click para poner en modo unidades
+            setTimeout(() => {
+                const tBtn = document.querySelector('[data-chart-mode]') ||
+                    document.querySelector('[onclick*="toggleChart"]');
+                if (tBtn) tBtn.click();
+            }, 800);
+        }
+
+        // Guardar toggle cada vez que se cambia
+        const origToggle = window.ModuloDashboard?.toggleChartView;
+        window._db_toggleMode = savedToggle;
 
         cargarDatos();
 
-        if (!window._dbTimer) {
-            window._dbTimer = setInterval(cargarDatos, 600000); // 10 min refresh
-        }
+        // Comparativa Pulido ahora usa onclick inline en el HTML por seguridad
     }
 
-    function mostrarModalOperador(nombre, totalOks, proceso, insightStr, detalleMix = null) {
+    function mostrarModalOperador(nombre, totalOks, proceso, insightStr, detalleMix = null, puntos = null) {
 
         let extraHtml = '';
         if (detalleMix) {
-            const mixLines = detalleMix.split('\\n').map(l => `<li>${l}</li>`).join('');
+            // Convertir las líneas en items bonitos de lista (soporta \n literal o salto de línea real)
+            const mixLines = detalleMix.split(/\\n|\n/).map(l => {
+                const parts = l.split(':');
+                if (parts.length >= 4) {
+                    const ref = parts[0].trim();
+                    const qty = parseFloat(String(parts[1]).replace(/[^0-9.-]/g, '')) || 0;
+                    const unitPts = parseFloat(String(parts[2]).replace(/[^0-9.-]/g, '')) || 0;
+                    const pts = parseFloat(String(parts[3]).replace(/[^0-9.-]/g, '')) || 0;
+
+                    return `
+                        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                            <span class="fw-medium text-dark" style="font-size: 0.85rem;"><i class="fas fa-cube text-muted me-1"></i> Ref: ${ref}</span>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="badge bg-light text-secondary border-0" style="font-size: 0.75rem;">${qty.toLocaleString()} pz</span>
+                                <span class="text-muted small">×</span>
+                                <span class="badge bg-light text-secondary border-0" style="font-size: 0.75rem;">${unitPts.toLocaleString()} pts</span>
+                                <span class="text-muted small">=</span>
+                                <span class="badge bg-white text-primary border-primary border-opacity-25 fw-bold" style="min-width: 65px; color: #3b82f6 !important;">${Math.round(pts).toLocaleString()} pts</span>
+                            </div>
+                        </div>`;
+                } else if (parts.length >= 2) {
+                    const ref = parts[0].trim();
+                    const val = parts[1].trim();
+                    return `
+                        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                            <span class="fw-medium text-dark"><i class="fas fa-cube text-muted me-2"></i> Ref: ${ref}</span>
+                            <span class="badge bg-light text-primary border">${val}</span>
+                        </div>`;
+                }
+                return `<li>${l}</li>`;
+            }).join('');
+
             extraHtml = `
-                <div class="mt-3 text-start">
-                    <h6 class="fw-bold"><i class="fas fa-boxes text-secondary"></i> Top Productos Fabricados:</h6>
-                    <ul class="list-unstyled ms-3 small text-muted">
+                <div class="mt-4 text-start">
+                    <h6 class="fw-bold text-uppercase text-secondary mb-3" style="font-size: 0.8rem; letter-spacing: 1px;">
+                        <i class="fas fa-list-ol ms-1"></i> Referencias Trabajadas
+                    </h6>
+                    <div class="bg-white rounded-3 shadow-sm border p-3">
                         ${mixLines}
-                    </ul>
+                    </div>
                 </div>
             `;
         }
 
+        // Definir un color temático según el proceso
+        const themeColor = proceso.toUpperCase() === 'PULIDO' ? '#10b981' : '#3b82f6';
+        const iconProceso = proceso.toUpperCase() === 'PULIDO' ? 'fa-gem' : 'fa-cogs';
+
         Swal.fire({
-            title: `<i class="fas fa-user-circle text-primary"></i> Resumen de Operador`,
+            title: null, // Quitamos el título estándar para customizar el header completo
             html: `
-                <div class="text-start mb-3">
-                    <div class="p-3 bg-light rounded border-start border-4 border-primary shadow-sm mb-3">
-                        <span class="fst-italic text-secondary"><i class="fas fa-lightbulb text-warning"></i> "${insightStr}"</span>
+                <div class="modal-operador-custom">
+                    <!-- Cabecera Principal -->
+                    <div class="text-center mb-4">
+                        <div class="d-inline-flex justify-content-center align-items-center rounded-circle mb-3 shadow-sm border" 
+                             style="width: 70px; height: 70px; background-color: #f8fafc;">
+                            <i class="fas fa-user-tie fs-1" style="color: ${themeColor}"></i>
+                        </div>
+                        <h4 class="fw-bold text-dark mb-0">${nombre}</h4>
+                        <span class="badge rounded-pill mt-2 px-3 py-2 shadow-sm" style="background-color: ${themeColor}; color: white; font-weight: 500;">
+                            <i class="fas ${iconProceso} me-1"></i> Área de ${proceso}
+                        </span>
                     </div>
-                
-                    <p class="mb-1"><strong>Operador:</strong> ${nombre}</p>
-                    <p class="mb-1"><strong>Proceso:</strong> ${proceso}</p>
-                    <p class="mb-1"><strong>Producción Total:</strong> <span class="badge bg-success">${totalOks.toLocaleString()}</span> piezas</p>
+
+                    <!-- Insight Box (El tip del Bot) -->
+                    <div class="p-3 bg-light rounded-3 border-start border-4 mb-4 shadow-sm text-start" style="border-left-color: #f59e0b !important;">
+                        <p class="mb-0 fst-italic text-secondary small" style="line-height: 1.5;">
+                            <i class="fas fa-lightbulb text-warning me-1"></i> "${insightStr}"
+                        </p>
+                    </div>
+
+                    <!-- Grid de Estadísticas Rápidas -->
+                    <div class="row g-2 mb-2 text-center">
+                        <div class="col-6">
+                            <div class="p-3 rounded-3" style="background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2);">
+                                <h6 class="text-secondary text-uppercase mb-1" style="font-size: 0.75rem;"><i class="fas fa-check-circle text-success me-1"></i> Piezas Conformes</h6>
+                                <h2 class="fw-bold mb-0 text-success">${totalOks.toLocaleString()}</h2>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-3 rounded-3" style="background-color: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2);">
+                                <h6 class="text-secondary text-uppercase mb-1" style="font-size: 0.75rem;"><i class="fas fa-star text-primary me-1"></i> Puntaje Esfuerzo</h6>
+                                <h2 class="fw-bold mb-0 text-primary">${puntos !== null ? Math.round(puntos).toLocaleString() : '---'}</h2>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Desglose de Mix -->
+                    ${extraHtml}
                 </div>
-                ${extraHtml}
             `,
-            icon: null,
-            confirmButtonText: 'Cerrar',
-            confirmButtonColor: '#3b82f6',
-            width: '32em'
+            showConfirmButton: true,
+            confirmButtonText: '<i class="fas fa-times me-1"></i> Cerrar Resumen',
+            confirmButtonColor: '#334155', // Slate 700 para que sea sobrio
+            buttonsStyling: true,
+            customClass: {
+                confirmButton: 'btn rounded-pill px-4 shadow-sm'
+            },
+            width: '32em',
+            padding: '2rem'
         });
     }
 
@@ -339,9 +880,13 @@ window.ModuloDashboard = (function () {
         // Construir tabla
         let rowsHtml = ops.map((op, idx) => {
             const topProd = op.mix && op.mix[0] ? op.mix[0].prod : "N/A";
-            const detalleMixText = op.mix ? op.mix.slice(0, 5).map(p => `${p.prod}: ${p.qty.toLocaleString()}`).join('\\n').replace(/'/g, "\\'") : '';
+            // Usamos cuádruple backslash para que en el atributo HTML llegue como doble backslash (literal \n)
+            const detalleMixText = op.mix ? op.mix.slice(0, 5).map(p => `${p.prod}:${p.qty}:${p.u_pts || 1}:${p.pts || 0}`).join('\\\\n').replace(/'/g, "\\'") : '';
+            const nombreEscaped = op.nombre.replace(/'/g, "\\'");
+            const insightEscaped = (op.insight || "Sin insights disponibles para Inyección.").replace(/'/g, "\\'");
+
             return `
-                <tr style="cursor: pointer" onclick="ModuloDashboard.mostrarModalOperador('${op.nombre.replace(/'/g, "\\'")}', ${op.valor}, 'Inyección', '${(op.insight || '').replace(/'/g, "\\'")}', '${detalleMixText}')">
+                <tr style="cursor: pointer" onclick="ModuloDashboard.mostrarModalOperador('${nombreEscaped}', ${op.valor}, 'Inyección', '${insightEscaped}', '${detalleMixText}')">
                     <td class="ps-3"><span class="badge bg-light text-dark border">${idx + 1}</span></td>
                     <td class="text-start">
                         <div class="fw-bold">${op.nombre}</div>
@@ -378,9 +923,769 @@ window.ModuloDashboard = (function () {
         });
     }
 
-    return {
+    function renderChartPulidoLeaderboard(profundo) {
+        const ctx = document.getElementById('chartPulidoLeaderboard');
+        if (!ctx || !profundo || typeof profundo !== 'object') return;
+
+        // 1. Procesar datos REALES del objeto profundo
+        const operadoras = Object.keys(profundo);
+        // Ordenamos descendentemente por puntos
+        const sortedOps = operadoras.sort((a, b) => (profundo[b].puntos || 0) - (profundo[a].puntos || 0));
+
+        // Tomar el Top 5 o Top 10 para la gráfica
+        const topN = sortedOps.slice(0, 7);
+
+        const labels = topN;
+        const dataPuntos = topN.map(op => profundo[op].puntos || 0);
+
+        // Crear gradientes para un look más "premium"
+        const chartCtx = ctx.getContext('2d');
+        const gradientGold = chartCtx.createLinearGradient(0, 0, 0, 400);
+        gradientGold.addColorStop(0, 'rgba(251, 191, 36, 1)'); // Amber 400
+        gradientGold.addColorStop(1, 'rgba(217, 119, 6, 0.8)'); // Amber 600
+
+        const gradientBlue = chartCtx.createLinearGradient(0, 0, 0, 400);
+        gradientBlue.addColorStop(0, 'rgba(99, 102, 241, 1)'); // Indigo 500
+        gradientBlue.addColorStop(1, 'rgba(67, 56, 202, 0.8)'); // Indigo 700
+
+        // 2. Colores (Dorado para el #1)
+        const bgColors = dataPuntos.map((val, idx) => idx === 0 ? gradientGold : gradientBlue);
+        const borderColors = dataPuntos.map((val, idx) => idx === 0 ? 'rgba(217, 119, 6, 1)' : 'rgba(67, 56, 202, 1)');
+
+        if (chartPulidoBoard) chartPulidoBoard.destroy();
+
+        chartPulidoBoard = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Puntaje de Esfuerzo',
+                    data: dataPuntos,
+                    backgroundColor: bgColors,
+                    borderColor: borderColors,
+                    borderWidth: 0, // Quitamos borde para look más limpio con el gradiente
+                    borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
+                    barPercentage: 0.5,
+                    categoryPercentage: 0.7,
+                    hoverBackgroundColor: borderColors // Efecto hover
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 1500,
+                    easing: 'easeOutQuart'
+                },
+                layout: {
+                    padding: { top: 20 } // Espacio para que no se pegue arriba
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)', // Slate 900
+                        titleFont: { size: 14, weight: 'bold' },
+                        bodyFont: { size: 13 },
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        callbacks: {
+                            label: (context) => `⭐ ${Math.round(context.raw).toLocaleString()} Puntos de Esfuerzo`
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(226, 232, 240, 0.5)', // Slate 200 muy suave
+                            drawBorder: false
+                        },
+                        ticks: {
+                            font: { weight: '600' },
+                            color: '#64748b', // Slate 500
+                            padding: 10
+                        }
+                    },
+                    x: {
+                        grid: { display: false, drawBorder: false },
+                        ticks: {
+                            font: { weight: 'bold', size: 11 },
+                            color: '#334155', // Slate 700
+                            maxRotation: 25,
+                            minRotation: 0
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // --- Helpers de Formateo ---
+    const formatCOP = (num) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(num);
+    const formatNumber = (num) => new Intl.NumberFormat('es-CO').format(num);
+
+    function renderChartMensual(datosMensuales, mode = 'money') {
+        const ctx = document.getElementById('chartMensual');
+        if (!ctx || !Array.isArray(datosMensuales) || datosMensuales.length === 0) return;
+
+        try {
+            const labels = datosMensuales.map(d => d.mes);
+            const isMoney = mode === 'money';
+
+            // Año desde los inputs reales del filtro
+            const hastaInput = document.getElementById('db-fecha-hasta');
+            const yearActual = hastaInput?.value
+                ? new Date(hastaInput.value).getFullYear()
+                : new Date().getFullYear();
+            const yearPrev = yearActual - 1;
+
+            // Datos
+            const dataActualVentas = datosMensuales.map(d => isMoney ? (d.actual_dinero || 0) : (d.actual_unidades || 0));
+            const dataPrevVentas = datosMensuales.map(d => isMoney ? (d.prev_dinero || 0) : (d.prev_unidades || 0));
+            const dataActualPedidos = datosMensuales.map(d => isMoney ? (d.actual_pedidos || 0) : (d.actual_pedidos_unidades || 0));
+            const dataPrevPedidos = datosMensuales.map(d => isMoney ? (d.prev_pedidos || 0) : (d.prev_pedidos_unidades || 0));
+
+            // Ocultar líneas de Pedidos en Unidades si no hay datos reales
+            const hayPedidosUnidades = !isMoney && dataActualPedidos.some(v => v > 0);
+
+            if (chartMensualInst) chartMensualInst.destroy();
+
+            // Colores base
+            const AZUL_BARRA = 'rgba(59, 130, 246, 0.88)';
+            const GRIS_BARRA = 'rgba(148, 163, 184, 0.65)';
+            const AZUL_META = '#f59e0b';   // ámbar — contraste con barra azul
+            const GRIS_META = '#a78bfa';   // púrpura suave — contraste con barra gris
+
+            chartMensualInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        // ── Barras agrupadas ──────────────────────────
+                        {
+                            label: isMoney ? `Ventas ${yearActual} ($)` : `Ventas ${yearActual} (Unds)`,
+                            data: dataActualVentas,
+                            backgroundColor: AZUL_BARRA,
+                            borderRadius: 3,
+                            barPercentage: 0.9,
+                            categoryPercentage: 0.8,
+                            order: 3
+                        },
+                        {
+                            label: isMoney ? `Ventas ${yearPrev} ($)` : `Ventas ${yearPrev} (Unds)`,
+                            data: dataPrevVentas,
+                            backgroundColor: GRIS_BARRA,
+                            borderRadius: 3,
+                            barPercentage: 0.9,
+                            categoryPercentage: 0.8,
+                            order: 4
+                        },
+                        // ── Metas elegantes: línea punteada + diamante ─
+                        {
+                            label: isMoney ? `Pedidos ${yearActual} ($)` : `Pedidos ${yearActual} (Unds)`,
+                            data: dataActualPedidos,
+                            type: 'line',
+                            showLine: true,
+                            borderColor: AZUL_META,
+                            borderWidth: 1.5,
+                            borderDash: [5, 5],
+                            backgroundColor: 'transparent',
+                            pointStyle: 'diamond',
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: AZUL_META,
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 1.5,
+                            tension: 0,
+                            hidden: !isMoney && !hayPedidosUnidades,
+                            order: 1
+                        },
+                        {
+                            label: isMoney ? `Pedidos ${yearPrev} ($)` : `Pedidos ${yearPrev} (Unds)`,
+                            data: dataPrevPedidos,
+                            type: 'line',
+                            showLine: true,
+                            borderColor: GRIS_META,
+                            borderWidth: 1.5,
+                            borderDash: [5, 5],
+                            backgroundColor: 'transparent',
+                            pointStyle: 'circle',
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: GRIS_META,
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 1.5,
+                            tension: 0,
+                            hidden: !isMoney && !hayPedidosUnidades,
+                            order: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 400, easing: 'easeOutCubic' },
+                    interaction: { mode: 'nearest', intersect: true },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                usePointStyle: true,
+                                font: { size: 11 },
+                                padding: 16,
+                                filter: item => item.text !== ''
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (c) => c.raw > 0
+                                    ? ` ${c.dataset.label}: ${isMoney ? formatCOP(c.raw) : formatNumber(c.raw)}`
+                                    : null
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { borderDash: [4, 4], color: 'rgba(0,0,0,0.04)' },
+                            ticks: {
+                                callback: v => {
+                                    if (!isMoney) return formatNumber(v);
+                                    if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M';
+                                    return '$' + formatNumber(v);
+                                }
+                            }
+                        },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error("Error renderizando chartMensual:", e);
+        }
+    }
+
+    function renderChartTopMejores(datos, mode = 'money') {
+        const ctx = document.getElementById('chartTopMejores');
+        if (!ctx || !Array.isArray(datos) || datos.length === 0) return;
+
+        try {
+            const isMoney = mode === 'money';
+            const labels = datos.slice(0, 10).map(d => {
+                const name = d.producto || '';
+                return name.substring(0, 20) + (name.length > 20 ? '...' : '');
+            });
+            const dataVals = datos.slice(0, 10).map(d => isMoney ? d.ventas_dinero : d.ventas_unidades);
+
+            if (chartTopMejoresInst) chartTopMejoresInst.destroy();
+
+            chartTopMejoresInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: isMoney ? 'Ventas ($)' : 'Ventas (Unds)',
+                        data: dataVals,
+                        backgroundColor: 'rgba(245, 158, 11, 0.85)',
+                        borderRadius: 4,
+                        barPercentage: 0.7
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 300 },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (context) => {
+                                    const d = datos[context[0].dataIndex];
+                                    return d.producto || '';
+                                },
+                                label: (context) => ` Ventas: ${isMoney ? formatCOP(context.raw) : formatNumber(context.raw)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { borderDash: [4, 4] },
+                            ticks: {
+                                callback: function (value) {
+                                    if (!isMoney) return formatNumber(value);
+                                    if (value >= 1000000) return '$' + (value / 1000000) + 'M';
+                                    return '$' + formatNumber(value);
+                                }
+                            }
+                        },
+                        y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error("Error renderizando chartTopMejores:", e);
+        }
+    }
+    function renderChartTopPeores(datos, mode = 'money') {
+        const ctx = document.getElementById('chartTopPeores');
+        if (!ctx || !Array.isArray(datos) || datos.length === 0) return;
+
+        try {
+            const isMoney = mode === 'money';
+            const labels = datos.slice(0, 10).map(d => {
+                const name = d.producto || '';
+                return name.substring(0, 20) + (name.length > 20 ? '...' : '');
+            });
+            const dataVals = datos.slice(0, 10).map(d => isMoney ? d.ventas_dinero : d.ventas_unidades);
+
+            if (chartTopPeoresInst) chartTopPeoresInst.destroy();
+
+            chartTopPeoresInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: isMoney ? 'Ventas ($)' : 'Ventas (Unds)',
+                        data: dataVals,
+                        backgroundColor: 'rgba(239, 68, 68, 0.75)',
+                        borderRadius: 4,
+                        barPercentage: 0.7
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (context) => {
+                                    const d = datos[context[0].dataIndex];
+                                    return d.producto || '';
+                                },
+                                label: (context) => ` Ventas: ${isMoney ? formatCOP(context.raw) : formatNumber(context.raw)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { borderDash: [4, 4] },
+                            ticks: {
+                                callback: function (value) {
+                                    if (!isMoney) return formatNumber(value);
+                                    if (value >= 1000000) return '$' + (value / 1000000) + 'M';
+                                    return '$' + formatNumber(value);
+                                }
+                            }
+                        },
+                        y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error("Error renderizando chartTopPeores:", e);
+        }
+    }
+
+    /**
+     * Renderiza tabla de Incumplimiento por UNIDADES
+     */
+    function renderTablaIncumplimientoUnidades(data, isFiltering = false) {
+        try {
+            const tbody = document.getElementById('incumplimiento-unidades-body');
+            const countSpan = document.getElementById('bo-count');
+            if (!tbody) return;
+
+            if (!Array.isArray(data)) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-muted small">Error en formato de datos.</td></tr>`;
+                return;
+            }
+
+            try {
+                // Ordenar por fallo desc (mayor a menor) para ver problemas reales primero
+                const sorted = [...data].sort((a, b) => (Number(b.unidades_fallidas) || 0) - (Number(a.unidades_fallidas) || 0));
+
+                let html = '';
+                sorted.forEach((item, index) => {
+                    const cli = String(item.cliente || "S/N");
+                    const prod = String(item.producto || "Sin Referencia");
+                    const qty = Number(item.unidades_fallidas) || 0;
+                    const ano = String(item.ano || "-");
+
+                    // Indice de búsqueda pre-calculado para performance
+                    const searchIndex = `${cli} ${prod} ${ano}`.toLowerCase().trim();
+                    const displayStyle = (index < 10) ? '' : 'none';
+                    // Escapar comillas dobles y simples para no romper el onclick
+                    const safeCli = cli.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+
+                    html += `
+                        <tr class="table-row-hover" style="display: ${displayStyle}; cursor: pointer; transition: background-color 0.2s;" data-search="${searchIndex}" onclick="window.ModuloDashboard.mostrarDetalleIncumplimiento('${safeCli}', 'unidades')">
+                            <td class="ps-4 py-2" style="font-size: 0.85rem;">
+                                <div class="fw-bold text-dark text-truncate" style="max-width: 250px;" title="${cli}">${cli}</div>
+                            </td>
+                            <td class="py-2" style="font-size: 0.85rem;">
+                                <div class="text-muted text-truncate" style="max-width: 300px;" title="${prod}">${prod}</div>
+                            </td>
+                            <td class="text-center text-danger fw-bold py-2" style="font-size: 0.9rem;">
+                                ${formatNumber(qty)}
+                            </td>
+                            <td class="text-center py-2">
+                                 <span class="badge bg-light text-dark border" style="font-size: 0.75rem;">${ano}</span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            } catch (innerErr) {
+                console.error("❌ Error en loop renderTablaIncumplimientoUnidades:", innerErr);
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-3 text-warning">Error procesando registros.</td></tr>`;
+            }
+        } catch (e) {
+            console.error("❌ Error fatal renderTablaIncumplimientoUnidades:", e);
+        }
+    }
+
+    /**
+     * Renderiza tabla de Incumplimiento por DINERO (Impacto Financiero)
+     */
+    function renderTablaIncumplimientoDinero(data, isFiltering = false) {
+        try {
+            const tbody = document.getElementById('incumplimiento-dinero-body');
+            if (!tbody) return;
+
+            if (!Array.isArray(data)) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-muted small">Error en formato de datos.</td></tr>`;
+                return;
+            }
+
+            try {
+                // Ordenar por dinero desc (mayor a menor) para ver problemas reales primero
+                const sorted = [...data].sort((a, b) => (Number(b.dinero_perdido) || 0) - (Number(a.dinero_perdido) || 0));
+
+                let html = '';
+                sorted.forEach((item, index) => {
+                    const cli = String(item.cliente || "S/N");
+                    const prod = String(item.producto || "Sin Referencia");
+                    const money = Number(item.dinero_perdido) || 0;
+                    const ano = String(item.ano || "-");
+
+                    // Indice de búsqueda pre-calculado para performance
+                    const searchIndex = `${cli} ${prod} ${ano}`.toLowerCase().trim();
+                    const displayStyle = (index < 10) ? '' : 'none';
+                    // Escapar comillas dobles y simples para no romper el onclick
+                    const safeCli = cli.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+
+                    html += `
+                        <tr class="table-row-hover" style="display: ${displayStyle}; cursor: pointer; transition: background-color 0.2s;" data-search="${searchIndex}" onclick="window.ModuloDashboard.mostrarDetalleIncumplimiento('${safeCli}', 'dinero')">
+                            <td class="ps-4 py-2" style="font-size: 0.85rem;">
+                                <div class="fw-bold text-dark text-truncate" style="max-width: 250px;" title="${cli}">${cli}</div>
+                            </td>
+                            <td class="py-2" style="font-size: 0.85rem;">
+                                <div class="text-muted text-truncate" style="max-width: 300px;" title="${prod}">${prod}</div>
+                            </td>
+                            <td class="text-center text-success fw-bold py-2" style="font-size: 0.9rem;">
+                                ${formatCOP(money)}
+                            </td>
+                             <td class="text-center py-2">
+                                  <span class="badge bg-light text-dark border" style="font-size: 0.75rem;">${ano}</span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            } catch (innerErr) {
+                console.error("❌ Error en loop renderTablaIncumplimientoDinero:", innerErr);
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-3 text-warning">Error procesando registros.</td></tr>`;
+            }
+        } catch (e) {
+            console.error("❌ Error fatal renderTablaIncumplimientoDinero:", e);
+        }
+    }
+
+    /**
+     * Alterna la vista de las gráficas entre Dinero y Unidades
+     */
+    function toggleChartView(chartType, mode) {
+        if (!lastJefaturaData) return;
+
+        // Persistir en localStorage
+        localStorage.setItem('db_toggle_mode', mode);
+
+        // Update Button UI
+        const btnMoney = document.getElementById(`toggle-${chartType}-money`);
+        const btnUnits = document.getElementById(`toggle-${chartType}-units`);
+        if (btnMoney) btnMoney.classList.toggle('active', mode === 'money');
+        if (btnUnits) btnUnits.classList.toggle('active', mode === 'units');
+
+        if (chartType === 'mensual') {
+            renderChartMensual(lastJefaturaData.mensual, mode);
+        } else if (chartType === 'mejores') {
+            const arr = mode === 'money' ? lastJefaturaData.top_productos_dinero : lastJefaturaData.top_productos_unidades;
+            const sorted = [...arr].sort((a, b) => (mode === 'money' ? b.ventas_dinero - a.ventas_dinero : b.ventas_unidades - a.ventas_unidades));
+            renderChartTopMejores(sorted, mode);
+        } else if (chartType === 'peores') {
+            const arr = mode === 'money' ? lastJefaturaData.peores_productos_dinero : lastJefaturaData.peores_productos_unidades;
+            const sorted = [...arr].sort((a, b) => (mode === 'money' ? a.ventas_dinero - b.ventas_dinero : a.ventas_unidades - b.ventas_unidades));
+            renderChartTopPeores(sorted, mode);
+        }
+    }
+
+    function mostrarDetalleIncumplimiento(cliente, mode) {
+        if (!inc_unidades_original || !inc_dinero_original) return;
+
+        // Extraer los listados de este cliente en ambos universos
+        const cliStr = (cliente || "").trim().toLowerCase();
+        const f_unidades = inc_unidades_original.filter(d => (d.cliente || "").trim().toLowerCase() === cliStr);
+        const f_dinero = inc_dinero_original.filter(d => (d.cliente || "").trim().toLowerCase() === cliStr);
+
+        // Crear un diccionario unificado por producto
+        const mapProductos = {};
+        const normalizeProd = p => (p || 'Sin Referencia').trim().toLowerCase();
+
+        f_unidades.forEach(d => {
+            const rawP = d.producto || 'Sin Referencia';
+            const normP = normalizeProd(rawP);
+            if (!mapProductos[normP]) mapProductos[normP] = { prod: rawP, unds: {}, money: {} };
+            mapProductos[normP].unds = {
+                pedidos: Number(d.pedidos) || 0,
+                ventas: Number(d.ventas) || 0,
+                fallo: Number(d.unidades_fallidas) || 0
+            };
+        });
+
+        f_dinero.forEach(d => {
+            const rawP = d.producto || 'Sin Referencia';
+            const normP = normalizeProd(rawP);
+            if (!mapProductos[normP]) mapProductos[normP] = { prod: rawP, unds: { pedidos: 0, ventas: 0, fallo: 0 }, money: {} };
+            mapProductos[normP].money = {
+                pedidos: Number(d.pedidos) || 0,
+                ventas: Number(d.ventas) || 0,
+                fallo: Number(d.dinero_perdido) || 0
+            };
+        });
+
+        // Convertir a array y ordenar (menor a mayor)
+        let arrayProductos = Object.values(mapProductos);
+        arrayProductos.sort((a, b) => {
+            if (mode === 'unidades') return (Number(a.unds.fallo) || 0) - (Number(b.unds.fallo) || 0);
+            return (Number(a.money.fallo) || 0) - (Number(b.money.fallo) || 0);
+        });
+
+        const decodedCliente = cliente.replace(/&quot;/g, '"');
+        document.getElementById('modal-inc-cliente').innerText = decodedCliente;
+
+        const tbody = document.getElementById('modal-inc-tbody');
+        const tfoot = document.getElementById('modal-inc-tfoot');
+        let html = '';
+
+        let tp_u = 0, tv_u = 0, tf_u = 0;
+        let tp_d = 0, tv_d = 0, tf_d = 0;
+
+        const fmtMoney = (v) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
+        const fmtUnit = (v) => formatNumber(v);
+
+        arrayProductos.forEach(item => {
+            tp_u += item.unds.pedidos || 0;
+            tv_u += item.unds.ventas || 0;
+            tf_u += item.unds.fallo || 0;
+
+            tp_d += item.money.pedidos || 0;
+            tv_d += item.money.ventas || 0;
+            tf_d += item.money.fallo || 0;
+
+            // Render dependiendo de qué pestaña se seleccionó
+            const pd_val = mode === 'unidades' ? fmtUnit(item.unds.pedidos || 0) : fmtMoney(item.money.pedidos || 0);
+            const vt_val = mode === 'unidades' ? fmtUnit(item.unds.ventas || 0) : fmtMoney(item.money.ventas || 0);
+            const df_val = mode === 'unidades' ? fmtUnit(item.unds.fallo || 0) : fmtMoney(item.money.fallo || 0);
+
+            // El equivalente "en el otro mundo"
+            const eq_text = mode === 'unidades'
+                ? `<span style="font-size: 0.75rem; color: #64748b;">Eqv: ${fmtMoney(item.money.fallo || 0)}</span>`
+                : `<span style="font-size: 0.75rem; color: #64748b;">Eqv: ${fmtUnit(item.unds.fallo || 0)} unds</span>`;
+
+            html += `
+                <tr style="border-bottom: 1px solid #f1f5f9; transition: background-color 0.2s;">
+                    <td style="padding: 14px 20px;">
+                        <div style="display: flex; align-items: flex-start;">
+                            <i class="fas fa-box text-slate-300 mt-1 me-3" style="color: #cbd5e1; font-size: 0.9rem;"></i>
+                            <div style="display: flex; flex-direction: column;">
+                                <span style="color: #334155; font-weight: 500; font-size: 0.85rem; line-height: 1.4;">${item.prod}</span>
+                                <span style="font-size: 0.7rem; color: #94a3b8; margin-top: 2px;">Resta bruta: ${mode === 'unidades' ? `${item.unds.pedidos || 0} - ${item.unds.ventas || 0}` : `${fmtMoney(item.money.pedidos || 0)} - ${fmtMoney(item.money.ventas || 0)}`}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="text-center align-middle" style="padding: 14px 12px;">
+                        <span style="font-family: 'Inter', monospace; font-size: 0.95rem; color: #475569; font-weight: 500;">${pd_val}</span>
+                    </td>
+                    <td class="text-center align-middle" style="padding: 14px 12px;">
+                        <span style="font-family: 'Inter', monospace; font-size: 0.95rem; color: #10b981; font-weight: 500;">${vt_val}</span>
+                    </td>
+                    <td class="text-center align-middle" style="padding: 14px 12px;">
+                        <div style="display: flex; flex-direction: column; align-items: center;">
+                            <span style="font-family: 'Inter', monospace; font-size: 0.95rem; color: #ef4444; font-weight: 700; background: #fef2f2; padding: 4px 10px; border-radius: 6px;">${df_val}</span>
+                            <div style="margin-top: 4px;">${eq_text}</div>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML = html;
+
+        const t_pd = mode === 'unidades' ? fmtUnit(tp_u) : fmtMoney(tp_d);
+        const t_vt = mode === 'unidades' ? fmtUnit(tv_u) : fmtMoney(tv_d);
+        const t_df = mode === 'unidades' ? fmtUnit(tf_u) : fmtMoney(tf_d);
+        const t_eq = mode === 'unidades' ? `Eqv: ${fmtMoney(tf_d)}` : `Eqv: ${fmtUnit(tf_u)} unds`;
+
+        tfoot.innerHTML = `
+            <tr>
+                <td class="text-end" style="padding: 18px 20px; color: #64748b; font-weight: 600; font-size: 0.8rem; text-transform: uppercase;">Total Afectación:</td>
+                <td class="text-center" style="padding: 18px 12px; font-family: 'Inter', monospace; font-size: 1.05rem; color: #334155; font-weight: 700;">${t_pd}</td>
+                <td class="text-center" style="padding: 18px 12px; font-family: 'Inter', monospace; font-size: 1.05rem; color: #10b981; font-weight: 700;">${t_vt}</td>
+                <td class="text-center" style="padding: 18px 12px;">
+                    <span style="font-family: 'Inter', monospace; font-size: 1.1rem; color: #ef4444; font-weight: 800; display: block;">${t_df}</span>
+                    <span style="font-size: 0.8rem; color: #64748b; font-weight: 500;">${t_eq}</span>
+                </td>
+            </tr>
+        `;
+
+        document.getElementById('modal-detalle-incumplimiento').style.display = 'flex';
+    }
+
+    function toggleOperatorSelection(nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar) {
+        const index = selectedOperators.findIndex(s => s.nombre === nombre);
+        if (index > -1) {
+            selectedOperators.splice(index, 1);
+        } else {
+            if (selectedOperators.length >= 3) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Límite alcanzado',
+                    text: 'Solo puedes comparar hasta 3 operarios a la vez.',
+                    confirmButtonColor: '#3b82f6'
+                });
+                renderTablaPulido(lastJefaturaData?.profundo_pulido || {}); // Refrescar para desmarcar el checkbox
+                return;
+            }
+            selectedOperators.push({ nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar });
+        }
+
+        actualizarUIComparativa();
+    }
+
+    function actualizarUIComparativa() {
+        const btn = document.getElementById('btn-comparar-pulido');
+        const count = document.getElementById('count-comparar');
+
+        if (btn && count) {
+            count.textContent = selectedOperators.length;
+            if (selectedOperators.length >= 2) {
+                btn.classList.remove('d-none');
+            } else {
+                btn.classList.add('d-none');
+            }
+        }
+    }
+
+    function abrirModalComparativa() {
+        console.log("📊 Abriendo comparativa cara a cara...", selectedOperators);
+        const grid = document.getElementById('comparativa-grid');
+        if (!grid) return;
+
+        grid.innerHTML = '';
+
+        // Determinar ganadores por categoría
+        const maxPuntos = Math.max(...selectedOperators.map(o => o.puntos || 0));
+        const maxTiempo = Math.max(...selectedOperators.map(o => o.tiempoEstandar || 0));
+        const minCosto = Math.min(...selectedOperators.map(o => o.costoPnc));
+        const maxEfi = Math.max(...selectedOperators.map(o => o.eficiencia));
+
+        selectedOperators.forEach(op => {
+            const fmtMoney = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v);
+            const precisionEfi = op.buenas === (op.buenas + op.pnc) ? 100 : ((op.buenas / (op.buenas + op.pnc)) * 100).toFixed(2);
+
+            const esGanadorPuntos = (op.puntos || 0) === maxPuntos && maxPuntos > 0;
+            const esGanadorCalidad = op.costoPnc === minCosto;
+
+            const html = `
+                <div class="comparison-column ${esGanadorPuntos ? 'winner-column' : ''}">
+                    ${esGanadorPuntos ? '<div class="winner-badge"><i class="fas fa-medal me-1"></i> Líder de Esfuerzo</div>' : ''}
+                    <div class="comparison-header">
+                        <div class="comparison-avatar">
+                            <i class="fas fa-user-ninja"></i>
+                        </div>
+                        <h4 class="fw-bold text-dark mb-1">${op.nombre}</h4>
+                        <span class="text-muted small">Investigador de Pulido</span>
+                    </div>
+
+                    <!-- NUEVO: Comparativa de Puntos -->
+                    <div class="comparison-metric bg-light">
+                        <div class="metric-row">
+                            <div class="metric-label-group">
+                                <div class="metric-icon"><i class="fas fa-star text-warning"></i></div>
+                                <span class="metric-label">Esfuerzo (Pts)</span>
+                            </div>
+                            <span class="metric-value ${esGanadorPuntos ? 'metric-highlight' : ''}">${(op.puntos || 0).toLocaleString(undefined, { minimumFractionDigits: 1 })}</span>
+                        </div>
+                        <div class="comparison-progress-container mt-3">
+                            <div class="comparison-progress-bar bg-warning" style="width: ${maxPuntos > 0 ? ((op.puntos || 0) / maxPuntos) * 100 : 0}%"></div>
+                        </div>
+                    </div>
+
+                    <!-- NUEVO: Tiempo Estándar -->
+                    <div class="comparison-metric">
+                        <div class="metric-row">
+                            <div class="metric-label-group">
+                                <div class="metric-icon"><i class="fas fa-clock text-info"></i></div>
+                                <span class="metric-label">Tiempo Est (min)</span>
+                            </div>
+                            <span class="metric-value">${(op.tiempoEstandar || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                        </div>
+                    </div>
+
+                    <!-- Eficiencia de Calidad (Pérdida $) -->
+                    <div class="comparison-metric bg-light">
+                        <div class="metric-row">
+                            <div class="metric-label-group">
+                                <div class="metric-icon"><i class="fas fa-hand-holding-usd text-danger"></i></div>
+                                <span class="metric-label">Pérdida Calidad</span>
+                            </div>
+                            <span class="metric-value ${esGanadorCalidad ? 'metric-highlight text-success' : 'text-danger'}">${fmtMoney(op.costoPnc)}</span>
+                        </div>
+                        <p class="text-muted mt-2 mb-0" style="font-size: 0.65rem;">${esGanadorCalidad ? 'Menor impacto económico ✨' : 'Costo por scrap generado'}</p>
+                    </div>
+
+                    <div class="comparison-metric">
+                        <div class="metric-row">
+                            <div class="metric-label-group">
+                                <div class="metric-icon"><i class="fas fa-chart-line text-success"></i></div>
+                                <span class="metric-label">Efectividad</span>
+                            </div>
+                            <span class="metric-value ${op.eficiencia === maxEfi ? 'metric-highlight' : ''}">${precisionEfi}%</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            grid.insertAdjacentHTML('beforeend', html);
+        });
+
+        const modal = new bootstrap.Modal(document.getElementById('modalComparativaPulido'));
+        modal.show();
+    }
+
+    // Attach to windows for HTML access
+    window.ModuloDashboard = {
         inicializar: iniciar,
         refrescar: cargarDatos,
-        mostrarModalOperador: mostrarModalOperador
+        refrescarDatos: () => cargarDatos(true),   // botón 🔄: fuerza lectura fresca (nocache)
+        mostrarModalOperador: mostrarModalOperador,
+        toggleChartView: toggleChartView,
+        mostrarDetalleIncumplimiento: mostrarDetalleIncumplimiento,
+        toggleOperatorSelection,
+        abrirModalComparativa
     };
+
+    return window.ModuloDashboard;
 })();

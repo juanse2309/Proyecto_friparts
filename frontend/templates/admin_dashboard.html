@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jefatura | FRIPARTS Dashboard</title>
+    <!-- Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SweetAlert2 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+
+        .h-custom {
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 80px;
+            transition: width 0.3s ease;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 1000;
+            background-color: #ffffff;
+            border-right: 1px solid #e2e8f0;
+        }
+
+        .sidebar:hover {
+            width: 250px;
+        }
+
+        .sidebar .nav-link {
+            color: #64748b;
+            font-weight: 500;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 0.25rem 0.5rem;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .sidebar .nav-link i {
+            min-width: 40px;
+            text-align: center;
+            font-size: 1.25rem;
+        }
+
+        .sidebar .nav-link span {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            margin-left: 10px;
+        }
+
+        .sidebar:hover .nav-link span {
+            opacity: 1;
+        }
+
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            background-color: #f1f5f9;
+            color: #0f172a;
+        }
+
+        .sidebar .nav-link.active {
+            background-color: #e2e8f0;
+            color: #3b82f6;
+        }
+
+        .main-content {
+            margin-left: 80px;
+            padding: 2rem;
+            transition: margin-left 0.3s ease;
+            min-height: 100vh;
+        }
+
+        .card {
+            border-radius: 16px;
+            border: none;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            background-color: transparent;
+            border-bottom: 1px solid #f1f5f9;
+            padding: 1.25rem 1.5rem;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 0;
+        }
+
+        .table-custom {
+            border-collapse: separate;
+            border-spacing: 0 0.5rem;
+            background: transparent !important;
+        }
+
+        .table-custom thead th {
+            border: none;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            background-color: transparent;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e2e8f0 !important;
+        }
+
+        .table-custom tbody tr {
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+            transition: all 0.2s ease;
+            border-radius: 8px;
+        }
+
+        .table-custom tbody tr:hover {
+            transform: scale(1.01);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
+            z-index: 2;
+            position: relative;
+        }
+
+        .table-custom tbody td {
+            border: none;
+            padding: 1rem 1.25rem;
+            vertical-align: middle;
+            color: #334155;
+        }
+
+        .table-custom tbody td:first-child {
+            border-top-left-radius: 8px;
+            border-bottom-left-radius: 8px;
+        }
+
+        .table-custom tbody td:last-child {
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 350px;
+            width: 100%;
+        }
+
+        /* Modern Loader */
+        #loader-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.3s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Global Loader -->
+    <div id="loader-overlay">
+        <div class="spinner mb-3"></div>
+        <h5 class="text-primary fw-bold" style="font-family: 'Tajawal', sans-serif;">Sincronizando Jefatura...</h5>
+    </div>
+
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar py-4 d-flex flex-column shadow-sm">
+        <div class="text-center mb-4 px-2 d-flex align-items-center justify-content-center" style="min-height: 40px;">
+            <i class="fas fa-chart-pie text-primary fs-3"></i>
+            <span class="fs-5 fw-bold text-primary ms-2" style="font-family: 'Tajawal', sans-serif;">ADMIN</span>
+        </div>
+
+        <ul class="nav flex-column mb-auto">
+            <li class="nav-item">
+                <a href="#" class="nav-link active">
+                    <i class="fas fa-home"></i>
+                    <span>Dashboard</span>
+                </a>
+            </li>
+        </ul>
+
+        <div class="mt-auto px-2">
+            <a href="#" class="nav-link text-danger" id="btn-logout" onclick="cerrarSesionLocal(event)">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Cerrar Sesión</span>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container-fluid">
+
+            <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+                <div>
+                    <h2 class="fw-bold mb-1" style="font-family: 'Tajawal', sans-serif; color: #0f172a;">Jefatura |
+                        Resumen Comercial</h2>
+                    <p class="text-muted mb-0 small"><i class="fas fa-calendar-alt me-1"></i> <span
+                            id="current-date"></span></p>
+                </div>
+                <div>
+                    <button class="btn btn-outline-primary shadow-sm" onclick="cargarDatosAdmin()">
+                        <i class="fas fa-sync-alt me-2"></i>Actualizar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Row 1: Rendimiento Mensual y Backorder -->
+            <div class="row g-4 mb-4">
+                <!-- Rendimiento Mensual -->
+                <div class="col-12 col-xl-7">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title"><i class="fas fa-chart-area text-primary me-2"></i>Rendimiento
+                                Mensual</h5>
+                            <span class="badge bg-light text-primary border border-primary">Pedidos vs Ventas</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="chartMensual"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Backorder Alerta -->
+                <div class="col-12 col-xl-5">
+                    <div class="card h-100 border-start border-danger border-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title text-danger"><i class="fas fa-exclamation-triangle me-2"></i>Alerta:
+                                Backorder</h5>
+                            <span class="badge bg-danger rounded-pill"><span id="bo-count">0</span> ítems
+                                críticos</span>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive" style="max-height: 350px; overflow-y: auto;">
+                                <table class="table table-hover table-custom mb-0 mx-3 my-2"
+                                    style="width: calc(100% - 2rem)!important;" id="tabla-backorder">
+                                    <thead>
+                                        <tr>
+                                            <th>Producto</th>
+                                            <th class="text-center">Pedido</th>
+                                            <th class="text-center">Venta</th>
+                                            <th class="text-center text-danger">Faltante</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="backorder-body">
+                                        <!-- Generado dinámicamente -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 2: Top Productos (Mejores y Peores) -->
+            <div class="row g-4">
+                <!-- Top 10 Mejores -->
+                <div class="col-12 col-lg-6">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title"><i class="fas fa-star text-warning me-2"></i>Top 10 Productos Más
+                                Vendidos</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="chartTopMejores"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top 10 Peores -->
+                <div class="col-12 col-lg-6">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title"><i class="fas fa-arrow-down text-danger me-2"></i>Top 10 Productos
+                                Menos Vendidos</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="chartTopPeores"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/modules/auth.js"></script>
+
+    <script>
+        // Formateadores de moneda
+        const formatCOP = (num) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(num);
+        const formatNumber = (num) => new Intl.NumberFormat('es-CO').format(num);
+
+        // Variables globales de las gráficas
+        let chartMensualInst = null;
+        let chartTopMejoresInst = null;
+        let chartTopPeoresInst = null;
+
+        let userSession = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Fecha actual
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('current-date').textContent = new Date().toLocaleDateString('es-ES', options);
+
+            // Verificar sesión almacenada
+            const storedUser = sessionStorage.getItem('friparts_user');
+            if (storedUser) {
+                try {
+                    userSession = JSON.parse(storedUser);
+                } catch (e) { }
+            }
+
+            // Si no hay sesión o el rol no es válido para admin, redirigir
+            if (!userSession || (userSession.rol.toLowerCase() !== 'admin' && userSession.rol.toLowerCase() !== 'administracion' && userSession.rol.toLowerCase() !== 'administrador')) {
+                window.location.href = '/';
+                return;
+            }
+
+            cargarDatosAdmin();
+        });
+
+        function cerrarSesionLocal(e) {
+            e.preventDefault();
+            sessionStorage.removeItem('friparts_user');
+            fetch('/api/auth/logout').then(() => {
+                window.location.href = '/';
+            });
+        }
+
+        async function cargarDatosAdmin() {
+            try {
+                const response = await fetch('/api/admin/dashboard', {
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                // Si la respuesta es 401 o 403, redirigir
+                if (response.status === 401 || response.status === 403) {
+                    window.location.href = '/';
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (data.success) {
+                    renderizarDashboard(data.data);
+                } else {
+                    Swal.fire('Error', data.message || 'Error al cargar datos del dashboard', 'error');
+                }
+            } catch (error) {
+                console.error("Error fetching admin data:", error);
+                Swal.fire('Error de Conexión', 'No se pudo contactar al servidor. Posiblemente falta de sesión.', 'error').then(() => {
+                    window.location.href = '/';
+                });
+            } finally {
+                document.getElementById('loader-overlay').style.opacity = '0';
+                setTimeout(() => document.getElementById('loader-overlay').style.display = 'none', 300);
+            }
+        }
+
+        function renderizarDashboard(data) {
+            renderChartMensual(data.mensual);
+            renderChartTopMejores(data.top_productos);
+            renderChartTopPeores(data.peores_productos);
+            renderTablaBackorder(data.backorder);
+        }
+
+        function renderChartMensual(datosMensuales) {
+            const ctx = document.getElementById('chartMensual');
+            if (!ctx) return;
+
+            const labels = datosMensuales.map(d => d.mes);
+            const dataPedidos = datosMensuales.map(d => d.pedidos_dinero);
+            const dataVentas = datosMensuales.map(d => d.ventas_dinero);
+
+            if (chartMensualInst) chartMensualInst.destroy();
+
+            chartMensualInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Pedidos ($)',
+                            data: dataPedidos,
+                            backgroundColor: 'rgba(59, 130, 246, 0.85)', // Azul
+                            borderRadius: 4,
+                            barPercentage: 0.6,
+                            categoryPercentage: 0.8
+                        },
+                        {
+                            label: 'Ventas ($)',
+                            data: dataVentas,
+                            type: 'line',
+                            borderColor: '#10b981', // Verde Esmeralda
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            borderWidth: 3,
+                            pointBackgroundColor: '#10b981',
+                            pointHoverRadius: 6,
+                            tension: 0.3,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => ` ${context.dataset.label}: ${formatCOP(context.raw)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { borderDash: [4, 4] },
+                            ticks: {
+                                callback: function (value) {
+                                    if (value >= 1000000) return '$' + (value / 1000000) + 'M';
+                                    return '$' + value;
+                                }
+                            }
+                        },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function renderChartTopMejores(datos) {
+            const ctx = document.getElementById('chartTopMejores');
+            if (!ctx) return;
+
+            const labels = datos.map(d => d.producto.substring(0, 20) + (d.producto.length > 20 ? '...' : ''));
+            const dataVentas = datos.map(d => d.ventas_dinero);
+
+            if (chartTopMejoresInst) chartTopMejoresInst.destroy();
+
+            chartTopMejoresInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Ventas ($)',
+                        data: dataVentas,
+                        backgroundColor: 'rgba(245, 158, 11, 0.85)', // Ambar/Dorado
+                        borderRadius: 4,
+                        barPercentage: 0.7
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Barra horizontal para nombres largos de productos
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (context) => datos[context[0].dataIndex].producto, // Mostrar nombre completo en tooltip
+                                label: (context) => ` Ventas: ${formatCOP(context.raw)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { borderDash: [4, 4] },
+                            ticks: {
+                                callback: function (value) {
+                                    if (value >= 1000000) return '$' + (value / 1000000) + 'M';
+                                    return '$' + value;
+                                }
+                            }
+                        },
+                        y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function renderChartTopPeores(datos) {
+            const ctx = document.getElementById('chartTopPeores');
+            if (!ctx) return;
+
+            // En caso que el dataset contenga productos con 0 ventas, queremos mostrarlos
+            const labels = datos.map(d => d.producto.substring(0, 20) + (d.producto.length > 20 ? '...' : ''));
+            const dataVentas = datos.map(d => d.ventas_dinero);
+
+            if (chartTopPeoresInst) chartTopPeoresInst.destroy();
+
+            chartTopPeoresInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Ventas ($)',
+                        data: dataVentas,
+                        backgroundColor: 'rgba(239, 68, 68, 0.75)', // Rojo Suave
+                        borderRadius: 4,
+                        barPercentage: 0.7
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (context) => datos[context[0].dataIndex].producto,
+                                label: (context) => ` Ventas: ${formatCOP(context.raw)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { borderDash: [4, 4] },
+                            ticks: {
+                                callback: function (value) {
+                                    if (value >= 1000000) return '$' + (value / 1000000) + 'M';
+                                    return '$' + value;
+                                }
+                            }
+                        },
+                        y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function renderTablaBackorder(backorder) {
+            const tbody = document.getElementById('backorder-body');
+            document.getElementById('bo-count').textContent = backorder.length;
+
+            if (!backorder || backorder.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-success"><i class="fas fa-check-circle me-2"></i>No hay productos en backorder (Pedidos > Ventas).</td></tr>`;
+                return;
+            }
+
+            let html = '';
+            backorder.forEach(item => {
+                html += `
+                    <tr>
+                        <td class="fw-medium text-dark">
+                            <i class="fas fa-box text-secondary me-2"></i>
+                            ${item.producto}
+                        </td>
+                        <td class="text-center">${formatNumber(item.pedidos_qty)}</td>
+                        <td class="text-center">${formatNumber(item.ventas_qty)}</td>
+                        <td class="text-center text-danger fw-bold">
+                            <i class="fas fa-exclamation-circle me-1"></i>
+                            ${formatNumber(item.pendiente_qty)}
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+    </script>
+</body>
+
+</html>
