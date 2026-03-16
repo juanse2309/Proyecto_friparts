@@ -97,7 +97,7 @@ window.ModuloRotacion = (function () {
             transitBadge = `
                 <div class="mt-1" title="${title}" style="cursor:help">
                     <span class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50 px-2 rounded-pill">
-                        <i class="fas fa-truck-loading me-1"></i>${item.stock_externo}
+                        <i class="fas fa-truck me-1"></i>${item.stock_externo}
                     </span>
                 </div>
             `;
