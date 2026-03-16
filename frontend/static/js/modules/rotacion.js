@@ -71,8 +71,8 @@ window.ModuloRotacion = (function () {
         const itemsA = data.filter(d => d.clase === 'A');
         const itemsBC = data.filter(d => d.clase !== 'A');
 
-        tableA.innerHTML = itemsA.length > 0 ? itemsA.map(item => createRow(item, true)).join('') : '<tr><td colspan="7" class="text-center py-5 text-muted">No hay items Clase A críticos</td></tr>';
-        tableBC.innerHTML = itemsBC.length > 0 ? itemsBC.map(item => createRow(item, false)).join('') : '<tr><td colspan="7" class="text-center py-5 text-muted">No hay items Clase B/C</td></tr>';
+        tableA.innerHTML = itemsA.length > 0 ? itemsA.map(item => createRow(item, true)).join('') : '<tr><td colspan="8" class="text-center py-5 text-muted">No hay items Clase A críticos</td></tr>';
+        tableBC.innerHTML = itemsBC.length > 0 ? itemsBC.map(item => createRow(item, false)).join('') : '<tr><td colspan="8" class="text-center py-5 text-muted">No hay items Clase B/C</td></tr>';
     }
 
     function createRow(item, isTop) {
@@ -89,15 +89,34 @@ window.ModuloRotacion = (function () {
             (item.semaforo === 'AMARILLO' ? '<span class="badge bg-warning text-dark">ALERTA</span>' :
                 '<span class="badge bg-success">ÓPTIMO</span>');
 
+        // Badge de Tránsito Externo
+        let transitBadge = '';
+        if (item.stock_externo > 0) {
+            const dg = item.desglose_externo || { Zincado: 0, Granallado: 0 };
+            const title = `Zincado: ${dg.Zincado} pz | Granallado: ${dg.Granallado} pz`;
+            transitBadge = `
+                <div class="mt-1" title="${title}" style="cursor:help">
+                    <span class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50 px-2 rounded-pill">
+                        <i class="fas fa-truck-loading me-1"></i>${item.stock_externo}
+                    </span>
+                </div>
+            `;
+        }
+
         return `
             <tr style="border-left: 5px solid ${colors.border}; background-color: ${colors.bg}; transition: all 0.2s;">
                 <td class="ps-4"><span class="fw-bold text-dark">${item.codigo}</span></td>
                 <td>
-                    <div class="fw-medium">${item.descripcion}</div>
+                    <div class="fw-medium text-truncate" style="max-width: 250px;" title="${item.descripcion}">${item.descripcion}</div>
                     ${isTop ? '<small class="text-muted text-uppercase" style="font-size:0.65rem">Ítem Crítico de Producción</small>' : ''}
                 </td>
                 ${!isTop ? `<td class="text-center"><span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 px-2">${item.clase}</span></td>` : ''}
-                <td class="text-center fw-bold ${item.semaforo === 'ROJO' ? 'text-danger' : ''}">${item.stock_actual}</td>
+                <td class="text-center fw-bold ${item.semaforo === 'ROJO' ? 'text-danger' : ''}">
+                    ${item.stock_actual}
+                </td>
+                <td class="text-center">
+                    ${transitBadge || '<span class="text-muted small">0</span>'}
+                </td>
                 ${isTop ? `<td class="text-center text-muted">${item.minimo}</td>` : ''}
                 <td>
                     <div class="d-flex align-items-center justify-content-between mb-1">
@@ -135,7 +154,7 @@ window.ModuloRotacion = (function () {
         const targetTbody = isClaseA ? document.getElementById('rot-table-a') : document.getElementById('rot-table-bc');
         if (targetTbody) {
             targetTbody.innerHTML = filtered.length > 0 ? filtered.map(item => createRow(item, isClaseA)).join('') :
-                `<tr><td colspan="7" class="text-center py-5 text-muted">No hay resultados para "${term}"</td></tr>`;
+                `<tr><td colspan="8" class="text-center py-5 text-muted">No hay resultados para "${term}"</td></tr>`;
         }
     }
 

@@ -302,9 +302,10 @@ const ModuloProcura = {
     agregarItemOC: function () {
         const producto = document.getElementById('codigo-producto-oc')?.value?.trim();
         const cantidadSolicitada = parseInt(document.getElementById('cantidad-oc')?.value) || 0;
+        const cantidadEnviada = parseInt(document.getElementById('cantidad-enviada-oc')?.value) || 0;
 
-        if (!producto || cantidadSolicitada <= 0) {
-            Swal.fire('Atención', 'Debes ingresar un producto válido y una cantidad mayor a 0', 'warning');
+        if (!producto || (cantidadSolicitada <= 0 && cantidadEnviada <= 0)) {
+            Swal.fire('Atención', 'Debes ingresar un producto válido y una cantidad (solicitada o enviada) mayor a 0', 'warning');
             return;
         }
 
@@ -321,6 +322,7 @@ const ModuloProcura = {
             producto: codeFormal,
             descripcion: descInfo,
             cantidad: cantidadSolicitada,
+            cantidad_enviada: cantidadEnviada,
             // Campos de recepción en 0 para UI por defecto
             fecha_factura: '',
             n_factura: '',
@@ -368,6 +370,7 @@ const ModuloProcura = {
     limpiarFormularioProductoOC: function () {
         document.getElementById('codigo-producto-oc').value = '';
         document.getElementById('cantidad-oc').value = '';
+        document.getElementById('cantidad-enviada-oc').value = '';
         document.getElementById('codigo-producto-oc').focus();
     },
 
@@ -430,6 +433,7 @@ const ModuloProcura = {
                         <th style="min-width: 90px;" class="text-center">CANTIDAD RECIBIDA</th>
                         <th style="min-width: 90px;" class="text-center">DIFERENCIA</th>
                         <th style="min-width: 200px;">OBSERVACIONES</th>
+                        <th style="min-width: 100px;" class="text-center">CANT. ENVIADA (WIP)</th>
                         <th style="min-width: 220px;">ESTADO PROGRESO</th>
                     </tr>
                 </thead>
@@ -507,6 +511,11 @@ const ModuloProcura = {
                     <textarea class="form-control form-control-sm shadow-sm" style="border-radius: 4px; resize: vertical;" rows="2" placeholder="Notas..."
                               onchange="ModuloProcura.updateItem(${index}, 'observaciones', this.value)">${item.observaciones || ''}</textarea>
                 </td>
+                <td>
+                    <input type="number" class="form-control form-control-sm shadow-sm text-center fw-bold text-primary border-primary" style="border-radius: 4px;"
+                           value="${item.cantidad_enviada || 0}" 
+                           onchange="ModuloProcura.updateItem(${index}, 'cantidad_enviada', this.value)">
+                </td>
                 <td class="bg-light p-2">
                     <div class="d-flex flex-wrap">
                         ${buildCheckbox('Normal', 'Normal')}
@@ -546,7 +555,7 @@ const ModuloProcura = {
     updateItem: function (index, field, value) {
         if (this.itemsOC[index]) {
             let val = value;
-            if (field === 'cantidad' || field === 'cantidad_recibida' || field === 'cantidad_fact') {
+            if (field === 'cantidad' || field === 'cantidad_recibida' || field === 'cantidad_fact' || field === 'cantidad_enviada') {
                 val = parseInt(value) || 0;
             } else if (field.includes('fecha')) {
                 val = this.formatearFechaParaBD(value);

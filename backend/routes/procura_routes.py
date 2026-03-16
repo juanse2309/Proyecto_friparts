@@ -147,8 +147,9 @@ def registrar_oc():
         cantidad_recibida = int(item.get("cantidad_recibida", 0) or 0)
         diferencia = cantidad_solicitada - cantidad_recibida
 
-        # Fila completa según base (11 columnas)
+        # Fila completa según base (14 columnas)
         observaciones = str(item.get('observaciones', '')).strip()
+        cantidad_enviada = int(item.get("cantidad_enviada", 0) or 0)
         estado_proceso = str(item.get('estado_proceso', 'Normal')).strip()
 
         row = [
@@ -164,6 +165,7 @@ def registrar_oc():
             cantidad_recibida,
             diferencia,
             observaciones,
+            cantidad_enviada,
             estado_proceso
         ]
         rows_to_insert.append(row)
@@ -293,6 +295,7 @@ def buscar_oc(n_oc):
                         "fecha_llegada": str(row.get("FECHA LLEGADA", "") or ""),
                         "cantidad_recibida": int(row.get("CANTIDAD RECIBIDA", 0) or 0),
                         "observaciones": str(row.get("OBSERVACIONES", "") or ""),
+                        "cantidad_enviada": int(row.get("CANTIDAD TOTAL ENVIADA", 0) or 0),
                         "estado_proceso": str(row.get("ESTADO PROCESO", "") or row.get("ESTADO", "") or "Normal")
                     })
 
@@ -402,31 +405,59 @@ def rotacion_prioridades():
                     "stock_actual": int(r.get("STOCK_ACTUAL", 0) or 0)
                 }
 
+        # 2. Consultar Stock Externo en Tránsito (Zincado/Granallado)
+        ws_oc = gc.get_worksheet(Hojas.ORDENES_DE_COMPRA)
+        oc_records = ws_oc.get_all_records() if ws_oc else []
+        
+        stock_externo_map = collections.defaultdict(int)
+        desglose_externo_map = collections.defaultdict(lambda: {"Zincado": 0, "Granallado": 0})
+        
+        for r in oc_records:
+            procesos = str(r.get("ESTADO PROCESO", "")).upper()
+            codigo_oc = str(r.get("PRODUCTO", "")).strip().upper()
+            
+            # Solo si tiene algún proceso externo marcado
+            if "ZINCADO" in procesos or "GRANALLADO" in procesos:
+                # Stock EXTERNO = Enviado - Recibido (lo que aún no vuelve)
+                enviado = int(r.get("CANTIDAD TOTAL ENVIADA", 0) or 0)
+                recibido = int(r.get("CANTIDAD RECIBIDA", 0) or 0)
+                saldo_en_transito = max(0, enviado - recibido)
+                
+                if saldo_en_transito > 0:
+                    stock_externo_map[codigo_oc] += saldo_en_transito
+                    if "ZINCADO" in procesos: desglose_externo_map[codigo_oc]["Zincado"] += saldo_en_transito
+                    if "GRANALLADO" in procesos: desglose_externo_map[codigo_oc]["Granallado"] += saldo_en_transito
+
         # 3. Consolidar Datos
         resultado = []
         for codigo, data in catalogo.items():
-            stock_actual = data["stock_actual"]
-            diferencia = data["min"] - stock_actual
+            stock_fisico = data["stock_actual"]
+            stock_externo = stock_externo_map.get(codigo, 0)
+            stock_total_disponible = stock_fisico + stock_externo
             
-            # Cálculo de semáforo UX
+            diferencia_critica = data["min"] - stock_total_disponible
+            
+            # Cálculo de semáforo UX considerando Stock Total (Físico + Externo)
             semaforo = "VERDE"
-            porcentaje_del_minimo = (stock_actual / data["min"] * 100) if data["min"] > 0 else 100
+            porcentaje_del_minimo = (stock_total_disponible / data["min"] * 100) if data["min"] > 0 else 100
             
-            if stock_actual < data["min"]:
+            if stock_total_disponible < data["min"]:
                 if porcentaje_del_minimo < 20:
                     semaforo = "ROJO"
                 elif porcentaje_del_minimo <= 50:
                     semaforo = "AMARILLO"
                 else:
-                    semaforo = "VERDE" # Aunque sea menor al min, si es > 50% lo tratamos como "saludable" en este contexto o ajustamos
+                    semaforo = "VERDE"
 
             resultado.append({
                 "codigo": codigo,
                 "descripcion": data["descripcion"],
                 "clase": data["clase"],
-                "stock_actual": stock_actual,
+                "stock_actual": stock_fisico,
+                "stock_externo": stock_externo,
+                "desglose_externo": desglose_externo_map.get(codigo, {"Zincado": 0, "Granallado": 0}),
                 "minimo": data["min"],
-                "diferencia": diferencia,
+                "diferencia": diferencia_critica,
                 "porcentaje": round(porcentaje_del_minimo),
                 "semaforo": semaforo,
                 "contador_oc": data["contador_oc"]
