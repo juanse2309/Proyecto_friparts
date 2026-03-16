@@ -3363,132 +3363,158 @@
                             <!-- TAB 3: PRIORIDADES Y ROTACIÓN -->
                             <div class="tab-pane fade" id="prioridades" role="tabpanel"
                                 aria-labelledby="prioridades-tab">
-                                <!-- Dashboard de Resumen de Rotación -->
-                                <div class="row g-3 mb-4 mt-2">
+
+                                <!-- Dashboard de Resumen de Rotación (Diseño Gerencial) -->
+                                <div class="row g-4 mb-4 mt-2">
                                     <div class="col-md-3">
-                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
-                                            style="border-radius: 12px; background: #fff5f5; border-left: 5px solid #dc3545 !important;">
-                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Críticos (Clase A)
-                                            </h6>
-                                            <h2 id="rot-count-a" class="fw-bold mb-0 text-danger display-6">0</h2>
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100 kpi-gerencial kpi-critical"
+                                            style="border-radius: 16px; background: #fff5f5; border-bottom: 4px solid #dc3545 !important; transition: all 0.3s ease;">
+                                            <div class="kpi-icon-bg mb-2" style="color: #dc3545; opacity: 0.1;"><i
+                                                    class="fas fa-exclamation-triangle fa-2x"></i></div>
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold"
+                                                style="letter-spacing: 1px;">Emergencia (Rojo)</h6>
+                                            <h2 id="rot-count-a" class="fw-bold mb-0 text-danger display-5">0</h2>
+                                            <small class="text-muted mt-2 d-xl-block">Poca Disponibilidad</small>
                                         </div>
                                     </div>
                                     <div class="col-md-3">
-                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
-                                            style="border-radius: 12px; background: #fffbeb; border-left: 5px solid #f59e0b !important;">
-                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Precaución</h6>
-                                            <h2 id="rot-count-caution" class="fw-bold mb-0 text-warning display-6">0
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100 kpi-gerencial kpi-warning"
+                                            style="border-radius: 16px; background: #fffbeb; border-bottom: 4px solid #f59e0b !important; transition: all 0.3s ease;">
+                                            <div class="kpi-icon-bg mb-2" style="color: #f59e0b; opacity: 0.1;"><i
+                                                    class="fas fa-bell fa-2x"></i></div>
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold"
+                                                style="letter-spacing: 1px;">Alerta (Amarillo)</h6>
+                                            <h2 id="rot-count-caution" class="fw-bold mb-0 text-warning display-5">0
                                             </h2>
+                                            <small class="text-muted mt-2 d-xl-block">Riesgo de Agotamiento</small>
                                         </div>
                                     </div>
                                     <div class="col-md-3">
-                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
-                                            style="border-radius: 12px; background: #f0fdf4; border-left: 5px solid #10b981 !important;">
-                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Saludables</h6>
-                                            <h2 id="rot-count-ok" class="fw-bold mb-0 text-success display-6">0</h2>
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100 kpi-gerencial"
+                                            style="border-radius: 16px; background: #f0fdf4; border-bottom: 4px solid #10b981 !important; transition: all 0.3s ease;">
+                                            <div class="kpi-icon-bg mb-2" style="color: #10b981; opacity: 0.1;"><i
+                                                    class="fas fa-check-circle fa-2x"></i></div>
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold"
+                                                style="letter-spacing: 1px;">Saludables</h6>
+                                            <h2 id="rot-count-ok" class="fw-bold mb-0 text-success display-5">0</h2>
+                                            <small class="text-muted mt-2 d-xl-block">Stock Óptimo</small>
                                         </div>
                                     </div>
                                     <div class="col-md-3">
-                                        <div class="card border-0 shadow-sm p-4 text-center h-100"
-                                            style="border-radius: 12px; background: #f8fafc; border-left: 5px solid #64748b !important;">
-                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold">Total Items</h6>
-                                            <h2 id="rot-count-total" class="fw-bold mb-0 text-secondary display-6">0
+                                        <div class="card border-0 shadow-sm p-4 text-center h-100 kpi-gerencial"
+                                            style="border-radius: 16px; background: #f8fafc; border-bottom: 4px solid #64748b !important; transition: all 0.3s ease;">
+                                            <div class="kpi-icon-bg mb-2" style="color: #64748b; opacity: 0.1;"><i
+                                                    class="fas fa-boxes fa-2x"></i></div>
+                                            <h6 class="text-muted mb-2 small text-uppercase fw-bold"
+                                                style="letter-spacing: 1px;">Total Items</h6>
+                                            <h2 id="rot-count-total" class="fw-bold mb-0 text-secondary display-5">0
                                             </h2>
+                                            <small class="text-muted mt-2 d-xl-block">Maestro de Inventario</small>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- SECCIÓN: PRIORIDADES DE ROTACIÓN -->
-                                <div id="section-alertas" class="card mt-4 border-0 shadow-sm overflow-hidden"
-                                    style="border-radius: 12px;">
-                                    <div
-                                        class="card-header bg-danger bg-opacity-10 py-3 d-flex justify-content-between align-items-center border-bottom-0">
-                                        <h5 class="mb-0 fw-bold text-danger">
-                                            <i class="fas fa-fire me-2"></i> Prioridad de Compra (TOP A - Críticos)
-                                            <span class="badge bg-white text-dark ms-2 shadow-sm border"
-                                                style="font-size: 0.7rem;"
-                                                title="Clasificación asignada automáticamente por IA según Volumen y Frecuencia Histórica">
-                                                <i class="fas fa-robot text-primary"></i> Bot Procura
-                                            </span>
-                                        </h5>
-                                        <span class="badge bg-danger rounded-pill px-3 py-2 shadow-sm">Acción
-                                            Inmediata</span>
-                                    </div>
-                                    <div class="card-body p-0">
-                                        <div class="table-responsive">
-                                            <table class="table table-hover align-middle mb-0">
-                                                <thead class="bg-light text-muted small text-uppercase">
-                                                    <tr>
-                                                        <th class="ps-4" style="width: 15%;">CÓDIGO</th>
-                                                        <th style="width: 30%;">DESCRIPCIÓN</th>
-                                                        <th style="width: 10%; text-align: center;">STOCK</th>
-                                                        <th style="width: 10%; text-align: center;">MÍNIMO</th>
-                                                        <th style="width: 25%;">ESTADO / URGENCIA</th>
-                                                        <th style="width: 10%; text-align: center;"
-                                                            title="Frecuencia Histórica de Compra">🛒FREQ. OC</th>
-                                                        <th style="width: 5%;" class="pe-4"></th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="rot-table-a">
-                                                    <tr>
-                                                        <td colspan="7" class="text-center py-5 text-muted">
-                                                            <i
-                                                                class="fas fa-spinner fa-spin fa-2x mb-3 text-danger pulse"></i>
-                                                            <p>Cargando prioridades críticas...</p>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                <!-- Controles de Navegación y Filtros de Tabla -->
+                                <div
+                                    class="d-flex flex-wrap justify-content-between align-items-center mb-3 mt-4 gap-3">
+                                    <ul class="nav nav-pills bg-white p-1 rounded-pill shadow-sm border"
+                                        id="rot-sub-tabs" role="tablist">
+                                        <li class="nav-item" role="presentation">
+                                            <button
+                                                class="nav-link active rounded-pill px-4 fw-bold d-flex align-items-center gap-2"
+                                                id="tab-clase-a" data-bs-toggle="pill" data-bs-target="#panel-clase-a"
+                                                type="button" role="tab">
+                                                <i class="fas fa-fire-alt text-danger"></i> 🔥 Clase A (Críticos)
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button
+                                                class="nav-link rounded-pill px-4 fw-bold d-flex align-items-center gap-2"
+                                                id="tab-clase-bc" data-bs-toggle="pill" data-bs-target="#panel-clase-bc"
+                                                type="button" role="tab">
+                                                <i class="fas fa-box text-primary"></i> 📦 Clase B/C (Mantenimiento)
+                                            </button>
+                                        </li>
+                                    </ul>
+                                    <div class="search-box position-relative" style="max-width: 400px; width: 100%;">
+                                        <i class="fas fa-search position-absolute top-50 translate-middle-y text-muted"
+                                            style="left: 15px;"></i>
+                                        <input type="text" id="rot-search-global"
+                                            class="form-control rounded-pill ps-5 border-0 shadow-sm py-2"
+                                            placeholder="Buscar en la tabla actual..."
+                                            onkeyup="ModuloRotacion.filtrarGlobal()">
                                     </div>
                                 </div>
 
-                                <!-- SECCIÓN: CLASE B/C - MANTENIMIENTO -->
-                                <div class="card border-0 shadow-sm mt-4 mb-4" style="border-radius: 12px;">
-                                    <div
-                                        class="card-header bg-white py-4 border-bottom d-flex justify-content-between align-items-center">
-                                        <h5 class="mb-0 fw-bold text-secondary">
-                                            <i class="fas fa-tools me-2 text-primary"></i> Mantenimiento General (Clase
-                                            B/C)
-                                            <span class="badge bg-light text-dark ms-2 border"
-                                                style="font-size: 0.7rem;"
-                                                title="Clases calculadas por rotación inteligente">
-                                                <i class="fas fa-robot text-primary"></i> Bot Procura
-                                            </span>
-                                        </h5>
-                                        <div class="search-box position-relative" style="max-width: 300px;">
-                                            <i class="fas fa-search position-absolute top-50 translate-middle-y text-muted"
-                                                style="left: 15px;"></i>
-                                            <input type="text" id="rot-search-bc"
-                                                class="form-control rounded-pill ps-5 bg-light border-0 py-2"
-                                                placeholder="Filtrar B/C..."
-                                                onkeyup="typeof ModuloRotacion !== 'undefined' ? ModuloRotacion.filtrarBC() : null">
+                                <div class="tab-content" id="rot-sub-tabs-content">
+                                    <!-- PANEL CLASE A -->
+                                    <div class="tab-pane fade show active border-0" id="panel-clase-a" role="tabpanel">
+                                        <div class="card border-0 shadow-sm overflow-hidden"
+                                            style="border-radius: 12px;">
+                                            <div class="card-body p-0">
+                                                <div class="table-responsive">
+                                                    <table
+                                                        class="table table-hover align-middle mb-0 custom-table-rotation">
+                                                        <thead class="bg-light text-muted small text-uppercase">
+                                                            <tr>
+                                                                <th class="ps-4" style="width: 15%;">CÓDIGO</th>
+                                                                <th style="width: 30%;">DESCRIPCIÓN</th>
+                                                                <th style="width: 10%; text-align: center;">STOCK</th>
+                                                                <th style="width: 10%; text-align: center;">MÍNIMO</th>
+                                                                <th style="width: 25%;">ESTADO / URGENCIA</th>
+                                                                <th style="width: 10%; text-align: center;"
+                                                                    title="Frecuencia Histórica de Compra">🛒FREQ. OC
+                                                                </th>
+                                                                <th style="width: 5%;" class="pe-4"></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="rot-table-a">
+                                                            <tr>
+                                                                <td colspan="7" class="text-center py-5 text-muted">
+                                                                    <i
+                                                                        class="fas fa-spinner fa-spin fa-2x mb-3 text-danger"></i>
+                                                                    <p>Cargando prioridades críticas...</p>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="card-body p-0">
-                                        <div class="table-responsive">
-                                            <table class="table table-hover align-middle mb-0">
-                                                <thead class="bg-light text-muted small text-uppercase">
-                                                    <tr>
-                                                        <th class="ps-4" style="width: 15%;">CÓDIGO</th>
-                                                        <th style="width: 30%;">DESCRIPCIÓN</th>
-                                                        <th style="width: 10%; text-align: center;">CLASE</th>
-                                                        <th style="width: 10%; text-align: center;">STOCK</th>
-                                                        <th style="width: 25%;">ESTADO</th>
-                                                        <th style="width: 10%; text-align: center;">FREQ. OC</th>
-                                                        <th style="width: 5%;" class="pe-4"></th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="rot-table-bc">
-                                                    <tr>
-                                                        <td colspan="7" class="text-center py-5 text-muted">
-                                                            <i
-                                                                class="fas fa-spinner fa-spin fa-2x mb-3 text-secondary pulse"></i>
-                                                            <p>Cargando lista de mantenimiento...</p>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+
+                                    <!-- PANEL CLASE B/C -->
+                                    <div class="tab-pane fade border-0" id="panel-clase-bc" role="tabpanel">
+                                        <div class="card border-0 shadow-sm overflow-hidden"
+                                            style="border-radius: 12px;">
+                                            <div class="card-body p-0">
+                                                <div class="table-responsive">
+                                                    <table
+                                                        class="table table-hover align-middle mb-0 custom-table-rotation">
+                                                        <thead class="bg-light text-muted small text-uppercase">
+                                                            <tr>
+                                                                <th class="ps-4" style="width: 15%;">CÓDIGO</th>
+                                                                <th style="width: 30%;">DESCRIPCIÓN</th>
+                                                                <th style="width: 10%; text-align: center;">CLASE</th>
+                                                                <th style="width: 10%; text-align: center;">STOCK</th>
+                                                                <th style="width: 25%;">ESTADO / URGENCIA</th>
+                                                                <th style="width: 10%; text-align: center;">FREQ. OC
+                                                                </th>
+                                                                <th style="width: 5%;" class="pe-4"></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="rot-table-bc">
+                                                            <tr>
+                                                                <td colspan="7" class="text-center py-5 text-muted">
+                                                                    <i
+                                                                        class="fas fa-spinner fa-spin fa-2x mb-3 text-primary"></i>
+                                                                    <p>Cargando lista de mantenimiento...</p>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

@@ -693,6 +693,11 @@ const ModuloProcura = {
                 document.getElementById('n-oc').value = '';
                 // document.getElementById('proveedor-oc').value = ''; // Opcional mantener proveedor si compra mas al msmo
                 this.limpiarFormularioProductoOC();
+
+                // 🔄 Recargar prioridades de rotación para actualizar semáforos
+                if (window.ModuloRotacion && window.ModuloRotacion.cargarPrioridades) {
+                    window.ModuloRotacion.cargarPrioridades();
+                }
             } else {
                 Swal.fire('Error', resultado.error || 'Error procesando Orden de Compra', 'error');
             }
