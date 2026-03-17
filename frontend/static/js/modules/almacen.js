@@ -1149,9 +1149,11 @@ const AlmacenModule = {
         const pauseDuration = 8000; // 8 segundos por página (más tiempo para leer)
 
         const getNextScrollPosition = () => {
-            const viewportHeight = window.innerHeight;
-            const currentScrollY = window.scrollY;
-            const docHeight = document.documentElement.scrollHeight;
+            const tvContainer = document.getElementById('almacen-page');
+            if (!tvContainer) return 0;
+            const viewportHeight = tvContainer.clientHeight || window.innerHeight;
+            const currentScrollY = tvContainer.scrollTop;
+            const docHeight = tvContainer.scrollHeight;
             const maxScroll = docHeight - viewportHeight;
 
             if (maxScroll <= 10) return 0;
@@ -1169,8 +1171,8 @@ const AlmacenModule = {
 
             if (!nextCard) return maxScroll;
 
-            // Queremos scrollear al TOP de esa tarjeta (ajustando a scroll absoluto)
-            const nextScrollY = (nextCard.getBoundingClientRect().top + window.scrollY) - 10;
+            // Queremos scrollear al TOP de esa tarjeta (ajustando a scroll absoluto del contenedor)
+            const nextScrollY = (nextCard.getBoundingClientRect().top + currentScrollY) - 10;
 
             return Math.min(nextScrollY, maxScroll);
         };
@@ -1184,16 +1186,19 @@ const AlmacenModule = {
                 return;
             }
 
-            const currentY = window.scrollY;
-            const viewportHeight = window.innerHeight;
-            const docHeight = document.documentElement.scrollHeight;
+            const tvContainer = document.getElementById('almacen-page');
+            if (!tvContainer) return;
+
+            const currentY = tvContainer.scrollTop;
+            const viewportHeight = tvContainer.clientHeight || window.innerHeight;
+            const docHeight = tvContainer.scrollHeight;
 
             // Si ya estamos muy cerca del final, volver arriba
             // Aumentamos threshold de 50 a 150 para evitar rebotes prematuros
             if (currentY + viewportHeight >= docHeight - 150) {
                 console.log('📜 [Almacen] Fin alcanzado, volviendo al inicio...');
                 this.scrollTimeout = setTimeout(() => {
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    tvContainer.scrollTo({ top: 0, behavior: 'smooth' });
                     // Aprovechar el reset para recargar datos
                     this.cargarPedidos(false);
                     this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
@@ -1207,14 +1212,14 @@ const AlmacenModule = {
                 // Si no avanzamos (ej: no hay más tarjetas), forzar scroll o volver arriba
                 console.log('📜 [Almacen] No hay más contenido claro, volviendo arriba.');
                 this.scrollTimeout = setTimeout(() => {
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    tvContainer.scrollTo({ top: 0, behavior: 'smooth' });
                     this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
                 }, pauseDuration);
                 return;
             }
 
             console.log(`📜 [Almacen] Navengando a: ${nextY}px`);
-            window.scrollTo({ top: nextY, behavior: 'smooth' });
+            tvContainer.scrollTo({ top: nextY, behavior: 'smooth' });
             this.scrollTimeout = setTimeout(scrollToNext, pauseDuration);
         };
 

@@ -255,9 +255,12 @@ const ModuloFacturacion = {
         const ids = modal ? JSON.parse(modal.dataset.idsToExport || '[]') : [];
 
         const btn = document.getElementById('btn-confirmar-exportar-wo');
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
-        btn.disabled = true;
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
+            btn.disabled = true;
+        }
+
+        let actualizadosCount = 0;
 
         fetch('/api/exportar/world-office', {
             method: 'POST',
@@ -265,7 +268,10 @@ const ModuloFacturacion = {
             body: JSON.stringify({ ids: ids })
         })
             .then(response => {
-                if (response.ok) return response.blob();
+                if (response.ok) {
+                    actualizadosCount = parseInt(response.headers.get('X-Pedidos-Actualizados')) || 0;
+                    return response.blob();
+                }
                 return response.json().then(err => Promise.reject(err));
             })
             .then(blob => {
@@ -273,23 +279,38 @@ const ModuloFacturacion = {
                 const a = document.createElement('a');
                 a.style.display = 'none';
                 a.href = url;
-                a.download = `Export_WO_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                // Generate dynamic filename (Pedidos_WO_YYYY-MM-DD.xlsx)
+                const today = new Date().toISOString().slice(0, 10);
+                a.download = `Pedidos_WO_${today}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
-                if (typeof mostrarNotificacion === 'function') mostrarNotificacion('✅ Archivo generado correctamente.', 'success');
-                else alert('Archivo generado');
+
+                let msg = `✅ Archivo descargado con éxito.`;
+                if (actualizadosCount > 0) {
+                    msg += ` Se marcaron ${actualizadosCount} pedidos como EXPORTADO_WO.`;
+                }
+
+                if (typeof Swal !== 'undefined') {
+                    Swal.fire('Exportación Exitosa', msg, 'success');
+                } else if (typeof mostrarNotificacion === 'function') {
+                    mostrarNotificacion(msg, 'success');
+                } else {
+                    alert(msg);
+                }
 
                 this.cerrarPreviewWO();
+                // Reload the table since the exported orders are now EXPORTADO_WO
+                this.cargarPedidosPendientes();
             })
             .catch(error => {
                 console.error("Error descarga WO:", error);
-                if (typeof Swal !== 'undefined') Swal.fire('Error', error.message || error.error, 'error');
-                else alert('Error: ' + error.message);
+                if (typeof Swal !== 'undefined') Swal.fire('Error', error.message || error.error || 'Error en la exportación', 'error');
+                else alert('Error: ' + (error.message || error.error || 'Desconocido'));
             })
             .finally(() => {
                 if (btn) {
-                    btn.innerHTML = originalText;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Confirmar y Descargar';
                     btn.disabled = false;
                 }
             });

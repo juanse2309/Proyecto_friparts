@@ -61,32 +61,34 @@ def procesar_datos_wo(ids_filter=None):
     # 3. Procesar Filas
     rows_finales = []
     
-    # Mapeo de columnas Template WO (DocumentosVentasEncabezadosMovimientoInventarioWO.xls)
-    # Columnas fijas requeridas
-    # A=0, ..., K=10 (Personalizado 1), ... AF=31 (Detalle: Bodega)
-    
-    # 1. Encabezados (A-K)
-    cols_headers = [
-        'Encab: Documento Número', 'Encab: Fecha', 'Encab: Tercero Externo', 'Encab: Vendedor Externo', 
-        'Encab: Nota', 'Encab: Forma Pago', 'Encab: Descuento', 'Encab: IVA', 'Encab: Retención', 
-        'Encab: Tipo Documento', 'Encab: Personalizado 1'
+    # Mapeo estricto de columnas requerido por World Office
+    columnas_wo = [
+        'Encab: Empresa',
+        'Encab: Tipo Documento',
+        'Encab: Prefijo',
+        'Encab: Documento Número',
+        'Encab: Fecha',
+        'Encab: Tercero Interno',
+        'Encab: Tercero Externo',
+        'Encab: Nota',
+        'Encab: FormaPago',
+        'Encab: Fecha Entrega'
     ]
     
-    # 2. Padding (L - AE) -> 20 columnas vacías (Indices 11 a 30)
-    # Nombres ficticios para mantener posición, WO los ignorará si no están mapeados en su importador,
-    # pero es vital que existan en el excel.
-    cols_padding = [f'Encab: Personalizado {i}' for i in range(2, 22)] 
-    # range(2, 22) genera 2, 3... 21.  Total 20 items.
-    # 11 + 20 = 31 columnas. La siguiente será la 32 (Indice 31, col AF).
-    
-    # 3. Detalle (AF en adelante)
-    cols_detalle = [
-        'Detalle: Bodega', 'Detalle: Producto', 'Detalle: Cantidad', 
-        'Detalle: Valor Unitario', 'Detalle: Valor Total', 
-        'Detalle: Descripción', 'Detalle: Unidad Medida', 'Detalle: Centro Costo'
-    ]
-    
-    columnas_plantilla = cols_headers + cols_padding + cols_detalle
+    # Personalizado 1 al 15 vacíos
+    for i in range(1, 16):
+        columnas_wo.append(f'Encab: Personalizado {i}')
+        
+    columnas_wo.extend([
+        'Encab: Sucursal',
+        'Detalle: Producto',
+        'Detalle: Bodega',
+        'Detalle: UnidadDeMedida',
+        'Detalle: Cantidad',
+        'Detalle: IVA',
+        'Detalle: Valor Unitario',
+        'Detalle: Descuento'
+    ])
     
     for p in pedidos_pendientes:
         # Cruce Cliente
@@ -97,7 +99,6 @@ def procesar_datos_wo(ids_filter=None):
         id_codigo = str(p.get('ID CODIGO', '')).strip()
         data_prod = mapa_productos.get(id_codigo, {})
         precio_venta = data_prod.get('PRECIO', p.get('PRECIO UNITARIO', 0)) # Fallback a precio pedido
-        descripcion = data_prod.get('DESCRIPCION', p.get('PRODUCTO', ''))
         
         # Formatos
         try:
@@ -109,46 +110,89 @@ def procesar_datos_wo(ids_filter=None):
         cantidad = p.get('CANTIDAD', 0)
         
         row = {
-            'Encab: Tipo Documento': 'PED',
-            'Encab: Tercero Externo': nit_cliente,
+            'Encab: Empresa': 'FRIPARTS SAS',
+            'Encab: Tipo Documento': 'PD',
+            'Encab: Prefijo': '',
+            'Encab: Documento Número': str(p.get('ID PEDIDO', '')),
             'Encab: Fecha': fecha_fmt,
-            'Encab: Nota': 'Carga Automática App Manufactura',
-            'Encab: Personalizado 1': str(p.get('ID PEDIDO', '')), # ID Pedido para rastreo
-            'Detalle: Bodega': '01',
+            'Encab: Tercero Interno': '9003153002',
+            'Encab: Tercero Externo': nit_cliente,
+            'Encab: Nota': str(p.get('COMENTARIOS', '')),
+            'Encab: FormaPago': str(p.get('FORMA DE PAGO', '')),
+            'Encab: Fecha Entrega': fecha_fmt,
+            'Encab: Sucursal': 'Principal',
             'Detalle: Producto': id_codigo,
-            'Detalle: Descripción': descripcion,
+            'Detalle: Bodega': 'Principal',
+            'Detalle: UnidadDeMedida': 'Und.',
             'Detalle: Cantidad': cantidad,
+            'Detalle: IVA': 0.19,
             'Detalle: Valor Unitario': precio_venta,
-            'Encab: Vendedor Externo': p.get('VENDEDOR', ''),
-             # Campos vacíos requeridos por estructura
-            'Encab: Documento Número': '', # Dejar vacío para consecutivo automático WO? O usar el del pedido? WO suele asignar.
-            'Encab: Forma Pago': '', 
-            'Encab: Descuento': 0,
-            'Encab: IVA': 0,
-            'Encab: Retención': 0,
-            'Detalle: Valor Total': 0, # WO recalcula
-            'Detalle: Unidad Medida': '',
-            'Detalle: Centro Costo': ''
+            'Detalle: Descuento': p.get('DESCUENTO %', 0) or 0
         }
         
-        # Rellenar padding con vacíos explicitamente en el row (opcional si se hace en dataframe, pero mejor asegurar)
-        for col_pad in cols_padding:
-            row[col_pad] = ""
+        # Rellenar todos los 'Encab: Personalizado X' con vacío
+        for i in range(1, 16):
+            row[f'Encab: Personalizado {i}'] = ""
             
         rows_finales.append(row)
         
     df = pd.DataFrame(rows_finales)
     
-    # Asegurar columnas de plantilla
-    for col in columnas_plantilla:
-        if col not in df.columns:
-            df[col] = "" # Rellenar vacías
-            
-    # Reordenar
+    # Asegurar orden exacto
     if not df.empty:
-        df = df[columnas_plantilla]
+        # Asegurarse de que las columnas faltantes existan, por si acaso
+        for col in columnas_wo:
+            if col not in df.columns:
+                df[col] = "" 
+        df = df[columnas_wo]
         
     return df
+
+def actualizar_estado_exportado(ids_exportados):
+    """Actualiza el estado de los pedidos a 'EXPORTADO_WO' en Google Sheets"""
+    if not ids_exportados:
+        return 0
+        
+    ws_pedidos = obtener_hoja(Hojas.PEDIDOS)
+    registros = ws_pedidos.get_all_records()
+    
+    # Obtener el índice de la columna ESTADO
+    try:
+        encabezados = ws_pedidos.row_values(1)
+        if 'ESTADO' not in encabezados:
+            logger.error("Columna ESTADO no encontrada en PEDIDOS")
+            return 0
+        col_estado_idx = encabezados.index('ESTADO') + 1 # 1-based index
+    except Exception as e:
+        logger.error(f"Error obteniendo cabeceras de PEDIDOS: {e}")
+        return 0
+        
+    ids_set = set(str(x) for x in ids_exportados)
+    updates_batch = []
+    filas_actualizadas = 0
+    
+    for idx, r in enumerate(registros):
+        id_pedido = str(r.get('ID PEDIDO', ''))
+        estado_actual = str(r.get('ESTADO', '')).strip().upper()
+        
+        # Actualizamos la fila (idx+2 porque registros ignora cabecera y list_index es 0-based)
+        if id_pedido in ids_set and estado_actual == 'PENDIENTE':
+            fila_sheet = idx + 2
+            celda = f"{rowcol_to_a1(fila_sheet, col_estado_idx)}"
+            updates_batch.append({'range': celda, 'values': [['EXPORTADO_WO']]})
+            filas_actualizadas += 1
+            
+    if updates_batch:
+        try:
+            ws_pedidos.batch_update(updates_batch, value_input_option='USER_ENTERED')
+            logger.info(f"Actualizados {filas_actualizadas} pedidos a EXPORTADO_WO")
+        except Exception as e:
+            logger.error(f"Error en batch_update de PEDIDOS: {e}")
+            return 0
+            
+    return filas_actualizadas
+
+
 
 @facturacion_bp.route('/api/facturacion/pedidos-pendientes', methods=['GET'])
 def obtener_pedidos_pendientes():
@@ -219,18 +263,28 @@ def exportar_world_office():
         if df.empty:
             return jsonify({'success': False, 'error': 'No hay datos válidos para exportar (verifique el estado PENDIENTE)'}), 400
 
+        # Obtener los IDs únicos de los pedidos que realmente están siendo exportados
+        ids_exportados = df['Encab: Documento Número'].unique().tolist()
+
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='ImportarWO')
         
         output.seek(0)
         
-        return send_file(
+        # Actualizar estado a EXPORTADO_WO en un thread o aquí mismo
+        pedidos_actualizados = actualizar_estado_exportado(ids_exportados)
+        
+        # Custom headers para dar feedback al frontend
+        response = send_file(
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
-            download_name=f'Import_WO_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+            download_name=f'Pedidos_WO_{datetime.now().strftime("%Y-%m-%d")}.xlsx'
         )
+        response.headers['X-Pedidos-Actualizados'] = str(pedidos_actualizados)
+        response.headers['Access-Control-Expose-Headers'] = 'X-Pedidos-Actualizados'
+        return response
 
     except Exception as e:
         logger.error(f"❌ Error Exportando WO: {e}", exc_info=True)
