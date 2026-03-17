@@ -329,11 +329,19 @@ window.ModuloAsistencia = (function () {
     }
 
     function calcularFila(input) {
-        const fila = input.closest('tr') || input.closest('.card');
-        const hRealIngreso = fila.querySelector('[data-tipo="ingreso"]').value;
-        const hRealSalida = fila.querySelector('[data-tipo="salida"]').value;
-        const hOficialEntrada = fila.dataset.oficialEntrada;
-        const hOficialSalida = fila.dataset.oficialSalida;
+        const parent = input.closest('tr') || input.closest('.card');
+        const nombre = parent.dataset.nombre;
+        if (!nombre) return;
+
+        // Localizar ambos elementos vinculados al mismo colaborador
+        const row = document.querySelector(`#asistencia-body tr[data-nombre="${nombre}"]`);
+        const card = Array.from(document.querySelectorAll('#asistencia-cards-container .card'))
+            .find(c => c.dataset.nombre === nombre);
+
+        const hRealIngreso = parent.querySelector('[data-tipo="ingreso"]').value;
+        const hRealSalida = parent.querySelector('[data-tipo="salida"]').value;
+        const hOficialEntrada = parent.dataset.oficialEntrada;
+        const hOficialSalida = parent.dataset.oficialSalida;
         const fechaStr = document.getElementById('asistencia-fecha').value;
 
         if (!hRealIngreso || !hRealSalida) return;
@@ -371,29 +379,24 @@ window.ModuloAsistencia = (function () {
         const ordFinal = Number(ordinarias.toFixed(2));
         const extFinal = Number(extras.toFixed(2));
 
-        // Actualizar en TABLA (si existe el elemento)
-        const inputOrd = fila.querySelector('[data-tipo="ordinarias"]');
-        const inputExt = fila.querySelector('[data-tipo="extras"]');
-        if (inputOrd) inputOrd.value = ordFinal;
-        if (inputExt) inputExt.value = extFinal;
+        // ACTUALIZAR TABLA (Donde se leen los datos para Guardar)
+        if (row) {
+            row.querySelector('[data-tipo="ingreso"]').value = hRealIngreso;
+            row.querySelector('[data-tipo="salida"]').value = hRealSalida;
+            const inputOrd = row.querySelector('[data-tipo="ordinarias"]');
+            const inputExt = row.querySelector('[data-tipo="extras"]');
+            if (inputOrd) inputOrd.value = ordFinal;
+            if (inputExt) inputExt.value = extFinal;
+        }
 
-        // Sincronizar con CARDS (si aplica)
-        const nombreC = fila.dataset.nombre;
-        const cards = document.getElementById('asistencia-cards-container');
-        if (cards) {
-            const card = Array.from(cards.querySelectorAll('.card')).find(c => c.querySelector('h6').textContent === nombreC);
-            if (card) {
-                const labelOrd = card.querySelector('[data-tipo="ordinarias-card"]');
-                const labelExt = card.querySelector('[data-tipo="extras-card"]');
-                if (labelOrd) labelOrd.textContent = ordFinal;
-                if (labelExt) labelExt.textContent = extFinal;
-
-                // Sincronizar inputs de la card
-                const inputIngreso = card.querySelector('[data-tipo="ingreso"]');
-                const inputSalida = card.querySelector('[data-tipo="salida"]');
-                if (inputIngreso) inputIngreso.value = hRealIngreso;
-                if (inputSalida) inputSalida.value = hRealSalida;
-            }
+        // ACTUALIZAR CARD (Visual en móvil)
+        if (card) {
+            card.querySelector('[data-tipo="ingreso"]').value = hRealIngreso;
+            card.querySelector('[data-tipo="salida"]').value = hRealSalida;
+            const labelOrd = card.querySelector('[data-tipo="ordinarias-card"]');
+            const labelExt = card.querySelector('[data-tipo="extras-card"]');
+            if (labelOrd) labelOrd.textContent = ordFinal;
+            if (labelExt) labelExt.textContent = extFinal;
         }
     }
 
