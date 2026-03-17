@@ -128,6 +128,14 @@ def registrar_pedido():
         if not existing_headers:
             logger.info("📝 Creando encabezados en hoja PEDIDOS")
             ws.append_row(expected_headers)
+            existing_headers = expected_headers
+        else:
+            # Asegurar que la columna de observaciones existe para que get_all_records la vea
+            if "OBSERVACIONES" not in [h.upper() for h in existing_headers]:
+                logger.info("➕ Agregando cabecera OBSERVACIONES a la hoja PEDIDOS")
+                new_col_idx = len(existing_headers) + 1
+                ws.update_cell(1, new_col_idx, "OBSERVACIONES")
+                existing_headers.append("OBSERVACIONES")
 
         # ---------------------------------------------------------
         # LÓGICA DE EDICIÓN / RETOMAR PEDIDO
@@ -504,6 +512,16 @@ def obtener_pedidos_pendientes():
             
             registros = ws.get_all_records()
             
+            def get_obs(row):
+                # Buscar en varias posibilidades de cabecera de forma robusta
+                keys = row.keys()
+                for k in keys:
+                    if str(k).strip().upper() in ["OBSERVACIONES", "OBSERVACION", "NOTAS", "NOTA", "COMENTARIOS", "COMENTARIO"]:
+                        val = row.get(k)
+                        if val and str(val).strip():
+                            return str(val).strip()
+                return ""
+
             # Agrupar por ID PEDIDO (Datos en bruto sin filtrar por usuario)
             agrupados = {}
             for r in registros:
@@ -522,10 +540,14 @@ def obtener_pedidos_pendientes():
                             "vendedor": r.get("VENDEDOR"),
                             "direccion": r.get("DIRECCION", ""),
                             "ciudad": r.get("CIUDAD", ""),
-                            "observaciones": r.get("OBSERVACIONES") or r.get("OBSERVACION") or "",
+                            "observaciones": get_obs(r),
                             "delegado_a": str(r.get("DELEGADO_A", "")).strip(),
                             "productos": []
                         }
+                    else:
+                        # Si ya existe pero no tiene observaciones, intentar con esta fila
+                        if not agrupados[id_pedido].get("observaciones"):
+                            agrupados[id_pedido]["observaciones"] = get_obs(r)
                     
                     agrupados[id_pedido]["productos"].append({
                         "codigo": r.get("ID CODIGO"),

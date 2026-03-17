@@ -143,6 +143,7 @@ const AlmacenModule = {
             }
 
             const url = new URL('/api/pedidos/pendientes', window.location.origin);
+            url.searchParams.set('_t', Date.now()); // Cache-buster
             if (user) {
                 const isAdmin = user.rol === 'Administración' ||
                     (user.name && (user.name.toUpperCase().includes('ANDRES') || user.name.toUpperCase().includes('ANDRÉS')));
@@ -320,11 +321,17 @@ const AlmacenModule = {
                                 | <i class="fas fa-user me-1"></i> ${pedido.vendedor}
                             </p>
                             
-                            ${(pedido.observaciones && String(pedido.observaciones).trim()) ? `
-                            <div class="alert alert-warning p-2 mb-3 nota-alistamiento-card" style="font-size: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b; background-color: #fefce8; color: #92400e;">
-                                <i class="fas fa-exclamation-triangle me-1"></i> <strong>Nota:</strong> ${String(pedido.observaciones).length > 70 ? String(pedido.observaciones).substring(0, 70) + '...' : pedido.observaciones}
-                            </div>
-                            ` : ''}
+                            ${(() => {
+                    const obs = (pedido.observaciones || pedido.observacion || pedido.notas || '').toString().trim();
+                    if (obs && obs !== 'null' && obs !== 'undefined') {
+                        return `
+                                    <div class="alert alert-warning p-2 mb-3 nota-alistamiento-card" style="font-size: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b; background-color: #fefce8; color: #92400e; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                                        <i class="fas fa-exclamation-triangle me-1"></i> <strong>Nota:</strong> ${obs.length > 150 ? obs.substring(0, 150) + '...' : obs}
+                                    </div>
+                                    `;
+                    }
+                    return '';
+                })()}
                             
                             <!-- Barra Doble de Progreso -->
                             <div class="mt-auto" style="cursor: pointer; margin-bottom: 10px;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
@@ -461,11 +468,12 @@ const AlmacenModule = {
 
         const observacionesContainer = document.getElementById('modal-alistamiento-observaciones');
         if (observacionesContainer) {
-            if (pedido.observaciones && String(pedido.observaciones).trim()) {
+            const obsText = pedido.observaciones || pedido.observacion || '';
+            if (obsText && String(obsText).trim()) {
                 observacionesContainer.innerHTML = `
                     <div class="alert alert-warning mb-3" style="border-left: 5px solid #f59e0b; background-color: #fffbeb;">
                         <h6 class="fw-bold mb-1" style="color: #92400e;"><i class="fas fa-comment-dots me-2"></i>Observaciones del Vendedor:</h6>
-                        <p class="mb-0 text-dark" style="font-size: 0.95rem;">${pedido.observaciones}</p>
+                        <p class="mb-0 text-dark" style="font-size: 0.95rem;">${obsText}</p>
                     </div>
                 `;
                 observacionesContainer.style.display = 'block';

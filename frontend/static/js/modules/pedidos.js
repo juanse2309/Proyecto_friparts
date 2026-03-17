@@ -549,24 +549,40 @@ const ModuloPedidos = {
         modal.className = 'modal-overlay';
         modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:20000;';
         modal.innerHTML = `
-            <div style="background:#fff; border-radius:16px; max-width:400px; width:90%; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.3); animation: slideInRight 0.3s ease;">
+            <div style="background:#fff; border-radius:16px; max-width:450px; width:95%; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.3); animation: slideInRight 0.3s ease;">
                 <div style="background:linear-gradient(135deg,#6366f1,#4f46e5); padding:18px 24px; color:#fff;">
-                    <h4 style="margin:0; font-size:1.1rem; font-weight:600;"><i class="fas fa-edit me-2"></i>Editar Cantidad</h4>
+                    <h4 style="margin:0; font-size:1.1rem; font-weight:600;"><i class="fas fa-edit me-2"></i>Editar Item del Pedido</h4>
                 </div>
                 <div style="padding:24px;">
-                    <p style="margin:0 0 6px; font-size:0.85rem; color:#64748b;">Producto:</p>
-                    <p style="margin:0 0 16px; font-weight:600; color:#1e293b; font-size:0.95rem;">${item.codigo} — ${item.descripcion}</p>
-                    <label style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Nueva Cantidad</label>
-                    <input type="number" id="modal-edit-cantidad" value="${item.cantidad}" min="1" 
-                           style="width:100%; padding:12px 16px; font-size:1.8rem; font-weight:700; text-align:center; border:2px solid #e2e8f0; border-radius:12px; margin-top:8px; outline:none; transition:border 0.2s;"
-                           onfocus="this.style.borderColor='#6366f1'" onblur="this.style.borderColor='#e2e8f0'">
+                    <div style="margin-bottom: 20px;">
+                        <label style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; display: block; margin-bottom: 8px;">Producto (Búsqueda)</label>
+                        <div style="position: relative;">
+                            <input type="text" id="modal-edit-producto" value="${item.codigo} - ${item.descripcion}" 
+                                   style="width:100%; padding:10px 14px; border:2px solid #e2e8f0; border-radius:10px; font-size:0.95rem; font-weight:500; outline:none;"
+                                   autocomplete="off">
+                            <div id="modal-edit-producto-suggestions" class="autocomplete-suggestions" style="top: 100%; width: 100%;"></div>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div>
+                            <label style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; display: block; margin-bottom: 8px;">Cantidad</label>
+                            <input type="number" id="modal-edit-cantidad" value="${item.cantidad}" min="1" 
+                                   style="width:100%; padding:10px 14px; font-size:1.2rem; font-weight:700; text-align:center; border:2px solid #e2e8f0; border-radius:10px; outline:none;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; display: block; margin-bottom: 8px;">Precio Unit.</label>
+                            <input type="number" id="modal-edit-precio" value="${item.precio_unitario}" min="0" step="0.01"
+                                   style="width:100%; padding:10px 14px; font-size:1.2rem; font-weight:700; text-align:center; border:2px solid #e2e8f0; border-radius:10px; outline:none;">
+                        </div>
+                    </div>
                 </div>
                 <div style="padding:16px 24px; background:#f8fafc; border-top:1px solid #e5e7eb; display:flex; gap:12px; justify-content:flex-end;">
                     <button id="modal-edit-cancelar" style="padding:10px 20px; border:1px solid #d1d5db; background:#fff; color:#374151; border-radius:10px; font-weight:500; cursor:pointer; font-size:0.9rem;">
                         Cancelar
                     </button>
                     <button id="modal-edit-confirmar" style="padding:10px 24px; background:linear-gradient(135deg,#6366f1,#4f46e5); color:#fff; border:none; border-radius:10px; font-weight:600; cursor:pointer; font-size:0.9rem;">
-                        <i class="fas fa-check me-1"></i> Guardar
+                        <i class="fas fa-check me-1"></i> Guardar Cambios
                     </button>
                 </div>
             </div>
@@ -574,27 +590,101 @@ const ModuloPedidos = {
 
         document.body.appendChild(modal);
 
+        const inputProd = document.getElementById('modal-edit-producto');
+        const suggestionsDiv = document.getElementById('modal-edit-producto-suggestions');
         const inputCant = document.getElementById('modal-edit-cantidad');
+        const inputPrecio = document.getElementById('modal-edit-precio');
+
+        // Inicializar logic de busqueda para el modal
+        let debounceTimer;
+        inputProd.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const query = e.target.value.trim();
+            if (query.length < 2) {
+                suggestionsDiv.classList.remove('active');
+                return;
+            }
+            debounceTimer = setTimeout(() => {
+                const queryNorm = this.normalizeString(query);
+                const resultados = this.productosData.filter(prod => {
+                    const codigoNorm = this.normalizeString(prod.codigo_sistema || prod.codigo || '');
+                    const descNorm = this.normalizeString(prod.descripcion);
+                    return codigoNorm.includes(queryNorm) || descNorm.includes(queryNorm);
+                });
+
+                if (resultados.length === 0) {
+                    suggestionsDiv.innerHTML = '<div class="suggestion-item">No se encontraron productos</div>';
+                    suggestionsDiv.classList.add('active');
+                    return;
+                }
+
+                renderProductSuggestions(suggestionsDiv, resultados.slice(0, 10), (res) => {
+                    const codigoDisplay = res.codigo_sistema || res.codigo || '';
+                    inputProd.dataset.selectedCodigo = codigoDisplay;
+                    inputProd.dataset.selectedDesc = res.descripcion;
+                    inputProd.value = `${codigoDisplay} - ${res.descripcion}`;
+                    inputPrecio.value = parseFloat(res.precio) || 0;
+                    suggestionsDiv.classList.remove('active');
+                    inputCant.focus();
+                });
+                suggestionsDiv.classList.add('active');
+            }, 300);
+        });
+
         inputCant.focus();
         inputCant.select();
 
+        // Cerrar sugerencias al hacer clic fuera
+        modal.addEventListener('click', (e) => {
+            if (!inputProd.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.classList.remove('active');
+            }
+        });
+
         // Enter key support
-        inputCant.addEventListener('keydown', (e) => {
+        const handleEnter = (e) => {
             if (e.key === 'Enter') document.getElementById('modal-edit-confirmar').click();
             if (e.key === 'Escape') document.getElementById('modal-edit-cancelar').click();
-        });
+        };
+        inputCant.addEventListener('keydown', handleEnter);
+        inputPrecio.addEventListener('keydown', handleEnter);
 
         document.getElementById('modal-edit-confirmar').addEventListener('click', () => {
             const cantNum = parseInt(inputCant.value);
+            const precioNum = parseFloat(inputPrecio.value);
+            const prodText = inputProd.value;
+
             if (isNaN(cantNum) || cantNum <= 0) {
                 mostrarNotificacion('La cantidad debe ser un número mayor a 0', 'warning');
                 return;
             }
+            if (isNaN(precioNum) || precioNum < 0) {
+                mostrarNotificacion('El precio no puede ser negativo', 'warning');
+                return;
+            }
+
+            // Actualizar datos del producto
+            let finalCodigo = item.codigo;
+            let finalDesc = item.descripcion;
+
+            if (prodText.includes(' - ')) {
+                const partes = prodText.split(' - ');
+                finalCodigo = partes[0].trim();
+                finalDesc = partes.slice(1).join(' - ').trim();
+            } else {
+                finalCodigo = prodText.trim();
+                finalDesc = 'Sin descripción';
+            }
+
+            item.codigo = finalCodigo;
+            item.descripcion = finalDesc;
             item.cantidad = cantNum;
+            item.precio_unitario = precioNum;
+
             this.renderizarTablaItems();
             this.calcularTotalPedido();
             document.body.removeChild(modal);
-            mostrarNotificacion('Cantidad actualizada', 'success');
+            mostrarNotificacion('Item actualizado correctamente', 'success');
         });
 
         document.getElementById('modal-edit-cancelar').addEventListener('click', () => {
@@ -796,6 +886,7 @@ const ModuloPedidos = {
             const formaPago = datosManuales ? datosManuales.forma_pago : document.getElementById('ped-pago').value;
             const listaProductos = datosManuales ? datosManuales.productos : this.listaProductos;
             const idMostrar = datosManuales ? datosManuales.id_pedido : (this.ultimoIdRegistrado || `Ped-TEMP`);
+            const observaciones = datosManuales ? (datosManuales.observaciones || '') : (document.getElementById('ped-observaciones')?.value || '');
 
             // --- 1. ENCABEZADO Y LOGO ---
             const imgPath = '/static/img/logo_friparts_nuevo.jpg';
