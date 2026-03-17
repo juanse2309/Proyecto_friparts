@@ -456,7 +456,9 @@ window.ModuloAsistencia = (function () {
             return;
         }
 
-        Utils.showLoading('Guardando registros...');
+        const overlayText = document.getElementById('loading-overlay-text');
+        if (overlayText) overlayText.textContent = 'Guardando registros...';
+        mostrarLoading(true);
         try {
             const response = await fetch('/api/asistencia/guardar', {
                 method: 'POST',
@@ -476,7 +478,7 @@ window.ModuloAsistencia = (function () {
             console.error("Error guardando:", error);
             Swal.fire('Error', 'No se pudo guardar la asistencia', 'error');
         } finally {
-            Utils.hideLoading();
+            mostrarLoading(false);
         }
     }
 
