@@ -414,6 +414,8 @@ window.ModuloAsistencia = (function () {
             const finOrdinario = Math.min(tSalida, tOficialSalida);
 
             ordinarias = Math.max(0, finOrdinario - inicioOrdinario);
+            // Capping a un máximo de 10 horas ordinarias por día laboral
+            ordinarias = Math.min(10, ordinarias);
             extras = Math.max(0, totalHoras - ordinarias);
         }
 
