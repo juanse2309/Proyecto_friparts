@@ -99,7 +99,10 @@ def guardar_asistencia():
                 reg.get('salida_real'),
                 reg.get('horas_ordinarias'),
                 reg.get('horas_extras'),
-                reg.get('registrado_por', 'Sistema') # Nueva columna de auditoría
+                reg.get('registrado_por', 'Sistema'), # Nueva columna de auditoría
+                reg.get('estado', 'PRESENTE'),        # ESTADO
+                reg.get('motivo', ''),                # MOTIVO
+                reg.get('comentarios', '')            # COMENTARIOS
             ])
 
         if rows_to_append:
@@ -112,6 +115,43 @@ def guardar_asistencia():
 
     except Exception as e:
         logger.error(f"Error guardando asistencia: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@asistencia_bp.route('/guardar_ausencia', methods=['POST'])
+def guardar_ausencia():
+    """Guarda un registro de ausencia en la hoja CONTROL_ASISTENCIA."""
+    try:
+        data = request.json
+        if not data or 'registro' not in data:
+            return jsonify({'status': 'error', 'message': 'Datos inválidos'}), 400
+        
+        reg = data['registro']
+        ws = sheets_client.get_worksheet(Hojas.CONTROL_ASISTENCIA)
+        if not ws:
+            return jsonify({'status': 'error', 'message': 'No se encontró la hoja de control de asistencia'}), 404
+
+        row_to_append = [
+            reg.get('fecha'),
+            reg.get('colaborador'),
+            reg.get('ingreso_real', 'AUSENTE'),
+            reg.get('salida_real', ''),
+            reg.get('horas_ordinarias', 0),
+            reg.get('horas_extras', 0),
+            reg.get('registrado_por', 'Sistema'),
+            reg.get('estado', 'AUSENTE'),
+            reg.get('motivo', ''),
+            reg.get('comentarios', '')
+        ]
+
+        ws.append_row(row_to_append)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Ausencia registrada correctamente'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error guardando ausencia: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/mis_horas', methods=['GET'])
@@ -196,7 +236,9 @@ def obtener_registros_dia():
                     'ingreso_real': r.get('INGRESO_REAL', r.get('INGRESO REAL', '')),
                     'salida_real': r.get('SALIDA_REAL', r.get('SALIDA REAL', '')),
                     'horas_ordinarias': r.get('HORAS_ORDINARIAS', r.get('HORAS ORDINARIAS', 0)),
-                    'horas_extras': r.get('HORAS_EXTRAS', r.get('HORAS EXTRAS', 0))
+                    'horas_extras': r.get('HORAS_EXTRAS', r.get('HORAS EXTRAS', 0)),
+                    'estado': r.get('ESTADO', 'PRESENTE'),
+                    'motivo': r.get('MOTIVO', '')
                 })
         
         return jsonify({

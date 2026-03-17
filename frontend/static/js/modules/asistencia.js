@@ -126,10 +126,18 @@ window.ModuloAsistencia = (function () {
                             ...c,
                             hora_entrada: findReg.ingreso_real,
                             hora_salida: findReg.salida_real,
-                            _yaRegistrado: true
+                            _yaRegistrado: true,
+                            _estado: findReg.estado || 'PRESENTE',
+                            _motivo: findReg.motivo || '',
+                            _comentarios: findReg.comentarios || ''
                         };
                     }
-                    return c;
+                    return {
+                        ...c,
+                        _estado: 'PRESENTE',
+                        _motivo: '',
+                        _comentarios: ''
+                    };
                 });
 
                 colaboradoresData = lista;
@@ -197,16 +205,22 @@ window.ModuloAsistencia = (function () {
 
         // Render Tabla (Desktop)
         body.innerHTML = lista.map((c) => {
+            const isAbsent = c._estado === 'AUSENTE';
             const hEntrada = formatTimeDisplay(c.hora_entrada);
             const hSalida = formatTimeDisplay(c.hora_salida);
-            const statusClass = c._yaRegistrado ? 'table-success' : '';
+            const statusClass = c._yaRegistrado ? (isAbsent ? 'table-warning' : 'table-success') : '';
+
+            const badgeContent = isAbsent
+                ? `<span class="badge bg-warning ms-2 shadow-sm text-dark"><i class="fas fa-exclamation-triangle me-1"></i> ${c._motivo}</span>`
+                : (c._yaRegistrado ? '<i class="fas fa-check-circle text-success ms-2" title="Ya guardado"></i>' : '');
+
             return `
                 <tr data-oficial-entrada="${c.hora_entrada}" data-oficial-salida="${c.hora_salida}" data-nombre="${c.nombre}" class="${statusClass}">
                     <td class="ps-4 fw-bold">
                         <div class="d-flex align-items-center">
                             <i class="fas fa-user-circle text-primary opacity-50 me-2"></i>
                             <span>${c.nombre}</span>
-                            ${c._yaRegistrado ? '<i class="fas fa-check-circle text-success ms-2" title="Ya guardado"></i>' : ''}
+                            ${badgeContent}
                         </div>
                     </td>
                     <td><small class="badge bg-light text-dark border"><i class="fas fa-tag me-1 text-muted"></i>${c.departamento}</small></td>
@@ -215,14 +229,14 @@ window.ModuloAsistencia = (function () {
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0 text-success"><i class="fas fa-sign-in-alt"></i></span>
                             <input type="time" class="form-control border-start-0 ps-0 bg-white" 
-                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${c.hora_entrada}">
+                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${isAbsent ? '' : c.hora_entrada}" ${isAbsent ? 'disabled' : ''}>
                         </div>
                     </td>
                     <td style="width: 160px;">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0 text-danger"><i class="fas fa-sign-out-alt"></i></span>
                             <input type="time" class="form-control border-start-0 ps-0 bg-white" 
-                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${c.hora_salida}">
+                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${isAbsent ? '' : c.hora_salida}" ${isAbsent ? 'disabled' : ''}>
                         </div>
                     </td>
                     <td class="text-center fw-bold text-primary" style="background: rgba(30, 64, 175, 0.02);">
@@ -237,16 +251,35 @@ window.ModuloAsistencia = (function () {
                             <input type="number" class="form-control form-control-sm text-center bg-transparent border-0 fw-bold text-danger p-0" style="width: 40px;" disabled value="0" data-tipo="extras">
                         </div>
                     </td>
+                    <td class="text-center" style="width: 180px;">
+                        <input type="text" class="form-control form-control-sm border-0 bg-light" placeholder="Nota..." data-tipo="comentarios" value="${c._comentarios || ''}" ${isAbsent ? 'disabled' : ''}>
+                    </td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-outline-warning rounded-pill border-0 shadow-sm px-3" onclick="ModuloAsistencia.abrirModalAusencia('${c.nombre}')" title="Marcar Ausencia" ${isAbsent ? 'disabled' : ''}>
+                            <i class="fas fa-user-times"></i> Ausente
+                        </button>
+                    </td>
                 </tr>
             `;
         }).join('');
 
         // Render Tarjetas (Mobile)
         cardsContainer.innerHTML = lista.map((c) => {
+            const isAbsent = c._estado === 'AUSENTE';
             const hOficial = `${formatTimeDisplay(c.hora_entrada)} - ${formatTimeDisplay(c.hora_salida)}`;
+
+            let cardBorder = 'border';
+            if (c._yaRegistrado) {
+                cardBorder = isAbsent ? 'border-warning border-4' : 'border-top border-success border-4';
+            }
+
+            const cardHeaderIcon = isAbsent
+                ? `<div><span class="badge bg-warning text-dark px-2 py-1 rounded-pill"><i class="fas fa-exclamation-triangle me-1"></i> ${c._motivo}</span></div>`
+                : (c._yaRegistrado ? '<i class="fas fa-check-circle text-success fa-lg shadow-sm"></i>' : '');
+
             return `
                 <div class="col-12 col-sm-6 mb-3">
-                    <div class="card border-0 shadow-sm h-100 ${c._yaRegistrado ? 'border-top border-success border-4' : 'border'}" 
+                    <div class="card border-0 shadow-sm h-100 ${cardBorder}" 
                          data-oficial-entrada="${c.hora_entrada}" data-oficial-salida="${c.hora_salida}" data-nombre="${c.nombre}"
                          style="border-radius: 20px; transition: transform 0.2s ease;">
                         <div class="card-body p-4">
@@ -260,7 +293,7 @@ window.ModuloAsistencia = (function () {
                                         <span class="small text-muted"><i class="fas fa-tag me-1"></i>${c.departamento}</span>
                                     </div>
                                 </div>
-                                ${c._yaRegistrado ? '<i class="fas fa-check-circle text-success fa-lg shadow-sm"></i>' : ''}
+                                ${cardHeaderIcon}
                             </div>
 
                             <p class="small text-muted mb-3 bg-light p-2 rounded-3 text-center">
@@ -272,13 +305,13 @@ window.ModuloAsistencia = (function () {
                                     <label class="small fw-bold text-muted mb-1 d-block"><i class="fas fa-sign-in-alt me-1 text-success"></i>Llegada</label>
                                     <input type="time" class="form-control form-control-lg border-0 bg-light shadow-none text-center mx-auto" 
                                            style="border-radius: 15px; font-size: 1.1rem; width: 80%;"
-                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${c.hora_entrada}">
+                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${isAbsent ? '' : c.hora_entrada}" ${isAbsent ? 'disabled' : ''}>
                                 </div>
                                 <div class="col-12 text-center">
                                     <label class="small fw-bold text-muted mb-1 d-block"><i class="fas fa-sign-out-alt me-1 text-danger"></i>Salida</label>
                                     <input type="time" class="form-control form-control-lg border-0 bg-light shadow-none text-center mx-auto" 
                                            style="border-radius: 15px; font-size: 1.1rem; width: 80%;"
-                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${c.hora_salida}">
+                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${isAbsent ? '' : c.hora_salida}" ${isAbsent ? 'disabled' : ''}>
                                 </div>
                                 
                                 <div class="col-12">
@@ -292,6 +325,15 @@ window.ModuloAsistencia = (function () {
                                         <span class="d-block small text-muted mb-1 font-monospace">EXTRAS</span>
                                         <span class="fw-bold text-danger h2 mb-0" data-tipo="extras-card" style="letter-spacing: -2px;">0</span>
                                     </div>
+                                </div>
+                                <div class="col-12 mt-2">
+                                    <label class="small fw-bold text-muted mb-1 d-block"><i class="fas fa-comment-dots me-1 text-secondary"></i>Comentarios Jornada</label>
+                                    <textarea class="form-control border-0 bg-light shadow-none" rows="2" style="border-radius: 12px; resize: none;" placeholder="Observaciones del día..." data-tipo="comentarios" ${isAbsent ? 'disabled' : ''}>${c._comentarios || ''}</textarea>
+                                </div>
+                                <div class="col-12 mt-3 text-end pt-2 border-top">
+                                    <button class="btn btn-sm btn-outline-warning rounded-pill shadow-sm fw-bold px-4" onclick="ModuloAsistencia.abrirModalAusencia('${c.nombre}')" ${isAbsent ? 'disabled' : ''}>
+                                        <i class="fas fa-user-times me-1"></i> Reportar Ausencia
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -437,6 +479,8 @@ window.ModuloAsistencia = (function () {
             const salida = f.querySelector('[data-tipo="salida"]').value;
             const ord = parseFloat(f.querySelector('[data-tipo="ordinarias"]').value) || 0;
             const ext = parseFloat(f.querySelector('[data-tipo="extras"]').value) || 0;
+            const comentariosElem = f.querySelector('[data-tipo="comentarios"]');
+            const comentarios = comentariosElem ? comentariosElem.value.trim() : "";
 
             if (ingreso && salida) {
                 registros.push({
@@ -446,7 +490,10 @@ window.ModuloAsistencia = (function () {
                     salida_real: salida,
                     horas_ordinarias: ord,
                     horas_extras: ext,
-                    registrado_por: currentUserContext.nombre // Traza de auditoría de jefe
+                    registrado_por: currentUserContext.nombre, // Traza de auditoría de jefe
+                    estado: 'PRESENTE',
+                    motivo: '',
+                    comentarios: comentarios
                 });
             }
         });
@@ -479,6 +526,140 @@ window.ModuloAsistencia = (function () {
             Swal.fire('Error', 'No se pudo guardar la asistencia', 'error');
         } finally {
             mostrarLoading(false);
+        }
+    }
+
+    // ==========================================
+    // LÓGICA DE AUSENCIAS
+    // ==========================================
+
+    function abrirModalAusencia(nombre) {
+        document.getElementById('ausencia-colaborador-nombre').value = nombre;
+        document.getElementById('ausencia-colaborador-display').textContent = nombre;
+        document.getElementById('ausencia-motivo').value = '';
+        document.getElementById('ausencia-comentarios').value = '';
+        document.getElementById('modal-ausencia').style.display = 'flex';
+    }
+
+    function cerrarModalAusencia() {
+        document.getElementById('modal-ausencia').style.display = 'none';
+        document.getElementById('ausencia-colaborador-nombre').value = '';
+    }
+
+    async function guardarAusencia() {
+        const nombreColaborador = document.getElementById('ausencia-colaborador-nombre').value;
+        const motivo = document.getElementById('ausencia-motivo').value;
+        const comentarios = document.getElementById('ausencia-comentarios').value;
+        const fecha = document.getElementById('asistencia-fecha').value;
+
+        if (!motivo) {
+            Swal.fire('Atención', 'Por favor seleccione un motivo de ausencia', 'warning');
+            return;
+        }
+
+        if (!currentUserContext) {
+            Swal.fire('Error', 'Falta contexto de usuario para autorizar registro', 'error');
+            return;
+        }
+
+        const registroAusencia = {
+            fecha: fecha,
+            colaborador: nombreColaborador,
+            ingreso_real: "AUSENTE",
+            salida_real: motivo, // Temporarily store reason here if we don't have new columns yet (Wait, implementation plan agreed on new columns)
+            horas_ordinarias: 0,
+            horas_extras: 0,
+            registrado_por: currentUserContext.nombre,
+            estado: "AUSENTE",
+            motivo: motivo,
+            comentarios: comentarios
+        };
+
+        // We will adapt the backend to handle these new fields or fallback to INGRESO_REAL/SALIDA_REAL if needed.
+        // Actually, backend will just append them.
+
+        const overlayText = document.getElementById('loading-overlay-text');
+        if (overlayText) overlayText.textContent = 'Registrando ausencia...';
+        mostrarLoading(true);
+
+        try {
+            const response = await fetch('/api/asistencia/guardar_ausencia', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ registro: registroAusencia })
+            });
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                Swal.fire('Éxito', result.message, 'success');
+                cerrarModalAusencia();
+
+                // Update UI visually
+                reflejarAusenciaEnUI(nombreColaborador, motivo);
+
+                AuthModule.mostrarNotificacion('Ausencia registrada exitosamente', 'success');
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            console.error("Error guardando ausencia:", error);
+            Swal.fire('Error', 'No se pudo guardar la ausencia', 'error');
+        } finally {
+            mostrarLoading(false);
+        }
+    }
+
+    function reflejarAusenciaEnUI(nombre, motivo) {
+        // Find row in table
+        const row = document.querySelector(`#asistencia-body tr[data-nombre="${nombre}"]`);
+        if (row) {
+            row.classList.add('table-warning');
+            row.querySelector('[data-tipo="ingreso"]').value = '';
+            row.querySelector('[data-tipo="salida"]').value = '';
+            row.querySelector('[data-tipo="ingreso"]').disabled = true;
+            row.querySelector('[data-tipo="salida"]').disabled = true;
+            row.querySelector('[data-tipo="ordinarias"]').value = 0;
+            row.querySelector('[data-tipo="extras"]').value = 0;
+            const comentariosInputRow = row.querySelector('[data-tipo="comentarios"]');
+            if (comentariosInputRow) {
+                comentariosInputRow.value = '';
+                comentariosInputRow.disabled = true;
+            }
+
+            // Add absent badge next to name
+            const nameContainer = row.querySelector('.d-flex.align-items-center');
+            if (nameContainer && !nameContainer.querySelector('.badge.bg-warning')) {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-warning ms-2 shadow-sm text-dark';
+                badge.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i> ${motivo}`;
+                nameContainer.appendChild(badge);
+            }
+        }
+
+        // Find card
+        const card = Array.from(document.querySelectorAll('#asistencia-cards-container .card'))
+            .find(c => c.dataset.nombre === nombre);
+
+        if (card) {
+            card.classList.remove('border', 'border-success');
+            card.classList.add('border-warning', 'border-4');
+            card.querySelector('[data-tipo="ingreso"]').value = '';
+            card.querySelector('[data-tipo="salida"]').value = '';
+            card.querySelector('[data-tipo="ingreso"]').disabled = true;
+            card.querySelector('[data-tipo="salida"]').disabled = true;
+
+            const comentariosInputCard = card.querySelector('[data-tipo="comentarios"]');
+            if (comentariosInputCard) {
+                comentariosInputCard.value = '';
+                comentariosInputCard.disabled = true;
+            }
+
+            const headerInfo = card.querySelector('.d-flex.justify-content-between.align-items-center');
+            if (headerInfo && !headerInfo.querySelector('.badge.bg-warning')) {
+                const badgeContainer = document.createElement('div');
+                badgeContainer.innerHTML = `<span class="badge bg-warning text-dark px-2 py-1 rounded-pill"><i class="fas fa-exclamation-triangle me-1"></i> ${motivo}</span>`;
+                headerInfo.appendChild(badgeContainer);
+            }
         }
     }
 
@@ -525,6 +706,9 @@ window.ModuloAsistencia = (function () {
         calcularFila,
         cambiarVista,
         guardarAsistencia,
-        cargarMisHoras
+        cargarMisHoras,
+        abrirModalAusencia,
+        cerrarModalAusencia,
+        guardarAusencia
     };
 })();

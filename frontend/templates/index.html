@@ -2331,7 +2331,49 @@
                     <button class="btn btn-secondary close">Cerrar</button>
                 </div>
             </div>
-        </div> <!-- Generación WO -->
+        </div>
+
+        <!-- Modal Preview World Office -->
+        <div id="modal-preview-wo" class="modal-custom" style="display: none;">
+            <div class="modal-content-custom glass-panel" style="max-width: 95%; width: 1200px;">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h4 class="mb-0"><i class="fas fa-file-excel text-success me-2"></i> Vista Previa: Archivo World
+                        Office</h4>
+                    <button class="btn-close close" onclick="ModuloFacturacion.cerrarPreviewWO()"></button>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> A continuación se muestra una vista previa estructural de los
+                    datos que se incluirán en el archivo de Excel.
+                    <br><small><strong>Nota:</strong> Los pedidos confirmados se marcarán automáticamente como
+                        <code>EXPORTADO_WO</code> para evitar duplicaciones futuras.</small>
+                </div>
+
+                <div class="table-container shadow-sm border rounded bg-white p-2"
+                    style="max-height: 500px; overflow-y: auto; overflow-x: auto;">
+                    <table class="table table-sm table-bordered table-hover w-100" id="tabla-preview-wo"
+                        style="font-size: 0.85rem; white-space: nowrap;">
+                        <thead class="table-light sticky-top">
+                            <!-- Los headers se insertan por JS (procesar_datos_wo preview) -->
+                        </thead>
+                        <tbody>
+                            <!-- El contenido se inserta por JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button class="btn btn-outline-secondary" onclick="ModuloFacturacion.cerrarPreviewWO()">
+                        <i class="fas fa-times"></i> Cancelar
+                    </button>
+                    <button class="btn btn-success fw-bold" id="btn-confirmar-exportar-wo"
+                        onclick="ModuloFacturacion.descargarExcelWO()">
+                        <i class="fas fa-check"></i> Confirmar y Descargar
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div id="facturacion-page" class="page">
             <header class="top-bar">
                 <button class="btn-icon" id="toggle-sidebar-facturacion">
@@ -3646,6 +3688,8 @@
                                         <th class="text-center"><i class="fas fa-hourglass-start me-2"></i>H. Ordinarias
                                         </th>
                                         <th class="text-center"><i class="fas fa-fire me-2"></i>H. Extras</th>
+                                        <th class="text-center"><i class="fas fa-comment-dots me-2"></i>Comentarios</th>
+                                        <th class="text-center"><i class="fas fa-user-times me-2"></i>Ausencia</th>
                                     </tr>
                                 </thead>
                                 <tbody id="asistencia-body">
@@ -3766,6 +3810,72 @@
         </div> <!-- FIN asistencia-page -->
 
     </main> <!-- FIN main-content -->
+
+    <!-- Modal Ausencia -->
+    <div id="modal-ausencia" class="modal-overlay"
+        style="display: none; align-items: center; justify-content: center; z-index: 2000; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px);">
+        <div class="modal-content"
+            style="max-width: 500px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); border: none; overflow: hidden; background: white;">
+
+            <div class="modal-header"
+                style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 16px 24px; border-bottom: none;">
+                <h5 class="modal-title mb-0" style="color: white; font-weight: 700;">
+                    <i class="fas fa-user-times me-2"></i> Registrar Ausencia
+                </h5>
+                <button type="button" class="btn-close btn-close-white"
+                    onclick="ModuloAsistencia.cerrarModalAusencia()"></button>
+            </div>
+
+            <div class="modal-body p-4" style="overflow-y: auto; background: #f8fafc;">
+                <input type="hidden" id="ausencia-colaborador-nombre">
+
+                <div class="alert alert-warning mb-4 shadow-sm"
+                    style="border-radius: 12px; border-left: 4px solid #f59e0b;">
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-exclamation-triangle fa-2x me-3 text-warning"></i>
+                        <div>
+                            <strong class="d-block text-dark">Atención</strong>
+                            <span class="small text-muted" id="ausencia-colaborador-display"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted small"><i class="fas fa-list-ul me-1"></i> MOTIVO DE
+                        AUSENCIA</label>
+                    <select id="ausencia-motivo" class="form-select form-select-lg border-0 shadow-sm"
+                        style="border-radius: 12px;">
+                        <option value="" disabled selected>Seleccione el motivo...</option>
+                        <option value="Incapacidad">Incapacidad</option>
+                        <option value="Cita Médica">Cita Médica</option>
+                        <option value="Situación Académica">Situación Académica</option>
+                        <option value="Situación Doméstica">Situación Doméstica</option>
+                        <option value="Ausencia Injustificada">Ausencia Injustificada</option>
+                        <option value="Permiso Remunerado">Permiso Remunerado</option>
+                        <option value="Permiso No Remunerado">Permiso No Remunerado</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted small"><i class="fas fa-comment-alt me-1"></i>
+                        COMENTARIOS (Opcional)</label>
+                    <textarea id="ausencia-comentarios" class="form-control border-0 shadow-sm" rows="3"
+                        placeholder="Detalles adicionales sobre la ausencia..."
+                        style="border-radius: 12px; resize: none;"></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer p-3"
+                style="background: white; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn btn-light rounded-pill px-4 fw-bold"
+                    onclick="ModuloAsistencia.cerrarModalAusencia()">Cancelar</button>
+                <button type="button" class="btn btn-warning rounded-pill px-4 fw-bold text-white shadow-sm"
+                    onclick="ModuloAsistencia.guardarAusencia()">
+                    <i class="fas fa-save me-1"></i> Confirmar Ausencia
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal Detalle Incumplimiento -->
     <div id="modal-detalle-incumplimiento" class="modal-overlay"
