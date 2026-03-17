@@ -482,7 +482,11 @@ window.ModuloAsistencia = (function () {
             const comentariosElem = f.querySelector('[data-tipo="comentarios"]');
             const comentarios = comentariosElem ? comentariosElem.value.trim() : "";
 
-            if (ingreso && salida) {
+            // Si la fila ya tiene table-success, significa que ya fue cargada de la base de datos hoy.
+            // Para evitar duplicados en el Google Sheet al darle múltiples veces "Registrar Horas", la ignoramos.
+            const yaRegistrado = f.classList.contains('table-success');
+
+            if (ingreso && salida && !yaRegistrado) {
                 registros.push({
                     fecha: fecha,
                     colaborador: f.dataset.nombre,
