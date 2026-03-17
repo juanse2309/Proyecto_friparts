@@ -241,7 +241,8 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'metals-produccion': window.ModuloMetals,
         'metals-dashboard': window.ModuloMetals,
         'procura': window.ModuloProcura,
-        'rotacion': window.ModuloProcura // Alias por si acaso
+        'rotacion': window.ModuloProcura, // Alias por si acaso
+        'asistencia': window.ModuloAsistencia
     };
 
     if (window.AppState.paginaActual) {
@@ -362,7 +363,8 @@ function inicializarModulo(nombrePagina) {
         'metals-horno': window.ModuloMetals,
         'metals-pulido-m': window.ModuloMetals,
         'procura': window.ModuloProcura,
-        'rotacion': window.ModuloRotacion // Este inicializa su propia lógica si existe
+        'rotacion': window.ModuloRotacion, // Este inicializa su propia lógica si existe
+        'asistencia': window.ModuloAsistencia
     };
 
     const modulo = modulos[nombrePagina];
@@ -481,7 +483,8 @@ function inicializarModulo(nombrePagina) {
                 'metals-produccion': window.ModuloMetals,
                 'metals-dashboard': window.ModuloMetals,
                 'procura': window.ModuloProcura,
-                'rotacion': window.ModuloRotacion
+                'rotacion': window.ModuloRotacion,
+                'asistencia': window.ModuloAsistencia
             };
             const moduloRetry = modulosRetry[nombrePagina];
             if (moduloRetry?.inicializar) {

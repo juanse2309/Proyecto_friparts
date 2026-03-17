@@ -48,6 +48,7 @@ from backend.routes.dashboard_routes import dashboard_bp
 from backend.routes.admin_routes import admin_bp
 from backend.routes.inyeccion_routes import inyeccion_bp
 from backend.routes.pulido_routes import pulido_bp
+from backend.routes.asistencia_routes import asistencia_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -62,6 +63,7 @@ app.register_blueprint(common_bp, url_prefix='/api')
 app.register_blueprint(admin_bp)
 app.register_blueprint(inyeccion_bp)
 app.register_blueprint(pulido_bp)
+app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
 
 
 # --- RUTA DE DEBUG INICIAL ---

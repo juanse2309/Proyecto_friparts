@@ -47,22 +47,34 @@ const AuthModule = {
         return allowedBase.includes(pageName);
     },
 
-    // Matriz de Permisos
+    // Matriz de Permisos por Rol
     permissions: {
-        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'COMERCIAL': ['pedidos', 'almacen', 'procura'],
         'COMPRAS': ['inventario', 'almacen', 'procura', 'historial', 'reportes'],
-        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura', 'rotacion'],
-        'INYECCION': ['dashboard', 'inyeccion', 'mezcla'],
-        'PULIDO': ['dashboard', 'pulido'],
-        'ENSAMBLE': ['ensamble'],
-        'ALISTAMIENTO': ['almacen'],
+        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura', 'rotacion', 'asistencia'],
+        'INYECCION': ['dashboard', 'inyeccion', 'mezcla', 'asistencia'],
+        'PULIDO': ['dashboard', 'pulido', 'asistencia'],
+        'ENSAMBLE': ['ensamble', 'asistencia'],
+        'ALISTAMIENTO': ['almacen', 'asistencia'],
         'CLIENTE': ['portal-cliente'],
         'METALS_PROD': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'inventario', 'historial', 'procura'],
         'INVITADO': []
+    },
+
+    // Permisos Especiales por Nombre (Jefes de Área)
+    SPECIAL_PERMISSIONS: {
+        'OSCAR PRIETO': ['inyeccion', 'ensamble', 'mezcla', 'pnc', 'dashboard'],
+        'NATHALIA': ['almacen', 'inyeccion', 'pedidos'],
+        'NATALIA': ['almacen', 'inyeccion', 'pedidos'],
+        'DANIEL MAURICIO NEIRA': ['pulido', 'dashboard'],
+        'DANIEL NEIRA': ['pulido', 'dashboard'],
+        'PAOLA': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'procura', 'rotacion', 'historial'],
+        'WILMER NOVOA': ['inyeccion', 'ensamble', 'mezcla'],
+        'LAURA LIZETH VARGAS R.': ['asistencia', 'pulido']
     },
 
     // Notificación Visual
@@ -505,7 +517,7 @@ const AuthModule = {
         }
 
         this.updateProfileUI();
-        this.applyPermissions();
+        this.applyPermissions(true); // isLogin=true: permite redirección al landing solo en primer ingreso
 
         // 6. Verificar si Nathalia Lopez entra
         if (user.nombre && user.nombre.toUpperCase().includes("NATHALIA")) {
@@ -519,7 +531,7 @@ const AuthModule = {
                         this.permissions[normalizedRole].push(p);
                     }
                 });
-                this.applyPermissions();
+                this.applyPermissions(true); // isLogin=true para excepción Nathalia
             }
         }
 
@@ -648,7 +660,7 @@ const AuthModule = {
                 if (!allowedPages.includes('historial')) allowedPages.push('historial');
             }
         } else {
-            allowedPages = this.getPagesForRole(role);
+            allowedPages = this.getPagesForRole(role, this.currentUser.nombre || '');
         }
 
         // =============================================================
@@ -686,35 +698,6 @@ const AuthModule = {
         console.log(`✅ Páginas autorizadas para ${role}:`, allowedPages);
 
         // LOGICA EXCEPCIONES STAFF FRIPARTS (Solo si no es METALS_STAFF)
-        if (this.currentUser.tipo !== 'METALS_STAFF') {
-            const userNameUpper = this.currentUser.nombre.toUpperCase();
-
-            // Helper para normalizar (quitar tildes)
-            const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            const nameNorm = normalize(userNameUpper);
-
-            // WILMER NOVOA -> Ver Ensamble ademas de Inyeccion
-            if (nameNorm.includes('WILMER') && nameNorm.includes('NOVOA')) {
-                if (!allowedPages.includes('ensamble')) allowedPages.push('ensamble');
-            }
-
-            // NATALIA LOPEZ -> Alistamiento (Ya tiene 'almacen' por rol)
-            // Solo asegurar que pueda delegar (se maneja en almacen.js)
-            if (nameNorm.includes('NATHALIA') || nameNorm.includes('NATALIA')) {
-                allowedPages = allowedPages.filter(p => p !== 'historial');
-                if (!allowedPages.includes('inyeccion')) allowedPages.push('inyeccion');
-                if (!allowedPages.includes('pedidos')) allowedPages.push('pedidos');
-            }
-
-            // PAOLA y ZOENIA -> Bloquear Dashboard, Almacen, Facturacion y Mezcla
-            if (nameNorm.includes('PAOLA') || nameNorm.includes('ZOENIA')) {
-                // Remover explícitamente si existen
-                allowedPages = allowedPages.filter(p => !['dashboard', 'almacen', 'facturacion', 'mezcla'].includes(p));
-                // Asegurar acceso a edición global (sin facturacion ni mezcla)
-                const extras = ['inventario', 'historial', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'procura'];
-                extras.forEach(m => { if (!allowedPages.includes(m)) allowedPages.push(m); });
-            }
-        }
 
         // 1. Mostrar/Ocultar Menú Sidebar (Items y Divisores)
         const sidebarEntries = document.querySelectorAll('.sidebar-menu .menu-item, .sidebar-menu .sidebar-divider');
@@ -779,9 +762,21 @@ const AuthModule = {
                 if (!skipRedirect) this.navigateTo(targetPage);
             }
         } else if (!skipRedirect) {
-            // Restore redirection for fresh logins where no page is active yet
-            console.log(`🎯 No hay página activa. Redirigiendo a landing por defecto: ${targetPage}`);
-            this.navigateTo(targetPage);
+            // En login fresco, SIEMPRE redirigir al landing del rol
+            if (isLogin) {
+                console.log(`🎯 Login fresco. Redirigiendo a landing: ${targetPage}`);
+                this.navigateTo(targetPage);
+            } else {
+                // En restauración de sesión, respetar hash si existe
+                const hashPage = window.location.hash.replace('#', '');
+                if (hashPage && document.getElementById(`${hashPage}-page`) && allowedPages.includes(hashPage)) {
+                    console.log(`🔗 Hash detectado: #${hashPage}. Cargando vía app.js.`);
+                    if (typeof window.cargarPagina === 'function') window.cargarPagina(hashPage);
+                } else {
+                    console.log(`🎯 No hay página activa válida. Redirigiendo a: ${targetPage}`);
+                    this.navigateTo(targetPage);
+                }
+            }
         }
 
         this.authorizedPages = allowedPages;

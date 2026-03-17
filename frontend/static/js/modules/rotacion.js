@@ -95,9 +95,9 @@ window.ModuloRotacion = (function () {
             const dg = item.desglose_externo || { Zincado: 0, Granallado: 0 };
             const title = `Zincado: ${dg.Zincado} pz | Granallado: ${dg.Granallado} pz`;
             transitBadge = `
-                <div class="mt-1" title="${title}" style="cursor:help">
-                    <span class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50 px-2 rounded-pill">
-                        <i class="fas fa-truck me-1"></i>${item.stock_externo}
+                <div class="mt-1" title="${title}">
+                    <span class="badge bg-info text-white px-2 py-1 rounded-pill shadow-sm d-inline-flex align-items-center" style="font-size: 0.75rem; font-weight: 700;">
+                        🚚 <span class="ms-1">${item.stock_externo}</span>
                     </span>
                 </div>
             `;

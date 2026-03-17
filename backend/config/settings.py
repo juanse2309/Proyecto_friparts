@@ -60,6 +60,8 @@ class Hojas:
     ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
     DB_PROVEEDORES = "DB_PROVEEDORES"
     FICHAS_INT_CAR = "FICHAS_INT_CAR"
+    CONTROL_ASISTENCIA = "CONTROL_ASISTENCIA"
+    CORTES_NOMINA = "CORTES_NOMINA"
 
 class Almacenes:
     """Nombres de almacenes estandarizados."""
