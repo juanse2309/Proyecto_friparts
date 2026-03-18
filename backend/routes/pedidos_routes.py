@@ -14,6 +14,35 @@ import pytz
 pedidos_bp = Blueprint('pedidos', __name__)
 logger = logging.getLogger(__name__)
 
+def obtener_siguiente_id_pedido():
+    """Genera el siguiente ID secuencial con formato PED9643, ignorando IDs antiguos con guiones"""
+    try:
+        from backend.routes.facturacion_routes import obtener_hoja
+        ws = obtener_hoja(Hojas.PEDIDOS)
+        col_values = ws.col_values(1) # Asumimos columna A es ID PEDIDO
+        
+        import re
+        max_num = 0
+        base_inicial = 9644
+        
+        for val in col_values[1:]:
+            val_str = str(val).strip().upper()
+            # Buscamos estrictamente formato PED seguido de SOLAMENTE DIGITOS (no PED-UUID)
+            match = re.match(r'^PED(\d+)$', val_str)
+            if match:
+                num = int(match.group(1))
+                if num > max_num:
+                    max_num = num
+        
+        # Si no encontramos ningún PEDxxxx, iniciamos en la base solicitada
+        if max_num == 0:
+            return f"PED{base_inicial}"
+            
+        return f"PED{max_num + 1}"
+    except Exception as e:
+        logger.error(f"Error generando siguiente ID pedido: {e}")
+        return f"PED{datetime.datetime.now().strftime('%M%S')}" # Fallback seguro
+
 @pedidos_bp.route('/api/pedidos/registrar', methods=['POST'])
 def registrar_pedido():
     """
@@ -91,8 +120,8 @@ def registrar_pedido():
             logger.error(f"❌ Array de productos inválido: {productos}")
             return jsonify({"success": False, "error": "Debe incluir al menos un producto en 'productos'"}), 400
 
-        # Generate unique ID for this order (shared by all items)
-        id_pedido = f"PED-{str(uuid.uuid4())[:8].upper()}"
+        # Generate sequential ID (format PED9643)
+        id_pedido = obtener_siguiente_id_pedido()
         estado = "PENDIENTE"
         
         # Auto-capturar hora actual del servidor (Colombia UTC-5)

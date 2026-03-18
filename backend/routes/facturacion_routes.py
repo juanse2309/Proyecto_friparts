@@ -16,6 +16,18 @@ def obtener_hoja(nombre_hoja):
     return sheets_client.get_or_create_worksheet(nombre_hoja)
 
 
+def obtener_mapa_vendedores():
+    """Mapea nombres de responsables a sus documentos de identidad."""
+    try:
+        ws = obtener_hoja(Hojas.RESPONSABLES)
+        records = ws.get_all_records()
+        # Mapa de nombres normalizados a documentos
+        return {str(r.get('RESPONSABLE', r.get('NOMBRE', ''))).strip().upper(): str(r.get('DOCUMENTO', '')).strip() for r in records}
+    except Exception as e:
+        logger.error(f"Error mapeando vendedores: {e}")
+        return {}
+
+
 def procesar_datos_wo(ids_filter=None):
     """Lógica centralizada para filtrar, cruzar y formatear datos WO v2.
        ids_filter: Lista opcional de 'ID PEDIDO' para exportar solo esos.
@@ -123,7 +135,22 @@ def procesar_datos_wo(ids_filter=None):
         'Detalle: Código Centro Costos'
     ]
     
-    for idx, p in enumerate(pedidos_pendientes):
+    # Diccionario para agrupar ítems por ID PEDIDO y asignarles el mismo consecutivo
+    mapeo_consecutivos = {}
+    
+    # Mapeo de Vendedores dinámico (desde RESPONSABLES)
+    vendedores_ids = obtener_mapa_vendedores()
+    
+    for p in pedidos_pendientes:
+        id_pedido_original = str(p.get('ID PEDIDO', '')).strip()
+        
+        # Extraer solo números para World Office (ej: PED9643 -> 9643)
+        doc_numero_wo = re.sub(r'[^0-9]', '', id_pedido_original)
+        
+        # Guardar en mapeo para actualización de estados posterior
+        if id_pedido_original not in mapeo_consecutivos:
+            mapeo_consecutivos[id_pedido_original] = doc_numero_wo
+        
         # Cruce Cliente
         nombre_cliente = str(p.get('CLIENTE', '')).strip().upper()
         nit_raw = mapa_clientes.get(nombre_cliente, p.get('NIT', '')) # Fallback a NIT del pedido
@@ -146,17 +173,23 @@ def procesar_datos_wo(ids_filter=None):
             
         cantidad = p.get('CANTIDAD', 0)
         
-        # Limpieza Forma de Pago (Quitar tildes y caracteres especiales)
+        # Limpieza Forma de Pago (Quitar tildes)
         forma_pago_raw = str(p.get('FORMA DE PAGO', ''))
         forma_pago_fmt = forma_pago_raw.replace('é', 'e').replace('É', 'E').replace('á', 'a').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
         
-        # Generar ID Numérico para WO (Timestamp corto + índice)
-        base_num = datetime.now().strftime('%y%m%d%H%M')
-        id_numerico_wo = int(f"{base_num}{idx:02d}")
+        # Mapeo Vendedor (Tercero Interno)
+        vendedor_nombre = str(p.get('VENDEDOR', '')).strip().upper()
+        vendedor_id = vendedores_ids.get(vendedor_nombre, '900315300') # Fallback solicitado
         
-        # Descuento siempre numérico
+        # Descuento siempre numérico (porcentaje decimal para WO: ej. 50% -> 0.5)
         try:
-            descuento_num = float(p.get('DESCUENTO %', 0) or 0)
+            val_desc = p.get('DESCUENTO %', 0)
+            if val_desc is None or str(val_desc).strip() == "":
+                descuento_num = 0.0
+            else:
+                # Si viene como string '50%' lo limpiamos
+                raw_desc = str(val_desc).replace('%', '').strip()
+                descuento_num = float(raw_desc) / 100.0
         except:
             descuento_num = 0.0
         
@@ -166,11 +199,12 @@ def procesar_datos_wo(ids_filter=None):
         # Sobrescribir los mapeados y valores fijos
         row['Encab: Empresa'] = 'FRIPARTS SAS'
         row['Encab: Tipo Documento'] = 'PED'
-        row['Encab: Documento Número'] = id_numerico_wo
+        row['Encab: Prefijo'] = 'PED'
+        row['Encab: Documento Número'] = doc_numero_wo
         row['Encab: Fecha'] = fecha_fmt
-        row['Encab: Tercero Interno'] = '900315300'
+        row['Encab: Tercero Interno'] = vendedor_id
         row['Encab: Tercero Externo'] = nit_limpio
-        row['Encab: Nota'] = str(p.get('COMENTARIOS', ''))
+        row['Encab: Nota'] = 'PEDIDO'
         row['Encab: FormaPago'] = forma_pago_fmt
         row['Encab: Fecha Entrega'] = fecha_fmt
         row['Encab: Sucursal'] = ''
@@ -191,28 +225,37 @@ def procesar_datos_wo(ids_filter=None):
     if not df.empty:
         df = df[columnas_wo]
         
-    return df
+    return df, mapeo_consecutivos
 
-def actualizar_estado_exportado(ids_exportados):
-    """Actualiza el estado de los pedidos a 'EXPORTADO_WO' en Google Sheets"""
-    if not ids_exportados:
+def actualizar_estado_exportado(pedidos_consecutivos):
+    """Actualiza el estado de los pedidos a 'EXPORTADO_WO' y guarda el consecutivo en Google Sheets.
+       pedidos_consecutivos: Diccionario {id_pedido: consecutivo}
+    """
+    if not pedidos_consecutivos:
         return 0
         
     ws_pedidos = obtener_hoja(Hojas.PEDIDOS)
     registros = ws_pedidos.get_all_records()
     
-    # Obtener el índice de la columna ESTADO
+    # Obtener índices de columnas
     try:
         encabezados = ws_pedidos.row_values(1)
         if 'ESTADO' not in encabezados:
             logger.error("Columna ESTADO no encontrada en PEDIDOS")
             return 0
-        col_estado_idx = encabezados.index('ESTADO') + 1 # 1-based index
+        col_estado_idx = encabezados.index('ESTADO') + 1
+        
+        # Asegurar columna WO_CONSECUTIVO
+        if 'WO_CONSECUTIVO' not in encabezados:
+            col_wo_idx = len(encabezados) + 1
+            ws_pedidos.update_cell(1, col_wo_idx, 'WO_CONSECUTIVO')
+        else:
+            col_wo_idx = encabezados.index('WO_CONSECUTIVO') + 1
+            
     except Exception as e:
         logger.error(f"Error obteniendo cabeceras de PEDIDOS: {e}")
         return 0
         
-    ids_set = set(str(x) for x in ids_exportados)
     updates_batch = []
     filas_actualizadas = 0
     
@@ -220,17 +263,26 @@ def actualizar_estado_exportado(ids_exportados):
         id_pedido = str(r.get('ID PEDIDO', ''))
         estado_actual = str(r.get('ESTADO', '')).strip().upper()
         
-        # Actualizamos la fila (idx+2 porque registros ignora cabecera y list_index es 0-based)
-        if id_pedido in ids_set and estado_actual == 'PENDIENTE':
+        if id_pedido in pedidos_consecutivos and estado_actual == 'PENDIENTE':
+            consecutivo = pedidos_consecutivos[id_pedido]
             fila_sheet = idx + 2
-            celda = f"{rowcol_to_a1(fila_sheet, col_estado_idx)}"
-            updates_batch.append({'range': celda, 'values': [['EXPORTADO_WO']]})
+            
+            # Update ESTADO
+            updates_batch.append({
+                'range': f"{rowcol_to_a1(fila_sheet, col_estado_idx)}",
+                'values': [['EXPORTADO_WO']]
+            })
+            # Update WO_CONSECUTIVO
+            updates_batch.append({
+                'range': f"{rowcol_to_a1(fila_sheet, col_wo_idx)}",
+                'values': [[consecutivo]]
+            })
             filas_actualizadas += 1
             
     if updates_batch:
         try:
             ws_pedidos.batch_update(updates_batch, value_input_option='USER_ENTERED')
-            logger.info(f"Actualizados {filas_actualizadas} pedidos a EXPORTADO_WO")
+            logger.info(f"Actualizados {filas_actualizadas} items con estados y consecutivos WO")
         except Exception as e:
             logger.error(f"Error en batch_update de PEDIDOS: {e}")
             return 0
@@ -303,13 +355,10 @@ def exportar_world_office():
         data = request.get_json(silent=True) or {}
         ids_filter = data.get('ids', None) # Lista de IDs seleccionados
         
-        df = procesar_datos_wo(ids_filter)
+        df, mapeo_consecutivos = procesar_datos_wo(ids_filter)
         
         if df.empty:
             return jsonify({'success': False, 'error': 'No hay datos válidos para exportar (verifique el estado PENDIENTE)'}), 400
-
-        # Obtener los IDs únicos de los pedidos que realmente están siendo exportados
-        ids_exportados = df['Encab: Documento Número'].unique().tolist()
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -317,8 +366,8 @@ def exportar_world_office():
         
         output.seek(0)
         
-        # Actualizar estado a EXPORTADO_WO en un thread o aquí mismo
-        pedidos_actualizados = actualizar_estado_exportado(ids_exportados)
+        # Actualizar estado a EXPORTADO_WO y guardar consecutivos en PEDIDOS
+        pedidos_actualizados = actualizar_estado_exportado(mapeo_consecutivos)
         
         # Custom headers para dar feedback al frontend
         response = send_file(
@@ -345,7 +394,7 @@ def preview_world_office():
         data = request.get_json(silent=True) or {}
         ids_filter = data.get('ids', None)
         
-        df = procesar_datos_wo(ids_filter)
+        df, _ = procesar_datos_wo(ids_filter)
         
         if df.empty:
             return jsonify({'success': True, 'data': []})
