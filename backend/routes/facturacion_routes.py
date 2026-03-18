@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, send_file
 import pandas as pd
 import io
+import re
 from datetime import datetime
 import logging
 from backend.config.settings import Hojas
@@ -61,7 +62,7 @@ def procesar_datos_wo(ids_filter=None):
     # 3. Procesar Filas
     rows_finales = []
     
-    # Mapeo estricto de columnas requerido por World Office
+    # Mapeo estricto de 57 columnas requerido por World Office (OLE DB)
     columnas_wo = [
         'Encab: Empresa',
         'Encab: Tipo Documento',
@@ -72,35 +73,71 @@ def procesar_datos_wo(ids_filter=None):
         'Encab: Tercero Externo',
         'Encab: Nota',
         'Encab: FormaPago',
-        'Encab: Fecha Entrega'
-    ]
-    
-    # Personalizado 1 al 15 vacíos
-    for i in range(1, 16):
-        columnas_wo.append(f'Encab: Personalizado {i}')
-        
-    columnas_wo.extend([
+        'Encab: Fecha Entrega',
+        'Encab: Prefijo Documento Externo',
+        'Encab: Número_Documento_Externo',
+        'Encab: Verificado',
+        'Encab: Anulado',
+        'Encab: Personalizado 1',
+        'Encab: Personalizado 2',
+        'Encab: Personalizado 3',
+        'Encab: Personalizado 4',
+        'Encab: Personalizado 5',
+        'Encab: Personalizado 6',
+        'Encab: Personalizado 7',
+        'Encab: Personalizado 8',
+        'Encab: Personalizado 9',
+        'Encab: Personalizado 10',
+        'Encab: Personalizado 11',
+        'Encab: Personalizado 12',
+        'Encab: Personalizado 13',
+        'Encab: Personalizado 14',
+        'Encab: Personalizado 15',
         'Encab: Sucursal',
+        'Encab: Clasificación',
         'Detalle: Producto',
         'Detalle: Bodega',
         'Detalle: UnidadDeMedida',
         'Detalle: Cantidad',
         'Detalle: IVA',
         'Detalle: Valor Unitario',
-        'Detalle: Descuento'
-    ])
+        'Detalle: Descuento',
+        'Detalle: Vencimiento',
+        'Detalle: Nota',
+        'Detalle: Centro costos',
+        'Detalle: Personalizado1',
+        'Detalle: Personalizado2',
+        'Detalle: Personalizado3',
+        'Detalle: Personalizado4',
+        'Detalle: Personalizado5',
+        'Detalle: Personalizado6',
+        'Detalle: Personalizado7',
+        'Detalle: Personalizado8',
+        'Detalle: Personalizado9',
+        'Detalle: Personalizado10',
+        'Detalle: Personalizado11',
+        'Detalle: Personalizado12',
+        'Detalle: Personalizado13',
+        'Detalle: Personalizado14',
+        'Detalle: Personalizado15',
+        'Detalle: Código Centro Costos'
+    ]
     
-    for p in pedidos_pendientes:
+    for idx, p in enumerate(pedidos_pendientes):
         # Cruce Cliente
         nombre_cliente = str(p.get('CLIENTE', '')).strip().upper()
-        nit_cliente = mapa_clientes.get(nombre_cliente, p.get('NIT', '')) # Fallback a NIT del pedido
+        nit_raw = mapa_clientes.get(nombre_cliente, p.get('NIT', '')) # Fallback a NIT del pedido
+        
+        # Limpieza NIT (Extraer solo el primer bloque de números)
+        match_nit = re.search(r'(\d+)', str(nit_raw))
+        nit_limpio = match_nit.group(1) if match_nit else str(nit_raw).strip()
         
         # Cruce Producto
         id_codigo = str(p.get('ID CODIGO', '')).strip()
         data_prod = mapa_productos.get(id_codigo, {})
         precio_venta = data_prod.get('PRECIO', p.get('PRECIO UNITARIO', 0)) # Fallback a precio pedido
         
-        # Formatos
+        # Formatos de Fecha
         try:
             fecha_raw = p.get('FECHA', '')
             fecha_fmt = pd.to_datetime(fecha_raw).strftime('%d/%m/%Y') if fecha_raw else datetime.now().strftime('%d/%m/%Y')
@@ -109,41 +146,49 @@ def procesar_datos_wo(ids_filter=None):
             
         cantidad = p.get('CANTIDAD', 0)
         
-        row = {
-            'Encab: Empresa': 'FRIPARTS SAS',
-            'Encab: Tipo Documento': 'PD',
-            'Encab: Prefijo': '',
-            'Encab: Documento Número': str(p.get('ID PEDIDO', '')),
-            'Encab: Fecha': fecha_fmt,
-            'Encab: Tercero Interno': '9003153002',
-            'Encab: Tercero Externo': nit_cliente,
-            'Encab: Nota': str(p.get('COMENTARIOS', '')),
-            'Encab: FormaPago': str(p.get('FORMA DE PAGO', '')),
-            'Encab: Fecha Entrega': fecha_fmt,
-            'Encab: Sucursal': 'Principal',
-            'Detalle: Producto': id_codigo,
-            'Detalle: Bodega': 'Principal',
-            'Detalle: UnidadDeMedida': 'Und.',
-            'Detalle: Cantidad': cantidad,
-            'Detalle: IVA': 0.19,
-            'Detalle: Valor Unitario': precio_venta,
-            'Detalle: Descuento': p.get('DESCUENTO %', 0) or 0
-        }
+        # Limpieza Forma de Pago (Quitar tildes y caracteres especiales)
+        forma_pago_raw = str(p.get('FORMA DE PAGO', ''))
+        forma_pago_fmt = forma_pago_raw.replace('é', 'e').replace('É', 'E').replace('á', 'a').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
         
-        # Rellenar todos los 'Encab: Personalizado X' con vacío
-        for i in range(1, 16):
-            row[f'Encab: Personalizado {i}'] = ""
-            
+        # Generar ID Numérico para WO (Timestamp corto + índice)
+        base_num = datetime.now().strftime('%y%m%d%H%M')
+        id_numerico_wo = int(f"{base_num}{idx:02d}")
+        
+        # Descuento siempre numérico
+        try:
+            descuento_num = float(p.get('DESCUENTO %', 0) or 0)
+        except:
+            descuento_num = 0.0
+        
+        # Iniciar diccionario con todas las claves y valor por defecto ""
+        row = {col: "" for col in columnas_wo}
+        
+        # Sobrescribir los mapeados y valores fijos
+        row['Encab: Empresa'] = 'FRIPARTS SAS'
+        row['Encab: Tipo Documento'] = 'PED'
+        row['Encab: Documento Número'] = id_numerico_wo
+        row['Encab: Fecha'] = fecha_fmt
+        row['Encab: Tercero Interno'] = '900315300'
+        row['Encab: Tercero Externo'] = nit_limpio
+        row['Encab: Nota'] = str(p.get('COMENTARIOS', ''))
+        row['Encab: FormaPago'] = forma_pago_fmt
+        row['Encab: Fecha Entrega'] = fecha_fmt
+        row['Encab: Sucursal'] = ''
+        row['Detalle: Producto'] = id_codigo
+        row['Detalle: Bodega'] = 'Principal'
+        row['Detalle: UnidadDeMedida'] = 'Und.'
+        row['Detalle: Cantidad'] = cantidad
+        row['Detalle: IVA'] = 0.19
+        row['Detalle: Valor Unitario'] = precio_venta
+        row['Detalle: Descuento'] = descuento_num
+        row['Detalle: Vencimiento'] = fecha_fmt
+        
         rows_finales.append(row)
         
     df = pd.DataFrame(rows_finales)
     
-    # Asegurar orden exacto
+    # Asegurar orden exacto preestablecido
     if not df.empty:
-        # Asegurarse de que las columnas faltantes existan, por si acaso
-        for col in columnas_wo:
-            if col not in df.columns:
-                df[col] = "" 
         df = df[columnas_wo]
         
     return df

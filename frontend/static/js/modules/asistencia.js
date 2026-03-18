@@ -680,19 +680,19 @@ window.ModuloAsistencia = (function () {
         body.innerHTML = '<tr><td colspan="5" class="py-4 text-center"><i class="fas fa-spinner fa-spin text-success me-2"></i> Cargando mis horas...</td></tr>';
 
         try {
-            const response = await fetch(`/ api / asistencia / mis_horas ? nombre = ${encodeURIComponent(currentUserContext.nombre)} `);
+            const response = await fetch(`/api/asistencia/mis_horas?nombre=${encodeURIComponent(currentUserContext.nombre)}`);
             const data = await response.json();
 
             if (data.status === 'success') {
                 if (data.registros && data.registros.length > 0) {
                     body.innerHTML = data.registros.map(r => `
-            < tr >
+            <tr>
                             <td class="fw-bold text-muted">${r.fecha}</td>
                             <td><span class="badge bg-light text-dark">${formatTimeDisplay(r.ingreso_real)}</span></td>
                             <td><span class="badge bg-light text-dark">${formatTimeDisplay(r.salida_real)}</span></td>
                             <td class="text-primary fw-bold">${r.horas_ordinarias}</td>
                             <td class="text-danger fw-bold">${r.horas_extras}</td>
-                        </tr >
+                        </tr>
             `).join('');
                 } else {
                     body.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted"><i class="fas fa-clock fa-2x mb-3" style="opacity: 0.5;"></i><br>Aún no hay horas registradas para esta semana</td></tr>';

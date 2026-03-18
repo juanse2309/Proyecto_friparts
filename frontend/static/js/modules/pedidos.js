@@ -834,11 +834,15 @@ const ModuloPedidos = {
                     cliente: {
                         nombre: pedidoData.cliente,
                         nit: pedidoData.nit,
-                        direccion: '', city: '', telefonos: '' // Datos básicos
+                        direccion: pedidoData.direccion || '',
+                        ciudad: pedidoData.ciudad || '',
+                        telefonos: ''
                     },
                     productos: JSON.parse(JSON.stringify(pedidoData.productos)),
-                    total: totalStr, // Usar el string capturado arriba
-                    forma_pago: pedidoData.forma_pago
+                    total: totalStr,
+                    forma_pago: pedidoData.forma_pago,
+                    descuento_global: descuentoGlobal,
+                    observaciones: pedidoData.observaciones
                 };
 
                 setTimeout(async () => {
@@ -887,6 +891,7 @@ const ModuloPedidos = {
             const listaProductos = datosManuales ? datosManuales.productos : this.listaProductos;
             const idMostrar = datosManuales ? datosManuales.id_pedido : (this.ultimoIdRegistrado || `Ped-TEMP`);
             const observaciones = datosManuales ? (datosManuales.observaciones || '') : (document.getElementById('ped-observaciones')?.value || '');
+            const descuentoGlobal = datosManuales ? (parseFloat(datosManuales.descuento_global) || 0) : (parseFloat(document.getElementById('ped-descuento-global')?.value) || 0);
 
             // --- 1. ENCABEZADO Y LOGO ---
             const imgPath = '/static/img/logo_friparts_nuevo.jpg';
@@ -978,8 +983,9 @@ const ModuloPedidos = {
                 });
 
                 // --- 4. TOTALES ---
-                const finalY = doc.lastAutoTable.finalY + 10;
+                let currentY = doc.lastAutoTable.finalY + 15;
                 const totalX = 196;
+                const labelX = totalX - 65; // Más espacio para etiquetas
 
                 // Cálculos para el PDF
                 const subtotalBruto = listaProductos.reduce((acc, p) => acc + (p.cantidad * p.precio_unitario), 0);
@@ -988,57 +994,72 @@ const ModuloPedidos = {
                 const iva = subtotalNeto * 0.19;
                 const totalFinal = subtotalNeto + iva;
 
+                // Verificar espacio antes del pie de página
+                const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
+                if (currentY > pageHeight - 60) {
+                    doc.addPage();
+                    currentY = 25;
+                }
+
                 doc.setFontSize(10);
-                doc.setTextColor(100);
+                doc.setTextColor(80);
                 doc.setFont(undefined, 'normal');
 
                 // Subtotal
-                doc.text(`Subtotal:`, totalX - 45, finalY);
-                doc.text(formatearMoneda(subtotalBruto), totalX, finalY, { align: 'right' });
+                doc.text(`Subtotal:`, labelX, currentY);
+                doc.text(formatearMoneda(subtotalBruto), totalX, currentY, { align: 'right' });
 
                 // Descuento (si existe)
-                let currentY = finalY;
                 if (descuentoGlobal > 0) {
-                    currentY += 6;
-                    doc.text(`Descuento (${descuentoGlobal}%):`, totalX - 45, currentY);
+                    currentY += 7;
+                    doc.text(`Descuento (${descuentoGlobal}%):`, labelX, currentY);
+                    doc.setTextColor(220, 38, 38); // Rojo para descuento
                     doc.text(`- ${formatearMoneda(valorDescuento)}`, totalX, currentY, { align: 'right' });
+                    doc.setTextColor(80);
                 }
 
                 // IVA
-                currentY += 6;
-                doc.text(`IVA (19%):`, totalX - 45, currentY);
+                currentY += 7;
+                doc.text(`IVA (19%):`, labelX, currentY);
                 doc.text(formatearMoneda(iva), totalX, currentY, { align: 'right' });
 
                 // Línea de total
-                currentY += 4;
+                currentY += 5;
                 doc.setDrawColor(30, 58, 138);
-                doc.setLineWidth(0.5);
-                doc.line(totalX - 55, currentY, totalX, currentY);
+                doc.setLineWidth(0.8);
+                doc.line(labelX, currentY, totalX, currentY);
 
-                // Total Final
-                currentY += 10;
-                doc.setFontSize(15);
+                // Total Final (Repartido a lo ancho para máximo impacto)
+                currentY += 12;
+                doc.setFontSize(16);
                 doc.setTextColor(30, 58, 138);
                 doc.setFont(undefined, 'bold');
-                doc.text(`TOTAL A PAGAR: ${formatearMoneda(totalFinal)}`, totalX, currentY, { align: 'right' });
+                doc.text(`TOTAL A PAGAR:`, 14, currentY); // A la izquierda
+                doc.text(formatearMoneda(totalFinal), totalX, currentY, { align: 'right' }); // A la derecha
 
-                // --- 5. FIRMAS Y PIE ---
-                const footerY = 270;
+                // --- 5. FIRMAS Y PIE DE PÁGINA (Siempre al final del documento) ---
+                const pageHeightFinal = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
+                const footerY = pageHeightFinal - 25;
 
                 // Línea separadora final
-                doc.setDrawColor(200);
-                doc.setLineWidth(0.2);
-                doc.line(14, footerY - 10, 196, footerY - 10);
+                doc.setDrawColor(220);
+                doc.setLineWidth(0.3);
+                doc.line(14, footerY - 8, 196, footerY - 8);
 
-                doc.setFontSize(8);
-                doc.setTextColor(150);
+                doc.setFontSize(8.5);
+                doc.setTextColor(120);
+                doc.setFont(undefined, 'italic');
                 doc.text("Este documento es un comprobante interno de pedido y no constituye factura legal.", 105, footerY, { align: 'center' });
-                doc.text("FRIPARTS S.A.S - Carrera 29 #78-40 - www.friparts.com", 105, footerY + 5, { align: 'center' });
 
                 doc.setFontSize(9);
-                doc.setTextColor(100);
+                doc.setTextColor(60);
+                doc.setFont(undefined, 'bold');
+                doc.text("FRIPARTS S.A.S - Carrera 29 #78-40 - www.friparts.com", 105, footerY + 6, { align: 'center' });
+
+                doc.setFontSize(9);
+                doc.setTextColor(30, 58, 138);
                 doc.setFont(undefined, 'normal');
-                doc.text("Instagram: @friparts_bujes", 105, footerY + 11, { align: 'center' });
+                doc.text("Instagram: @friparts_bujes", 105, footerY + 12, { align: 'center' });
 
                 // Guardar
                 const fileName = `Pedido_${cliente.nombre.replace(/\s+/g, '_')}_${fecha}.pdf`;
@@ -1049,11 +1070,21 @@ const ModuloPedidos = {
             // Intentar cargar logo antes de dibujar
             const img = new Image();
             img.onload = function () {
-                dibujarContenido(this);
+                try {
+                    dibujarContenido(this);
+                } catch (err) {
+                    console.error("Error en dibujarContenido (onload):", err);
+                    mostrarNotificacion("Error finalizando el PDF", "error");
+                }
             };
             img.onerror = function () {
-                console.warn("Logo no encontrado en /static/img/logo_friparts.png - Generando sin logo");
-                dibujarContenido(null);
+                try {
+                    console.warn("Logo no encontrado o error de carga - Generando sin logo");
+                    dibujarContenido(null);
+                } catch (err) {
+                    console.error("Error en dibujarContenido (onerror):", err);
+                    mostrarNotificacion("Error finalizando el PDF (sin logo)", "error");
+                }
             };
             img.src = imgPath;
 
