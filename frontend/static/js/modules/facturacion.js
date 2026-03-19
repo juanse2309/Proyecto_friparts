@@ -163,6 +163,7 @@ const ModuloFacturacion = {
      */
     abrirPreviewWO: function () {
         const ids = Array.from(this.pedidosSeleccionados);
+        const consecutivoInicial = document.getElementById('consecutivo-inicial-wo')?.value || '';
 
         if (ids.length === 0) {
             // Si no hay selección, preguntar si exportar todo
@@ -186,18 +187,19 @@ const ModuloFacturacion = {
                 }
             }
         } else {
-            this.mostrarModalPreview(ids);
+            this.mostrarModalPreview(ids, consecutivoInicial);
         }
     },
 
-    mostrarModalPreview: function (ids) {
+    mostrarModalPreview: function (ids, consecutivoInicial = '') {
         const modal = document.getElementById('modal-preview-wo');
         if (modal) {
             modal.style.display = 'flex'; // Usar FLEX para mantener el centrado
-            this.cargarPreviewWO(ids);
+            this.cargarPreviewWO(ids, consecutivoInicial);
 
-            // Guardar IDs para la descarga final
+            // Guardar IDs y Consecutivo para la descarga final
             modal.dataset.idsToExport = JSON.stringify(ids);
+            modal.dataset.consecutivoInicial = consecutivoInicial;
 
             // Helpers para asignar eventos (evita cloneNode que puede fallar con referencias)
             // YA NO ES NECESARIO: Se asignó onclick directamente en HTML para mayor robustez
@@ -209,12 +211,13 @@ const ModuloFacturacion = {
         if (modal) {
             modal.style.display = 'none';
             modal.dataset.idsToExport = ''; // Limpiar
+            modal.dataset.consecutivoInicial = '';
             const tbody = document.querySelector('#tabla-preview-wo tbody');
             if (tbody) tbody.innerHTML = '';
         }
     },
 
-    cargarPreviewWO: async function (ids) {
+    cargarPreviewWO: async function (ids, consecutivoInicial = '') {
         const tbody = document.querySelector('#tabla-preview-wo tbody');
         const thead = document.querySelector('#tabla-preview-wo thead');
 
@@ -226,7 +229,10 @@ const ModuloFacturacion = {
             const response = await fetch('/api/exportar/world-office/preview', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ids: ids })
+                body: JSON.stringify({
+                    ids: ids,
+                    consecutivo_inicial: consecutivoInicial
+                })
             });
             const result = await response.json();
 
@@ -253,6 +259,7 @@ const ModuloFacturacion = {
     descargarExcelWO: function () {
         const modal = document.getElementById('modal-preview-wo');
         const ids = modal ? JSON.parse(modal.dataset.idsToExport || '[]') : [];
+        const consecutivoInicial = modal ? modal.dataset.consecutivoInicial : '';
 
         const btn = document.getElementById('btn-confirmar-exportar-wo');
         if (btn) {
@@ -265,7 +272,10 @@ const ModuloFacturacion = {
         fetch('/api/exportar/world-office', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: ids })
+            body: JSON.stringify({
+                ids: ids,
+                consecutivo_inicial: consecutivoInicial
+            })
         })
             .then(response => {
                 if (response.ok) {

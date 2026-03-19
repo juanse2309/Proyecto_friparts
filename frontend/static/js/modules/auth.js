@@ -68,8 +68,7 @@ const AuthModule = {
     // Permisos Especiales por Nombre (Jefes de Área)
     SPECIAL_PERMISSIONS: {
         'OSCAR PRIETO': ['inyeccion', 'ensamble', 'mezcla', 'pnc', 'dashboard'],
-        'NATHALIA': ['almacen', 'inyeccion', 'pedidos'],
-        'NATALIA': ['almacen', 'inyeccion', 'pedidos'],
+        'NATHALIA LOPEZ': ['almacen', 'inyeccion', 'pedidos', 'facturacion', 'asistencia'], // Unificado y con apellido para evitar duplicados
         'DANIEL MAURICIO NEIRA': ['pulido', 'dashboard'],
         'DANIEL NEIRA': ['pulido', 'dashboard'],
         'PAOLA': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'procura', 'rotacion', 'historial'],
@@ -524,7 +523,7 @@ const AuthModule = {
             console.log("⭐ Detectada Nathalia Lopez - Otorgando privilegios adicionales.");
             const userRoleUpper = this.normalizeRole(user.rol);
             if (userRoleUpper !== 'ADMINISTRACION' && userRoleUpper !== 'ADMINISTRADOR' && userRoleUpper !== 'COMERCIAL') {
-                const permisosExtra = ['pedidos', 'almacen', 'inyeccion'];
+                const permisosExtra = ['pedidos', 'almacen', 'inyeccion', 'facturacion', 'asistencia'];
                 permisosExtra.forEach(p => {
                     const normalizedRole = userRoleUpper;
                     if (this.permissions[normalizedRole] && !this.permissions[normalizedRole].includes(p)) {

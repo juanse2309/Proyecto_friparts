@@ -4,7 +4,6 @@ from flask import Blueprint, jsonify, request
 from backend.core.database import sheets_client
 from backend.config.settings import Hojas
 import gspread
-import uuid
 import datetime
 import logging
 import json
@@ -120,8 +119,7 @@ def registrar_pedido():
             logger.error(f"❌ Array de productos inválido: {productos}")
             return jsonify({"success": False, "error": "Debe incluir al menos un producto en 'productos'"}), 400
 
-        # Generate sequential ID (format PED9643)
-        id_pedido = obtener_siguiente_id_pedido()
+        # El ID se generará después de verificar si es una edición o un pedido nuevo
         estado = "PENDIENTE"
         
         # Auto-capturar hora actual del servidor (Colombia UTC-5)
@@ -131,9 +129,6 @@ def registrar_pedido():
         except Exception:
             hora_actual = datetime.datetime.now().strftime('%I:%M %p')
         logger.info(f"🕐 Hora auto-capturada: {hora_actual}")
-        
-        logger.info(f"🆔 ID de pedido generado: {id_pedido}")
-        logger.info(f"📊 Estado inicial: {estado}")
         
         # Get or create worksheet
         ws = sheets_client.get_or_create_worksheet(
@@ -242,8 +237,9 @@ def registrar_pedido():
             # Usar el ID existente
             id_pedido = id_pedido_existente
         else:
-            # Generate unique ID for this order (shared by all items)
-            id_pedido = f"PED-{str(uuid.uuid4())[:8].upper()}"
+            # NUEVO PEDIDO: Generar consecutivo real PEDxxxx en tiempo real
+            id_pedido = obtener_siguiente_id_pedido()
+            logger.info(f"🆔 Nuevo ID de pedido generado: {id_pedido}")
         
         estado = "PENDIENTE"
 

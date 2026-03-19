@@ -28,9 +28,10 @@ def obtener_mapa_vendedores():
         return {}
 
 
-def procesar_datos_wo(ids_filter=None):
+def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     """Lógica centralizada para filtrar, cruzar y formatear datos WO v2.
        ids_filter: Lista opcional de 'ID PEDIDO' para exportar solo esos.
+       consecutivo_inicial: Valor numérico opcional para iniciar el conteo serial.
     """
     # 1. Obtener Datos
     ws_pedidos = obtener_hoja(Hojas.PEDIDOS)
@@ -45,7 +46,14 @@ def procesar_datos_wo(ids_filter=None):
         pedidos_pendientes = [r for r in pedidos_pendientes if str(r.get('ID PEDIDO', '')) in ids_set]
     
     if not pedidos_pendientes:
-        return pd.DataFrame()
+        return pd.DataFrame(), {}
+
+    # Ordenar por fecha o ID original para mantener un orden predecible en la asignación serial
+    # (El ID PEDIDO suele ser cronológico PED9600, PED9601...)
+    pedidos_pendientes.sort(key=lambda x: str(x.get('ID PEDIDO', '')))
+
+    # ... (obtener mapa_clientes y mapa_productos igual que antes)
+    # ... (omitido aquí por brevedad, se mantiene el código original de clientes y productos)
 
     # 2. Obtener Maestros (Clientes y Productos)
     try:
@@ -138,18 +146,32 @@ def procesar_datos_wo(ids_filter=None):
     # Diccionario para agrupar ítems por ID PEDIDO y asignarles el mismo consecutivo
     mapeo_consecutivos = {}
     
+    # Manejo de consecutivo inicial manual
+    consecutivo_actual = None
+    if consecutivo_inicial:
+        try:
+            consecutivo_actual = int(consecutivo_inicial)
+        except (ValueError, TypeError):
+            consecutivo_actual = None
+
     # Mapeo de Vendedores dinámico (desde RESPONSABLES)
     vendedores_ids = obtener_mapa_vendedores()
     
     for p in pedidos_pendientes:
         id_pedido_original = str(p.get('ID PEDIDO', '')).strip()
         
-        # Extraer solo números para World Office (ej: PED9643 -> 9643)
-        doc_numero_wo = re.sub(r'[^0-9]', '', id_pedido_original)
-        
-        # Guardar en mapeo para actualización de estados posterior
+        # Determinar el consecutivo a usar
         if id_pedido_original not in mapeo_consecutivos:
-            mapeo_consecutivos[id_pedido_original] = doc_numero_wo
+            if consecutivo_actual is not None:
+                new_id = str(consecutivo_actual)
+                consecutivo_actual += 1
+            else:
+                # Comportamiento por defecto: Extraer solo números del ID original (ej: PED9643 -> 9643)
+                new_id = re.sub(r'[^0-9]', '', id_pedido_original)
+            
+            mapeo_consecutivos[id_pedido_original] = new_id
+        
+        doc_numero_wo = mapeo_consecutivos[id_pedido_original]
         
         # Cruce Cliente
         nombre_cliente = str(p.get('CLIENTE', '')).strip().upper()
@@ -244,6 +266,11 @@ def actualizar_estado_exportado(pedidos_consecutivos):
             logger.error("Columna ESTADO no encontrada en PEDIDOS")
             return 0
         col_estado_idx = encabezados.index('ESTADO') + 1
+
+        if 'ID PEDIDO' not in encabezados:
+            logger.error("Columna ID PEDIDO no encontrada en PEDIDOS")
+            return 0
+        col_id_idx = encabezados.index('ID PEDIDO') + 1
         
         # Asegurar columna WO_CONSECUTIVO
         if 'WO_CONSECUTIVO' not in encabezados:
@@ -277,6 +304,15 @@ def actualizar_estado_exportado(pedidos_consecutivos):
                 'range': f"{rowcol_to_a1(fila_sheet, col_wo_idx)}",
                 'values': [[consecutivo]]
             })
+            
+            # NUEVO: Sincronizar ID PEDIDO de vuelta a la hoja si cambió (formato PEDXXXX)
+            new_id_ped = f"PED{consecutivo}"
+            if id_pedido != new_id_ped:
+                updates_batch.append({
+                    'range': f"{rowcol_to_a1(fila_sheet, col_id_idx)}",
+                    'values': [[new_id_ped]]
+                })
+                
             filas_actualizadas += 1
             
     if updates_batch:
@@ -354,8 +390,9 @@ def exportar_world_office():
     try:
         data = request.get_json(silent=True) or {}
         ids_filter = data.get('ids', None) # Lista de IDs seleccionados
+        consecutivo_inicial = data.get('consecutivo_inicial', None)
         
-        df, mapeo_consecutivos = procesar_datos_wo(ids_filter)
+        df, mapeo_consecutivos = procesar_datos_wo(ids_filter, consecutivo_inicial)
         
         if df.empty:
             return jsonify({'success': False, 'error': 'No hay datos válidos para exportar (verifique el estado PENDIENTE)'}), 400
@@ -393,8 +430,9 @@ def preview_world_office():
     try:
         data = request.get_json(silent=True) or {}
         ids_filter = data.get('ids', None)
+        consecutivo_inicial = data.get('consecutivo_inicial', None)
         
-        df, _ = procesar_datos_wo(ids_filter)
+        df, _ = procesar_datos_wo(ids_filter, consecutivo_inicial)
         
         if df.empty:
             return jsonify({'success': True, 'data': []})

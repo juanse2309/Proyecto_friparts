@@ -2333,46 +2333,6 @@
             </div>
         </div>
 
-        <!-- Modal Preview World Office -->
-        <div id="modal-preview-wo" class="modal-custom" style="display: none;">
-            <div class="modal-content-custom glass-panel" style="max-width: 95%; width: 1200px;">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h4 class="mb-0"><i class="fas fa-file-excel text-success me-2"></i> Vista Previa: Archivo World
-                        Office</h4>
-                    <button class="btn-close close" onclick="ModuloFacturacion.cerrarPreviewWO()"></button>
-                </div>
-
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i> A continuación se muestra una vista previa estructural de los
-                    datos que se incluirán en el archivo de Excel.
-                    <br><small><strong>Nota:</strong> Los pedidos confirmados se marcarán automáticamente como
-                        <code>EXPORTADO_WO</code> para evitar duplicaciones futuras.</small>
-                </div>
-
-                <div class="table-container shadow-sm border rounded bg-white p-2"
-                    style="max-height: 500px; overflow-y: auto; overflow-x: auto;">
-                    <table class="table table-sm table-bordered table-hover w-100" id="tabla-preview-wo"
-                        style="font-size: 0.85rem; white-space: nowrap;">
-                        <thead class="table-light sticky-top">
-                            <!-- Los headers se insertan por JS (procesar_datos_wo preview) -->
-                        </thead>
-                        <tbody>
-                            <!-- El contenido se inserta por JS -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="d-flex justify-content-end gap-2 mt-4">
-                    <button class="btn btn-outline-secondary" onclick="ModuloFacturacion.cerrarPreviewWO()">
-                        <i class="fas fa-times"></i> Cancelar
-                    </button>
-                    <button class="btn btn-success fw-bold" id="btn-confirmar-exportar-wo"
-                        onclick="ModuloFacturacion.descargarExcelWO()">
-                        <i class="fas fa-check"></i> Confirmar y Descargar
-                    </button>
-                </div>
-            </div>
-        </div>
 
         <div id="facturacion-page" class="page">
             <header class="top-bar">
@@ -2397,7 +2357,13 @@
                                 Estado:
                                 <strong>PENDIENTE</strong></small>
                         </div>
-                        <div class="d-flex gap-2">
+                        <div class="d-flex gap-2 align-items-center">
+                            <div class="input-group input-group-sm" style="width: 220px;"
+                                title="Consecutivo Inicial Manual (Opcional)">
+                                <span class="input-group-text bg-light text-muted"><i class="fas fa-hashtag"></i></span>
+                                <input type="number" id="consecutivo-inicial-wo" class="form-control"
+                                    placeholder="Consecutivo Inicial (Opcional)">
+                            </div>
                             <button class="btn btn-outline-primary"
                                 onclick="ModuloFacturacion.cargarPedidosPendientes()">
                                 <i class="fas fa-sync-alt"></i> Actualizar
@@ -4002,6 +3968,8 @@
                         <br><small class="text-muted">Asegúrese de que las columnas coincidan con la
                             estructura de World
                             Office.</small>
+                        <br><small class="text-danger fw-bold">Nota: Al descargar, los pedidos se marcarán
+                            automáticamente como EXPORTADO_WO.</small>
                     </div>
                 </div>
 

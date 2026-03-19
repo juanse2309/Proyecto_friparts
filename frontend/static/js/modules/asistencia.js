@@ -30,8 +30,8 @@ window.ModuloAsistencia = (function () {
 
         // Mapa de jefes con sus áreas de responsabilidad (Normalizado)
         const JEFES_AREA = {
-            'NATHALIA': { areas: ['ALISTAMIENTO'] },
-            'NATALIA': { areas: ['ALISTAMIENTO'] },
+            'NATHALIA': { areas: null },
+            'NATALIA': { areas: null },
             'PAOLA': { areas: ['AUXILIAR INVENTARIO', 'INVENTARIO'] },
             'OSCAR PRIETO': { areas: ['INYECCION', 'ENSAMBLE'] },
             'OSCAR': { areas: ['INYECCION', 'ENSAMBLE'] },
