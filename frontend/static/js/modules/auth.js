@@ -16,17 +16,28 @@ const AuthModule = {
             .trim();
     },
 
-    // Obtener permisos para un rol (soporta coincidencias parciales)
-    getPagesForRole: function (roleName) {
-        const normalized = this.normalizeRole(roleName);
+    // Obtener permisos para un rol (soporta coincidencias parciales y nombres especiales)
+    getPagesForRole: function (roleName, userName = '') {
+        const normalizedRole = this.normalizeRole(roleName);
+        const normalizedName = (userName || '').toUpperCase().trim();
 
-        // 1. Coincidencia exacta
-        if (this.permissions[normalized]) return [...this.permissions[normalized]];
+        // 1. Prioridad: Permisos Especiales por Nombre (Jefes de Área)
+        if (normalizedName) {
+            for (const key in this.SPECIAL_PERMISSIONS) {
+                if (normalizedName.includes(key) || key.includes(normalizedName)) {
+                    console.log(`⭐ Aplicando permisos especiales para: ${normalizedName} (detectado como ${key})`);
+                    return [...this.SPECIAL_PERMISSIONS[key]];
+                }
+            }
+        }
 
-        // 2. Coincidencia parcial (ej: "ADMINISTRADOR ADMINISTRACION" contiene "ADMINISTRADOR")
+        // 2. Coincidencia exacta de Rol
+        if (this.permissions[normalizedRole]) return [...this.permissions[normalizedRole]];
+
+        // 3. Coincidencia parcial (ej: "ADMINISTRADOR ADMINISTRACION" contiene "ADMINISTRADOR")
         for (const key in this.permissions) {
-            if (key !== 'INVITADO' && normalized.includes(key)) {
-                console.log(`🔍 Coincidencia parcial de rol de "${normalized}" con "${key}"`);
+            if (key !== 'INVITADO' && normalizedRole.includes(key)) {
+                console.log(`🔍 Coincidencia parcial de rol de "${normalizedRole}" con "${key}"`);
                 return [...this.permissions[key]];
             }
         }
@@ -43,7 +54,7 @@ const AuthModule = {
 
         // Fallback si no se ha inicializado sidebar aún (ej: carga ultra-rápida app.js)
         const role = this.normalizeRole(this.currentUser.rol || this.currentUser.role);
-        const allowedBase = this.getPagesForRole(role);
+        const allowedBase = this.getPagesForRole(role, this.currentUser.nombre || this.currentUser.name || '');
         return allowedBase.includes(pageName);
     },
 
@@ -517,22 +528,6 @@ const AuthModule = {
 
         this.updateProfileUI();
         this.applyPermissions(true); // isLogin=true: permite redirección al landing solo en primer ingreso
-
-        // 6. Verificar si Nathalia Lopez entra
-        if (user.nombre && user.nombre.toUpperCase().includes("NATHALIA")) {
-            console.log("⭐ Detectada Nathalia Lopez - Otorgando privilegios adicionales.");
-            const userRoleUpper = this.normalizeRole(user.rol);
-            if (userRoleUpper !== 'ADMINISTRACION' && userRoleUpper !== 'ADMINISTRADOR' && userRoleUpper !== 'COMERCIAL') {
-                const permisosExtra = ['pedidos', 'almacen', 'inyeccion', 'facturacion', 'asistencia'];
-                permisosExtra.forEach(p => {
-                    const normalizedRole = userRoleUpper;
-                    if (this.permissions[normalizedRole] && !this.permissions[normalizedRole].includes(p)) {
-                        this.permissions[normalizedRole].push(p);
-                    }
-                });
-                this.applyPermissions(true); // isLogin=true para excepción Nathalia
-            }
-        }
 
         if (user.rol !== 'Cliente') {
             this.showWelcomeMessage(user);
