@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
+from backend.utils.auth_middleware import require_role
 from backend.core.database import sheets_client
 from backend.config.settings import Hojas
 import logging
@@ -79,6 +80,7 @@ def obtener_colaboradores():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/guardar', methods=['POST'])
+@require_role(['administracion', 'jefe inyeccion', 'inyeccion', 'jefe pulido', 'pulido', 'jefe almacen', 'alistamiento', 'ensamble', 'auxiliar inventario'])
 def guardar_asistencia():
     """Guarda los registros de asistencia en la hoja CONTROL_ASISTENCIA."""
     try:
@@ -118,6 +120,7 @@ def guardar_asistencia():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/guardar_ausencia', methods=['POST'])
+@require_role(['administracion', 'jefe inyeccion', 'inyeccion', 'jefe pulido', 'pulido', 'jefe almacen', 'alistamiento', 'ensamble', 'auxiliar inventario'])
 def guardar_ausencia():
     """Guarda un registro de ausencia en la hoja CONTROL_ASISTENCIA."""
     try:
@@ -251,6 +254,7 @@ def obtener_registros_dia():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/consolidado_pendiente', methods=['GET'])
+@require_role(['administracion'])
 def obtener_consolidado_pendiente():
     """Obtiene el resumen de horas pendientes desde el último corte."""
     try:
@@ -334,6 +338,7 @@ def obtener_consolidado_pendiente():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/ejecutar_corte', methods=['POST'])
+@require_role(['administracion'])
 def ejecutar_corte():
     """Registra un nuevo corte de nómina."""
     try:

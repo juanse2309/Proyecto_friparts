@@ -16,25 +16,14 @@ const AuthModule = {
             .trim();
     },
 
-    // Obtener permisos para un rol (soporta coincidencias parciales y nombres especiales)
-    getPagesForRole: function (roleName, userName = '') {
+    // Obtener permisos para un rol (soporta coincidencias parciales)
+    getPagesForRole: function (roleName) {
         const normalizedRole = this.normalizeRole(roleName);
-        const normalizedName = (userName || '').toUpperCase().trim();
 
-        // 1. Prioridad: Permisos Especiales por Nombre (Jefes de Área)
-        if (normalizedName) {
-            for (const key in this.SPECIAL_PERMISSIONS) {
-                if (normalizedName.includes(key) || key.includes(normalizedName)) {
-                    console.log(`⭐ Aplicando permisos especiales para: ${normalizedName} (detectado como ${key})`);
-                    return [...this.SPECIAL_PERMISSIONS[key]];
-                }
-            }
-        }
-
-        // 2. Coincidencia exacta de Rol
+        // 1. Coincidencia exacta de Rol
         if (this.permissions[normalizedRole]) return [...this.permissions[normalizedRole]];
 
-        // 3. Coincidencia parcial (ej: "ADMINISTRADOR ADMINISTRACION" contiene "ADMINISTRADOR")
+        // 2. Coincidencia parcial (ej: "ADMINISTRADOR" en "JEFE ADMINISTRADOR")
         for (const key in this.permissions) {
             if (key !== 'INVITADO' && normalizedRole.includes(key)) {
                 console.log(`🔍 Coincidencia parcial de rol de "${normalizedRole}" con "${key}"`);
@@ -58,33 +47,22 @@ const AuthModule = {
         return allowedBase.includes(pageName);
     },
 
-    // Matriz de Permisos por Rol
+    // Matriz de Permisos por Rol (Modelo RBAC Estricto basado en Departamentos)
     permissions: {
         'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'GERENCIA': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'COMERCIAL': ['pedidos', 'almacen', 'procura'],
-        'COMPRAS': ['inventario', 'almacen', 'procura', 'historial', 'reportes'],
-        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'procura', 'rotacion', 'asistencia'],
+        'COMERCIAL': ['almacen', 'pedidos'],
+        'JEFE ALMACEN': ['inventario', 'inyeccion', 'facturacion', 'almacen', 'pedidos', 'asistencia'],
+        'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'historial', 'procura', 'rotacion', 'asistencia'],
+        'JEFE INYECCION': ['dashboard', 'inyeccion', 'mezcla', 'asistencia'],
         'INYECCION': ['dashboard', 'inyeccion', 'mezcla', 'asistencia'],
-        'PULIDO': ['dashboard', 'pulido', 'asistencia'],
-        'ENSAMBLE': ['ensamble', 'asistencia'],
+        'JEFE PULIDO': ['dashboard', 'pulido', 'historial', 'asistencia'],
+        'PULIDO': ['dashboard', 'pulido', 'historial', 'asistencia'],
         'ALISTAMIENTO': ['almacen', 'asistencia'],
+        'ENSAMBLE': ['inyeccion', 'ensamble', 'procura', 'rotacion', 'asistencia'],
         'CLIENTE': ['portal-cliente'],
         'METALS_PROD': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'inventario', 'historial', 'procura'],
         'INVITADO': []
-    },
-
-    // Permisos Especiales por Nombre (Jefes de Área)
-    SPECIAL_PERMISSIONS: {
-        'OSCAR PRIETO': ['inyeccion', 'ensamble', 'mezcla', 'pnc', 'dashboard'],
-        'NATHALIA LOPEZ': ['almacen', 'inyeccion', 'pedidos', 'facturacion', 'asistencia'], // Unificado y con apellido para evitar duplicados
-        'DANIEL MAURICIO NEIRA': ['pulido', 'dashboard'],
-        'DANIEL NEIRA': ['pulido', 'dashboard'],
-        'PAOLA': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'procura', 'rotacion', 'historial'],
-        'WILMER NOVOA': ['inyeccion', 'ensamble', 'mezcla'],
-        'LAURA LIZETH VARGAS R.': ['asistencia', 'pulido']
     },
 
     // Notificación Visual

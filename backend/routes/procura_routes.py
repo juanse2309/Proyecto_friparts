@@ -1,11 +1,12 @@
 import time
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from backend.core.database import sheets_client as gc
 from backend.config.settings import Hojas
 import logging
 import uuid
 import collections
 from datetime import datetime
+from backend.utils.auth_middleware import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ PROVEEDORES_CACHE = {
 }
 
 @procura_bp.route('/listar_parametros', methods=['GET'])
+@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
 def listar_parametros():
     """
     Obtiene el catálogo maestro de carcasas, internos, tornillería y otros.
@@ -70,6 +72,7 @@ def listar_parametros():
 
 
 @procura_bp.route('/listar_proveedores', methods=['GET'])
+@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
 def listar_proveedores():
     """
     Lista los proveedores con detalles completos desde la hoja DB_PROVEEDORES.
@@ -78,7 +81,7 @@ def listar_proveedores():
         ahora = time.time()
         # Cache de corta duración para permitir actualizaciones
         if PROVEEDORES_CACHE["data"] and (ahora - PROVEEDORES_CACHE["timestamp"] < PROVEEDORES_CACHE["ttl"]):
-            return jsonify({"status": "success", "data": PROVEEDORES_CACHE["data"]}), 200
+            return jsonify({"status": "success", "data": PROVEVEEDORES_CACHE["data"]}), 200
 
         ws = gc.get_worksheet(Hojas.DB_PROVEEDORES)
         if not ws:
@@ -117,6 +120,7 @@ def listar_proveedores():
 
 
 @procura_bp.route('/registrar_oc', methods=['POST'])
+@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
 def registrar_oc():
     """
     Registra nuevas Órdenes de Compra en lote o actualiza recepción (registra nuevo movimiento iterativo).
@@ -231,6 +235,7 @@ def registrar_oc():
 
 
 @procura_bp.route('/siguiente_oc', methods=['GET'])
+@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
 def siguiente_oc():
     """
     Lee la hoja ORDENES_DE_COMPRA para encontrar el número de OC más alto (Ej: OC-105)
@@ -269,6 +274,7 @@ def siguiente_oc():
 
 
 @procura_bp.route('/buscar_oc/<n_oc>', methods=['GET'])
+@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
 def buscar_oc(n_oc):
     """
     Busca todas las líneas correspondientes a una N° OC y las retorna para edición.

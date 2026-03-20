@@ -1,4 +1,5 @@
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, session
+from backend.utils.auth_middleware import require_role
 import pandas as pd
 import io
 import re
@@ -328,6 +329,7 @@ def actualizar_estado_exportado(pedidos_consecutivos):
 
 
 @facturacion_bp.route('/api/facturacion/pedidos-pendientes', methods=['GET'])
+@require_role(['administracion', 'jefe almacen'])
 def obtener_pedidos_pendientes():
     """
     Obtiene los pedidos con estado 'PENDIENTE' para ser mostrados en la interfaz de exportación World Office.
@@ -382,6 +384,7 @@ def obtener_pedidos_pendientes():
 
 
 @facturacion_bp.route('/api/exportar/world-office', methods=['POST'])
+@require_role(['administracion', 'jefe almacen'])
 def exportar_world_office():
     """
     Genera el archivo Excel para World Office (v2).
@@ -422,6 +425,7 @@ def exportar_world_office():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @facturacion_bp.route('/api/exportar/world-office/preview', methods=['POST'])
+@require_role(['administracion', 'jefe almacen'])
 def preview_world_office():
     """
     Retorna JSON con los datos que se exportarían para vista previa.

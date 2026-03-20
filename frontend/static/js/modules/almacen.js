@@ -145,12 +145,12 @@ const AlmacenModule = {
             const url = new URL('/api/pedidos/pendientes', window.location.origin);
             url.searchParams.set('_t', Date.now()); // Cache-buster
             if (user) {
-                const isAdmin = user.rol === 'Administración' ||
-                    (user.name && (user.name.toUpperCase().includes('ANDRES') || user.name.toUpperCase().includes('ANDRÉS')));
+                const role = AuthModule.normalizeRole(user.rol || user.role);
+                const isAdmin = role === 'ADMINISTRACION' || role === 'ADMINISTRADOR' || role === 'GERENCIA';
 
-                // Si es admin o Andres, pasamos el rol Administración para que el backend devuelva todo
+                // Si es admin, pasamos el rol Administración para que el backend devuelva todo
                 url.searchParams.append('usuario', user.name || user.nombre || 'N/A');
-                url.searchParams.append('rol', isAdmin ? 'Administración' : (user.rol || 'N/A'));
+                url.searchParams.append('rol', isAdmin ? 'ADMINISTRACION' : role);
             }
 
             // CRÍTICO: Cache buster para evitar que el navegador guarde la respuesta
@@ -287,12 +287,11 @@ const AlmacenModule = {
             const colorStatus = this.getColorPorEstadoProporcional(progresoAlisado, progresoEnviado);
 
             const currentUser = window.AppState?.user;
-            // Natalia y Rol Administración pueden DELEGAR
-            const puedeDelegar = (currentUser?.name && (
-                currentUser.name.toUpperCase().includes('NATALIA') ||
-                currentUser.name.toUpperCase().includes('NATHALIA')
-            )) || currentUser?.rol === 'Administración';
-            const esParaMi = pedido.delegado_a === currentUser?.name;
+            const currentRole = AuthModule.normalizeRole(currentUser?.rol || currentUser?.role);
+
+            // RBAC: Solo Administración, Jefe Almacén y Comercial pueden DELEGAR
+            const puedeDelegar = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'COMERCIAL'].includes(currentRole);
+            const esParaMi = (currentUser?.nombre || currentUser?.name) === pedido.delegado_a;
 
             html += `
                 <div class="col-md-6 col-lg-4">
@@ -575,13 +574,10 @@ const AlmacenModule = {
             const progress = prod.no_disponible ? 100 : (prod.cant_lista / prod.cantidad) * 100;
             const progressColor = prod.no_disponible ? '#ef4444' : (progress >= 100 ? '#10b981' : '#6366f1');
 
-            // Verificar permisos para eliminar (solo Andrés y Admins)
+            // RBAC: Solo Administración y Jefe Almacén pueden ELIMINAR productos
             const currentUser = window.AppState?.user;
-            const puedeEliminar = (currentUser?.rol === 'Administración') ||
-                (currentUser?.name && (
-                    currentUser.name.toUpperCase().includes('ANDRES') ||
-                    currentUser.name.toUpperCase().includes('ANDRÉS')
-                ));
+            const currentRole = AuthModule.normalizeRole(currentUser?.rol || currentUser?.role);
+            const puedeEliminar = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN'].includes(currentRole);
 
             // Estilo de producto no disponible (tachado y gris)
             const ndOverlayStyle = prod.no_disponible ? 'opacity: 0.5; text-decoration: line-through;' : '';

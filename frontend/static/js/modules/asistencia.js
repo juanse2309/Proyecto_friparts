@@ -28,39 +28,40 @@ window.ModuloAsistencia = (function () {
 
         const nombreNorm = normalize(nombre);
 
-        // Mapa de jefes con sus áreas de responsabilidad (Normalizado)
-        const JEFES_AREA = {
-            'NATHALIA': { areas: null },
-            'NATALIA': { areas: null },
-            'PAOLA': { areas: ['AUXILIAR INVENTARIO', 'INVENTARIO'] },
-            'OSCAR PRIETO': { areas: ['INYECCION', 'ENSAMBLE'] },
-            'OSCAR': { areas: ['INYECCION', 'ENSAMBLE'] },
-            'DANIEL': { areas: ['PULIDO'] },
-            'LAURA': { areas: ['PULIDO'] }
-        };
+        // Mapa de roles con sus áreas de responsabilidad (RBAC Estricto)
+        let areasAsignadas = [];
+        let esJefe = false;
+        let esRolGerencia = role === 'ADMINISTRACION' || role === 'ADMINISTRADOR' || role === 'GERENCIA';
 
-        // Detectar si es jefe: por rol O por nombre
-        const esRolGerencia = role.includes('ADMINISTRADOR') || role.includes('ADMINISTRACION') || role.includes('GERENCIA');
-        const jefeMatch = Object.keys(JEFES_AREA).find(key => nombreNorm.includes(key));
-        const esJefe = esRolGerencia || !!jefeMatch;
+        if (esRolGerencia) {
+            esJefe = true;
+            areasAsignadas = null; // null = VE TODO
+        } else if (role === 'JEFE INYECCION' || role === 'INYECCION') {
+            esJefe = true;
+            areasAsignadas = ['INYECCION', 'ENSAMBLE', 'MEZCLA'];
+        } else if (role === 'JEFE PULIDO' || role === 'PULIDO') {
+            esJefe = true;
+            areasAsignadas = ['PULIDO'];
+        } else if (role === 'JEFE ALMACEN' || role === 'ALMACEN' || role === 'ALISTAMIENTO') {
+            esJefe = true;
+            areasAsignadas = ['ALMACEN', 'AUXILIAR INVENTARIO', 'INVENTARIO'];
+        } else if (role === 'AUXILIAR INVENTARIO') {
+            esJefe = true;
+            areasAsignadas = ['INVENTARIO', 'AUXILIAR INVENTARIO'];
+        } else if (role === 'ENSAMBLE') {
+            esJefe = true;
+            areasAsignadas = ['ENSAMBLE'];
+        }
 
         // Juan Sebastian: Limpieza de cabecera (Solo Nombre y Áreas)
         document.getElementById('asistencia-user-name').textContent = nombre;
         if (esJefe) {
-            let label = esRolGerencia ? 'GERENCIA GLOBAL' : (JEFES_AREA[jefeMatch]?.areas.join(' / ') || role);
+            let label = esRolGerencia ? 'GERENCIA GLOBAL' : (areasAsignadas ? areasAsignadas.join(' / ') : role);
             document.getElementById('asistencia-user-role').textContent = label;
             document.getElementById('asistencia-user-role').classList.add('text-primary', 'fw-bold');
-        } else {
-            document.getElementById('asistencia-user-role').textContent = depto;
-        }
 
-        if (esJefe) {
             // Guardar las áreas asignadas para filtrado posterior
-            if (esRolGerencia) {
-                currentUserContext._areasAsignadas = null; // null = VE TODO
-            } else if (jefeMatch) {
-                currentUserContext._areasAsignadas = JEFES_AREA[jefeMatch].areas;
-            }
+            currentUserContext._areasAsignadas = areasAsignadas;
 
             document.getElementById('asistencia-jefe-view').style.display = 'block';
             document.getElementById('asistencia-operario-view').style.display = 'none';

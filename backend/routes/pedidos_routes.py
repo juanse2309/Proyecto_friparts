@@ -1,10 +1,10 @@
 
-
-from flask import Blueprint, jsonify, request
+from backend.utils.auth_middleware import require_role
+from flask import Blueprint, jsonify, request, session
 from backend.core.database import sheets_client
 from backend.config.settings import Hojas
 import gspread
-import datetime
+from datetime import datetime
 import logging
 import json
 import pytz
@@ -591,16 +591,18 @@ def obtener_pedidos_pendientes():
             PEDIDOS_PENDIENTES_CACHE["data"] = pedidos_completos
             PEDIDOS_PENDIENTES_CACHE["timestamp"] = ahora
 
-        # 2. Filtrar por usuario y rol (Lógica de Seguridad)
-        usuario_actual = request.args.get('usuario')
-        rol_actual = request.args.get('rol')
-        
-        rol_norm = str(rol_actual).upper() if rol_actual else ""
-        user_norm = str(usuario_actual).upper() if usuario_actual else ""
+        # 2. Filtrar por usuario y rol (Lógica de Seguridad RBAC Estricta)
+        # Priorizamos el rol de la SESIÓN por seguridad, fallback a los params si no hay sesión (para compatibilidad temporal)
+        import unicodedata
+        def normalize_role(r):
+            if not r: return ""
+            return ''.join((c for c in unicodedata.normalize('NFD', str(r).lower()) if unicodedata.category(c) != 'Mn'))
+
+        rol_session = normalize_role(session.get('role', ''))
+        user_session = str(session.get('user', '')).strip().upper()
         
         # Super-usuarios que ven todo
-        es_admin = any(x in rol_norm for x in ["ADMIN", "GERENCIA"]) or \
-                   any(x in user_norm for x in ["NATALIA", "NATHALIA", "ANDRES", "ANDRÉS"])
+        es_admin = any(x in rol_session for x in ["administracion", "administrador", "gerencia"])
 
         pedidos_filtrados = []
         for p in pedidos_completos:
@@ -608,7 +610,7 @@ def obtener_pedidos_pendientes():
                 pedidos_filtrados.append(p)
             else:
                 # Si no es admin, solo ve lo que tiene asignado
-                if str(p.get("delegado_a", "")).strip().upper() == user_norm:
+                if str(p.get("delegado_a", "")).strip().upper() == user_session:
                     pedidos_filtrados.append(p)
 
         return jsonify({
@@ -620,6 +622,7 @@ def obtener_pedidos_pendientes():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/delegar', methods=['POST'])
+@require_role(['administracion', 'jefe almacen', 'comercial'])
 def delegar_pedido():
     """
     Asigna un pedido a una colaboradora específica.
@@ -667,6 +670,7 @@ def delegar_pedido():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/eliminar-producto', methods=['POST'])
+@require_role(['administracion', 'jefe almacen'])
 def eliminar_producto_pedido():
     """
     Elimina un producto específico de un pedido y restaura el inventario.
