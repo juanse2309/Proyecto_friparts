@@ -601,8 +601,8 @@ def obtener_pedidos_pendientes():
         rol_session = normalize_role(session.get('role', ''))
         user_session = str(session.get('user', '')).strip().upper()
         
-        # Super-usuarios que ven todo
-        es_admin = any(x in rol_session for x in ["administracion", "administrador", "gerencia"])
+        # Roles con visibilidad global de pedidos
+        es_admin = any(x in rol_session for x in ["administracion", "administrador", "gerencia", "jefe almacen", "comercial"])
 
         pedidos_filtrados = []
         for p in pedidos_completos:

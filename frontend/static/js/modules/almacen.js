@@ -146,7 +146,7 @@ const AlmacenModule = {
             url.searchParams.set('_t', Date.now()); // Cache-buster
             if (user) {
                 const role = AuthModule.normalizeRole(user.rol || user.role);
-                const isAdmin = role === 'ADMINISTRACION' || role === 'ADMINISTRADOR' || role === 'GERENCIA';
+                const isAdmin = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'COMERCIAL'].includes(role);
 
                 // Si es admin, pasamos el rol Administración para que el backend devuelva todo
                 url.searchParams.append('usuario', user.name || user.nombre || 'N/A');
