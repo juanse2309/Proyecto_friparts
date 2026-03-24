@@ -38,16 +38,16 @@ window.ModuloAsistencia = (function () {
             areasAsignadas = null; // null = VE TODO
         } else if (role === 'JEFE INYECCION' || role === 'INYECCION') {
             esJefe = true;
-            areasAsignadas = ['INYECCION', 'ENSAMBLE', 'MEZCLA'];
+            areasAsignadas = ['INYECCION', 'ENSAMBLE'];
         } else if (role === 'JEFE PULIDO' || role === 'PULIDO') {
             esJefe = true;
             areasAsignadas = ['PULIDO'];
         } else if (role === 'JEFE ALMACEN' || role === 'ALMACEN' || role === 'ALISTAMIENTO') {
             esJefe = true;
-            areasAsignadas = ['ALMACEN', 'AUXILIAR INVENTARIO', 'INVENTARIO'];
+            areasAsignadas = ['ALISTAMIENTO'];
         } else if (role === 'AUXILIAR INVENTARIO') {
             esJefe = true;
-            areasAsignadas = ['INVENTARIO', 'AUXILIAR INVENTARIO'];
+            areasAsignadas = ['AUXILIAR INVENTARIO'];
         } else if (role === 'ENSAMBLE') {
             esJefe = true;
             areasAsignadas = ['ENSAMBLE'];
@@ -183,9 +183,14 @@ window.ModuloAsistencia = (function () {
             return lista;
         }
 
-        // Jefes de área → solo ven personal de sus áreas asignadas (Normalizado)
+        // Jefes de área → solo ven personal de sus áreas asignadas (Normalizado) + A ELLOS MISMOS
         return lista.filter(c => {
             const deptoC = norm(c.departamento);
+            const nombreC = norm(c.nombre);
+
+            // Siempre mostrarse a sí mismo
+            if (nombreC === nombreNorm) return true;
+
             return areasAsignadas.some(area => {
                 const areaNorm = norm(area);
                 return deptoC.includes(areaNorm) || areaNorm.includes(deptoC);
