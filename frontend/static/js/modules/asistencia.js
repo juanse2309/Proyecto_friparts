@@ -184,6 +184,8 @@ window.ModuloAsistencia = (function () {
         }
 
         // Jefes de área → solo ven personal de sus áreas asignadas (Normalizado) + A ELLOS MISMOS
+        const nombreNorm = norm(currentUserContext.nombre || currentUserContext.name || '');
+
         return lista.filter(c => {
             const deptoC = norm(c.departamento);
             const nombreC = norm(c.nombre);
