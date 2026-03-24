@@ -40,7 +40,7 @@ def obtener_siguiente_id_pedido():
         return f"PED{max_num + 1}"
     except Exception as e:
         logger.error(f"Error generando siguiente ID pedido: {e}")
-        return f"PED{datetime.datetime.now().strftime('%M%S')}" # Fallback seguro
+        return f"PED{datetime.now().strftime('%M%S')}" # Fallback seguro
 
 @pedidos_bp.route('/api/pedidos/registrar', methods=['POST'])
 def registrar_pedido():
@@ -125,9 +125,9 @@ def registrar_pedido():
         # Auto-capturar hora actual del servidor (Colombia UTC-5)
         try:
             tz_colombia = pytz.timezone('America/Bogota')
-            hora_actual = datetime.datetime.now(tz_colombia).strftime('%I:%M %p')
+            hora_actual = datetime.now(tz_colombia).strftime('%I:%M %p')
         except Exception:
-            hora_actual = datetime.datetime.now().strftime('%I:%M %p')
+            hora_actual = datetime.now().strftime('%I:%M %p')
         logger.info(f"🕐 Hora auto-capturada: {hora_actual}")
         
         # Get or create worksheet
