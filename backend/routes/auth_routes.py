@@ -70,11 +70,27 @@ def metals_login():
         provided_pass = normalize_credential(password)
         
         if provided_pass == stored_doc:
+            # Mapear departamento a rol Frimetals
+            departamento = str(user_found.get("DEPARTAMENTO", "")).strip().upper()
+            if departamento in ("VENTAS", "COMERCIAL"):
+                rol_frimetals = "comercial frimetals"
+            elif departamento in ("ADMIN", "ADMINISTRADOR"):
+                rol_frimetals = "admin frimetals"
+            elif departamento in ("PRODUCCION", "PRODUCCIÓN"):
+                rol_frimetals = "produccion frimetals"
+            else:
+                rol_frimetals = "staff frimetals"  # default para operativos (Andrés y equipo)
+
+            # Escribir sesión Flask — mismo patrón que login() de Friparts
+            session['user'] = usuario_nombre
+            session['role'] = rol_frimetals  # en minúsculas para que lo detecte tenant.py
+
             return jsonify({
                 "success": True,
                 "user": {
                     "nombre": user_found.get("RESPONSABLE"),
-                    "rol": user_found.get("DEPARTAMENTO"),
+                    "rol": rol_frimetals,
+                    "departamento": departamento,
                     "tipo": "METALS_STAFF"
                 }
             })

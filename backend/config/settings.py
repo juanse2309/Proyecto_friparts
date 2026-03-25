@@ -41,7 +41,7 @@ class Settings:
 
 
 class Hojas:
-    """Nombres de las hojas en Google Sheets."""
+    """Nombres de las hojas en Google Sheets (Friparts)."""
     INYECCION = "INYECCION"
     PNC_INYECCION = "PNC INYECCION"
     PNC_PULIDO = "PNC PULIDO"
@@ -86,3 +86,69 @@ class Almacenes:
     @classmethod
     def es_valido(cls, almacen: str) -> bool:
         return almacen in cls.MAPEO
+
+
+class TenantConfig:
+    """
+    Diccionario de contexto multi-tenant.
+    Mapea un nombre de recurso lógico al nombre real de la hoja en Google Sheets
+    dependiendo de la empresa (tenant) activa.
+
+    Uso:
+        hoja = TenantConfig.get('frimetals', 'PRODUCTOS')
+        # → 'METALS_PRODUCTOS'
+    """
+
+    _MAP: dict = {
+        # ----------------------------------------------------------------
+        # FRIPARTS  (empresa original)
+        # ----------------------------------------------------------------
+        "friparts": {
+            "PRODUCTOS":    "PRODUCTOS",
+            "DB_PRODUCTOS": "DB_Productos",
+            "CLIENTES":     "DB_Clientes",
+            "PEDIDOS":      "PEDIDOS",
+            "PERSONAL":     "RESPONSABLES",
+        },
+        # ----------------------------------------------------------------
+        # FRIMETALS  (nueva unidad de negocio)
+        # ----------------------------------------------------------------
+        "frimetals": {
+            "PRODUCTOS":    "METALS_PRODUCTOS",
+            "DB_PRODUCTOS": "METALS_PRODUCTOS",  # una sola hoja maestra
+            "CLIENTES":     "METALS_CLIENTES",
+            "PEDIDOS":      "METALS_PEDIDOS",
+            "PERSONAL":     "METALS_PERSONAL",
+        },
+    }
+
+    @classmethod
+    def get(cls, tenant: str, recurso: str) -> str:
+        """
+        Retorna el nombre real de la hoja para el tenant y recurso dados.
+
+        Args:
+            tenant:  'friparts' | 'frimetals'
+            recurso: clave lógica, ej. 'PRODUCTOS', 'CLIENTES', 'PEDIDOS'
+
+        Returns:
+            Nombre exacto de la hoja en Google Sheets.
+
+        Raises:
+            ValueError: si el tenant o el recurso no están registrados.
+        """
+        tenant = tenant.lower()
+        if tenant not in cls._MAP:
+            raise ValueError(f"Tenant desconocido: '{tenant}'. Valores válidos: {list(cls._MAP)}")
+        hoja = cls._MAP[tenant].get(recurso)
+        if hoja is None:
+            raise ValueError(
+                f"Recurso '{recurso}' no definido para tenant '{tenant}'. "
+                f"Disponibles: {list(cls._MAP[tenant])}"
+            )
+        return hoja
+
+    @classmethod
+    def tenants(cls) -> list:
+        """Retorna la lista de tenants registrados."""
+        return list(cls._MAP.keys())

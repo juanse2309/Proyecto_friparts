@@ -4,7 +4,7 @@ Centraliza TODO el acceso a la hoja PRODUCTOS.
 """
 from typing import Optional, List, Dict
 from backend.core.database import sheets_client
-from backend.config.settings import Hojas, Almacenes
+from backend.config.settings import Hojas, Almacenes, TenantConfig
 from backend.utils.formatters import normalizar_codigo, to_int
 import logging
 
@@ -12,10 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 class ProductoRepository:
-    """Repositorio para operaciones con productos."""
-    
-    def __init__(self):
-        self.hoja = Hojas.PRODUCTOS
+    """
+    Repositorio para operaciones con productos.
+
+    Args:
+        tenant: 'friparts' (default) | 'frimetals'
+                Determina de qué hojas de Google Sheets se leen/escriben los datos.
+    """
+
+    def __init__(self, tenant: str = "friparts"):
+        self.tenant = tenant
+        self.hoja = TenantConfig.get(tenant, "PRODUCTOS")
     
     def buscar_por_codigo(self, codigo: str) -> Optional[Dict]:
         """
@@ -64,8 +71,8 @@ class ProductoRepository:
         2. Stock: desde PRODUCTOS (cruce por Código).
         """
         try:
-            # 1. Obtener Datos Maestros (DB_Productos)
-            ws_master = sheets_client.get_worksheet(Hojas.DB_PRODUCTOS)
+            # 1. Obtener Datos Maestros (hoja maestra del tenant)
+            ws_master = sheets_client.get_worksheet(TenantConfig.get(self.tenant, "DB_PRODUCTOS"))
             if not ws_master:
                 logger.error("No se encontró DB_Productos")
                 return []
@@ -243,5 +250,6 @@ class ProductoRepository:
             return []
 
 
-# Instancia única
-producto_repo = ProductoRepository()
+# Instancia única global — siempre apunta a Friparts (backward-compatible).
+# Para Frimetals instanciar directamente: ProductoRepository(tenant='frimetals')
+producto_repo = ProductoRepository(tenant="friparts")

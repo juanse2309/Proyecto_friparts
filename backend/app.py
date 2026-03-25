@@ -35,7 +35,7 @@ CORS(app)
 # Required for Flask Sessions
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_friparts_key_2026")
 
-# Login Blueprint
+# Login Blueprints
 from backend.routes.auth_routes import auth_bp
 from backend.routes.pedidos_routes import pedidos_bp
 from backend.routes.imagenes_routes import imagenes_bp
@@ -49,6 +49,7 @@ from backend.routes.admin_routes import admin_bp
 from backend.routes.inyeccion_routes import inyeccion_bp
 from backend.routes.pulido_routes import pulido_bp
 from backend.routes.asistencia_routes import asistencia_bp
+from backend.routes.productos_routes import productos_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -58,6 +59,7 @@ app.register_blueprint(inventario_bp)
 app.register_blueprint(metals_bp)
 app.register_blueprint(procura_bp)
 app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+app.register_blueprint(productos_bp, url_prefix='/api/productos')
 app.register_blueprint(common_bp, url_prefix='/api')
 
 app.register_blueprint(admin_bp)
@@ -122,17 +124,12 @@ CLIENTES_CACHE = {
 }
 
 PEDIDOS_PENDIENTES_CACHE = {
-    "data": None,
-    "timestamp": 0,
-    "ttl": CACHE_TTL_STRICT # Los pedidos cambian más frecuentemente
+    "friparts": {"data": None, "timestamp": 0, "ttl": CACHE_TTL_STRICT},
+    "frimetals": {"data": None, "timestamp": 0, "ttl": CACHE_TTL_STRICT}
 }
 
-# Caches para METALS (Juan Sebastian)
-METALS_PRODUCTOS_CACHE = {
-    "data": None,
-    "timestamp": 0,
-    "ttl": CACHE_TTL_MEDIUM
-}
+# METALS_PRODUCTOS_CACHE eliminado — ahora se usa ProductoRepository(tenant='frimetals')
+# que centraliza el acceso a la hoja siguiendo el patrón multi-tenant (DRY).
 
 METALS_PERSONAL_CACHE = {
     "data": None,
@@ -143,8 +140,9 @@ METALS_PERSONAL_CACHE = {
 def invalidar_cache_pedidos():
     """Llamar tras registrar o actualizar alistamiento."""
     global PEDIDOS_PENDIENTES_CACHE
-    PEDIDOS_PENDIENTES_CACHE["timestamp"] = 0
-    logger.info("🗑️ Caché de PEDIDOS invalidado")
+    PEDIDOS_PENDIENTES_CACHE["friparts"]["timestamp"] = 0
+    PEDIDOS_PENDIENTES_CACHE["frimetals"]["timestamp"] = 0
+    logger.info("🗑️ Caché de PEDIDOS invalidado (ambos tenants)")
 
 def invalidar_cache_productos():
     global PRODUCTOS_LISTAR_CACHE
@@ -4069,56 +4067,7 @@ def obtener_fichas():
             return jsonify(FICHAS_CACHE["data"]), 200
             
         return jsonify({'error': str(e)}), 500
-    
-@app.route('/api/obtener_clientes', methods=['GET'])
-def obtener_clientes():
-    try:
-        # Usamos el ID directo que ya sabemos que funciona
-        ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet(Hojas.CLIENTES) 
-        
-        datos = ws.get_all_values()
-        if not datos:
-             logger.warning("⚠️ Hoja CLIENTES vacía")
-             return jsonify([])
-
-        encabezados = datos[0]
-        filas = datos[1:]
-        clientes = []
-
-        # Buscar índices de columnas (Flexible)
-        idx_nombre = next((encabezados.index(h) for h in ["NOMBRE", "CLIENTE", "RAZON SOCIAL"] if h in encabezados), -1)
-        idx_nit = next((encabezados.index(h) for h in ["IDENTIFICACION", "NIT", "RUT"] if h in encabezados), -1)
-        idx_dir = next((encabezados.index(h) for h in ["DIRECCION", "DIRECCIÓN"] if h in encabezados), -1)
-        idx_tel = next((encabezados.index(h) for h in ["TELEFONOS", "TELEFONO", "CELULAR"] if h in encabezados), -1)
-        idx_ciu = next((encabezados.index(h) for h in ["CIUDAD", "MUNICIPIO"] if h in encabezados), -1)
-        
-        logger.info(f"📊 Índices Clientes: Nombre={idx_nombre}, NIT={idx_nit}")
-
-        for fila in filas:
-            # Si no hay nombre, saltamos
-            if idx_nombre == -1 or len(fila) <= idx_nombre or not fila[idx_nombre].strip():
-                continue
-                
-            cliente_obj = {
-                "nombre": fila[idx_nombre].strip(),
-                "nit": fila[idx_nit].strip() if idx_nit >= 0 and len(fila) > idx_nit else "",
-                "direccion": fila[idx_dir].strip() if idx_dir >= 0 and len(fila) > idx_dir else "",
-                "telefonos": fila[idx_tel].strip() if idx_tel >= 0 and len(fila) > idx_tel else "",
-                "ciudad": fila[idx_ciu].strip() if idx_ciu >= 0 and len(fila) > idx_ciu else ""
-            }
-            clientes.append(cliente_obj)
-        
-        logger.info(f"✅ Clientes cargados: {len(clientes)}")
-        
-        # Ordenar alfabéticamente
-        return jsonify(sorted(clientes, key=lambda x: x["nombre"]))
-
-    except Exception as e:
-        logger.error(f"❌ ERROR en obtener_clientes: {str(e)}")
-        traceback.print_exc()
-        # Devolver lista vacía en lugar de 500 para no bloquear la UI
-        return jsonify({"error": str(e), "clientes": []}), 200
+# ELIMINADO: obtener_clientes legacy (ahora en common_routes.py)
 
 # ELIMINADO: Endpoint duplicado con lógica incorrecta de semáforos (usaba success/danger/warning en lugar de green/red/yellow)
 
@@ -4275,177 +4224,101 @@ def debug_db_productos():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/productos', methods=['GET'])
-def get_productos():
-    """Obtener lista de productos para autocomplete."""
+# ELIMINADO: /api/productos legacy (ahora en productos_routes.py)
+
+@app.route('/api/productos/crear_dual', methods=['POST'])
+def crear_producto_dual():
+    """
+    Registra un nuevo producto en ambas hojas: DB_Productos (Maestra) y PRODUCTOS (Inventario).
+    Evita que el usuario tenga que ir a dos sitios diferentes para dar de alta un item.
+    """
     try:
-        ss = gc.open_by_key(GSHEET_KEY)
-        ws = ss.worksheet("PRODUCTOS")
-        registros = ws.get_all_records()
-        
-        productos = []
-        for r in registros:
-            codigo = str(r.get("CODIGO SISTEMA", "")).strip()
-            nombre = str(r.get("NOMBRE", "")).strip()
-            if codigo and nombre:
-                productos.append({
-                    "codigo": codigo,
-                    "nombre": nombre,
-                    "label": f"{codigo} - {nombre}"
-                })
-        
-        print(f" {len(productos)} productos cargados")
-        return jsonify(productos), 200
-    except Exception as e:
-        print(f" Error /api/productos: {e}")
-        return jsonify({"error": str(e)}), 500
+        data = request.json
+        id_codigo = str(data.get('id_codigo', '')).strip().upper()
+        codigo_sistema = str(data.get('codigo_sistema', '')).strip().upper()
+        descripcion = str(data.get('descripcion', '')).strip()
+        precio = data.get('precio', 0)
+        stock_inicial = data.get('stock_inicial', 0)
 
+        if not id_codigo or not descripcion:
+            return jsonify({"success": False, "error": "ID Código y Descripción son obligatorios"}), 400
 
-@app.route('/api/productos/listar', methods=['GET'])
-def listar_productos():
-    """Lista todos los productos con stock y estado (cache opcional)."""
-    try:
-        ahora = time.time()
-        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
-        
-        # 1. Cache
-        if not force_refresh and (PRODUCTOS_LISTAR_CACHE["data"] is not None and 
-            (ahora - PRODUCTOS_LISTAR_CACHE["timestamp"]) < PRODUCTOS_LISTAR_CACHE["ttl"]):
-            logger.debug("⚡ Cache HIT [Productos]")
-            return jsonify(PRODUCTOS_LISTAR_CACHE["data"])
-        
-        if force_refresh:
-            invalidar_cache_productos()
-        
-        # 2. Leer Hoja PRODUCTOS de forma robusta
-        ws = sheets_client.get_worksheet("PRODUCTOS")
-        if not ws:
-            return jsonify({'items': [], 'error': 'Hoja PRODUCTOS no encontrada'}), 200
-        
-        raw_rows = ws.get_all_values()
-        if not raw_rows or len(raw_rows) < 2:
-            return jsonify({'items': [], 'warning': 'La hoja PRODUCTOS está vacía'}), 200
-            
-        headers = [str(h).strip().upper() for h in raw_rows[0]]
-        
-        # Mapeo dinámico de índices de columnas
-        def get_col(name):
-            try: return headers.index(name)
-            except: return -1
-            
-        idx_cod_sis = get_col('CODIGO SISTEMA')
-        idx_id_cod = get_col('ID CODIGO')
-        idx_desc = get_col('DESCRIPCION')
-        idx_p_pulir = get_col('POR PULIR')
-        idx_p_term = get_col('P. TERMINADO')
-        idx_comp = get_col('COMPROMETIDO')
-        idx_min = get_col('STOCK MINIMO')
-        idx_reorden = get_col('PUNTO REORDEN')
-        idx_max = get_col('STOCK MAXIMO')
-        idx_img = get_col('IMAGEN')
-        
-        # 3. Cargar Precios desde DB_Productos
-        precios_db = {}
-        try:
-            ws_db = sheets_client.get_worksheet("DB_Productos")
-            if ws_db:
-                db_rows = ws_db.get_all_values()
-                if db_rows and len(db_rows) > 1:
-                    db_headers = [str(h).strip().upper() for h in db_rows[0]]
-                    p_idx_precio = -1
-                    for v in ['PRECIO', 'PRICE', 'VALOR', 'PRECIO UNITARIO', 'VALOR UNITARIO']:
-                        if v in db_headers:
-                            p_idx_precio = db_headers.index(v)
-                            break
-                    
-                    p_idx_cod = -1
-                    for v in ['ID CODIGO', 'CODIGO', 'ID']:
-                        if v in db_headers:
-                            p_idx_cod = db_headers.index(v)
-                            break
-                    
-                    if p_idx_precio >= 0 and p_idx_cod >= 0:
-                        for row in db_rows[1:]:
-                            if len(row) > max(p_idx_precio, p_idx_cod):
-                                cod_val = str(row[p_idx_cod]).strip().upper()
-                                try:
-                                    precio_val = float(str(row[p_idx_precio]).replace(',','').replace('$','').strip() or 0)
-                                    if cod_val: precios_db[cod_val] = precio_val
-                                except: pass
-        except Exception as e_db:
-            logger.warning(f"No se pudo cargar precios de DB_Productos: {e_db}")
+        logger.info(f"🆕 Intentando creación dual de producto: {id_codigo}")
 
-        # 4. Procesar Filas
-        productos = []
-        def safe_int(row, idx, default=0):
-            if idx < 0 or idx >= len(row): return default
-            try:
-                val = str(row[idx]).strip()
-                if not val: return default
-                return int(float(val.replace(',', '')))
-            except: return default
+        # 1. Registrar en DB_Productos (Catálogo Maestro)
+        ws_master = sheets_client.get_worksheet("DB_Productos")
+        if not ws_master:
+            return jsonify({"success": False, "error": "Hoja DB_Productos no encontrada"}), 500
 
-        for row in raw_rows[1:]:
-            # Identificar código principal (ID CODIGO manda)
-            id_cod_raw = str(row[idx_id_cod]).strip() if idx_id_cod >= 0 and idx_id_cod < len(row) else ''
-            sis_cod_raw = str(row[idx_cod_sis]).strip() if idx_cod_sis >= 0 and idx_cod_sis < len(row) else ''
-            
-            codigo = id_cod_raw or sis_cod_raw
-            if not codigo: continue
-
-            p_pulir = safe_int(row, idx_p_pulir)
-            p_term = safe_int(row, idx_p_term)
-            comp = safe_int(row, idx_comp)
-            stock_min = safe_int(row, idx_min, 10)
-            p_reorden = safe_int(row, idx_reorden) or int(stock_min * 0.75)
-            p_max = safe_int(row, idx_max, 999999)
-            
-            disponible = p_term - comp
-            total = p_pulir + p_term
-            
-            # Semáforo
-            global_stock = total - comp
-            semaforo = calcular_metricas_semaforo(global_stock, stock_min, p_reorden, p_max)
-            
-            # Precio
-            precio = precios_db.get(id_cod_raw.upper()) or precios_db.get(sis_cod_raw.upper()) or 0
-            
-            item = {
-                'codigo': codigo,
-                'codigo_sistema': sis_cod_raw,
-                'id_codigo': id_cod_raw,
-                'descripcion': str(row[idx_desc]).strip() if idx_desc >= 0 and idx_desc < len(row) else 'Sin descripción',
-                'stock_por_pulir': p_pulir,
-                'stock_terminado': p_term,
-                'stock_comprometido': comp,
-                'stock_disponible': disponible,
-                'stock_total': total,
-                'existencias_totales': total,
-                'stock': disponible,
-                'stock_minimo': stock_min,
-                'precio': precio,
-                'imagen': corregir_url_imagen(str(row[idx_img]).strip() if idx_img >= 0 and idx_img < len(row) else ''),
-                'semaforo': semaforo,
-                'metricas': {
-                    'min': stock_min,
-                    'reorden': p_reorden,
-                    'max': p_max
-                }
-            }
-            productos.append(item)
-
-        # 5. Guardar Caché y Responder
-        resultado = {'items': productos}
-        PRODUCTOS_LISTAR_CACHE["data"] = resultado
-        PRODUCTOS_LISTAR_CACHE["timestamp"] = ahora
+        master_headers = [h.upper() for h in ws_master.row_values(1)]
         
-        logger.info(f"✅ Se cargaron {len(productos)} productos manualmente.")
-        return jsonify(resultado), 200
+        # Mapeo de columnas Master
+        col_id_m = -1
+        col_desc_m = -1
+        col_price_m = -1
+        for i, h in enumerate(master_headers):
+            if h in ['ID CODIGO', 'CODIGO', 'ID']: col_id_m = i
+            if h in ['DESCRIPCION', 'NOMBRE']: col_desc_m = i
+            if h in ['PRECIO', 'PRICE', 'PRECIO UNITARIO']: col_price_m = i
+
+        new_row_master = [""] * len(master_headers)
+        if col_id_m >= 0: new_row_master[col_id_m] = id_codigo
+        if col_desc_m >= 0: new_row_master[col_desc_m] = descripcion
+        if col_price_m >= 0: new_row_master[col_price_m] = precio
+
+        ws_master.append_row(new_row_master)
+        logger.info("✅ Registro exitoso en DB_Productos")
+
+        # 2. Registrar en PRODUCTOS (Control de Inventario)
+        ws_inv = sheets_client.get_worksheet("PRODUCTOS")
+        if not ws_inv:
+            return jsonify({"success": False, "error": "Hoja PRODUCTOS no encontrada"}), 500
+
+        inv_headers = [h.upper() for h in ws_inv.row_values(1)]
+        
+        # Mapeo de columnas Inventario
+        col_sis_i = -1
+        col_id_i = -1
+        col_desc_i = -1
+        col_term_i = -1
+        for i, h in enumerate(inv_headers):
+            if h in ['CODIGO SISTEMA', 'CODIGO']: col_sis_i = i
+            if h in ['ID CODIGO', 'ID']: col_id_i = i
+            if h in ['DESCRIPCION', 'NOMBRE']: col_desc_i = i
+            if h in ['P. TERMINADO', 'STOCK', 'TERMINADO']: col_term_i = i
+
+        new_row_inv = [""] * len(inv_headers)
+        if col_sis_i >= 0: new_row_inv[col_sis_i] = codigo_sistema or id_codigo
+        if col_id_i >= 0: new_row_inv[col_id_i] = id_codigo
+        if col_desc_i >= 0: new_row_inv[col_desc_i] = descripcion
+        if col_term_i >= 0: new_row_inv[col_term_i] = stock_inicial
+
+        ws_inv.append_row(new_row_inv)
+        logger.info("✅ Registro exitoso en PRODUCTOS")
+
+        # 3. Invalidar Caché
+        invalidar_cache_productos()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Producto {id_codigo} creado exitosamente en catálogo e inventario.",
+            "sku": id_codigo
+        }), 201
 
     except Exception as e:
-        logger.error(f"❌ Error listar productos: {e}")
-        traceback.print_exc()
-        return jsonify({'items': [], 'error': str(e), 'trace': traceback.format_exc()}), 200
+        logger.error(f"❌ Error en crear_producto_dual: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+def invalidar_cache_productos():
+    """Limpia el caché global de productos."""
+    global PRODUCTOS_LISTAR_CACHE
+    PRODUCTOS_LISTAR_CACHE["data"] = None
+    PRODUCTOS_LISTAR_CACHE["timestamp"] = 0
+    logger.info("♻️ Cache de productos invalidado.")
+
+
+# ELIMINADO: listar_productos legacy (ahora en productos_routes.py)
+
 
 @app.route('/api/productos/detalle/<codigo_sistema>', methods=['GET'])
 def detalle_producto(codigo_sistema):

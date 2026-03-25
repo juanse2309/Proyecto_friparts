@@ -50,6 +50,10 @@ const AuthModule = {
     // Matriz de Permisos por Rol (Modelo RBAC Estricto basado en Departamentos)
     permissions: {
         'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        // === FRIMETALS ROLES (Phase 2 Multi-Tenant) ===
+        'STAFF FRIMETALS': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'pedidos', 'almacen', 'asistencia'],
+        'COMERCIAL FRIMETALS': ['metals-dashboard', 'pedidos', 'almacen'],
         'COMERCIAL': ['almacen', 'pedidos'],
         'JEFE ALMACEN': ['inventario', 'inyeccion', 'facturacion', 'almacen', 'pedidos', 'asistencia'],
         'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'historial', 'procura', 'rotacion', 'asistencia'],
@@ -521,6 +525,8 @@ const AuthModule = {
             'ADMINISTRACION': `Bienvenido al Centro de Control.`,
             'ADMINISTRADOR': `Bienvenido al Centro de Control.`,
             'COMERCIAL': `Bienvenido al Módulo de Pedidos.`,
+            'STAFF FRIMETALS': `¡Hola ${user.nombre}! Bienvenido a FriMetals.`,
+            'COMERCIAL FRIMETALS': `Bienvenido al Módulo Comercial FriMetals.`,
             'CLIENTE': `Bienvenido a su Portal FriParts.`
         };
         const mensaje = mensajes[roleUpper] || `¡Bienvenido ${user.nombre}!`;
@@ -647,9 +653,10 @@ const AuthModule = {
         } else if (division === 'FRIMETALS') {
             // Eliminar módulos exclusivos de FriParts si entramos por Metales
             // Incluimos TODO lo que no sea compartido o exclusivo de Metales
+            // pedidos y almacen son COMPARTIDOS (los usan STAFF/COMERCIAL FRIMETALS)
             let forbiddenInMetals = [
                 'dashboard', 'inyeccion', 'pulido', 'ensamble', 'pnc',
-                'facturacion', 'mezcla', 'almacen', 'pedidos', 'reportes',
+                'facturacion', 'mezcla', 'reportes',
                 'admin-clientes', 'portal-cliente', 'procura', 'rotacion'
             ];
 
@@ -718,6 +725,7 @@ const AuthModule = {
         let targetPage = division === 'FRIMETALS' ? 'metals-produccion' : 'inyeccion';
 
         if (role === 'CLIENTE') targetPage = 'portal-cliente';
+        else if (role === 'COMERCIAL FRIMETALS') targetPage = 'pedidos';
         else if (role === 'COMERCIAL') targetPage = 'pedidos';
         else if (role === 'ALISTAMIENTO') targetPage = 'almacen';
         else if (!allowedPages.includes(targetPage)) targetPage = firstAllowed || allowedPages[0];

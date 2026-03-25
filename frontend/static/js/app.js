@@ -580,6 +580,15 @@ async function inicializarAplicacion() {
 
         // Escuchar evento de login para cargar datos si no estaban cargados
         document.addEventListener('user-ready', async () => {
+            // Multi-Tenant: Si el usuario es FRIMETALS, invalidar caché
+            // (puede estar llena con datos de Friparts de una carga anterior)
+            const division = window.AppState?.user?.division || 'FRIPARTS';
+            if (division === 'FRIMETALS' && datosCargados) {
+                console.log('🏢 [Tenant] Usuario FRIMETALS detectado post-login. Re-fetching datos compartidos...');
+                datosCargados = false;   // Forzar re-fetch
+                isSharedDataLoading = false;
+            }
+
             if (!datosCargados && !isSharedDataLoading) {
                 console.log('🔔 Evento user-ready: Cargando datos compartidos...');
 

@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from backend.core.database import sheets_client
+from backend.repositories.producto_repository import ProductoRepository
 import logging
 import datetime
 import uuid
@@ -15,29 +16,12 @@ logger = logging.getLogger(__name__)
 
 @metals_bp.route('/api/metals/productos/listar', methods=['GET'])
 def listar_productos_metals():
+    """Lista productos de Frimetals usando el repositorio unificado (DRY)."""
     try:
-        from backend.app import METALS_PRODUCTOS_CACHE
-        ahora = time.time()
-
-        # 1. Verificar Caché
-        if METALS_PRODUCTOS_CACHE["data"] and (ahora - METALS_PRODUCTOS_CACHE["timestamp"] < METALS_PRODUCTOS_CACHE["ttl"]):
-            logger.info("⚡ [Cache] Retornando productos de Metales desde caché")
-            return jsonify(METALS_PRODUCTOS_CACHE["data"])
-
-        # 2. Si no hay caché, consultar Sheets
-        logger.info("🌐 [API] Consultando Google Sheets para productos de Metales")
-        ws = sheets_client.get_worksheet("METALS_PRODUCTOS")
-        if not ws:
-            return jsonify({"success": False, "message": "Hoja METALS_PRODUCTOS no encontrada"}), 500
-        
-        records = ws.get_all_records()
-        
-        # 3. Guardar en Caché
-        response_data = {"success": True, "productos": records}
-        METALS_PRODUCTOS_CACHE["data"] = response_data
-        METALS_PRODUCTOS_CACHE["timestamp"] = ahora
-
-        return jsonify(response_data)
+        logger.info("🌐 [API] Consultando productos de Frimetals via ProductoRepository")
+        repo = ProductoRepository(tenant="frimetals")
+        productos = repo.listar_todos()
+        return jsonify({"success": True, "productos": productos})
     except Exception as e:
         logger.error(f"Error listando productos metals: {e}")
         return jsonify({"success": False, "message": str(e)}), 500

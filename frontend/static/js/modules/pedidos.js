@@ -11,7 +11,10 @@ const ModuloPedidos = {
 
 
     init: function () {
-        console.log("🛒 Inicializando Módulo Pedidos...");
+        if (this._initDone) return;
+        this._initDone = true;
+
+        console.log("🛒 Inicializando Módulo Pedidos (Listeners)...");
 
         // Registrar persistencia Juan Sebastian Request
         if (window.FormHelpers) {
@@ -74,9 +77,16 @@ const ModuloPedidos = {
     cargarDatosIniciales: async function () {
         console.log("📦 Cargando datos para Pedidos...");
 
+        // Multi-Tenant: Frimetals users MUST fetch fresh data from tenant-aware API
+        // (AppState.sharedData may contain cached Friparts data)
+        const isFrimetals = (window.AppState?.user?.division === 'FRIMETALS');
+        if (isFrimetals) {
+            console.log("🏢 [Tenant] División FRIMETALS detectada → Forzando fetch desde API tenant-aware");
+        }
+
         // Cargar Clientes
         try {
-            if (window.AppState && window.AppState.sharedData.clientes.length > 0) {
+            if (!isFrimetals && window.AppState && window.AppState.sharedData.clientes.length > 0) {
                 this.clientesData = window.AppState.sharedData.clientes;
             } else {
                 const response = await fetch('/api/obtener_clientes');
@@ -87,13 +97,13 @@ const ModuloPedidos = {
             console.error("Error cargando clientes:", e);
         }
 
-        // Cargar Productos - Preferir datos de AppState para evitar redundancia y errores 429
+        // Cargar Productos - Para Frimetals, siempre ir al API (tenant-aware por sesión)
         try {
-            if (window.AppState && window.AppState.sharedData.productos.length > 0) {
+            if (!isFrimetals && window.AppState && window.AppState.sharedData.productos.length > 0) {
                 this.productosData = window.AppState.sharedData.productos;
                 console.log("✅ Usando productos desde AppState en Pedidos:", this.productosData.length);
             } else {
-                console.log("🔄 AppState vacío, solicitando productos al servidor...");
+                console.log("🔄 Solicitando productos al servidor (tenant-aware)...");
                 const respProd = await fetch('/api/productos/listar');
                 const productosResp = await respProd.json();
                 const rawList = Array.isArray(productosResp) ? productosResp : (productosResp.items || []);
@@ -155,13 +165,21 @@ const ModuloPedidos = {
     },
 
     buscarClientes: function (query, suggestionsDiv) {
+        console.log(`🔍 [DEBUG-CLIENTES] Buscando: "${query}" | Clientes en memoria: ${this.clientesData?.length}`);
+        if (this.clientesData?.length > 0) {
+            console.log('🔍 [DEBUG-CLIENTES] Muestra 1er cliente:', this.clientesData[0]);
+        }
+
         const queryNorm = this.normalizeString(query);
 
         const resultados = this.clientesData.filter(cliente => {
             const nombreNorm = this.normalizeString(cliente.nombre);
-            return nombreNorm.includes(queryNorm) ||
-                (cliente.nit && cliente.nit.includes(query));
+            const matches = nombreNorm.includes(queryNorm) ||
+                (cliente.nit && String(cliente.nit).includes(query));
+            return matches;
         });
+
+        console.log(`🔍 [DEBUG-CLIENTES] Resultados encontrados: ${resultados.length}`);
 
         if (resultados.length === 0) {
             suggestionsDiv.innerHTML = '<div class="suggestion-item">No se encontraron clientes</div>';
@@ -247,7 +265,13 @@ const ModuloPedidos = {
         });
 
         if (resultados.length === 0) {
-            suggestionsDiv.innerHTML = '<div class="suggestion-item">No se encontraron productos</div>';
+            suggestionsDiv.innerHTML = `
+                <div class="suggestion-item text-muted">No se encontraron productos</div>
+                <div class="suggestion-item text-primary fw-bold border-top mt-1" 
+                     onclick="ModuloPedidos.abrirModalCrearProducto('${query.toUpperCase()}')">
+                    <i class="fas fa-plus-circle me-2"></i> Crear "${query.toUpperCase()}" como nuevo
+                </div>
+            `;
             suggestionsDiv.classList.add('active');
             return;
         }
@@ -324,30 +348,42 @@ const ModuloPedidos = {
 
 
 
-    cargarPedidoPorId: async function () {
+    /**
+     * Cargar un pedido por su ID para edición (Proactivo)
+     * @param {string} idParam - Opcional, ID del pedido a cargar
+     */
+    cargarPedidoPorId: async function (idParam = null) {
         const inputId = document.getElementById('ped-load-id');
-        const id = inputId.value.trim().toUpperCase();
+        const id = idParam || (inputId ? inputId.value.trim().toUpperCase() : null);
 
         if (!id) {
-            mostrarNotificacion('Ingrese un ID de pedido', 'warning');
+            if (!idParam) mostrarNotificacion('Ingrese un ID de pedido', 'warning');
             return;
         }
 
         try {
-            console.log(`🔍 Buscando pedido: ${id}...`);
+            console.log(`🔍 [Pedidos] Cargando pedido: ${id}...`);
+            // Mostrar loading local si es posible
+            if (window.mostrarLoading) window.mostrarLoading(true);
+
             const response = await fetch(`/api/pedidos/detalle/${id}`);
             const result = await response.json();
 
             if (result.success) {
                 this.poblarFormularioConPedido(result.pedido);
-                inputId.value = '';
-                mostrarNotificacion(`Pedido ${id} cargado correctamente`, 'success');
+                if (inputId) inputId.value = '';
+
+                // Si fue proactivo (desde Almacen), dar bienvenida visual
+                const msg = idParam ? `Pedido ${id} cargado proactivamente desde Almacén` : `Pedido ${id} cargado correctamente`;
+                mostrarNotificacion(msg, 'success');
             } else {
                 mostrarNotificacion(result.error || 'Pedido no encontrado', 'error');
             }
         } catch (error) {
             console.error('Error cargando pedido:', error);
             mostrarNotificacion('Error de conexión al cargar pedido', 'error');
+        } finally {
+            if (window.mostrarLoading) window.mostrarLoading(false);
         }
     },
 
@@ -894,32 +930,46 @@ const ModuloPedidos = {
             const descuentoGlobal = datosManuales ? (parseFloat(datosManuales.descuento_global) || 0) : (parseFloat(document.getElementById('ped-descuento-global')?.value) || 0);
 
             // --- 1. ENCABEZADO Y LOGO ---
-            const imgPath = '/static/img/logo_friparts_nuevo.jpg';
+            // Adaptación para Frimetals
+            const division = window.AppState?.user?.division;
+            const isMetals = division === 'FRIMETALS';
+            const imgPath = isMetals ? '/static/img/logo_frimetals.png' : '/static/img/logo_friparts_nuevo.jpg';
+            const companyName = isMetals ? 'FRIMETALS' : 'FRIPARTS S.A.S';
+            const docTitle = isMetals ? 'Orden de Pedido - Frimetals' : 'Comprobante de Pedido';
 
             // Función interna para dibujar el contenido (con o sin logo)
             const dibujarContenido = (imgData = null) => {
                 if (imgData) {
-                    // El logo es un JPEG, intentamos con JPEG y si no PNG como fallback por compatibilidad de jsPDF
-                    try {
-                        doc.addImage(imgData, 'JPEG', 14, 10, 60, 28);
-                    } catch (e) {
-                        doc.addImage(imgData, 'PNG', 14, 10, 60, 28);
+                    // Ajustamos dimensiones según el logo
+                    if (isMetals) {
+                        // El logo de Frimetals es ovalado/alargado
+                        doc.addImage(imgData, 'PNG', 14, 10, 80, 25);
+                    } else {
+                        try {
+                            doc.addImage(imgData, 'JPEG', 14, 10, 60, 28);
+                        } catch (e) {
+                            doc.addImage(imgData, 'PNG', 14, 10, 60, 28);
+                        }
                     }
                 }
 
                 // Nombre de la empresa DEBAJO del logo (alineado a la izquierda)
                 doc.setFontSize(22);
-                doc.setTextColor(30, 58, 138); // Azul corporativo
+                doc.setTextColor(isMetals ? 50 : 30, isMetals ? 50 : 58, isMetals ? 50 : 138); // Gris oscuro para Metals, Azul para Parts
                 doc.setFont(undefined, 'bold');
-                doc.text("FRIPARTS S.A.S", 14, 45);
+                doc.text(companyName, 14, 45);
 
                 doc.setFontSize(10);
                 doc.setTextColor(100);
                 doc.setFont(undefined, 'normal');
-                // SE ELIMINA EL ESLOGAN "Soluciones Integrales..." SOLICITADO POR EL USUARIO
 
-                doc.text(`Comprobante No: ${idMostrar}`, 196, 20, { align: 'right' });
-                doc.text(`Fecha: ${fecha}`, 196, 26, { align: 'right' });
+                // Título del documento
+                doc.setFontSize(14);
+                doc.text(docTitle, 196, 14, { align: 'right' });
+
+                doc.setFontSize(10);
+                doc.text(`Comprobante No: ${idMostrar}`, 196, 22, { align: 'right' });
+                doc.text(`Fecha: ${fecha}`, 196, 28, { align: 'right' });
 
                 // --- 2. BLOQUE DE INFORMACIÓN (Grid de 2 columnas) ---
                 doc.setDrawColor(220);
@@ -928,7 +978,7 @@ const ModuloPedidos = {
 
                 // Columna Izquierda: Cliente (Ancho máx 100)
                 doc.setFontSize(11);
-                doc.setTextColor(30, 58, 138);
+                doc.setTextColor(isMetals ? 50 : 30, isMetals ? 50 : 58, isMetals ? 50 : 138);
                 doc.setFont(undefined, 'bold');
                 doc.text("CLIENTE:", 14, 65);
 
@@ -947,7 +997,7 @@ const ModuloPedidos = {
                 // Columna Derecha: Venta (Movida más a la derecha para evitar choques)
                 const rightX = 135;
                 doc.setFontSize(11);
-                doc.setTextColor(30, 58, 138);
+                doc.setTextColor(isMetals ? 50 : 30, isMetals ? 50 : 58, isMetals ? 50 : 138);
                 doc.setFont(undefined, 'bold');
                 doc.text("DETALLES DE VENTA:", rightX, 65);
 
@@ -972,7 +1022,7 @@ const ModuloPedidos = {
                     head: [['Código', 'Descripción', 'Cant.', 'Unitario', 'Subtotal']],
                     body: tablaData,
                     theme: 'grid',
-                    headStyles: { fillColor: [30, 58, 138], textColor: 255, halign: 'center' },
+                    headStyles: { fillColor: isMetals ? [50, 50, 50] : [30, 58, 138], textColor: 255, halign: 'center' },
                     styles: { fontSize: 9, cellPadding: 3 },
                     columnStyles: {
                         0: { cellWidth: 30 },
@@ -1025,14 +1075,14 @@ const ModuloPedidos = {
 
                 // Línea de total
                 currentY += 5;
-                doc.setDrawColor(30, 58, 138);
+                doc.setDrawColor(isMetals ? 50 : 30, isMetals ? 50 : 58, isMetals ? 50 : 138);
                 doc.setLineWidth(0.8);
                 doc.line(labelX, currentY, totalX, currentY);
 
                 // Total Final (Repartido a lo ancho para máximo impacto)
                 currentY += 12;
                 doc.setFontSize(16);
-                doc.setTextColor(30, 58, 138);
+                doc.setTextColor(isMetals ? 50 : 30, isMetals ? 50 : 58, isMetals ? 50 : 138);
                 doc.setFont(undefined, 'bold');
                 doc.text(`TOTAL A PAGAR:`, 14, currentY); // A la izquierda
                 doc.text(formatearMoneda(totalFinal), totalX, currentY, { align: 'right' }); // A la derecha
@@ -1054,12 +1104,17 @@ const ModuloPedidos = {
                 doc.setFontSize(9);
                 doc.setTextColor(60);
                 doc.setFont(undefined, 'bold');
-                doc.text("FRIPARTS S.A.S - Carrera 29 #78-40 - www.friparts.com", 105, footerY + 6, { align: 'center' });
+                const footerCompanyInfo = isMetals
+                    ? "FRIMETALS - Metalmecánica de Precisión - www.frimetals.com"
+                    : "FRIPARTS S.A.S - Carrera 29 #78-40 - www.friparts.com";
+                doc.text(footerCompanyInfo, 105, footerY + 6, { align: 'center' });
 
-                doc.setFontSize(9);
-                doc.setTextColor(30, 58, 138);
-                doc.setFont(undefined, 'normal');
-                doc.text("Instagram: @friparts_bujes", 105, footerY + 12, { align: 'center' });
+                if (!isMetals) {
+                    doc.setFontSize(9);
+                    doc.setTextColor(30, 58, 138);
+                    doc.setFont(undefined, 'normal');
+                    doc.text("Instagram: @friparts_bujes", 105, footerY + 12, { align: 'center' });
+                }
 
                 // Guardar
                 const fileName = `Pedido_${cliente.nombre.replace(/\s+/g, '_')}_${fecha}.pdf`;
@@ -1202,20 +1257,170 @@ const ModuloPedidos = {
         }, 3000);
     },
 
-    // Método para integración con app.js
+    // --- INTEGRACIÓN Y LÓGICA PROACTIVA ---
+
+    /**
+     * Inicializar el módulo (llamado desde app.js)
+     */
     inicializar: function () {
         console.log("🔧 Inicializando módulo Pedidos (desde app.js)");
+
+        // 1. Asegurar setup de UI y listeners
+        this.init();
+
         // Evitar múltiples cargas simultáneas
         if (this._cargando) {
             console.log("⏭️ Pedidos ya está cargando, omitiendo...");
             return;
         }
         this._cargando = true;
-        this.cargarDatosIniciales().finally(() => { this._cargando = false; });
-        this.actualizarVendedor();
+
+        this.cargarDatosIniciales().finally(() => {
+            this._cargando = false;
+            this.actualizarVendedor();
+
+            // --- LÓGICA PROACTIVA: Verificar si venimos desde Almacén para editar ---
+            const pendingEditId = localStorage.getItem('pending_edit_id');
+            if (pendingEditId) {
+                console.log(`✨ [Pedidos] Detectado pedido pendiente de edición: ${pendingEditId}`);
+                localStorage.removeItem('pending_edit_id'); // Limpiar inmediatamente
+
+                // Esperar a que el DOM esté listo
+                setTimeout(() => {
+                    this.cargarPedidoPorId(pendingEditId);
+                }, 300);
+            }
+        });
     },
 
-    // --- Lógica Exportación World Office ---
+    /**
+     * Abrir modal para creación dual de producto (Master + Inventario)
+     */
+    abrirModalCrearProducto: function (codigoSugerido = '') {
+        console.log(`🆕 Abriendo modal de creación para: ${codigoSugerido}`);
+
+        // Cerrar sugerencias si están abiertas
+        const suggestionsDiv = document.getElementById('ped-producto-suggestions');
+        if (suggestionsDiv) suggestionsDiv.classList.remove('active');
+
+        const modalHtml = `
+            <div class="modal-overlay" id="modal-crear-producto" style="z-index: 10001; background: rgba(0,0,0,0.5); position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;">
+                <div class="modal-content" style="background: white; width: 95%; max-width: 500px; border-radius: 16px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); animation: zoomIn 0.3s ease;">
+                    <div class="modal-header" style="padding: 20px 25px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
+                        <h5 style="margin: 0; font-weight: 700; color: #111827;"><i class="fas fa-plus-circle text-primary me-2"></i> Registro de Nuevo Producto</h5>
+                        <button type="button" onclick="document.getElementById('modal-crear-producto').remove()" style="border: none; background: none; font-size: 1.2rem; color: #9ca3af; cursor: pointer;"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="modal-body" style="padding: 25px;">
+                        <form id="form-crear-dual">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">ID Código (Maestro)</label>
+                                <input type="text" id="new-id-codigo" class="form-control fw-bold" value="${codigoSugerido}" placeholder="Ej: 9304" required style="border-radius: 8px;">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">Código Sistema (Opcional)</label>
+                                <input type="text" id="new-sis-codigo" class="form-control" placeholder="Ej: BUJE-01" style="border-radius: 8px;">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">Descripción / Nombre</label>
+                                <input type="text" id="new-descripcion" class="form-control" placeholder="Nombre completo del producto" required style="border-radius: 8px;">
+                            </div>
+                            <div class="row">
+                                <div class="col-6 mb-3">
+                                    <label class="form-label small fw-bold text-muted text-uppercase">Precio Unitario ($)</label>
+                                    <input type="number" id="new-precio" class="form-control" value="0" step="0.01" style="border-radius: 8px;">
+                                </div>
+                                <div class="col-6 mb-3">
+                                    <label class="form-label small fw-bold text-muted text-uppercase">Stock Inicial</label>
+                                    <input type="number" id="new-stock" class="form-control" value="0" style="border-radius: 8px;">
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <button type="submit" class="btn btn-primary w-100 fw-bold" style="padding: 12px; border-radius: 10px; background: #2563eb; border: none; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.4);">
+                                    <i class="fas fa-save me-2"></i> Crear y Seleccionar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Focus en descripción si ya hay código
+        setTimeout(() => {
+            const focusTarget = codigoSugerido ? 'new-descripcion' : 'new-id-codigo';
+            const input = document.getElementById(focusTarget);
+            if (input) input.focus();
+        }, 300);
+
+        // Submit Logic
+        document.getElementById('form-crear-dual').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            const originalText = btn.innerHTML;
+
+            try {
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Creando...';
+                btn.disabled = true;
+
+                const payload = {
+                    id_codigo: document.getElementById('new-id-codigo').value.trim().toUpperCase(),
+                    codigo_sistema: document.getElementById('new-sis-codigo').value.trim().toUpperCase(),
+                    descripcion: document.getElementById('new-descripcion').value.trim(),
+                    precio: parseFloat(document.getElementById('new-precio').value) || 0,
+                    stock_inicial: parseInt(document.getElementById('new-stock').value) || 0
+                };
+
+                const response = await fetch('/api/productos/crear_dual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    this.showToast(result.message, 'success');
+
+                    // 1. Crear el objeto producto para la sesión actual
+                    const nuevoProd = {
+                        codigo: payload.id_codigo,
+                        id_codigo: payload.id_codigo,
+                        codigo_sistema: payload.codigo_sistema || payload.id_codigo,
+                        descripcion: payload.descripcion,
+                        precio: payload.precio,
+                        stock_disponible: payload.stock_inicial
+                    };
+
+                    // 2. Insertarlo en el cache local
+                    this.productosData.unshift(nuevoProd);
+
+                    // 3. Seleccionarlo automáticamente
+                    document.getElementById('ped-producto').value = `${nuevoProd.id_codigo} - ${nuevoProd.descripcion}`;
+                    document.getElementById('ped-precio').value = nuevoProd.precio;
+                    this.productoSeleccionado = nuevoProd;
+
+                    // 4. Cerrar modal y saltar a cantidad
+                    document.getElementById('modal-crear-producto').remove();
+                    const campoCant = document.getElementById('ped-cantidad');
+                    if (campoCant) campoCant.focus();
+
+                } else {
+                    this.showToast(result.error || 'Error al crear producto', 'error');
+                }
+            } catch (error) {
+                console.error('Error in crear_dual:', error);
+                this.showToast('Error de conexión', 'error');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        };
+    },
+
+    // --- LÓGICA EXPORTACIÓN WORLD OFFICE ---
+
     abrirPreviewWO: function () {
         const modal = document.getElementById('modal-preview-wo');
         if (modal) {
@@ -1228,9 +1433,6 @@ const ModuloPedidos = {
         const modal = document.getElementById('modal-preview-wo');
         if (modal) {
             modal.style.display = 'none';
-            // Limpiar tabla
-            const tbody = document.querySelector('#tabla-preview-wo tbody');
-            if (tbody) tbody.innerHTML = '';
         }
     },
 
@@ -1268,6 +1470,8 @@ const ModuloPedidos = {
 
     descargarExcelWO: function () {
         const btn = document.getElementById('btn-confirmar-exportar-wo');
+        if (!btn) return;
+
         const originalText = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
         btn.disabled = true;
@@ -1275,7 +1479,7 @@ const ModuloPedidos = {
         fetch('/api/exportar/world-office', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}) // No params needed for v2 logic
+            body: JSON.stringify({})
         })
             .then(response => {
                 if (response.ok) return response.blob();
@@ -1307,15 +1511,8 @@ const ModuloPedidos = {
 // Export global
 window.ModuloPedidos = ModuloPedidos;
 
-// Hook into Main App initialization
-document.addEventListener('DOMContentLoaded', () => {
-    const menuLink = document.querySelector('.menu-item[data-page="pedidos"]');
-    if (menuLink) {
-        menuLink.addEventListener('click', () => {
-            ModuloPedidos.cargarDatosIniciales();
-            ModuloPedidos.actualizarVendedor();
-        });
-    }
+// Hook para compatibilidad (ya cubierto por inicializar pero por seguridad)
+if (!window.initPedidos) {
+    window.initPedidos = () => ModuloPedidos.inicializar();
+}
 
-    ModuloPedidos.init();
-});

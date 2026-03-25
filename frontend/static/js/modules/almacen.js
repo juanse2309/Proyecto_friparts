@@ -14,6 +14,30 @@ const AlmacenModule = {
     isTVMode: false,
 
     /**
+     * Redirigir al módulo de Pedidos para editar un pedido existente
+     * @param {string} id_pedido 
+     */
+    editarPedido: function (id_pedido) {
+        if (!id_pedido) return;
+
+        console.log(`🚀 [Almacen] Redirigiendo a Pedidos para editar: ${id_pedido}`);
+
+        // Guardar ID en localStorage para que Pedidos lo capture al cargar
+        localStorage.setItem('pending_edit_id', id_pedido);
+
+        // Cambiar hash y navegar (esto disparará el cambio de módulo en app.js)
+        if (window.AuthModule && typeof window.AuthModule.navigateTo === 'function') {
+            window.AuthModule.navigateTo('pedidos');
+        } else {
+            window.location.hash = '#pedidos';
+        }
+
+        // Feedback visual opcional
+        if (window.AuthModule) {
+            window.AuthModule.mostrarNotificacion(`Cargando pedido ${id_pedido}...`, 'info');
+        }
+    },
+    /**
      * Copiar ID al portapapeles con feedback visual
      */
     copiarID: function (id, element) {
@@ -67,6 +91,20 @@ const AlmacenModule = {
         }
 
         console.log('🔧 [Almacen] Inicializando módulo...');
+
+        // Adaptación visual para Frimetals
+        const division = window.AppState?.user?.division;
+        if (division === 'FRIMETALS') {
+            const h1 = document.querySelector('#almacen-page .page-title h1');
+            if (h1) h1.innerHTML = '<i class="fas fa-warehouse"></i> Gestión Pedidos';
+
+            const subtitle = document.querySelector('#almacen-page .page-title .subtitle');
+            if (subtitle) subtitle.textContent = 'Alistamiento y preparación de pedidos pendientes';
+
+            // También el menú para ser consistentes
+            const menuLink = document.querySelector('.menu-item[data-page="almacen"] span');
+            if (menuLink) menuLink.textContent = 'Gestión Pedidos';
+        }
 
         // Marcar como inicializado
         this._inicializado = true;
@@ -241,6 +279,7 @@ const AlmacenModule = {
             return;
         }
 
+        const isMetals = (window.AppState?.user?.division === 'FRIMETALS');
         let html = '<div class="row g-3">';
         // Filtrar pedidos completados (100% Alistado y 100% Enviado)
         const pendientesReales = this.pedidosPendientes.filter(p => {
@@ -289,6 +328,9 @@ const AlmacenModule = {
             const currentUser = window.AppState?.user;
             const currentRole = AuthModule.normalizeRole(currentUser?.rol || currentUser?.role);
 
+            // 1. Detección robusta de la división según los requerimientos
+            const isFrimetals = (window.AppState?.user?.division === 'FRIMETALS');
+
             // RBAC: Solo Administración, Jefe Almacén y Comercial pueden DELEGAR
             const puedeDelegar = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'COMERCIAL'].includes(currentRole);
             const esParaMi = (currentUser?.nombre || currentUser?.name) === pedido.delegado_a;
@@ -299,14 +341,14 @@ const AlmacenModule = {
                         style="transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); border-radius: 12px; overflow: hidden; border-left: 5px solid ${colorStatus} !important; background: #fff; min-height: 280px; display: flex; flex-direction: column;">
                         <div style="background: #f8fafc; padding: 12px 15px; border-bottom: 1px solid #edf2f7; cursor: pointer;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                                <div class="d-flex align-items-center gap-2 cursor-pointer copy-id-btn" 
-                                     onclick="event.stopPropagation(); AlmacenModule.copiarID('${pedido.id_pedido}', this)"
-                                     title="Copiar ID del pedido">
+                                <div class="d-flex align-items-center gap-2 cursor-pointer edit-order-btn" 
+                                     onclick="event.stopPropagation(); AlmacenModule.editarPedido('${pedido.id_pedido}')"
+                                     title="Editar Pedido (Cargar en módulo Pedidos)">
                                     <span class="fw-bold text-primary order-id-ref" style="font-size: 1.4rem; white-space: nowrap; letter-spacing: -0.3px; font-weight: 800;">${pedido.id_pedido}</span>
-                                    <i class="fas fa-copy text-muted" style="font-size: 0.9rem; opacity: 0.6;"></i>
+                                    <i class="fas fa-edit text-warning" style="font-size: 0.9rem; opacity: 0.8;"></i>
                                 </div>
                                 <div class="d-flex flex-wrap gap-1 align-items-center justify-content-end" style="flex: 1;">
-                                    ${esParaMi ? '<span class="badge bg-info" style="font-size: 0.6rem; padding: 4px 6px; font-weight: 700; border-radius: 4px;"><i class="fas fa-user-check me-1"></i>MÍO</span>' : ''}
+                                    ${esParaMi && !isFrimetals ? '<span class="badge bg-info" style="font-size: 0.6rem; padding: 4px 6px; font-weight: 700; border-radius: 4px;"><i class="fas fa-user-check me-1"></i>MÍO</span>' : ''}
                                     <span class="badge" style="background: ${colorStatus}; font-size: 0.6rem; padding: 4px 6px; text-transform: uppercase; font-weight: 700; border-radius: 4px;">${pedido.estado}</span>
                                 </div>
                             </div>
@@ -335,7 +377,8 @@ const AlmacenModule = {
                             <!-- Barra Doble de Progreso -->
                             <div class="mt-auto" style="cursor: pointer; margin-bottom: 10px;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="small fw-bold text-muted" style="font-size: 0.65rem;"><i class="fas fa-box me-1"></i> En Reparto</span>
+                                    <!-- 2. Reemplazo dinámico "En Reparto" -> "Alistado" para Frimetals -->
+                                    <span class="small fw-bold text-muted" style="font-size: 0.65rem;"><i class="fas fa-box me-1"></i> ${isFrimetals ? 'Alistado' : 'En Reparto'}</span>
                                     <span class="small fw-bold" style="color: #6366f1; font-size: 0.7rem;">${progresoAlisado}%</span>
                                 </div>
                                 <div class="progress progress-modern" style="height: 6px; border-radius: 10px; background: #f1f5f9; margin-bottom: 10px;">
@@ -353,30 +396,27 @@ const AlmacenModule = {
                                 </div>
                             </div>
 
+                            <!-- 3. Condición para renderizar completamente o NO renderizar la delegación -->
+                            ${!isFrimetals ? `
                             <div class="mt-3 pt-3 border-top delegation-section" style="border-top: 1px dashed #e2e8f0 !important; ${pedido.delegado_a || puedeDelegar ? '' : 'display:none;'}">
                                 <label class="small fw-bold text-muted mb-2 d-block text-uppercase delegate-label" style="letter-spacing: 0.5px; font-size: 0.6rem; opacity: 0.7;">
                                     ${pedido.delegado_a ? 'Alistador Asignado' : 'Delegar Alistamiento'}
                                 </label>
                                 
-                                <!-- Nombre visible solo en TV Mode -->
-                                <div class="alistador-tv-display" style="display: none; font-weight: 800; color: #6366f1; text-transform: uppercase;">
-                                    ${pedido.delegado_a || 'Sin asignar'}
-                                </div>
-
                                 <div class="delegation-controls">
                                     ${puedeDelegar ? `
                                     <div class="input-group input-group-sm">
                                         <select class="form-select select-delegar" id="select-delegar-${pedido.id_pedido}" style="border-radius: 6px 0 0 6px; font-size: 0.75rem; border-color: #e2e8f0; background-color: #f8fafc;">
                                             <option value="">Sin asignar</option>
                                             ${(window.AppState.sharedData.responsables || [])
-                        .filter(r => {
-                            const depto = (typeof r === 'object' ? r.departamento : '').toUpperCase();
-                            return depto.includes('ALISTAMIENTO');
-                        })
-                        .map(r => {
-                            const nome = typeof r === 'object' ? r.nombre : r;
-                            return `<option value="${nome}" ${pedido.delegado_a === nome ? 'selected' : ''}>${nome}</option>`;
-                        }).join('')}
+                            .filter(r => {
+                                const depto = (typeof r === 'object' ? r.departamento : '').toUpperCase();
+                                return depto.includes('ALISTAMIENTO');
+                            })
+                            .map(r => {
+                                const nome = typeof r === 'object' ? r.nombre : r;
+                                return `<option value="${nome}" ${pedido.delegado_a === nome ? 'selected' : ''}>${nome}</option>`;
+                            }).join('')}
                                         </select>
                                         <button class="btn btn-primary" onclick="AlmacenModule.delegarPedido('${pedido.id_pedido}')" style="border-radius: 0 6px 6px 0; padding: 0 12px; background: #4f46e5; border: none;">
                                             <i class="fas fa-user-plus" style="font-size: 0.8rem;"></i>
@@ -387,8 +427,9 @@ const AlmacenModule = {
                                         <i class="fas fa-user-circle me-1"></i> ${pedido.delegado_a || 'Sin asignar'}
                                     </div>
                                     `}
-                                </div>
-                            </div>
+                                </div >
+                            </div >
+    ` : ''}
                             
                             <!-- Mensaje Solo Lectura para Comercial -->
                             ${currentUser?.rol === 'Comercial' ? '<div class="mt-2 text-center"><span class="badge bg-secondary text-white small" style="opacity:0.8"><i class="fas fa-eye"></i> Solo Lectura</span></div>' : ''}
@@ -436,8 +477,8 @@ const AlmacenModule = {
     },
 
     /**
- * Abrir modal de checklist para un pedido específico
- */
+    * Abrir modal de checklist para un pedido específico
+    */
     abrirModal: function (id_pedido) {
         const pedido = this.pedidosPendientes.find(p => p.id_pedido === id_pedido);
         if (!pedido) return;
@@ -448,7 +489,8 @@ const AlmacenModule = {
         const toggle = document.getElementById('toggle-ver-ocultos');
         if (toggle) toggle.checked = false;
 
-        document.getElementById('modal-alistamiento-titulo').innerText = `Alistamiento: ${pedido.id_pedido}`;
+        const isMetals = (window.AppState?.user?.division === 'FRIMETALS');
+        document.getElementById('modal-alistamiento-titulo').innerText = `${isMetals ? 'Pedido' : 'Alistamiento'}: ${pedido.id_pedido}`;
 
         // --- Info del pedido: cliente + hora + contador de referencias ---
         const totalRefs = pedido.productos.length;
@@ -460,7 +502,7 @@ const AlmacenModule = {
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
             <span><i class="fas fa-user me-1"></i> ${pedido.cliente}${horaStr}</span>
             <span class="badge ${completadas === totalRefs ? 'bg-success' : 'bg-primary'}" style="font-size: 0.85rem; padding: 6px 12px;">
-                <i class="fas fa-cube me-1"></i> ${completadas}/${totalRefs} referencias
+                <i class="fas fa-cube me-1"></i> ${completadas}/${totalRefs} ${isMetals ? 'items' : 'referencias'}
             </span>
         </div>
     `;
@@ -520,6 +562,7 @@ const AlmacenModule = {
         const container = document.getElementById('lista-productos-alistamiento');
         if (!container) return;
 
+        const isMetals = (window.AppState?.user?.division === 'FRIMETALS');
         let html = '';
         let itemsVisibles = 0;
 
@@ -621,7 +664,7 @@ const AlmacenModule = {
                     </button>
                     
                     <div class="flex-grow-1 px-3 text-center">
-                        <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px;">Empacado</small>
+                        <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px;">${isMetals ? 'Alistado' : 'Empacado'}</small>
                         <input type="number" class="form-control border-0 bg-transparent text-center fw-bold p-0" 
                             value="${prod.cant_lista}" 
                             onchange="AlmacenModule.cambiarCantidad(${index}, this.value, 'cant_lista')"
@@ -838,9 +881,10 @@ const AlmacenModule = {
         const barAlisado = document.getElementById('modal-alisado-progress');
         const barEnviado = document.getElementById('modal-enviado-progress');
 
+        const isMetals = (window.AppState?.user?.division === 'FRIMETALS');
         if (barAlisado) {
             barAlisado.style.width = `${pctAlisado}% `;
-            barAlisado.innerText = `En Reparto: ${pctAlisado}% `;
+            barAlisado.innerText = `${isMetals ? 'Alistado' : 'En Reparto'}: ${pctAlisado}% `;
             // ... efectos ...
             barAlisado.parentElement.classList.add('progress-modern');
             barAlisado.classList.add('progress-bar-shimmer');

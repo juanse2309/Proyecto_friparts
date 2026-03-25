@@ -159,18 +159,18 @@ def guardar_ausencia():
 
 @asistencia_bp.route('/mis_horas', methods=['GET'])
 def obtener_mis_horas():
-    """Obtiene el historial de asistencia de la semana actual para un colaborador específico."""
-    colaborador = request.args.get('nombre')
+    """Obtiene el historial de asistencia de la semana actual para el colaborador logueado."""
+    colaborador = session.get('user')
     if not colaborador:
-        return jsonify({'status': 'error', 'message': 'Nombre de colaborador no proporcionado'}), 400
+        return jsonify({'status': 'error', 'message': 'Acceso denegado. Usuario no autenticado en sesión.'}), 401
         
     try:
         from datetime import datetime, timedelta
         
-        # Calcular el inicio de la semana actual (Lunes)
+        # Calcular el inicio del rango (últimos 30 días)
         hoy = datetime.now()
-        inicio_semana = hoy - timedelta(days=hoy.weekday())
-        inicio_semana = inicio_semana.replace(hour=0, minute=0, second=0, microsecond=0)
+        inicio_rango = hoy - timedelta(days=30)
+        inicio_rango = inicio_rango.replace(hour=0, minute=0, second=0, microsecond=0)
         
         ws = sheets_client.get_worksheet(Hojas.CONTROL_ASISTENCIA)
         if not ws:
@@ -191,7 +191,7 @@ def obtener_mis_horas():
                     else:
                         fecha_reg = datetime.strptime(fecha_str, '%d/%m/%Y')
                         
-                    if fecha_reg >= inicio_semana:
+                    if fecha_reg >= inicio_rango:
                         mis_registros.append({
                             'fecha': fecha_reg.strftime('%Y-%m-%d'),
                             'ingreso_real': r.get('INGRESO_REAL', r.get('INGRESO REAL', '')),
@@ -265,15 +265,26 @@ def obtener_consolidado_pendiente():
         if ws_cortes:
             cortes = ws_cortes.get_all_records()
             if cortes:
-                # El último registro es el corte más reciente
-                # Asumiendo que FECHA_CORTE_EJECUTADO está en formato ISO o YYYY-MM-DD
+                # Buscar de forma agnóstica la última fecha (puede que la columna varíe)
                 ultimo_corte = cortes[-1]
-                fecha_str = str(ultimo_corte.get('FECHA_CORTE_EJECUTADO', '')).strip()
+                # Buscar cualquier key que contenga 'FECHA'
+                fecha_str = ""
+                for k, v in ultimo_corte.items():
+                    if 'FECHA' in str(k).upper():
+                        fecha_str = str(v).strip()
+                        break
+                        
                 if fecha_str:
                     try:
                         from datetime import datetime
-                        ultima_fecha_corte = datetime.fromisoformat(fecha_str.split(' ')[0])
-                    except:
+                        # A veces viene como ISO '2026-03-25T...' a veces como Fecha '25/03/2026'
+                        if 'T' in fecha_str:
+                            ultima_fecha_corte = datetime.fromisoformat(fecha_str.split('T')[0])
+                        else:
+                            # Intentar parsear YYYY-MM-DD
+                            ultima_fecha_corte = datetime.strptime(fecha_str.split(' ')[0], '%Y-%m-%d')
+                    except Exception as date_e:
+                        logger.warning(f"No se pudo parsear ultima fecha corte {fecha_str}: {date_e}")
                         pass
 
         # 2. Consultar asistencia y filtrar
@@ -301,15 +312,28 @@ def obtener_consolidado_pendiente():
             if ultima_fecha_corte and fecha_reg <= ultima_fecha_corte:
                 continue
                 
+            # Helpers para castear valores vacíos o con comas de excel
+            def parse_hours(val):
+                if not val: return 0.0
+                try: 
+                    return float(str(val).replace(',', '.'))
+                except ValueError:
+                    return 0.0
+            
             colab = r.get('COLABORADOR', 'Desconocido')
-            h_ord = float(r.get('HORAS_ORDINARIAS', r.get('HORAS ORDINARIAS', 0)) or 0)
-            h_ext = float(r.get('HORAS_EXTRAS', r.get('HORAS EXTRAS', 0)) or 0)
+            h_ord = parse_hours(r.get('HORAS_ORDINARIAS', r.get('HORAS ORDINARIAS', 0)))
+            h_ext = parse_hours(r.get('HORAS_EXTRAS', r.get('HORAS EXTRAS', 0)))
             
             if colab not in consolidado:
-                consolidado[colab] = {'ordinarias': 0, 'extras': 0}
+                consolidado[colab] = {'ordinarias': 0.0, 'extras': 0.0}
             
+            # Suma acumulativa matemática con redondeo explícito
             consolidado[colab]['ordinarias'] += h_ord
             consolidado[colab]['extras'] += h_ext
+            
+            consolidado[colab]['ordinarias'] = round(consolidado[colab]['ordinarias'], 2)
+            consolidado[colab]['extras'] = round(consolidado[colab]['extras'], 2)
+            
             total_regs += 1
 
             # Guardar detalle diario para el CSV

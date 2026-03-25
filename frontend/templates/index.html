@@ -10,13 +10,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>FriTech - Sistema de Producción</title> <!-- CSS -->
-    <link rel="stylesheet" href="/static/css/styles.css?v=1.6.0">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=1.6.0">
-    <link rel="stylesheet" href="/static/css/mobile-ux.css?v=1.6.0">
-    <link rel="stylesheet" href="/static/css/mobile.css?v=1.6.0">
-    <link rel="stylesheet" href="/static/css/tv_vista.css?v=1.6.0">
-    <link rel="stylesheet" href="/static/css/almacen_scroll.css?v=1.6.0">
-    <link rel="stylesheet" href="/static/css/pedidos_styles.css?v=1.6.0">
+    <link rel="stylesheet" href="/static/css/styles.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/mobile-ux.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/mobile.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/tv_vista.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/almacen_scroll.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/pedidos_styles.css?v=1.6.1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Bootstrap para modales -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -488,7 +488,7 @@
             <li class="menu-item" data-page="facturacion"> <a href="#"><i
                         class="fas fa-file-invoice-dollar"></i><span>Generación WO</span></a> </li>
             <li class="menu-item" data-page="almacen"> <a href="#"><i class="fas fa-warehouse"></i><span>Gestión
-                        Almacén</span></a> </li>
+                        de Pedidos</span></a> </li>
             <li class="menu-item" data-page="mezcla"> <a href="#"><i class="fas fa-vial"></i><span>Mezcla
                         Material</span></a> </li>
             <li class="menu-item" data-page="historial"> <a href="#"><i class="fas fa-history"></i><span>Historial
@@ -2889,7 +2889,7 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="page-title">
-                    <h1><i class="fas fa-warehouse"></i> Gestión de Almacén</h1>
+                    <h1><i class="fas fa-warehouse"></i> Gestión de Pedidos</h1>
                     <p class="subtitle">Alistamiento y preparación de pedidos pendientes</p>
                 </div>
                 <div class="top-controls">
@@ -3601,178 +3601,200 @@
                     </div>
                 </div>
 
-                <!-- VISTA JEFE / ADMIN -->
-                <div id="asistencia-jefe-view" style="display: none;">
-                    <div class="card border-0 shadow-sm mb-4" style="border-radius: 16px;">
-                        <div class="card-body">
-                            <div class="row g-3 align-items-end">
-                                <div class="col-md-5">
-                                    <label class="form-label fw-bold small text-muted"><i
-                                            class="fas fa-calendar-day me-1"></i> FECHA DE REGISTRO</label>
-                                    <input type="date" id="asistencia-fecha"
-                                        onchange="ModuloAsistencia.cargarPlanilla()"
-                                        class="form-control form-control-lg border-0 bg-light shadow-sm">
-                                </div>
-                                <div class="col-md-5 d-flex gap-2">
-                                    <button class="btn btn-primary px-4 shadow-sm"
-                                        onclick="ModuloAsistencia.cargarPlanilla()">
-                                        <i class="fas fa-sync-alt me-1"></i> Cargar Personal a Cargo
-                                    </button>
-                                    <div class="btn-group shadow-sm" role="group">
-                                        <button type="button" class="btn btn-outline-primary active" id="btn-view-table"
-                                            onclick="ModuloAsistencia.cambiarVista('table')">
-                                            <i class="fas fa-table"></i>
+                <!-- PESTAÑAS (TABS) ASISTENCIA -->
+                <ul class="nav nav-tabs mb-4 custom-tabs border-bottom-0" id="asistenciaTabs" role="tablist">
+                    <li class="nav-item" role="presentation" id="nav-item-gestion" style="display: none;">
+                        <button class="nav-link active fw-bold" id="tab-gestion" data-bs-toggle="tab"
+                            data-bs-target="#asistencia-gestion" type="button" role="tab">
+                            <i class="fas fa-users-cog me-2"></i>Gestión de Personal
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation" id="nav-item-mis-horas">
+                        <button class="nav-link fw-bold" id="tab-mis-horas" data-bs-toggle="tab"
+                            data-bs-target="#asistencia-mis-horas" type="button" role="tab">
+                            <i class="fas fa-history me-2"></i>Mis Horas
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content" id="asistenciaTabsContent">
+                    <!-- VISTA JEFE / ADMIN (TAB GESTIÓN) -->
+                    <div class="tab-pane fade show active" id="asistencia-gestion" role="tabpanel" tabindex="0">
+                        <div class="card border-0 shadow-sm mb-4" style="border-radius: 16px;">
+                            <div class="card-body">
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-md-5">
+                                        <label class="form-label fw-bold small text-muted"><i
+                                                class="fas fa-calendar-day me-1"></i> FECHA DE REGISTRO</label>
+                                        <input type="date" id="asistencia-fecha"
+                                            onchange="ModuloAsistencia.cargarPlanilla()"
+                                            class="form-control form-control-lg border-0 bg-light shadow-sm">
+                                    </div>
+                                    <div class="col-md-5 d-flex gap-2">
+                                        <button class="btn btn-primary px-4 shadow-sm"
+                                            onclick="ModuloAsistencia.cargarPlanilla()">
+                                            <i class="fas fa-sync-alt me-1"></i> Cargar Personal a Cargo
                                         </button>
-                                        <button type="button" class="btn btn-outline-primary" id="btn-view-cards"
-                                            onclick="ModuloAsistencia.cambiarVista('cards')">
-                                            <i class="fas fa-th-large"></i>
+                                        <div class="btn-group shadow-sm" role="group">
+                                            <button type="button" class="btn btn-outline-primary active"
+                                                id="btn-view-table" onclick="ModuloAsistencia.cambiarVista('table')">
+                                                <i class="fas fa-table"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" id="btn-view-cards"
+                                                onclick="ModuloAsistencia.cambiarVista('cards')">
+                                                <i class="fas fa-th-large"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button class="btn btn-success px-4 shadow-sm fw-bold w-100"
+                                            onclick="ModuloAsistencia.guardarAsistencia()">
+                                            <i class="fas fa-save me-1"></i> Registrar Horas
                                         </button>
                                     </div>
                                 </div>
-                                <div class="col-md-2">
-                                    <button class="btn btn-success px-4 shadow-sm fw-bold w-100"
-                                        onclick="ModuloAsistencia.guardarAsistencia()">
-                                        <i class="fas fa-save me-1"></i> Registrar Horas
-                                    </button>
+                            </div>
+                        </div>
+
+                        <div id="asistencia-table-container" class="card border-0 shadow-sm"
+                            style="border-radius: 16px; overflow: hidden;">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0" id="tabla-asistencia">
+                                    <thead class="bg-primary text-white">
+                                        <tr>
+                                            <th class="ps-4"><i class="fas fa-user me-2"></i>Colaborador</th>
+                                            <th><i class="fas fa-layer-group me-2"></i>Área</th>
+                                            <th class="text-center"><i class="fas fa-clock me-2"></i>Horario Of.</th>
+                                            <th class="text-center text-success"><i
+                                                    class="fas fa-sign-in-alt me-2"></i>Llegada</th>
+                                            <th class="text-center text-danger"><i
+                                                    class="fas fa-sign-out-alt me-2"></i>Salida</th>
+                                            <th class="text-center"><i class="fas fa-hourglass-start me-2"></i>H.
+                                                Ordinarias
+                                            </th>
+                                            <th class="text-center"><i class="fas fa-fire me-2"></i>H. Extras</th>
+                                            <th class="text-center"><i class="fas fa-comment-dots me-2"></i>Comentarios
+                                            </th>
+                                            <th class="text-center"><i class="fas fa-user-times me-2"></i>Ausencia</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="asistencia-body">
+                                        <tr>
+                                            <td colspan="7" class="text-center py-5 text-muted">
+                                                <i class="fas fa-users-cog fa-2x mb-3 text-primary"
+                                                    style="opacity: 0.5;"></i><br>
+                                                Haga clic en 'Cargar Personal a Cargo'
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- VISTA TARJETAS (MÓVIL) -->
+                        <div id="asistencia-cards-container" class="row g-3" style="display: none;">
+                            <!-- Se llena dinámicamente -->
+                        </div>
+
+                        <!-- PANEL CONSOLIDADO RRHH (Solo Admin) -->
+                        <div id="panel-corte-nomina" class="mt-4" style="display: none;">
+                            <div class="card border-0 shadow-sm" style="border-radius: 16px; overflow: hidden;">
+                                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center"
+                                    style="border-radius: 16px 16px 0 0;">
+                                    <h6 class="mb-0 fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i>Consolidado
+                                        y
+                                        Cierre de Nómina</h6>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-sm btn-outline-light"
+                                            onclick="ModuloNomina.cargarConsolidado()">
+                                            <i class="fas fa-sync-alt me-1"></i> Actualizar
+                                        </button>
+                                        <button id="btn-ejecutar-corte" class="btn btn-sm btn-success fw-bold px-3"
+                                            onclick="ModuloNomina.ejecutarCorte()" disabled>
+                                            <i class="fas fa-file-csv me-1"></i> Ejecutar Corte y Descargar CSV
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div id="nomina-alerta-periodo"
+                                        class="alert alert-warning border-0 rounded-0 d-flex align-items-center mb-0 px-4 py-3"
+                                        style="display: none !important;">
+                                        <i class="fas fa-clock me-3 opacity-75"></i>
+                                        <p class="mb-0 small" id="nomina-txt-ultimo-corte">Cargando información del
+                                            último
+                                            corte...</p>
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover align-middle mb-0" id="tabla-nomina">
+                                            <thead class="bg-light">
+                                                <tr>
+                                                    <th class="ps-4">Colaborador</th>
+                                                    <th class="text-center">Total H. Ordinarias</th>
+                                                    <th class="text-center">Total H. Extras</th>
+                                                    <th class="text-center">Estado</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="nomina-body">
+                                                <tr>
+                                                    <td colspan="4" class="text-center py-4 text-muted">
+                                                        <i class="fas fa-calculator fa-2x mb-2 text-secondary"
+                                                            style="opacity: 0.4;"></i><br>
+                                                        Haga clic en "Actualizar" para consolidar
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="p-3 bg-light border-top">
+                                        <p class="small text-muted mb-0">
+                                            <i class="fas fa-info-circle me-1"></i>
+                                            <strong>Nota Contable:</strong> Al ejecutar el corte se generará un CSV y se
+                                            sellará el periodo. Los registros anteriores ya no aparecerán.
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div id="asistencia-table-container" class="card border-0 shadow-sm"
-                        style="border-radius: 16px; overflow: hidden;">
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0" id="tabla-asistencia">
-                                <thead class="bg-primary text-white">
-                                    <tr>
-                                        <th class="ps-4"><i class="fas fa-user me-2"></i>Colaborador</th>
-                                        <th><i class="fas fa-layer-group me-2"></i>Área</th>
-                                        <th class="text-center"><i class="fas fa-clock me-2"></i>Horario Of.</th>
-                                        <th class="text-center text-success"><i
-                                                class="fas fa-sign-in-alt me-2"></i>Llegada</th>
-                                        <th class="text-center text-danger"><i
-                                                class="fas fa-sign-out-alt me-2"></i>Salida</th>
-                                        <th class="text-center"><i class="fas fa-hourglass-start me-2"></i>H. Ordinarias
-                                        </th>
-                                        <th class="text-center"><i class="fas fa-fire me-2"></i>H. Extras</th>
-                                        <th class="text-center"><i class="fas fa-comment-dots me-2"></i>Comentarios</th>
-                                        <th class="text-center"><i class="fas fa-user-times me-2"></i>Ausencia</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="asistencia-body">
-                                    <tr>
-                                        <td colspan="7" class="text-center py-5 text-muted">
-                                            <i class="fas fa-users-cog fa-2x mb-3 text-primary"
-                                                style="opacity: 0.5;"></i><br>
-                                            Haga clic en 'Cargar Personal a Cargo'
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                    <!-- VISTA MIS HORAS (TAB MIS HORAS) -->
+                    <div class="tab-pane fade" id="asistencia-mis-horas" role="tabpanel" tabindex="0">
+                        <div class="card border-0 shadow-sm mb-4"
+                            style="border-radius: 16px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                            <div class="card-body p-4 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h5 class="fw-bold mb-1"><i class="fas fa-history me-2"></i> Mis Horas de la
+                                        Semana</h5>
+                                    <p class="mb-0 small" style="opacity: 0.85;">Registro histórico de tus turnos
+                                        trabajados</p>
+                                </div>
+                                <button class="btn btn-light text-success fw-bold px-4 rounded-pill shadow-sm"
+                                    onclick="ModuloAsistencia.cargarMisHoras()">
+                                    <i class="fas fa-sync-alt me-1"></i> Actualizar
+                                </button>
+                            </div>
                         </div>
-                    </div>
 
-                    <!-- VISTA TARJETAS (MÓVIL) -->
-                    <div id="asistencia-cards-container" class="row g-3" style="display: none;">
-                        <!-- Se llena dinámicamente -->
-                    </div>
-
-                    <!-- PANEL CONSOLIDADO RRHH (Solo Admin) -->
-                    <div id="panel-corte-nomina" class="mt-4" style="display: none;">
                         <div class="card border-0 shadow-sm" style="border-radius: 16px; overflow: hidden;">
-                            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center"
-                                style="border-radius: 16px 16px 0 0;">
-                                <h6 class="mb-0 fw-bold"><i class="fas fa-file-invoice-dollar me-2"></i>Consolidado y
-                                    Cierre de Nómina</h6>
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-sm btn-outline-light"
-                                        onclick="ModuloNomina.cargarConsolidado()">
-                                        <i class="fas fa-sync-alt me-1"></i> Actualizar
-                                    </button>
-                                    <button id="btn-ejecutar-corte" class="btn btn-sm btn-success fw-bold px-3"
-                                        onclick="ModuloNomina.ejecutarCorte()" disabled>
-                                        <i class="fas fa-file-csv me-1"></i> Ejecutar Corte y Descargar CSV
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="card-body p-0">
-                                <div id="nomina-alerta-periodo"
-                                    class="alert alert-warning border-0 rounded-0 d-flex align-items-center mb-0 px-4 py-3"
-                                    style="display: none !important;">
-                                    <i class="fas fa-clock me-3 opacity-75"></i>
-                                    <p class="mb-0 small" id="nomina-txt-ultimo-corte">Cargando información del último
-                                        corte...</p>
-                                </div>
-                                <div class="table-responsive">
-                                    <table class="table table-hover align-middle mb-0" id="tabla-nomina">
-                                        <thead class="bg-light">
-                                            <tr>
-                                                <th class="ps-4">Colaborador</th>
-                                                <th class="text-center">Total H. Ordinarias</th>
-                                                <th class="text-center">Total H. Extras</th>
-                                                <th class="text-center">Estado</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="nomina-body">
-                                            <tr>
-                                                <td colspan="4" class="text-center py-4 text-muted">
-                                                    <i class="fas fa-calculator fa-2x mb-2 text-secondary"
-                                                        style="opacity: 0.4;"></i><br>
-                                                    Haga clic en "Actualizar" para consolidar
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <div class="p-3 bg-light border-top">
-                                    <p class="small text-muted mb-0">
-                                        <i class="fas fa-info-circle me-1"></i>
-                                        <strong>Nota Contable:</strong> Al ejecutar el corte se generará un CSV y se
-                                        sellará el periodo. Los registros anteriores ya no aparecerán.
-                                    </p>
-                                </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0 text-center">
+                                    <thead class="bg-light text-muted">
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Llegada</th>
+                                            <th>Salida</th>
+                                            <th class="text-primary">Horas Ordinarias</th>
+                                            <th class="text-danger">Horas Extras</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mis-horas-body">
+                                        <!-- Se llena dinámicamente -->
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- VISTA OPERARIO -->
-                <div id="asistencia-operario-view" style="display: none;">
-                    <div class="card border-0 shadow-sm mb-4"
-                        style="border-radius: 16px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
-                        <div class="card-body p-4 d-flex justify-content-between align-items-center">
-                            <div>
-                                <h5 class="fw-bold mb-1"><i class="fas fa-history me-2"></i> Mis Horas de la
-                                    Semana</h5>
-                                <p class="mb-0 small" style="opacity: 0.85;">Registro histórico de tus turnos
-                                    trabajados</p>
-                            </div>
-                            <button class="btn btn-light text-success fw-bold px-4 rounded-pill shadow-sm"
-                                onclick="ModuloAsistencia.cargarMisHoras()">
-                                <i class="fas fa-sync-alt me-1"></i> Actualizar
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="card border-0 shadow-sm" style="border-radius: 16px; overflow: hidden;">
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0 text-center">
-                                <thead class="bg-light text-muted">
-                                    <tr>
-                                        <th>Fecha</th>
-                                        <th>Llegada</th>
-                                        <th>Salida</th>
-                                        <th class="text-primary">Horas Ordinarias</th>
-                                        <th class="text-danger">Horas Extras</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="mis-horas-body">
-                                    <!-- Se llena dinámicamente -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div> <!-- FIN asistencia-operario-view -->
+                </div> <!-- FIN tab-content -->
             </div> <!-- FIN content-container -->
         </div> <!-- FIN asistencia-page -->
 
@@ -3813,6 +3835,7 @@
                     <select id="ausencia-motivo" class="form-select form-select-lg border-0 shadow-sm"
                         style="border-radius: 12px;">
                         <option value="" disabled selected>Seleccione el motivo...</option>
+                        <option value="Sábado (No Laborable)">Sábado (No Laborable)</option>
                         <option value="Incapacidad">Incapacidad</option>
                         <option value="Cita Médica">Cita Médica</option>
                         <option value="Situación Académica">Situación Académica</option>
@@ -4060,43 +4083,43 @@
     </datalist>
 
     <!-- Scripts de utilería y comunes -->
-    <script src="/static/js/modules/utils.js?v=1.6.0"></script>
-    <script src="/static/js/modules/auth.js?v=1.6.0"></script>
+    <script src="/static/js/modules/utils.js?v=1.6.1"></script>
+    <script src="/static/js/modules/auth.js?v=1.6.1"></script>
 
-    <script src="/static/js/modules/ui_ux.js?v=1.6.0"></script>
+    <script src="/static/js/modules/ui_ux.js?v=1.6.1"></script>
 
     <!-- Módulo de UI y Validaciones -->
-    <script src="/static/js/modules/validation.js?v=1.6.0"></script>
-    <script src="/static/js/modules/touch-feedback.js?v=1.6.0"></script>
+    <script src="/static/js/modules/validation.js?v=1.6.1"></script>
+    <script src="/static/js/modules/touch-feedback.js?v=1.6.1"></script>
 
     <!-- Funcionalidades de Módulos (IMPORTANTE: ui_ux debe ir ANTES) -->
-    <script src="/static/js/modules/dashboard.js?v=1.6.0"></script>
+    <script src="/static/js/modules/dashboard.js?v=1.6.1"></script>
     <script>console.log("✅ dashboard.js cargado");</script>
-    <script src="/static/js/modules/inventario.js?v=1.6.0"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1.6.0"></script>
-    <script src="/static/js/modules/mes_control.js?v=1.6.0"></script>
-    <script src="/static/js/modules/pulido.js?v=1.6.0"></script>
-    <script src="/static/js/modules/ensamble.js?v=1.6.0"></script>
-    <script src="/static/js/modules/pnc.js?v=1.6.0"></script>
-    <script src="/static/js/modules/facturacion.js?v=1.6.0"></script>
-    <script src="/static/js/modules/reportes.js?v=1.6.0"></script>
-    <script src="/static/js/modules/mezcla.js?v=1.6.0"></script>
-    <script src="/static/js/modules/historial.js?v=1.6.0"></script>
+    <script src="/static/js/modules/inventario.js?v=1.6.1"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1.6.1"></script>
+    <script src="/static/js/modules/mes_control.js?v=1.6.1"></script>
+    <script src="/static/js/modules/pulido.js?v=1.6.1"></script>
+    <script src="/static/js/modules/ensamble.js?v=1.6.1"></script>
+    <script src="/static/js/modules/pnc.js?v=1.6.1"></script>
+    <script src="/static/js/modules/facturacion.js?v=1.6.1"></script>
+    <script src="/static/js/modules/reportes.js?v=1.6.1"></script>
+    <script src="/static/js/modules/mezcla.js?v=1.6.1"></script>
+    <script src="/static/js/modules/historial.js?v=1.6.1"></script>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 
-    <script src="/static/js/modules/pedidos.js?v=1.6.0"></script>
-    <script src="/static/js/modules/almacen.js?v=1.6.0"></script>
-    <script src="/static/js/modules/metals.js?v=1.6.0"></script>
-    <script src="/static/js/modules/portal_client.js?v=1.6.0"></script>
-    <script src="/static/js/modules/procura.js?v=1.6.0"></script>
-    <script src="/static/js/modules/rotacion.js?v=1.6.0"></script>
-    <script src="/static/js/modules/asistencia.js?v=1.6.0"></script>
-    <script src="/static/js/modules/nomina.js?v=1.6.0"></script>
+    <script src="/static/js/modules/pedidos.js?v=1.6.1"></script>
+    <script src="/static/js/modules/almacen.js?v=1.6.1"></script>
+    <script src="/static/js/modules/metals.js?v=1.6.1"></script>
+    <script src="/static/js/modules/portal_client.js?v=1.6.1"></script>
+    <script src="/static/js/modules/procura.js?v=1.6.1"></script>
+    <script src="/static/js/modules/rotacion.js?v=1.6.1"></script>
+    <script src="/static/js/modules/asistencia.js?v=1.6.1"></script>
+    <script src="/static/js/modules/nomina.js?v=1.6.1"></script>
 
     <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
-    <script src="/static/js/app.js?v=1.6.0"></script>
+    <script src="/static/js/app.js?v=1.6.1"></script>
     <script>console.log("✅ app.js cargado");</script>
     <!-- Script de inicialización -->
     <script>

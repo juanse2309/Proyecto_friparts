@@ -149,11 +149,15 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     
     # Manejo de consecutivo inicial manual
     consecutivo_actual = None
-    if consecutivo_inicial:
+    if consecutivo_inicial and str(consecutivo_inicial).strip():
         try:
-            consecutivo_actual = int(consecutivo_inicial)
+            consecutivo_actual = int(str(consecutivo_inicial).strip())
+            logger.info(f"DEBUG: Consecutivo inicial recibido: {consecutivo_inicial} -> {consecutivo_actual}")
         except (ValueError, TypeError):
             consecutivo_actual = None
+            logger.error(f"DEBUG: Error parseando consecutivo_inicial: {consecutivo_inicial}")
+    else:
+        logger.info("DEBUG: No se recibió consecutivo_inicial, usando IDs originales")
 
     # Mapeo de Vendedores dinámico (desde RESPONSABLES)
     vendedores_ids = obtener_mapa_vendedores()
@@ -395,6 +399,8 @@ def exportar_world_office():
         ids_filter = data.get('ids', None) # Lista de IDs seleccionados
         consecutivo_inicial = data.get('consecutivo_inicial', None)
         
+        print(f"DEBUG: [Exportar WO] ids: {len(ids_filter) if ids_filter else 'ALL'}, consecutivo: {consecutivo_inicial}")
+        
         df, mapeo_consecutivos = procesar_datos_wo(ids_filter, consecutivo_inicial)
         
         if df.empty:
@@ -436,6 +442,8 @@ def preview_world_office():
         ids_filter = data.get('ids', None)
         consecutivo_inicial = data.get('consecutivo_inicial', None)
         
+        print(f"DEBUG: [Preview WO] ids: {len(ids_filter) if ids_filter else 'ALL'}, consecutivo: {consecutivo_inicial}")
+        
         df, _ = procesar_datos_wo(ids_filter, consecutivo_inicial)
         
         if df.empty:
@@ -445,7 +453,14 @@ def preview_world_office():
         # Reemplazar NaN con null o string vacío
         preview_data = df.fillna('').head(50).to_dict(orient='records')
         
-        return jsonify({'success': True, 'data': preview_data})
+        return jsonify({
+            'success': True, 
+            'data': preview_data,
+            'debug_params': {
+                'ids_count': len(ids_filter) if ids_filter else 0,
+                'consecutivo_recibido': consecutivo_inicial
+            }
+        })
         
     except Exception as e:
         logger.error(f"Error generando preview WO: {e}", exc_info=True)

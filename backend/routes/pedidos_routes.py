@@ -2,7 +2,8 @@
 from backend.utils.auth_middleware import require_role
 from flask import Blueprint, jsonify, request, session
 from backend.core.database import sheets_client
-from backend.config.settings import Hojas
+from backend.config.settings import Hojas, TenantConfig
+from backend.core.tenant import get_tenant_from_request
 import gspread
 from datetime import datetime
 import logging
@@ -13,12 +14,23 @@ import pytz
 pedidos_bp = Blueprint('pedidos', __name__)
 logger = logging.getLogger(__name__)
 
-def obtener_siguiente_id_pedido():
-    """Genera el siguiente ID secuencial con formato PED9643, ignorando IDs antiguos con guiones"""
+
+def _resolve_tenant():
+    """Resuelve el tenant desde la sesión y retorna (tenant, hoja_pedidos, hoja_productos)."""
+    tenant = get_tenant_from_request()
+    hoja_pedidos = TenantConfig.get(tenant, 'PEDIDOS')
+    hoja_productos = TenantConfig.get(tenant, 'PRODUCTOS')
+    logger.info(f"🏢 [Tenant] Resuelto: {tenant} → PEDIDOS={hoja_pedidos}, PRODUCTOS={hoja_productos}")
+    return tenant, hoja_pedidos, hoja_productos
+
+def obtener_siguiente_id_pedido(hoja_pedidos=None):
+    """Genera el siguiente ID secuencial con formato PED9643 (o MPED para Frimetals)."""
     try:
-        from backend.routes.facturacion_routes import obtener_hoja
-        ws = obtener_hoja(Hojas.PEDIDOS)
-        col_values = ws.col_values(1) # Asumimos columna A es ID PEDIDO
+        nombre_hoja = hoja_pedidos or Hojas.PEDIDOS
+        ws = sheets_client.get_worksheet(nombre_hoja)
+        if not ws:
+            raise ValueError(f"Hoja {nombre_hoja} no encontrada")
+        col_values = ws.col_values(1)  # columna A = ID PEDIDO
         
         import re
         max_num = 0
@@ -62,6 +74,7 @@ def registrar_pedido():
     """
     try:
         logger.info("🛒 ===== INICIO REGISTRO DE PEDIDO =====")
+        tenant, hoja_pedidos, hoja_productos = _resolve_tenant()
         
         data = request.json
         logger.info(f"📦 Datos recibidos del frontend:")
@@ -98,7 +111,7 @@ def registrar_pedido():
         if nit and (not direccion or not ciudad):
             try:
                 nit_clean = str(nit).upper().replace('NIT', '').strip()
-                ws_db = sheets_client.get_worksheet("DB_Clientes")
+                ws_db = sheets_client.get_worksheet(TenantConfig.get(tenant, 'CLIENTES'))
                 if ws_db:
                     recs = ws_db.get_all_records()
                     match = next((r for r in recs if nit_clean in str(r.get('IDENTIFICACION', '')).upper()), None)
@@ -132,12 +145,12 @@ def registrar_pedido():
         
         # Get or create worksheet
         ws = sheets_client.get_or_create_worksheet(
-            Hojas.PEDIDOS, 
+            hoja_pedidos, 
             rows=1000, 
             cols=20
         )
         
-        logger.info(f"📄 Worksheet 'PEDIDOS' obtenida correctamente")
+        logger.info(f"📄 Worksheet '{hoja_pedidos}' obtenida correctamente")
         
         # Check headers
         existing_headers = ws.row_values(1)
@@ -150,13 +163,13 @@ def registrar_pedido():
         ]
         
         if not existing_headers:
-            logger.info("📝 Creando encabezados en hoja PEDIDOS")
+            logger.info(f"📝 Creando encabezados en hoja {hoja_pedidos}")
             ws.append_row(expected_headers)
             existing_headers = expected_headers
         else:
             # Asegurar que la columna de observaciones existe para que get_all_records la vea
             if "OBSERVACIONES" not in [h.upper() for h in existing_headers]:
-                logger.info("➕ Agregando cabecera OBSERVACIONES a la hoja PEDIDOS")
+                logger.info(f"➕ Agregando cabecera OBSERVACIONES a la hoja {hoja_pedidos}")
                 new_col_idx = len(existing_headers) + 1
                 ws.update_cell(1, new_col_idx, "OBSERVACIONES")
                 existing_headers.append("OBSERVACIONES")
@@ -187,7 +200,7 @@ def registrar_pedido():
                 
                 # REVERSIÓN DE STOCK COMPROMETIDO (Antes de borrar)
                 try:
-                    ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
+                    ws_productos = sheets_client.get_worksheet(hoja_productos)
                     registros_prods = ws_productos.get_all_records()
                     headers_prods = ws_productos.row_values(1)
                     col_comp = headers_prods.index("COMPROMETIDO") + 1
@@ -238,7 +251,7 @@ def registrar_pedido():
             id_pedido = id_pedido_existente
         else:
             # NUEVO PEDIDO: Generar consecutivo real PEDxxxx en tiempo real
-            id_pedido = obtener_siguiente_id_pedido()
+            id_pedido = obtener_siguiente_id_pedido(hoja_pedidos)
             logger.info(f"🆔 Nuevo ID de pedido generado: {id_pedido}")
         
         estado = "PENDIENTE"
@@ -348,14 +361,27 @@ def registrar_pedido():
                 row_dict["TOTAL"] = total_item
                 logger.info(f"   Item {i+1}: ${subtotal_item_bruto} → ${total_item} (con {descuento_global}% desc e IVA)")
         
-        # Convert dictionary rows to lists in correct order
+        # Convert dictionary rows to lists in correct order based on existing sheet headers
         final_rows = []
+        # Ensure 'existing_headers' has all the newly added columns up to date just in case
         for rd in rows_to_append:
-            final_rows.append([rd[h] for h in expected_headers])
+            # Map dictionary items precisely to whatever column order the sheet physically has
+            row_data = []
+            for h in existing_headers:
+                # Get the value using the exact column name matches
+                # If the key is 'DESCUENTO %' we must be careful with spacing
+                val = rd.get(h.strip(), "") if type(h) == str else ""
+                
+                # Check uppercase fallback just in case
+                if not val and isinstance(h, str):
+                    val = rd.get(h.strip().upper(), "")
+                    
+                row_data.append(val)
+            final_rows.append(row_data)
         
         # Append all rows in a single batch to avoid quota issues
         if final_rows:
-            logger.info(f"\n💾 Guardando {len(final_rows)} filas en Google Sheets (Batch Append)...")
+            logger.info(f"\n💾 Guardando {len(final_rows)} filas en Google Sheets (Batch Append) usando {len(existing_headers)} columnas...")
             ws.append_rows(final_rows)
             
             # ==========================================
@@ -363,7 +389,7 @@ def registrar_pedido():
             # ==========================================
             try:
                 logger.info("📉 Iniciando aumento de COMPROMETIDO...")
-                ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
+                ws_productos = sheets_client.get_worksheet(hoja_productos)
                 registros_productos = ws_productos.get_all_records()
                 headers_productos = ws_productos.row_values(1)
                 
@@ -457,7 +483,8 @@ def obtener_detalle_pedido(id_pedido):
         if not id_pedido:
              return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
 
-        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        _, hoja_pedidos, _ = _resolve_tenant()
+        ws = sheets_client.get_worksheet(hoja_pedidos)
         registros = ws.get_all_records()
         
         # Filtrar por ID (Normalizado para evitar errores de espacios o mayúsculas)
@@ -524,16 +551,20 @@ def obtener_pedidos_pendientes():
         import time
         ahora = time.time()
 
-        # 1. Intentar obtener datos base de la caché
+        # 1. Determinar tenant y hoja de pedidos
+        tenant, hoja_pedidos, _ = _resolve_tenant()
+        cache_state = PEDIDOS_PENDIENTES_CACHE.get(tenant, PEDIDOS_PENDIENTES_CACHE["friparts"])
+
+        # 2. Intentar obtener datos base de la caché
         pedidos_completos = None
-        if PEDIDOS_PENDIENTES_CACHE["data"] and (ahora - PEDIDOS_PENDIENTES_CACHE["timestamp"] < PEDIDOS_PENDIENTES_CACHE["ttl"]):
-            logger.info("⚡ [Cache] Usando pedidos pendientes desde caché")
-            pedidos_completos = PEDIDOS_PENDIENTES_CACHE["data"]
+        if cache_state["data"] and (ahora - cache_state["timestamp"] < cache_state["ttl"]):
+            logger.info(f"⚡ [Cache] Usando pedidos pendientes desde caché ({tenant})")
+            pedidos_completos = cache_state["data"]
         else:
-            logger.info("🌐 [API] Consultando Google Sheets para pedidos pendientes")
-            ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+            logger.info(f"🌐 [API] Consultando Google Sheets para pedidos pendientes ({tenant})")
+            ws = sheets_client.get_worksheet(hoja_pedidos)
             if not ws:
-                return jsonify({"success": False, "error": "Hoja PEDIDOS no encontrada"}), 500
+                return jsonify({"success": False, "error": f"Hoja {hoja_pedidos} no encontrada"}), 500
             
             registros = ws.get_all_records()
             
@@ -587,12 +618,11 @@ def obtener_pedidos_pendientes():
             
             pedidos_completos = list(agrupados.values())
             
-            # Guardar en caché
-            PEDIDOS_PENDIENTES_CACHE["data"] = pedidos_completos
-            PEDIDOS_PENDIENTES_CACHE["timestamp"] = ahora
+            # Guardar en caché específico del tenant
+            cache_state["data"] = pedidos_completos
+            cache_state["timestamp"] = ahora
 
-        # 2. Filtrar por usuario y rol (Lógica de Seguridad RBAC Estricta)
-        # Priorizamos el rol de la SESIÓN por seguridad, fallback a los params si no hay sesión (para compatibilidad temporal)
+        # 3. Filtrar por usuario y rol (Lógica de Seguridad RBAC Estricta)
         import unicodedata
         def normalize_role(r):
             if not r: return ""
@@ -601,15 +631,15 @@ def obtener_pedidos_pendientes():
         rol_session = normalize_role(session.get('role', ''))
         user_session = str(session.get('user', '')).strip().upper()
         
-        # Roles con visibilidad global de pedidos
-        es_admin = any(x in rol_session for x in ["administracion", "administrador", "gerencia", "jefe almacen", "comercial"])
+        # Roles con visibilidad global de pedidos + exclusión automática para Frimetals (no usan delegación)
+        es_admin = any(x in rol_session for x in ["administracion", "administrador", "gerencia", "jefe almacen", "comercial", "metals_staff", "metals_admin"])
 
         pedidos_filtrados = []
         for p in pedidos_completos:
-            if es_admin:
+            if es_admin or tenant == "frimetals":
                 pedidos_filtrados.append(p)
             else:
-                # Si no es admin, solo ve lo que tiene asignado
+                # Si no es admin y es Friparts, solo ve lo que tiene asignado
                 if str(p.get("delegado_a", "")).strip().upper() == user_session:
                     pedidos_filtrados.append(p)
 
@@ -635,7 +665,8 @@ def delegar_pedido():
         if not id_pedido or colaboradora is None:
             return jsonify({"success": False, "error": "ID Pedido y Colaboradora requeridos"}), 400
             
-        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        _, hoja_pedidos, _ = _resolve_tenant()
+        ws = sheets_client.get_worksheet(hoja_pedidos)
         registros = ws.get_all_records()
         headers = ws.row_values(1)
         
@@ -688,8 +719,9 @@ def eliminar_producto_pedido():
         logger.info(f"🗑️ Solicitud de eliminación: Pedido={id_pedido}, Código={codigo}")
         
         # Obtener hojas
-        ws_pedidos = sheets_client.get_worksheet(Hojas.PEDIDOS)
-        ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
+        _, hoja_pedidos, hoja_productos = _resolve_tenant()
+        ws_pedidos = sheets_client.get_worksheet(hoja_pedidos)
+        ws_productos = sheets_client.get_worksheet(hoja_productos)
         
         registros = ws_pedidos.get_all_records()
         headers = ws_pedidos.row_values(1)
@@ -794,7 +826,8 @@ def actualizar_alistamiento():
         if not id_pedido:
             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
             
-        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        tenant, hoja_pedidos, hoja_productos = _resolve_tenant()
+        ws = sheets_client.get_worksheet(hoja_pedidos)
         registros = ws.get_all_records()
         headers = ws.row_values(1)
         
@@ -827,7 +860,10 @@ def actualizar_alistamiento():
         
         updates = []
         for idx, r in enumerate(registros):
-            if str(r.get("ID PEDIDO")) == str(id_pedido):
+            id_ped_sheet = str(r.get("ID PEDIDO", "")).strip().upper()
+            id_ped_tgt = str(id_pedido).strip().upper()
+            
+            if id_ped_sheet == id_ped_tgt and id_ped_tgt != "":
                 fila = idx + 2
                 
                 # Actualizar estado y progreso general
@@ -848,9 +884,9 @@ def actualizar_alistamiento():
                     })
                 
                 # Buscar si este producto tiene una cantidad específica para actualizar
-                codigo_fila = r.get("ID CODIGO")
+                codigo_fila = str(r.get("ID CODIGO", "")).strip().upper()
                 for d in detalles:
-                    if str(d.get("codigo")) == str(codigo_fila):
+                    if str(d.get("codigo", "")).strip().upper() == codigo_fila and codigo_fila != "":
                         if "cant_lista" in d:
                             updates.append({
                                 'range': gspread.utils.rowcol_to_a1(fila, col_cant_lista),
@@ -887,7 +923,7 @@ def actualizar_alistamiento():
                 
                 if despachados_ahora:
                     logger.info(f"📉 Descontando stock real para {len(despachados_ahora)} items despachados...")
-                    ws_productos = sheets_client.get_worksheet(Hojas.PRODUCTOS)
+                    ws_productos = sheets_client.get_worksheet(hoja_productos)
                     registros_productos = ws_productos.get_all_records()
                     headers_productos = ws_productos.row_values(1)
                     
@@ -933,9 +969,12 @@ def actualizar_alistamiento():
             except Exception as e_stock:
                 logger.error(f"❌ Error actualizando stock real en despacho: {e_stock}")
 
+            from backend.app import invalidar_cache_pedidos
+            invalidar_cache_pedidos()
+            
             return jsonify({"success": True, "message": f"Pedido {id_pedido} actualizado a {estado} ({progreso})"})
         else:
-            return jsonify({"success": False, "error": "Pedido no encontrado"}), 404
+            return jsonify({"success": False, "error": "Pedido no encontrado o sin cambios"}), 404
             
     except Exception as e:
         logger.error(f"Error actualizando alistamiento: {e}")
@@ -953,7 +992,8 @@ def obtener_pedidos_cliente():
         if not nit:
              return jsonify({"success": False, "error": "NIT requerido"}), 400
 
-        ws = sheets_client.get_worksheet(Hojas.PEDIDOS)
+        _, hoja_pedidos, _ = _resolve_tenant()
+        ws = sheets_client.get_worksheet(hoja_pedidos)
         registros = ws.get_all_records()
         
         # Filtrar por NIT

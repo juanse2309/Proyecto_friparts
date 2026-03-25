@@ -1,0 +1,55 @@
+"""
+Resolución de Tenant (empresa activa) a partir del JWT en la sesión Flask.
+
+Estrategia: El rol del usuario está firmado dentro del token de sesión.
+No se aceptan headers externos (como X-Tenant) para evitar suplantación.
+
+Uso:
+    from backend.core.tenant import get_tenant_from_request
+    tenant = get_tenant_from_request()   # 'friparts' | 'frimetals'
+"""
+from flask import session
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Roles que pertenecen exclusivamente a Frimetals.
+# Cualquier otro rol se trata como Friparts (default seguro).
+# -----------------------------------------------------------------------
+# Valores en MINÚSCULAS — coinciden exactamente con lo que almacena
+# auth_routes.login():  session['role'] = str(rol).lower()
+# -----------------------------------------------------------------------
+_FRIMETALS_ROLES: frozenset = frozenset({
+    "comercial frimetals",
+    "staff frimetals",
+    "admin frimetals",
+    "produccion frimetals",
+})
+
+TENANT_FRIPARTS  = "friparts"
+TENANT_FRIMETALS = "frimetals"
+
+
+def get_tenant_from_request() -> str:
+    """
+    Determina el tenant activo leyendo el rol desde la sesión Flask.
+
+    - Si el rol está en _FRIMETALS_ROLES  → retorna 'frimetals'
+    - En cualquier otro caso              → retorna 'friparts'  (default seguro)
+
+    Returns:
+        str: 'friparts' o 'frimetals'
+    """
+    rol: str = session.get("role", "")  # auth_routes.login() stores: session['role'] = str(rol).lower()
+    logger.info(f"[Tenant] session['role']={rol!r}, usuario={session.get('user', 'N/A')}")
+    if rol in _FRIMETALS_ROLES:
+        logger.info(f"[Tenant] ✅ Resuelto como 'frimetals' (rol={rol!r})")
+        return TENANT_FRIMETALS
+
+    logger.info(f"[Tenant] Resuelto como 'friparts' (rol={rol!r})")
+    return TENANT_FRIPARTS
+
+
+def is_frimetals_user() -> bool:
+    """Atajo booleano para verificar si el usuario activo pertenece a Frimetals."""
+    return get_tenant_from_request() == TENANT_FRIMETALS

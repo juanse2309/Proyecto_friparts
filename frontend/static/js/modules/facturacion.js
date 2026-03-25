@@ -165,6 +165,8 @@ const ModuloFacturacion = {
         const ids = Array.from(this.pedidosSeleccionados);
         const consecutivoInicial = document.getElementById('consecutivo-inicial-wo')?.value || '';
 
+        console.log("DEBUG: [abrirPreviewWO] ids:", ids.length, "consecutivo:", consecutivoInicial);
+
         if (ids.length === 0) {
             // Si no hay selección, preguntar si exportar todo
             if (typeof Swal !== 'undefined') {
@@ -235,6 +237,7 @@ const ModuloFacturacion = {
                 })
             });
             const result = await response.json();
+            console.log("DEBUG: [cargarPreviewWO] Respuesta servidor:", result);
 
             if (result.success && result.data.length > 0) {
                 // Render Headers
@@ -260,6 +263,8 @@ const ModuloFacturacion = {
         const modal = document.getElementById('modal-preview-wo');
         const ids = modal ? JSON.parse(modal.dataset.idsToExport || '[]') : [];
         const consecutivoInicial = modal ? modal.dataset.consecutivoInicial : '';
+
+        console.log("DEBUG: [descargarExcelWO] ids:", ids.length, "consecutivo:", consecutivoInicial);
 
         const btn = document.getElementById('btn-confirmar-exportar-wo');
         if (btn) {

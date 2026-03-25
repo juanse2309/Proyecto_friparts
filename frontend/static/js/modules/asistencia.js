@@ -63,8 +63,18 @@ window.ModuloAsistencia = (function () {
             // Guardar las áreas asignadas para filtrado posterior
             currentUserContext._areasAsignadas = areasAsignadas;
 
-            document.getElementById('asistencia-jefe-view').style.display = 'block';
-            document.getElementById('asistencia-operario-view').style.display = 'none';
+            // Lógica Pestañas (Tabs) para Jefes
+            const navGestion = document.getElementById('nav-item-gestion');
+            if (navGestion) navGestion.style.display = 'block';
+
+            // Activar tab de Gestión por defecto
+            try {
+                const tabElement = document.getElementById('tab-gestion');
+                if (tabElement) {
+                    const bsTab = new bootstrap.Tab(tabElement);
+                    bsTab.show();
+                }
+            } catch (e) { console.error("Error activando tab gestion", e); }
 
             // Panel de Corte de Nómina: Solo visible para Administradores
             const panelCorte = document.getElementById('panel-corte-nomina');
@@ -81,11 +91,22 @@ window.ModuloAsistencia = (function () {
                 fechaInput.value = new Date().toISOString().split('T')[0];
             }
 
-            // Carga automática del personal a cargo
+            // Carga automática del personal a cargo y también de sus propias horas
             cargarPlanilla();
+            cargarMisHoras();
         } else {
-            document.getElementById('asistencia-jefe-view').style.display = 'none';
-            document.getElementById('asistencia-operario-view').style.display = 'block';
+            // Lógica Pestañas (Tabs) para Operarios
+            const navGestion = document.getElementById('nav-item-gestion');
+            if (navGestion) navGestion.style.display = 'none';
+
+            // Activar Tab Mis Horas obligatoriamente
+            try {
+                const tabElement = document.getElementById('tab-mis-horas');
+                if (tabElement) {
+                    const bsTab = new bootstrap.Tab(tabElement);
+                    bsTab.show();
+                }
+            } catch (e) { console.error("Error activando tab mis horas", e); }
 
             // Carga automática de historial de usuario
             cargarMisHoras();
@@ -162,37 +183,34 @@ window.ModuloAsistencia = (function () {
     function filtrarPorDeptoDelJefe(lista) {
         if (!currentUserContext) return [];
 
-        // Helper interno de normalización
         const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+        const nombreNorm = norm(currentUserContext.nombre || currentUserContext.name || '');
 
-        // Excluir departamentos y personas que no requieren registro de asistencia
+        // 1. Filtrado de Exclusiones (Excepto el usuario actual)
         const DEPTOS_EXCLUIDOS = ['COMERCIAL', 'ADMINISTRACION', 'ADMINISTRACIÓN'];
         const NOMBRES_EXCLUIDOS = ['TEMPORAL PULIDO 1', 'ADRIANA SATELITE'];
 
         lista = lista.filter(c => {
-            const deptoC = norm(c.departamento);
             const nombreC = norm(c.nombre);
+            if (nombreC === nombreNorm) return true; // El jefe nunca se excluye a sí mismo
+
+            const deptoC = norm(c.departamento);
             const excluidoDepto = DEPTOS_EXCLUIDOS.some(d => deptoC.includes(norm(d)));
             const excluidoNombre = NOMBRES_EXCLUIDOS.some(n => nombreC.includes(norm(n)));
             return !excluidoDepto && !excluidoNombre;
         });
 
-        // Gerencia / Admin → ven a TODOS
+        // 2. Filtrado por Área (RBAC)
         const areasAsignadas = currentUserContext._areasAsignadas;
         if (areasAsignadas === null || areasAsignadas === undefined) {
-            return lista;
+            return lista; // Gerencia ve a todos los no excluidos
         }
 
-        // Jefes de área → solo ven personal de sus áreas asignadas (Normalizado) + A ELLOS MISMOS
-        const nombreNorm = norm(currentUserContext.nombre || currentUserContext.name || '');
-
         return lista.filter(c => {
-            const deptoC = norm(c.departamento);
             const nombreC = norm(c.nombre);
+            if (nombreC === nombreNorm) return true; // Siempre mostrarse a sí mismo
 
-            // Siempre mostrarse a sí mismo
-            if (nombreC === nombreNorm) return true;
-
+            const deptoC = norm(c.departamento);
             return areasAsignadas.some(area => {
                 const areaNorm = norm(area);
                 return deptoC.includes(areaNorm) || areaNorm.includes(deptoC);
@@ -418,12 +436,22 @@ window.ModuloAsistencia = (function () {
             extras = totalHoras;
         } else {
             // Lunes a Viernes: Solo es ordinario lo que solapa con el horario oficial
-            const inicioOrdinario = Math.max(tIngreso, tOficialEntrada);
-            const finOrdinario = Math.min(tSalida, tOficialSalida);
+            let tEntradaCalculo = tOficialEntrada;
+            let tSalidaCalculo = tOficialSalida;
+            let maxOrd = 10;
+
+            // Regla estricta de Viernes: Salida a las 16:00 (4:00 PM)
+            if (diaSemana === 5) {
+                tSalidaCalculo = 16.0;
+                maxOrd = 9; // Límite de 9 horas ordinarias (ej: 07:00 a 16:00)
+            }
+
+            const inicioOrdinario = Math.max(tIngreso, tEntradaCalculo);
+            const finOrdinario = Math.min(tSalida, tSalidaCalculo);
 
             ordinarias = Math.max(0, finOrdinario - inicioOrdinario);
-            // Capping a un máximo de 10 horas ordinarias por día laboral
-            ordinarias = Math.min(10, ordinarias);
+            // Capping a un máximo de horas ordinarias permitidas
+            ordinarias = Math.min(maxOrd, ordinarias);
             extras = Math.max(0, totalHoras - ordinarias);
         }
 
@@ -688,7 +716,8 @@ window.ModuloAsistencia = (function () {
         body.innerHTML = '<tr><td colspan="5" class="py-4 text-center"><i class="fas fa-spinner fa-spin text-success me-2"></i> Cargando mis horas...</td></tr>';
 
         try {
-            const response = await fetch(`/api/asistencia/mis_horas?nombre=${encodeURIComponent(currentUserContext.nombre)}`);
+            // El backend ahora usa session['user'] en lugar de leer parámetros inseguros por GET
+            const response = await fetch('/api/asistencia/mis_horas');
             const data = await response.json();
 
             if (data.status === 'success') {
