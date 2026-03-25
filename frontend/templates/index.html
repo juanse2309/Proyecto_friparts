@@ -4028,7 +4028,11 @@
     <div id="login-modal" class="modal-custom"
         style="display: none; z-index: 20000; align-items: center; justify-content: center;">
         <div class="login-card"
-            style="background: white; padding: 40px; border-radius: 20px; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+            style="background: white; padding: 40px; border-radius: 20px; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative;">
+            <button type="button" class="btn-close shadow-none" 
+                style="position: absolute; top: 15px; right: 15px; z-index: 10;" 
+                onclick="AuthModule.closeLoginModal()" aria-label="Close"></button>
+
             <div class="brand-logo mb-4">
                 <i class="fas fa-industry fa-3x" style="color: #6366f1;"></i>
                 <h2 class="mt-2 text-dark font-weight-bold">FriTech</h2>
@@ -4450,7 +4454,11 @@
 
     <!-- MODAL AUTENTICACION CLIENTE -->
     <div id="client-auth-modal" class="modal-custom" style="z-index: 20000;">
-        <div class="modal-content-custom" style="max-width: 450px;">
+        <div class="modal-content-custom" style="max-width: 450px; position: relative;">
+            <button type="button" class="btn-close shadow-none" 
+                style="position: absolute; top: 15px; right: 15px; z-index: 10;" 
+                onclick="AuthModule.closeClientAuth()" aria-label="Close"></button>
+
             <div class="text-center mb-4">
                 <div class="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-3 mb-3">
                     <i class="fas fa-user-circle fa-3x text-primary"></i>
