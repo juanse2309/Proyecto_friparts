@@ -410,8 +410,10 @@ const AlmacenModule = {
                                             <option value="">Sin asignar</option>
                                             ${(window.AppState.sharedData.responsables || [])
                             .filter(r => {
+                                const nome = typeof r === 'object' ? r.nombre : r;
                                 const depto = (typeof r === 'object' ? r.departamento : '').toUpperCase();
-                                return depto.includes('ALISTAMIENTO');
+                                const esUsuarioActual = nome === (currentUser?.nombre || currentUser?.name);
+                                return depto.includes('ALISTAMIENTO') || esUsuarioActual;
                             })
                             .map(r => {
                                 const nome = typeof r === 'object' ? r.nombre : r;
