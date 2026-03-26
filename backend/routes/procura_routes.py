@@ -40,7 +40,7 @@ def listar_parametros():
         if not ws:
             return jsonify({"status": "error", "message": f"Hoja {Hojas.PARAMETROS_INVENTARIO} no encontrada"}), 500
 
-        registros = ws.get_all_records()
+        registros = gc.get_all_records_seguro(ws)
         if not registros:
             return jsonify({"status": "error", "message": "La hoja está vacía"}), 404
 
@@ -87,7 +87,7 @@ def listar_proveedores():
         if not ws:
             return jsonify({"status": "error", "message": f"Hoja {Hojas.DB_PROVEEDORES} no encontrada"}), 500
 
-        registros = ws.get_all_records()
+        registros = gc.get_all_records_seguro(ws)
         proveedores = []
         
         for r in registros:
@@ -181,7 +181,7 @@ def registrar_oc():
 
         # 1. Calcular DELTA de stock antes de actualizar la OC
         n_oc_ref = items[0].get("n_oc", "")
-        old_records = ws_oc.get_all_records()
+        old_records = gc.get_all_records_seguro(ws_oc)
         old_qty_map = collections.defaultdict(int)
         for r in old_records:
             if str(r.get("N° OC", "")).strip() == str(n_oc_ref).strip():
@@ -205,7 +205,7 @@ def registrar_oc():
         # 4. Actualizar STOCK_ACTUAL en PARAMETROS_INVENTARIO basado en el DELTA
         ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
         if ws_param:
-            param_records = ws_param.get_all_records()
+            param_records = gc.get_all_records_seguro(ws_param)
             headers = ws_param.row_values(1)
             col_stock = headers.index('STOCK_ACTUAL') + 1 if 'STOCK_ACTUAL' in headers else -1
             col_contador = headers.index('CONTADOR_OC') + 1 if 'CONTADOR_OC' in headers else -1
@@ -284,7 +284,7 @@ def buscar_oc(n_oc):
         if not ws:
             return jsonify({"success": False, "error": f"Hoja {Hojas.ORDENES_DE_COMPRA} no encontrada"}), 500
 
-        records = ws.get_all_records()
+        records = gc.get_all_records_seguro(ws)
         items_encontrados = []
 
         for row in records:
@@ -310,7 +310,7 @@ def buscar_oc(n_oc):
 
         # Adornar con descripción desde el maestro
         ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
-        cat_records = ws_param.get_all_records() if ws_param else []
+        cat_records = gc.get_all_records_seguro(ws_param) if ws_param else []
         
         def normalizar_para_busqueda(codigo):
             return str(codigo).strip().upper().replace(" ", "").replace("-", "")
@@ -336,7 +336,7 @@ def alertas_abastecimiento():
     try:
         # 1. Traer Catálogo Maestro
         ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
-        cat_records = ws_param.get_all_records() if ws_param else []
+        cat_records = gc.get_all_records_seguro(ws_param) if ws_param else []
         
         catalogo = {}
         for r in cat_records:
@@ -387,7 +387,7 @@ def rotacion_prioridades():
     try:
         # 1. Traer Parámetros con sus históricos
         ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
-        cat_records = ws_param.get_all_records() if ws_param else []
+        cat_records = gc.get_all_records_seguro(ws_param) if ws_param else []
         
         catalogo = {}
         for r in cat_records:
@@ -413,7 +413,7 @@ def rotacion_prioridades():
 
         # 2. Consultar Stock Externo en Tránsito (Zincado/Granallado)
         ws_oc = gc.get_worksheet(Hojas.ORDENES_DE_COMPRA)
-        oc_records = ws_oc.get_all_records() if ws_oc else []
+        oc_records = gc.get_all_records_seguro(ws_oc) if ws_oc else []
         
         stock_externo_map = collections.defaultdict(int)
         desglose_externo_map = collections.defaultdict(lambda: {"Zincado": 0, "Granallado": 0})

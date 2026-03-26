@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 import gspread
 import threading
@@ -98,6 +98,52 @@ class GoogleSheetsClient:
             logger.info(f"Creando hoja '{nombre}'...")
             ws = self.spreadsheet.add_worksheet(title=nombre, rows=rows, cols=cols)
         return ws
+    
+    def get_all_records_seguro(self, ws):
+        """
+        Obtiene registros de una hoja de forma robusta, manejando headers duplicados o vacíos
+        que normalmente harían fallar a gspread.get_all_records().
+        """
+        if not ws: return []
+        try:
+            datos = ws.get_all_values()
+            if not datos: return []
+            
+            headers = [str(h).strip() for h in datos[0]]
+            
+            # Encontrar la última columna con texto para evitar procesar columnas vacías infinitas
+            last_valid_idx = -1
+            for i, h in enumerate(headers):
+                if h: last_valid_idx = i
+                
+            header_keys = []
+            seen = {}
+            # Solo procesamos hasta la última columna con nombre, o todas si están vacías
+            limite = last_valid_idx + 1 if last_valid_idx != -1 else len(headers)
+            
+            for i in range(limite):
+                h = headers[i]
+                if not h:
+                    h = f"COL_{i+1}"
+                
+                if h in seen:
+                    seen[h] += 1
+                    h = f"{h}_{seen[h]}"
+                else:
+                    seen[h] = 0
+                header_keys.append(h)
+                
+            records = []
+            for row in datos[1:]:
+                record = {}
+                for i, key in enumerate(header_keys):
+                    val = row[i] if i < len(row) else ""
+                    record[key] = val
+                records.append(record)
+            return records
+        except Exception as e:
+            logger.error(f"❌ Error en get_all_records_seguro: {e}")
+            return []
 
 
 # Instancia singleton global

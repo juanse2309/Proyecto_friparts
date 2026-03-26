@@ -113,7 +113,7 @@ def registrar_pedido():
                 nit_clean = str(nit).upper().replace('NIT', '').strip()
                 ws_db = sheets_client.get_worksheet(TenantConfig.get(tenant, 'CLIENTES'))
                 if ws_db:
-                    recs = ws_db.get_all_records()
+                    recs = sheets_client.get_all_records_seguro(ws_db)
                     match = next((r for r in recs if nit_clean in str(r.get('IDENTIFICACION', '')).upper()), None)
                     if match:
                         if not direccion: direccion = match.get('DIRECCION', '')
@@ -182,7 +182,7 @@ def registrar_pedido():
             logger.info(f"✏️ MODO EDICIÓN: Actualizando pedido {id_pedido_existente}")
             
             # 1. Buscar filas del pedido anterior
-            registros = ws.get_all_records()
+            registros = sheets_client.get_all_records_seguro(ws)
             filas_a_eliminar = []
             productos_anteriores = []
             
@@ -201,7 +201,7 @@ def registrar_pedido():
                 # REVERSIÓN DE STOCK COMPROMETIDO (Antes de borrar)
                 try:
                     ws_productos = sheets_client.get_worksheet(hoja_productos)
-                    registros_prods = ws_productos.get_all_records()
+                    registros_prods = sheets_client.get_all_records_seguro(ws_productos)
                     headers_prods = ws_productos.row_values(1)
                     col_comp = headers_prods.index("COMPROMETIDO") + 1
                     
@@ -390,7 +390,7 @@ def registrar_pedido():
             try:
                 logger.info("📉 Iniciando aumento de COMPROMETIDO...")
                 ws_productos = sheets_client.get_worksheet(hoja_productos)
-                registros_productos = ws_productos.get_all_records()
+                registros_productos = sheets_client.get_all_records_seguro(ws_productos)
                 headers_productos = ws_productos.row_values(1)
                 
                 try:
@@ -485,7 +485,7 @@ def obtener_detalle_pedido(id_pedido):
 
         _, hoja_pedidos, _ = _resolve_tenant()
         ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         
         # Filtrar por ID (Normalizado para evitar errores de espacios o mayúsculas)
         id_pedido_buscado = str(id_pedido).strip().upper()
@@ -566,7 +566,7 @@ def obtener_pedidos_pendientes():
             if not ws:
                 return jsonify({"success": False, "error": f"Hoja {hoja_pedidos} no encontrada"}), 500
             
-            registros = ws.get_all_records()
+            registros = sheets_client.get_all_records_seguro(ws)
             
             def get_obs(row):
                 # Buscar en varias posibilidades de cabecera de forma robusta
@@ -667,7 +667,7 @@ def delegar_pedido():
             
         _, hoja_pedidos, _ = _resolve_tenant()
         ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         headers = ws.row_values(1)
         
         if "DELEGADO_A" not in headers:
@@ -723,7 +723,7 @@ def eliminar_producto_pedido():
         ws_pedidos = sheets_client.get_worksheet(hoja_pedidos)
         ws_productos = sheets_client.get_worksheet(hoja_productos)
         
-        registros = ws_pedidos.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws_pedidos)
         headers = ws_pedidos.row_values(1)
         
         # Buscar el producto en el pedido
@@ -757,7 +757,7 @@ def eliminar_producto_pedido():
         
         # Restaurar inventario
         try:
-            registros_productos = ws_productos.get_all_records()
+            registros_productos = sheets_client.get_all_records_seguro(ws_productos)
             headers_productos = ws_productos.row_values(1)
             
             col_terminado = headers_productos.index("P. TERMINADO") + 1
@@ -785,7 +785,7 @@ def eliminar_producto_pedido():
         logger.info(f"   🗑️ Fila {fila_a_eliminar} eliminada de PEDIDOS")
         
         # Verificar si quedan productos en el pedido
-        registros_actualizados = ws_pedidos.get_all_records()
+        registros_actualizados = sheets_client.get_all_records_seguro(ws_pedidos)
         productos_restantes = [r for r in registros_actualizados if str(r.get("ID PEDIDO")) == str(id_pedido)]
         
         if len(productos_restantes) == 0:
@@ -828,7 +828,7 @@ def actualizar_alistamiento():
             
         tenant, hoja_pedidos, hoja_productos = _resolve_tenant()
         ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         headers = ws.row_values(1)
         
         # Asegurar columnas necesarias expandiendo la hoja si es necesario
@@ -994,7 +994,7 @@ def obtener_pedidos_cliente():
 
         _, hoja_pedidos, _ = _resolve_tenant()
         ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         
         # Filtrar por NIT
         # Normalizar NIT input

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # -*- coding: utf-8 -*-
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
@@ -345,7 +345,7 @@ def buscar_producto_en_inventario(codigo_sistema):
         else:
             logger.info(" [API] Recargando inventario desde Google Sheets")
             ws = get_worksheet(Hojas.PRODUCTOS)
-            registros = ws.get_all_records()
+            registros = sheets_client.get_all_records_seguro(ws)
             # Actualizar cache
             PRODUCTOS_CACHE["data"] = registros
             PRODUCTOS_CACHE["timestamp"] = ahora

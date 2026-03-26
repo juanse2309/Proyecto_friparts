@@ -85,9 +85,15 @@ window.ModuloDashboard = (function () {
             let isAdminOrManagement = false;
             let resultJefatura = null;
 
-            if (window.AppState && window.AppState.user && window.AppState.user.rol) {
-                const rol = window.AppState.user.rol.toUpperCase();
-                isAdminOrManagement = ['ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA', 'COMERCIAL'].includes(rol);
+            if (window.AppState && window.AppState.user && (window.AppState.user.rol || window.AppState.user.role)) {
+                const rawRole = window.AppState.user.rol || window.AppState.user.role;
+                const rol = rawRole.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+                
+                // Incluir Administradores, Gerencia, Comercial y Jefes de área en la vista de KPIs avanzados
+                isAdminOrManagement = rol.includes('ADMIN') || 
+                                     rol.includes('GERENCIA') || 
+                                     rol.includes('COMERCIAL') || 
+                                     rol.includes('JEFE');
             }
 
             if (isAdminOrManagement) {
@@ -224,47 +230,51 @@ window.ModuloDashboard = (function () {
             ];
             iniciarCarrouselBot();
 
-            // 3. Gráficos de Producción
-            if (data.rankings?.inyeccion_ops) {
-                renderChartInyeccion(data.rankings.inyeccion_ops.slice(0, 10));
-                const btnVerTodosIny = document.getElementById('btn-ver-todos-iny');
-                if (btnVerTodosIny) {
-                    btnVerTodosIny.onclick = () => mostrarModalTodosInyeccion(data.rankings.inyeccion_ops);
+            // 3. Gráficos de Producción - Pequeño delay para asegurar que el layout (flex/display) se ha asentado en móviles
+            setTimeout(() => {
+                if (data.rankings?.inyeccion_ops) {
+                    renderChartInyeccion(data.rankings.inyeccion_ops.slice(0, 10));
+                    const btnVerTodosIny = document.getElementById('btn-ver-todos-iny');
+                    if (btnVerTodosIny) {
+                        btnVerTodosIny.onclick = () => mostrarModalTodosInyeccion(data.rankings.inyeccion_ops);
+                    }
                 }
-            }
 
-            if (data.maquinas) renderChartMaquinas(data.maquinas);
-            if (data.tendencia) renderChartTendencia(data.tendencia);
-            if (data.kpis.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
+                if (data.maquinas) renderChartMaquinas(data.maquinas);
+                if (data.tendencia) renderChartTendencia(data.tendencia);
+                if (data.kpis.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
 
-            // 4. Detalle Scrap Almacén
-            renderScrapAlmacenDetalle(data.kpis.scrap_almacen_desglose || []);
+                // 4. Detalle Scrap Almacén
+                renderScrapAlmacenDetalle(data.kpis.scrap_almacen_desglose || []);
 
-            // 5. Tabla Pulido
-            renderTablaPulido(data.rankings?.pulido_profundo || []);
-            renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || []);
+                // 5. Tabla Pulido
+                renderTablaPulido(data.rankings?.pulido_profundo || []);
+                renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || []);
 
-            // 6. Datos de Jefatura
-            if (jefaturaData && (jefaturaData.success || jefaturaData.status === 'success') && jefaturaData.data) {
-                console.log("📈 Renderizando datos de Jefatura...");
-                lastJefaturaData = jefaturaData.data;
+                // 6. Datos de Jefatura
+                if (jefaturaData && (jefaturaData.success || jefaturaData.status === 'success') && jefaturaData.data) {
+                    console.log("📈 Renderizando datos de Jefatura...");
+                    lastJefaturaData = jefaturaData.data;
 
-                renderChartMensual(lastJefaturaData.mensual, 'money');
-                renderChartTopMejores(lastJefaturaData.top_productos_dinero, 'money');
-                renderChartTopPeores(lastJefaturaData.peores_productos_dinero, 'money');
+                    renderChartMensual(lastJefaturaData.mensual, 'money');
+                    renderChartTopMejores(lastJefaturaData.top_productos_dinero, 'money');
+                    renderChartTopPeores(lastJefaturaData.peores_productos_dinero, 'money');
 
-                if (lastJefaturaData.incumplimiento_unidades) {
-                    inc_unidades_original = lastJefaturaData.incumplimiento_unidades;
+                    if (lastJefaturaData.incumplimiento_unidades) {
+                        inc_unidades_original = lastJefaturaData.incumplimiento_unidades;
+                    }
+                    if (lastJefaturaData.incumplimiento_dinero) {
+                        inc_dinero_original = lastJefaturaData.incumplimiento_dinero;
+                    }
+                    if (lastJefaturaData.incumplimiento_consolidado) {
+                        inc_consolidado_original = lastJefaturaData.incumplimiento_consolidado;
+                        renderTablaIncumplimientoConsolidada(inc_consolidado_original);
+                    }
                 }
-                if (lastJefaturaData.incumplimiento_dinero) {
-                    inc_dinero_original = lastJefaturaData.incumplimiento_dinero;
-                }
-                if (lastJefaturaData.incumplimiento_consolidado) {
-                    inc_consolidado_original = lastJefaturaData.incumplimiento_consolidado;
-                    renderTablaIncumplimientoConsolidada(inc_consolidado_original);
-                }
-            }
-            console.log("✅ Renderizado completado sin errores.");
+                console.log("✅ Renderizado de gráficas completado.");
+            }, 100);
+
+            console.log("✅ Renderizado base completado.");
         } catch (err) {
             console.error("❌ Error crítico durante el renderizado del dashboard:", err);
         }
@@ -576,22 +586,25 @@ window.ModuloDashboard = (function () {
     function aplicarPermisosVisuales() {
         console.log("🔒 Aplicando permisos visuales al Dashboard IA...");
 
-        let rolUsuario = 'DESCONOCIDO';
-        if (window.AppState && window.AppState.user && window.AppState.user.rol) {
-            rolUsuario = window.AppState.user.rol.toUpperCase();
-        } else if (window.AuthModule && window.AuthModule.currentUser && window.AuthModule.currentUser.rol) {
-            rolUsuario = window.AuthModule.currentUser.rol.toUpperCase();
+        let rolUsuario = '';
+        if (window.AppState && window.AppState.user && (window.AppState.user.rol || window.AppState.user.role)) {
+            const rawRole = window.AppState.user.rol || window.AppState.user.role;
+            // Normalización: Quitar acentos, trim, uppercase
+            rolUsuario = rawRole.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+        } else if (window.AuthModule && window.AuthModule.currentUser && (window.AuthModule.currentUser.rol || window.AuthModule.currentUser.role)) {
+            const rawRole = window.AuthModule.currentUser.rol || window.AuthModule.currentUser.role;
+            rolUsuario = rawRole.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
         }
 
         // Mapear roles antiguos/generales a los roles de acceso que configuramos en HTML
         let rolesEfectivos = [];
-        if (['ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA'].includes(rolUsuario)) {
+        if (rolUsuario.includes('ADMIN') || rolUsuario.includes('GERENCIA')) {
             rolesEfectivos.push('ADMIN');
             rolesEfectivos.push('GERENCIA');
         }
-        if (['INYECCION', 'INYECCIÓN'].includes(rolUsuario)) rolesEfectivos.push('INYECCION');
-        if (['PULIDO'].includes(rolUsuario)) rolesEfectivos.push('PULIDO');
-        if (['COMERCIAL', 'VENTAS'].includes(rolUsuario)) rolesEfectivos.push('COMERCIAL');
+        if (rolUsuario.includes('INYECCION')) rolesEfectivos.push('INYECCION');
+        if (rolUsuario.includes('PULIDO')) rolesEfectivos.push('PULIDO');
+        if (rolUsuario.includes('COMERCIAL') || rolUsuario.includes('VENTAS')) rolesEfectivos.push('COMERCIAL');
 
         console.log(`Rol Usuario: ${rolUsuario} -> Evaluando como [${rolesEfectivos.join(', ')}]`);
 
@@ -604,7 +617,7 @@ window.ModuloDashboard = (function () {
         const chartPulido = document.getElementById('dashboard-section-pulido-leaderboard');
         const tablaPulido = document.getElementById('dashboard-section-pulido-table');
 
-        if (rolUsuario === 'PULIDO') {
+        if (rolUsuario.includes('PULIDO')) {
             if (chartPulido) chartPulido.style.order = '-2';
             if (tablaPulido) tablaPulido.style.order = '-1';
         } else {

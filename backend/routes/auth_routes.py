@@ -30,7 +30,7 @@ def get_metals_responsables():
         if not ws:
             return jsonify({"error": "Hoja METALS_PERSONAL no encontrada"}), 500
         
-        records = ws.get_all_records()
+        records = sheets_client.get_all_records_seguro(ws)
         usuarios = []
         for row in records:
             if row.get("ACTIVO") == "SI":
@@ -60,7 +60,7 @@ def metals_login():
         ws = sheets_client.get_worksheet("METALS_PERSONAL")
         if not ws:
             return jsonify({"success": False, "message": "Error interno"}), 500
-        records = ws.get_all_records()
+        records = sheets_client.get_all_records_seguro(ws)
         user_found = next((r for r in records if r.get("RESPONSABLE") == usuario_nombre), None)
         if not user_found:
              return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
@@ -135,7 +135,7 @@ def get_responsables():
         if not ws:
             return jsonify({"error": "Hoja RESPONSABLES no encontrada"}), 500
 
-        records = ws.get_all_records()
+        records = sheets_client.get_all_records_seguro(ws)
         
         usuarios = []
         for row in records:
@@ -192,7 +192,7 @@ def login():
         if not ws:
             return jsonify({"success": False, "message": "Error interno: Hoja no encontrada"}), 500
 
-        records = ws.get_all_records()
+        records = sheets_client.get_all_records_seguro(ws)
         
         user_found = None
         for row in records:
@@ -298,7 +298,7 @@ def crear_cuenta_cliente():
         # Verificar que el NIT exista en la lista maestra de CLIENTES
         ws_clientes_master = sheets_client.get_worksheet("CLIENTES")
         if ws_clientes_master:
-            clientes_master = ws_clientes_master.get_all_records()
+            clientes_master = sheets_client.get_all_records_seguro(ws_clientes_master)
             nit_valido = any(str(c.get('NIT', '')).strip() == nit for c in clientes_master)
             
             if not nit_valido:
@@ -317,7 +317,7 @@ def crear_cuenta_cliente():
         if not ws_users:
             return jsonify({"success": False, "message": "Error interno: Hoja de usuarios no configurada."}), 500
         
-        users_records = ws_users.get_all_records()
+        users_records = sheets_client.get_all_records_seguro(ws_users)
         for u in users_records:
             if str(u.get('EMAIL', '')).lower() == email:
                 return jsonify({"success": False, "message": "Ya existe una cuenta con este correo."}), 400
@@ -379,7 +379,7 @@ def listar_clientes():
         if not ws_users:
             return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
         
-        registros = ws_users.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws_users)
         
         clientes = []
         for r in registros:
@@ -418,7 +418,7 @@ def reset_password_admin():
         if not ws_users:
             return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
         
-        registros = ws_users.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws_users)
         user_row_index = None
         user_nit = None
         
@@ -478,7 +478,7 @@ def toggle_estado_cliente():
         if not ws_users:
             return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
         
-        registros = ws_users.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws_users)
         user_row_index = None
         
         for i, r in enumerate(registros):
@@ -525,7 +525,7 @@ def enrich_client_data(user_data):
         try:
             ws_db = sheets_client.get_worksheet("DB_Clientes")
             if ws_db:
-                records = ws_db.get_all_records()
+                records = sheets_client.get_all_records_seguro(ws_db)
                 # Buscar por coincidencia parcial en IDENTIFICACION
                 match = next((r for r in records if nit_clean in str(r.get('IDENTIFICACION', '')).upper()), None)
                 
@@ -551,7 +551,7 @@ def login_client():
         if not ws_users:
              return jsonify({"success": False, "message": "Sistema de clientes no disponible"}), 500
              
-        records = ws_users.get_all_records()
+        records = sheets_client.get_all_records_seguro(ws_users)
         user_found = None
         
         # Necesitamos el indice para actualizar después si fuera necesario (aunque gspread usa base 1)
@@ -633,7 +633,7 @@ def change_password_client():
         if not ws_users:
              return jsonify({"success": False, "message": "Sistema de clientes no disponible"}), 500
              
-        records = ws_users.get_all_records()
+        records = sheets_client.get_all_records_seguro(ws_users)
         user_row_index = -1
         user_found = None
         

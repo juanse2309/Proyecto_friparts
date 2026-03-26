@@ -1,4 +1,4 @@
-﻿"""
+"""
 Repositorio de productos.
 Centraliza TODO el acceso a la hoja PRODUCTOS.
 """
@@ -40,7 +40,7 @@ class ProductoRepository:
                 logger.error(f"Hoja {self.hoja} no encontrada")
                 return None
             
-            registros = ws.get_all_records()
+            registros = sheets_client.get_all_records_seguro(ws)
             codigo_normalizado = normalizar_codigo(codigo)
             
             for idx, registro in enumerate(registros):
@@ -77,11 +77,11 @@ class ProductoRepository:
                 logger.error("No se encontró DB_Productos")
                 return []
             
-            master_records = ws_master.get_all_records()
+            master_records = sheets_client.get_all_records_seguro(ws_master)
             
             # 2. Obtener Datos Stock (PRODUCTOS)
             ws_stock = sheets_client.get_worksheet(self.hoja)
-            stock_records = ws_stock.get_all_records() if ws_stock else []
+            stock_records = sheets_client.get_all_records_seguro(ws_stock) if ws_stock else []
             
             # 3. Indexar Stock para búsqueda rápida
             # Clave: Código normalizado -> Registro completo
@@ -223,7 +223,7 @@ class ProductoRepository:
             if not ws:
                 return []
             
-            registros = ws.get_all_records()
+            registros = sheets_client.get_all_records_seguro(ws)
             resultados = []
             termino_lower = termino.lower()
             

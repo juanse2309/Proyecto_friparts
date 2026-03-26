@@ -59,7 +59,7 @@ def obtener_colaboradores():
         if not ws:
             return jsonify({'status': 'error', 'message': 'No se encontró la hoja de responsables'}), 404
         
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         colaboradores = []
         for r in registros:
             if r.get('RESPONSABLE') and r.get('ACTIVO?') == 'SI':
@@ -176,7 +176,7 @@ def obtener_mis_horas():
         if not ws:
             return jsonify({'status': 'error', 'message': 'No se encontró la hoja de control de asistencia'}), 404
             
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         mis_registros = []
         
         for r in registros:
@@ -228,7 +228,7 @@ def obtener_registros_dia():
         if not ws:
             return jsonify({'status': 'error', 'message': 'No se encontró la hoja de control de asistencia'}), 404
             
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         registros_dia = []
         
         for r in registros:
@@ -263,7 +263,7 @@ def obtener_consolidado_pendiente():
         ultima_fecha_corte = None
         
         if ws_cortes:
-            cortes = ws_cortes.get_all_records()
+            cortes = sheets_client.get_all_records_seguro(ws_cortes)
             if cortes:
                 # Buscar de forma agnóstica la última fecha (puede que la columna varíe)
                 ultimo_corte = cortes[-1]
@@ -292,7 +292,7 @@ def obtener_consolidado_pendiente():
         if not ws_asistencia:
             return jsonify({'status': 'error', 'message': 'No se encontró la hoja de asistencia'}), 404
             
-        registros = ws_asistencia.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws_asistencia)
         consolidado = {}
         detalle_diario = []  # Lista de registros individuales para el CSV detallado
         total_regs = 0

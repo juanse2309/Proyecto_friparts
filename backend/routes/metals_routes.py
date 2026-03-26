@@ -59,7 +59,7 @@ def registrar_produccion_metals():
         try:
             ws_personal = sheets_client.get_worksheet("METALS_PERSONAL")
             if ws_personal:
-                personal = ws_personal.get_all_records()
+                personal = sheets_client.get_all_records_seguro(ws_personal)
                 operario = next((p for p in personal if p.get('RESPONSABLE') == responsable), None)
                 if operario:
                     departamento = operario.get('DEPARTAMENTO', '')
@@ -130,24 +130,7 @@ def get_metals_historial():
         if not ws:
             return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
         
-        # Obtener todos los registros de forma segura
-        all_data = ws.get_all_values()
-        if len(all_data) <= 1:
-            return jsonify({
-                "success": True, 
-                "registros": [], 
-                "stats": {"hoy": 0, "mes": 0, "pnc": 0, "procesos": 0}
-            })
-
-        headers = all_data[0]
-        rows = all_data[1:]
-        
-        # Convertir a lista de dicts
-        records = []
-        for row in rows:
-            # Rellenar fila si es más corta que headers
-            full_row = row + [''] * (len(headers) - len(row))
-            records.append(dict(zip(headers, full_row)))
+        records = sheets_client.get_all_records_seguro(ws)
 
         # Calcular Estadísticas (Juan Sebastian)
         hoy_str = datetime.date.today().strftime("%d/%m/%Y")

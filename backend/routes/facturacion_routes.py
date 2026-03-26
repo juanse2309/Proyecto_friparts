@@ -21,7 +21,7 @@ def obtener_mapa_vendedores():
     """Mapea nombres de responsables a sus documentos de identidad."""
     try:
         ws = obtener_hoja(Hojas.RESPONSABLES)
-        records = ws.get_all_records()
+        records = sheets_client.get_all_records_seguro(ws)
         # Mapa de nombres normalizados a documentos
         return {str(r.get('RESPONSABLE', r.get('NOMBRE', ''))).strip().upper(): str(r.get('DOCUMENTO', '')).strip() for r in records}
     except Exception as e:
@@ -36,7 +36,7 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     """
     # 1. Obtener Datos
     ws_pedidos = obtener_hoja(Hojas.PEDIDOS)
-    registros_pedidos = ws_pedidos.get_all_records()
+    registros_pedidos = sheets_client.get_all_records_seguro(ws_pedidos)
     
     # Filtro: ESTADO == 'PENDIENTE'
     pedidos_pendientes = [r for r in registros_pedidos if str(r.get('ESTADO', '')).strip().upper() == 'PENDIENTE']
@@ -59,7 +59,7 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     # 2. Obtener Maestros (Clientes y Productos)
     try:
         ws_clientes = obtener_hoja(Hojas.CLIENTES)
-        registros_clientes = ws_clientes.get_all_records()
+        registros_clientes = sheets_client.get_all_records_seguro(ws_clientes)
         mapa_clientes = {str(c.get('CLIENTE', '')).strip().upper(): str(c.get('NIT', '')).strip() for c in registros_clientes}
     except Exception as e:
         logger.error(f"Error leyendo Clientes: {e}")
@@ -67,7 +67,7 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
 
     try:
         ws_productos = obtener_hoja(Hojas.PRODUCTOS)
-        registros_productos = ws_productos.get_all_records()
+        registros_productos = sheets_client.get_all_records_seguro(ws_productos)
         mapa_productos = {}
         for p in registros_productos:
             id_cod = str(p.get('ID CODIGO', '')).strip()
@@ -262,7 +262,7 @@ def actualizar_estado_exportado(pedidos_consecutivos):
         return 0
         
     ws_pedidos = obtener_hoja(Hojas.PEDIDOS)
-    registros = ws_pedidos.get_all_records()
+    registros = sheets_client.get_all_records_seguro(ws_pedidos)
     
     # Obtener índices de columnas
     try:
@@ -341,7 +341,7 @@ def obtener_pedidos_pendientes():
     """
     try:
         ws = obtener_hoja(Hojas.PEDIDOS)
-        registros = ws.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws)
         
         # Filtrar solo 'PENDIENTE' (pedidos recién subidos por Andrés)
         # Estos son los que necesitan ser exportados a World Office para preparación

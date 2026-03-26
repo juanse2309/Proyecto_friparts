@@ -1,4 +1,4 @@
-﻿"""
+"""
 Rutas de inventario.
 Endpoints REST para operaciones de inventario.
 """
@@ -81,7 +81,7 @@ def registrar_conteo():
         except:
              return jsonify({"success": False, "error": "Hoja CONTEOS no encontrada"}), 500
              
-        registros = ws_conteos.get_all_records()
+        registros = sheets_client.get_all_records_seguro(ws_conteos)
         
         # Buscar si ya hay un proceso abierto hoy para este producto
         fila_proceso = None
@@ -119,7 +119,7 @@ def registrar_conteo():
                 # ACTUALIZAR STOCK FISICO REAL
                 try:
                     ws_productos = sheets_client.get_worksheet("PRODUCTOS")
-                    registros_prod = ws_productos.get_all_records()
+                    registros_prod = sheets_client.get_all_records_seguro(ws_productos)
                     headers_prod = ws_productos.row_values(1)
                     col_p_term = headers_prod.index("P. TERMINADO") + 1
                     
@@ -162,7 +162,7 @@ def registrar_conteo():
             # ACTUALIZAR STOCK FISICO REAL (DEFINITIVO)
             try:
                 ws_productos = sheets_client.get_worksheet("PRODUCTOS")
-                registros_prod = ws_productos.get_all_records()
+                registros_prod = sheets_client.get_all_records_seguro(ws_productos)
                 headers_prod = ws_productos.row_values(1)
                 col_p_term = headers_prod.index("P. TERMINADO") + 1
                 

@@ -262,6 +262,12 @@
     canvas {
         min-height: 250px !important;
     }
+
+    #dashboard-page .container-fluid.d-flex.flex-column > .row {
+        width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
 }
 
 /* Tabla de inventario */
