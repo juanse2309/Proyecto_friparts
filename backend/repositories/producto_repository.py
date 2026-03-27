@@ -95,13 +95,15 @@ class ProductoRepository:
                 if id_cod: stock_map[id_cod] = r
 
             productos_finales = []
+            codigos_incluidos = set()  # Track códigos ya procesados
             
-            # 4. Construir lista final basada en Master
+            # 4. Construir lista final basada en Master (DB_PRODUCTOS)
             for item in master_records:
                 codigo = str(item.get('CODIGO', '')).strip()
                 if not codigo: continue # Skip vacíos
                 
                 codigo_norm = codigo.upper()
+                codigos_incluidos.add(codigo_norm)
                 
                 # Datos base del Master
                 producto_final = {
@@ -134,8 +136,41 @@ class ProductoRepository:
                     })
                 
                 productos_finales.append(producto_final)
+            
+            # 5. FIX: Incluir productos de PRODUCTOS que NO existan en DB_PRODUCTOS
+            #    Esto asegura que referencias CB, CM, y cualquier otro prefijo aparezcan.
+            count_added_from_stock = 0
+            for r in stock_records:
+                cod_sistema = str(r.get('CODIGO SISTEMA', '')).strip()
+                id_cod = str(r.get('ID CODIGO', '')).strip()
+                codigo_clave = (cod_sistema or id_cod).upper()
                 
-            logger.info(f"Hybrid Sync: {len(productos_finales)} productos procesados (Master: {len(master_records)})")
+                if not codigo_clave or codigo_clave in codigos_incluidos:
+                    continue  # Ya fue procesado desde DB_PRODUCTOS
+                
+                codigos_incluidos.add(codigo_clave)
+                
+                producto_final = {
+                    'CODIGO SISTEMA': cod_sistema or id_cod,
+                    'ID CODIGO': id_cod or cod_sistema,
+                    'DESCRIPCION': r.get('DESCRIPCION', '') or r.get('DESCRIPCIÓN', '') or 'Sin descripción',
+                    'PRECIO': r.get('PRECIO', 0),
+                    'IMAGEN': r.get('IMAGEN', ''),
+                    'POR PULIR': r.get('POR PULIR', 0),
+                    'P. TERMINADO': r.get('P. TERMINADO', 0),
+                    'PRODUCTO ENSAMBLADO': r.get('PRODUCTO ENSAMBLADO', 0) or r.get('PRODUCTO ENSAMBLado', 0),
+                    'COMPROMETIDO': r.get('COMPROMETIDO', 0),
+                    'STOCK MINIMO': r.get('STOCK MINIMO', 10),
+                    'MEDIDA': r.get('MEDIDA', ''),
+                    'UBICACION': r.get('UBICACION', '')
+                }
+                productos_finales.append(producto_final)
+                count_added_from_stock += 1
+            
+            logger.info(
+                f"Hybrid Sync: {len(productos_finales)} productos totales "
+                f"(Master: {len(master_records)}, Extra desde PRODUCTOS: {count_added_from_stock})"
+            )
             return productos_finales
 
         except Exception as e:
