@@ -589,8 +589,8 @@ window.ModuloDashboard = (function () {
             rolesEfectivos.push('ADMIN');
             rolesEfectivos.push('GERENCIA');
         }
-        if (['INYECCION', 'INYECCIÓN'].includes(rolUsuario)) rolesEfectivos.push('INYECCION');
-        if (['PULIDO'].includes(rolUsuario)) rolesEfectivos.push('PULIDO');
+        if (rolUsuario.includes('INYECCION')) rolesEfectivos.push('INYECCION');
+        if (rolUsuario.includes('PULIDO')) rolesEfectivos.push('PULIDO');
         if (['COMERCIAL', 'VENTAS'].includes(rolUsuario)) rolesEfectivos.push('COMERCIAL');
 
         console.log(`Rol Usuario: ${rolUsuario} -> Evaluando como [${rolesEfectivos.join(', ')}]`);
@@ -604,7 +604,7 @@ window.ModuloDashboard = (function () {
         const chartPulido = document.getElementById('dashboard-section-pulido-leaderboard');
         const tablaPulido = document.getElementById('dashboard-section-pulido-table');
 
-        if (rolUsuario === 'PULIDO') {
+        if (rolUsuario.includes('PULIDO')) {
             if (chartPulido) chartPulido.style.order = '-2';
             if (tablaPulido) tablaPulido.style.order = '-1';
         } else {
