@@ -165,12 +165,10 @@ def obtener_mis_horas():
         return jsonify({'status': 'error', 'message': 'Acceso denegado. Usuario no autenticado en sesión.'}), 401
         
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
-        # Calcular el inicio del rango (últimos 30 días)
-        hoy = datetime.now()
-        inicio_rango = hoy - timedelta(days=30)
-        inicio_rango = inicio_rango.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Nuevo Filtro: Solo lo posterior al último corte de nómina
+        ultima_fecha_corte = get_ultima_fecha_corte()
         
         ws = sheets_client.get_worksheet(Hojas.CONTROL_ASISTENCIA)
         if not ws:
@@ -191,7 +189,7 @@ def obtener_mis_horas():
                     else:
                         fecha_reg = datetime.strptime(fecha_str, '%d/%m/%Y')
                         
-                    if fecha_reg >= inicio_rango:
+                    if not ultima_fecha_corte or fecha_reg > ultima_fecha_corte:
                         mis_registros.append({
                             'fecha': fecha_reg.strftime('%Y-%m-%d'),
                             'ingreso_real': r.get('INGRESO_REAL', r.get('INGRESO REAL', '')),
@@ -253,39 +251,41 @@ def obtener_registros_dia():
         logger.error(f"Error obteniendo registros_dia para {fecha}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+def get_ultima_fecha_corte():
+    """Helper para obtener la última fecha de corte desde CORTES_NOMINA."""
+    try:
+        from datetime import datetime
+        ws_cortes = sheets_client.get_worksheet(Hojas.CORTES_NOMINA)
+        if not ws_cortes:
+            return None
+        
+        cortes = sheets_client.get_all_records_seguro(ws_cortes)
+        if not cortes:
+            return None
+            
+        ultimo_corte = cortes[-1]
+        fecha_str = ""
+        for k, v in ultimo_corte.items():
+            if 'FECHA' in str(k).upper():
+                fecha_str = str(v).strip()
+                break
+                
+        if fecha_str:
+            if 'T' in fecha_str:
+                return datetime.fromisoformat(fecha_str.split('T')[0])
+            else:
+                return datetime.strptime(fecha_str.split(' ')[0], '%Y-%m-%d')
+    except Exception as e:
+        logger.warning(f"Error detectando última fecha de corte: {e}")
+    return None
+
 @asistencia_bp.route('/consolidado_pendiente', methods=['GET'])
 @require_role(['administracion'])
 def obtener_consolidado_pendiente():
     """Obtiene el resumen de horas pendientes desde el último corte."""
     try:
-        # 1. Obtener última fecha de corte
-        ws_cortes = sheets_client.get_worksheet(Hojas.CORTES_NOMINA)
-        ultima_fecha_corte = None
-        
-        if ws_cortes:
-            cortes = sheets_client.get_all_records_seguro(ws_cortes)
-            if cortes:
-                # Buscar de forma agnóstica la última fecha (puede que la columna varíe)
-                ultimo_corte = cortes[-1]
-                # Buscar cualquier key que contenga 'FECHA'
-                fecha_str = ""
-                for k, v in ultimo_corte.items():
-                    if 'FECHA' in str(k).upper():
-                        fecha_str = str(v).strip()
-                        break
-                        
-                if fecha_str:
-                    try:
-                        from datetime import datetime
-                        # A veces viene como ISO '2026-03-25T...' a veces como Fecha '25/03/2026'
-                        if 'T' in fecha_str:
-                            ultima_fecha_corte = datetime.fromisoformat(fecha_str.split('T')[0])
-                        else:
-                            # Intentar parsear YYYY-MM-DD
-                            ultima_fecha_corte = datetime.strptime(fecha_str.split(' ')[0], '%Y-%m-%d')
-                    except Exception as date_e:
-                        logger.warning(f"No se pudo parsear ultima fecha corte {fecha_str}: {date_e}")
-                        pass
+        # 1. Obtener última fecha de corte (usando helper)
+        ultima_fecha_corte = get_ultima_fecha_corte()
 
         # 2. Consultar asistencia y filtrar
         ws_asistencia = sheets_client.get_worksheet(Hojas.CONTROL_ASISTENCIA)
@@ -343,7 +343,9 @@ def obtener_consolidado_pendiente():
                 'ingreso': r.get('INGRESO_REAL', r.get('INGRESO REAL', '')),
                 'salida': r.get('SALIDA_REAL', r.get('SALIDA REAL', '')),
                 'horas_ordinarias': h_ord,
-                'horas_extras': h_ext
+                'horas_extras': h_ext,
+                'motivo': r.get('MOTIVO', ''),
+                'comentarios': r.get('COMENTARIOS', '')
             })
 
         # Ordenar detalle por colaborador y luego por fecha

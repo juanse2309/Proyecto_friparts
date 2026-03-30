@@ -722,17 +722,51 @@ window.ModuloAsistencia = (function () {
 
             if (data.status === 'success') {
                 if (data.registros && data.registros.length > 0) {
-                    body.innerHTML = data.registros.map(r => `
-            <tr>
-                            <td class="fw-bold text-muted">${r.fecha}</td>
+                    let totalOrd = 0;
+                    let totalExt = 0;
+
+                    body.innerHTML = data.registros.map(r => {
+                        const hOrd = parseFloat(r.horas_ordinarias) || 0;
+                        const hExt = parseFloat(r.horas_extras) || 0;
+                        totalOrd += hOrd;
+                        totalExt += hExt;
+
+                        // Obtener nombre del día
+                        const diasSemana = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
+                        const f = new Date(r.fecha + 'T00:00:00');
+                        const diaNombre = diasSemana[f.getDay()];
+
+                        return `
+                        <tr>
+                            <td class="fw-bold text-muted">
+                                <div class="d-flex flex-column">
+                                    <span class="text-primary small fw-bold">${diaNombre}</span>
+                                    <span>${r.fecha}</span>
+                                </div>
+                            </td>
                             <td><span class="badge bg-light text-dark">${formatTimeDisplay(r.ingreso_real)}</span></td>
                             <td><span class="badge bg-light text-dark">${formatTimeDisplay(r.salida_real)}</span></td>
-                            <td class="text-primary fw-bold">${r.horas_ordinarias}</td>
-                            <td class="text-danger fw-bold">${r.horas_extras}</td>
+                            <td class="text-primary fw-bold">${hOrd}</td>
+                            <td class="text-danger fw-bold">${hExt}</td>
                         </tr>
-            `).join('');
+                        `;
+                    }).join('');
+
+                    // Actualizar Footer con Totales
+                    const footer = document.getElementById('mis-horas-footer');
+                    if (footer) {
+                        footer.innerHTML = `
+                            <tr class="table-light border-top border-2">
+                                <td colspan="3" class="text-end fw-bold py-3 px-4">TOTAL ACUMULADO DEL PERIODO:</td>
+                                <td class="text-primary fw-bold h5 mb-0 py-3">${totalOrd.toFixed(1)}</td>
+                                <td class="text-danger fw-bold h5 mb-0 py-3">${totalExt.toFixed(1)}</td>
+                            </tr>
+                        `;
+                    }
                 } else {
-                    body.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted"><i class="fas fa-clock fa-2x mb-3" style="opacity: 0.5;"></i><br>Aún no hay horas registradas para esta semana</td></tr>';
+                    body.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted"><i class="fas fa-clock fa-2x mb-3" style="opacity: 0.5;"></i><br>No hay horas registradas en el periodo actual de nómina</td></tr>';
+                    const footer = document.getElementById('mis-horas-footer');
+                    if (footer) footer.innerHTML = '';
                 }
             } else {
                 throw new Error(data.message);

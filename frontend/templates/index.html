@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 
 <head>
@@ -1028,7 +1028,7 @@
                     <div class="row g-4 mb-4" id="dashboard-section-tendencia"
                         data-role-access="ADMIN,INYECCION,PULIDO">
                         <!-- Tendencia de Producción (Data Scientist View) -->
-                        <div class="col-lg-8">
+                        <div class="col-12">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
                                 <div class="card-header bg-white border-0 pt-4 pb-2">
                                     <h5 class="fw-bold mb-0 text-dark"><i
@@ -1044,42 +1044,59 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Scrap Detallado -->
-                        <div class="col-lg-4">
+                    <!-- NUEVA FILA: Analítica de Merma (Dual) -->
+                    <div class="row g-4 mb-4" id="dashboard-section-merma-analytics" data-role-access="ADMIN,INYECCION,PULIDO">
+                        <!-- 1. Merma Global por Áreas (El Anterior) -->
+                        <div class="col-lg-6">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
-                                <div class="card-header bg-white border-0 pt-4 pb-2">
-                                    <h5 class="fw-bold mb-0 text-dark"><i class="fas fa-trash-alt text-danger me-2"></i>
-                                        Merma Total (PNC) <i class="fas fa-info-circle ms-2 fs-6 text-muted"
-                                            data-bs-toggle="tooltip"
-                                            title="Muestra la proporción de Scrap por proceso y el top de referencias reportadas en Almacén."></i>
+                                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
+                                    <h5 class="fw-bold mb-0 text-dark">
+                                        <i class="fas fa-trash-alt text-danger me-2"></i> Merma Global por Área (PNC)
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Distribución proporcional del scrap acumulado en Inyección, Pulido, Ensamble y Almacén."></i>
                                     </h5>
+                                    <div>
+                                        <span class="badge bg-danger rounded-pill" style="font-size: 0.9rem;">Total: <span id="pnc-global-val">0</span></span>
+                                    </div>
                                 </div>
                                 <div class="card-body">
-                                    <div
-                                        class="p-3 mb-3 bg-light rounded-3 d-flex justify-content-between align-items-center">
-                                        <span class="fw-bold text-muted">Total Merma Detectada:</span>
-                                        <span class="badge bg-danger fs-6" id="pnc-global-val">0</span>
-                                    </div>
-                                    <div style="min-height: 280px; position: relative;" class="mb-5">
+                                    <div style="height: 320px; position: relative;" class="mb-4">
                                         <canvas id="chartPNCGlobal"></canvas>
                                     </div>
-                                    <h6 class="fw-bold text-dark mt-3 mb-2" style="font-size: 0.9em;"><i
-                                            class="fas fa-list-ul text-secondary me-2"></i> Detalle Scrap Almacén (Top
-                                        5)
-                                        <i class="fas fa-info-circle ms-1 text-muted" style="font-size: 0.8rem;"
-                                            data-bs-toggle="tooltip"
-                                            title="Top 5 productos con mayor merma en almacén y su impacto económico estimado."></i>
-                                    </h6>
-                                    <div id="pnc-almacen-desglose"
-                                        class="list-group list-group-flush small overflow-auto"
-                                        style="max-height: 150px;">
-                                        <div class="list-group-item text-muted text-center py-3">Esperando datos...
+                                    <div class="border-top pt-3">
+                                        <h6 class="fw-bold text-muted small text-uppercase mb-2"><i class="fas fa-box-open me-2"></i> Top Scrap Almacén</h6>
+                                        <div id="pnc-almacen-desglose" class="list-group list-group-flush small overflow-auto" style="max-height: 120px;">
+                                            <div class="list-group-item text-muted text-center py-2">Cargando detalle...</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
+
+                        <!-- 2. Merma Pulido por Origen (El Nuevo) -->
+                        <div class="col-lg-6" data-role-access="ADMIN,PULIDO">
+                            <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
+                                    <h5 class="fw-bold mb-0 text-dark">
+                                        <i class="fas fa-chart-pie text-warning me-2"></i> Merma Pulido (Máquina vs Operario)
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Diferenciación entre mermas por error humano (Operario) vs mermas por falla física/material (Máquina)."></i>
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <div style="height: 320px; position: relative;">
+                                        <canvas id="chartPulidoMermaOrigen"></canvas>
+                                    </div>
+                                    <div class="p-3 bg-light rounded-3 mt-4 border-start border-4 border-warning">
+                                        <p class="mb-0 small text-secondary">
+                                            <i class="fas fa-lightbulb text-warning me-1"></i> <strong>Tip de Auditoría:</strong> 
+                                            Esta merma (Falla Máquina) proviene de procesos previos como inyección y no es responsabilidad del área de pulido. El Error Operario representa la calidad bajo control directo de la mesa.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     </div>
 
                     <!-- Fila para Gráficas Core Chart.js -->
@@ -1106,6 +1123,39 @@
                         </div>
                     </div>
 
+                    <!-- NUEVA FILA: Gráfica Eficiencia Pulido -->
+                    <div class="row g-4 mb-4 mt-2" id="dashboard-section-pulido-kpis" data-role-access="ADMIN,PULIDO">
+                        <div class="col-md-6">
+                            <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
+                                    <h5 class="fw-bold mb-0 text-dark">
+                                        <i class="fas fa-chart-line text-primary me-2"></i> Evolución Mensual de Puntos
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Acumulación de puntos por operadora. Muestra la constancia y aportes según el mes en el rango filtrado."></i>
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <div style="position: relative; height: 320px; width: 100%;">
+                                        <canvas id="chartPulidoEvolucion"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
+                                    <h5 class="fw-bold mb-0 text-dark">
+                                        <i class="fas fa-medal text-warning me-2"></i> Ranking de Producción (Piezas)
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Clasificación descendente por cantidad de piezas logradas. Considera toda la data en el rango filtrado."></i>
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <div style="position: relative; height: 320px; width: 100%;">
+                                        <canvas id="chartPulidoRanking"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     <!-- Fila Inferior: Pulido -->
                     <div class="row g-4" id="dashboard-section-pulido-table" data-role-access="ADMIN,PULIDO">
@@ -1134,13 +1184,14 @@
                                                             class="fas fa-check-square"></i></th>
                                                     <th style="width: 25%;">Responsable</th>
                                                     <th class="text-center" style="width: 15%;">Puntaje de Esfuerzo</th>
-                                                    <th class="text-center" style="width: 20%;">Unidades Totales</th>
-                                                    <th style="width: 30%;">% Efectividad</th>
+                                                    <th class="text-center" style="width: 15%;">Unidades Totales</th>
+                                                    <th class="text-center" style="width: 15%;">Eficiencia (Tiempo)</th>
+                                                    <th style="width: 20%;">Calidad (Yield)</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <tr>
-                                                    <td colspan="5" class="text-center py-5 text-muted">
+                                                    <td colspan="7" class="text-center py-5 text-muted">
                                                         <div class="spinner-border spinner-border-sm text-primary me-2"
                                                             role="status"></div> Cargando datos en vivo de Pulido...
                                                     </td>
@@ -3783,13 +3834,16 @@
                                             <th>Fecha</th>
                                             <th>Llegada</th>
                                             <th>Salida</th>
-                                            <th class="text-primary">Horas Ordinarias</th>
+                                            <th class="text-primary">Horas Normales</th>
                                             <th class="text-danger">Horas Extras</th>
                                         </tr>
                                     </thead>
                                     <tbody id="mis-horas-body">
                                         <!-- Se llena dinámicamente -->
                                     </tbody>
+                                    <tfoot id="mis-horas-footer">
+                                        <!-- Totales acumulados -->
+                                    </tfoot>
                                 </table>
                             </div>
                         </div>

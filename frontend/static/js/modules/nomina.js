@@ -131,7 +131,7 @@ const ModuloNomina = (function () {
         });
 
         // Construir CSV con desglose diario + totales
-        let csvContent = "Colaborador;Fecha;Ingreso;Salida;Horas Ordinarias;Horas Extras\n";
+        let csvContent = "Colaborador;Fecha;Ingreso;Salida;Horas Ordinarias;Horas Extras;Motivo;Comentarios\n";
 
         const colaboradores = Object.keys(porColaborador).sort();
         colaboradores.forEach(nombre => {
@@ -141,15 +141,17 @@ const ModuloNomina = (function () {
 
             // Líneas diarias
             dias.forEach(d => {
-                csvContent += `${nombre};${d.fecha};${d.ingreso};${d.salida};${d.horas_ordinarias};${d.horas_extras}\n`;
+                const motivo = (d.motivo || '').toString().replace(/;/g, ' ');
+                const comentarios = (d.comentarios || '').toString().replace(/;/g, ' ');
+                csvContent += `${nombre};${d.fecha};${d.ingreso};${d.salida};${d.horas_ordinarias};${d.horas_extras};${motivo};${comentarios}\n`;
                 totalOrd += d.horas_ordinarias;
                 totalExt += d.horas_extras;
             });
 
             // Línea de subtotal por persona
-            csvContent += `TOTAL ${nombre};;;;${totalOrd};${totalExt}\n`;
+            csvContent += `TOTAL ${nombre};;;;${totalOrd};${totalExt};;\n`;
             // Línea en blanco para separar
-            csvContent += `;;;;;\n`;
+            csvContent += `;;;;;;;\n`;
         });
 
         // Crear Blob y descargar

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Rutas de dashboard.
 """
 from flask import Blueprint, jsonify
@@ -166,11 +166,16 @@ def obtener_metricas_bi():
                 cst = clean_currency(c_tot_str)
                 if ref: 
                     costos_map[ref] = cst
-                    pts_str = str(r.get("Puntos_por_pieza") or r.get("Puntos por pieza") or 1.0)
-                    tmp_str = str(r.get("Tiempo_estandar") or r.get("Tiempo estandar") or 0.0)
-                    try: puntos_map[ref] = float(pts_str)
+                    pts_str = "1.0"
+                    tmp_str = "0.0"
+                    for k, v in r.items():
+                        kl = str(k).upper().replace("_", " ")
+                        if "PUNTOS" in kl and "PIEZA" in kl: pts_str = str(v)
+                        if "TIEMPO" in kl: tmp_str = str(v)
+
+                    try: puntos_map[ref] = float(pts_str.replace(',', '.').strip()) if pts_str.replace(',', '.').strip() else 1.0
                     except: puntos_map[ref] = 1.0
-                    try: tiempo_map[ref] = float(tmp_str)
+                    try: tiempo_map[ref] = float(tmp_str.replace(',', '.').strip()) if tmp_str.replace(',', '.').strip() else 0.0
                     except: tiempo_map[ref] = 0.0
         except Exception as e:
             logger.warning(f"No se pudo cargar DB_COSTOS para PNC: {e}")
@@ -188,20 +193,83 @@ def obtener_metricas_bi():
 
 
         # --- PROCESAMIENTO ---
+        MESES_ESP = {1:"Ene", 2:"Feb", 3:"Mar", 4:"Abr", 5:"May", 6:"Jun", 7:"Jul", 8:"Ago", 9:"Sep", 10:"Oct", 11:"Nov", 12:"Dic"}
+
+        import re
+        import datetime
+        def parse_time_to_seconds(time_str):
+            try:
+                if isinstance(time_str, datetime.datetime):
+                    time_str = time_str.time()
+                if isinstance(time_str, datetime.time):
+                    return time_str.hour * 3600 + time_str.minute * 60 + time_str.second
+
+                # Si viene como float (fracción de día de Excel/Sheets)
+                if isinstance(time_str, (int, float)):
+                    fragmento = float(time_str) % 1.0
+                    return int(round(fragmento * 86400))
+                
+                s = str(time_str).strip().lower()
+                if not s or s == 'none': return None
+                
+                # Extrae patrones como "12:30", "12.30", "1:45 pm", "13:00:00"
+                match = re.search(r'(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(am|pm)?', s)
+                if match:
+                    h = int(match.group(1))
+                    m = int(match.group(2))
+                    sec = int(match.group(3)) if match.group(3) else 0
+                    ampm = match.group(4)
+                    
+                    if ampm:
+                        if ampm == 'pm' and h < 12: h += 12
+                        if ampm == 'am' and h == 12: h = 0
+                    return h * 3600 + m * 60 + sec
+            except:
+                pass
+            return None
+
+        def calcular_segundos_reales(inicio, fin):
+            try:
+                # DEBUG TEMPORAL
+                with open('time_debug.log', 'a', encoding='utf-8') as f:
+                    f.write(f"inicio: '{inicio}' ({type(inicio)}), fin: '{fin}' ({type(fin)})\n")
+            except: pass
+            
+            try:
+                if not inicio or not fin: return 0
+                s1 = parse_time_to_seconds(inicio)
+                s2 = parse_time_to_seconds(fin)
+                if s1 is None or s2 is None: return 0
+                diff = s2 - s1
+                if diff < 0:
+                    diff += 86400  # Cruzó la medianoche
+                return diff
+            except Exception as e:
+                print(f"DEBUG TIME FAIL: inicio={inicio}, fin={fin} Error: {e}")
+                return 0
+
         stats = {
             "inyeccion": {
-                "total_ok": 0, # Renamed from total_pz to total_ok for consistency with pulido
+                "total_ok": 0, 
                 "total_pnc": 0,
-                "operadores": collections.defaultdict(lambda: collections.defaultdict(int)),
+                "operadores": collections.defaultdict(lambda: collections.defaultdict(lambda: {"qty": 0, "fecha": ""})),
                 "maquinas": collections.defaultdict(int),
                 "fechas": collections.defaultdict(int)
             },
             "pulido": {
                 "total_ok": 0, 
                 "total_pnc": 0, 
-                "operadores": collections.defaultdict(lambda: collections.defaultdict(int)),
+                "operadores": collections.defaultdict(lambda: collections.defaultdict(lambda: {"qty": 0, "fecha": ""})),
                 "pnc_ops": collections.defaultdict(int),
-                "costo_pnc_ops": collections.defaultdict(float)
+                "costo_pnc_ops": collections.defaultdict(float),
+                "pnc_operario_ops": collections.defaultdict(int),
+                "pnc_maquina_ops": collections.defaultdict(int),
+                "costo_pnc_operario_ops": collections.defaultdict(float),
+                "costo_pnc_maquina_ops": collections.defaultdict(float),
+                "tiempo_real_ops": collections.defaultdict(float),
+                "tiempo_std_ops": collections.defaultdict(float),
+                "mensual": collections.defaultdict(lambda: {"piezas": 0, "std": 0, "real": 0}),
+                "mensual_operadoras": collections.defaultdict(lambda: collections.defaultdict(float))
             },
             "pedidos": {"total_solicitado": 0},
             "pnc_total": {"inyeccion": 0, "pulido": 0, "ensamble": 0, "almacen": 0},
@@ -258,7 +326,12 @@ def obtener_metricas_bi():
 
             stats["inyeccion"]["total_ok"] += ok
             stats["inyeccion"]["total_pnc"] += pnc
-            stats["inyeccion"]["operadores"][op][prod] += ok # Changed to nested defaultdict
+            stats["inyeccion"]["operadores"][op][prod]["qty"] += ok
+            # Guardamos la fecha más reciente si hay varias
+            curr_date = str(parsear_fecha_dashboard(f_str)) if f_str else ""
+            if curr_date > stats["inyeccion"]["operadores"][op][prod]["fecha"]:
+                stats["inyeccion"]["operadores"][op][prod]["fecha"] = curr_date
+
             if maq: stats["inyeccion"]["maquinas"][maq] += ok
             
             f_dt = parsear_fecha_dashboard(f_str)
@@ -273,12 +346,18 @@ def obtener_metricas_bi():
             
             ok = to_int_seguro(r.get("CANTIDAD REAL") or r.get("BUJES BUENOS"))
             pnc = to_int_seguro(r.get("PNC"))
-            # OJO: La hoja tiene un espacio al final "RESPONSABLE "
             op = str(r.get("RESPONSABLE") or r.get("responsable") or r.get("RESPONSABLE ") or "").strip().upper()
             prod = str(r.get("CODIGO") or r.get("codigo") or r.get("ID CODIGO") or "GENERICO").strip().upper()
             
             if not op or op == "NONE": continue
             
+            # Matemática de Tiempos
+            h_ini = r.get("HORA INICIO") or r.get("hora_inicio") or ""
+            h_fin = r.get("HORA FIN") or r.get("hora_fin") or ""
+            segundos_reales = calcular_segundos_reales(h_ini, h_fin)
+            segundos_std_unitario = tiempo_map.get(prod, 0.0)
+            segundos_std_totales = ok * segundos_std_unitario
+
             # Guardar relación ID -> Operador/Fecha para el PNC
             id_pul = str(r.get("ID PULIDO") or "").strip()
             f_dt = parsear_fecha_dashboard(f_str)
@@ -288,12 +367,25 @@ def obtener_metricas_bi():
 
             stats["pulido"]["total_ok"] += ok
             stats["pulido"]["total_pnc"] += pnc
-            stats["pulido"]["operadores"][op][prod] += ok 
+            stats["pulido"]["operadores"][op][prod]["qty"] += ok
+            # Guardamos la fecha más reciente
+            curr_date = str(f_dt) if f_dt else ""
+            if curr_date > stats["pulido"]["operadores"][op][prod]["fecha"]:
+                stats["pulido"]["operadores"][op][prod]["fecha"] = curr_date
 
+            stats["pulido"]["tiempo_real_ops"][op] += segundos_reales
+            stats["pulido"]["tiempo_std_ops"][op] += segundos_std_totales
 
-            
-            f_dt = parsear_fecha_dashboard(f_str)
-            if f_dt: stats["tendencia"][str(f_dt)]["pulido"] += ok
+            if f_dt:
+                key_mes = f"{MESES_ESP.get(f_dt.month, 'S/M')} {f_dt.year}"
+                stats["pulido"]["mensual"][key_mes]["piezas"] += ok
+                stats["pulido"]["mensual"][key_mes]["std"] += segundos_std_totales
+                stats["pulido"]["mensual"][key_mes]["real"] += segundos_reales
+                
+                # Sumar los puntos obtenidos en este mes para esa operadora
+                stats["pulido"]["mensual_operadoras"][key_mes][op] += ok * puntos_map.get(prod, 1.0)
+                
+                stats["tendencia"][str(f_dt)]["pulido"] += ok
 
 
         # Procesar Pedidos (Fulfillment)
@@ -323,13 +415,34 @@ def obtener_metricas_bi():
             id_pul = str(r.get("ID PULIDO") or "").strip()
             op_pnc = id_pul_to_op.get(id_pul)
             f_pnc = r.get("FECHA") or r.get("fecha") or id_pul_to_date.get(id_pul) # Objeto date o str
-            
+            # Obtención de Razón más robusta (revisa varios posibles nombres de columna)
+            razon_raw = r.get("RAZÓN") or r.get("RAZON") or r.get("MOTIVO") or r.get("DEFECTO") or r.get("OBSERVACIONES") or ""
+            razon = str(razon_raw).strip().lower()
+
             if dentro_de_rango(f_pnc): 
                 cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
                 prod_pnc = str(r.get("CODIGO", "") or "GENERICO").strip()
                 stats["pnc_total"]["pulido"] += cant
                 cost_lote = sumar_perdida_pnc(prod_pnc, cant)
+                
                 if op_pnc:
+                    # Clasificación por Razón (Refinado por User Feedback)
+                    # Se consideran FALLA MÁQUINA si provienen de procesos previos o fallas técnicas
+                    keywords_maquina = [
+                        "maquina", "máquina", "porosidad", "fundición", "fundicion", 
+                        "mecanizado", "rechupe", "manchado", "contaminado", "escaso",
+                        "inyeccion", "inyección", "molde", "materia", "falla"
+                    ]
+                    es_maquina = any(kw in razon for kw in keywords_maquina)
+                    
+                    if es_maquina:
+                        stats["pulido"]["pnc_maquina_ops"][op_pnc] += cant
+                        stats["pulido"]["costo_pnc_maquina_ops"][op_pnc] += cost_lote
+                    else:
+                        stats["pulido"]["pnc_operario_ops"][op_pnc] += cant
+                        stats["pulido"]["costo_pnc_operario_ops"][op_pnc] += cost_lote
+                        
+                    # Mantener compatibilidad
                     stats["pulido"]["pnc_ops"][op_pnc] += cant
                     stats["pulido"]["costo_pnc_ops"][op_pnc] += cost_lote
 
@@ -361,6 +474,33 @@ def obtener_metricas_bi():
         if stats["pedidos"]["total_solicitado"] > 0:
             fulfillment_rate = round((stats["inyeccion"]["total_ok"] / stats["pedidos"]["total_solicitado"]) * 100, 1)
 
+        # --- Rankings Pulido ---
+        rank_pulido = {}
+        for op, prods in stats["pulido"]["operadores"].items():
+            buenas_totales = sum(d["qty"] for d in prods.values())
+            # [LIMPIEZA]: Si no tiene piezas buenas en el rango, no lo incluimos
+            if buenas_totales == 0: continue
+            
+            pnc_propio = stats["pulido"]["pnc_operario_ops"][op]
+            pnc_maquina = stats["pulido"]["pnc_maquina_ops"][op]
+            
+            # [JUSTICIA]: Yield solo afecta por PNC Propio
+            yield_calidad = round((buenas_totales / (buenas_totales + pnc_propio) * 100), 1) if (buenas_totales + pnc_propio) > 0 else 0
+            
+            rank_pulido[op] = {
+                "nombre": op,
+                "buenas": buenas_totales,
+                "pnc_propio": pnc_propio,
+                "pnc_maquina": pnc_maquina,
+                "yield_calidad": yield_calidad,
+                "eficiencia_productiva_pct": round((stats["pulido"]["tiempo_std_ops"][op] / stats["pulido"]["tiempo_real_ops"][op] * 100), 1) if stats["pulido"]["tiempo_real_ops"][op] > 0 else 0,
+                "puntos_reales": sum(d["qty"] * puntos_map.get(p, 1.0) for p, d in prods.items()),
+                "operario_referencia": sorted([
+                    {"ref": p, "cantidad": d["qty"], "ultima_fecha": d["fecha"], "pts_u": puntos_map.get(p, 1.0), "costo_u": costos_map.get(p, 0.0)} 
+                    for p, d in prods.items()
+                ], key=lambda x: x["cantidad"], reverse=True)
+            }
+
         result_data = {
             "rango": {"desde": str(desde) if desde else "Inicio", "hasta": str(hasta) if hasta else "Fin"},
             "kpis": {
@@ -378,22 +518,64 @@ def obtener_metricas_bi():
                 "inyeccion_ops": sorted([
                     {
                         "nombre": op, 
-                        "valor": sum(prods.values()), 
-                        "mix": sorted([{"prod": p, "qty": q, "pts": q * puntos_map.get(p, 1.0), "u_pts": puntos_map.get(p, 1.0)} for p, q in prods.items()], key=lambda x: x["qty"], reverse=True),
-                        "insight": f"Operador enfocado en: {sorted([{'prod': p, 'qty': q} for p, q in prods.items()], key=lambda x: x['qty'], reverse=True)[0]['prod'] if prods else 'Variado'}"
+                        "valor": sum(d["qty"] for d in prods.values()), 
+                        "mix": sorted([{"prod": p, "qty": d["qty"], "fecha": d["fecha"], "pts": d["qty"] * puntos_map.get(p, 1.0), "u_pts": puntos_map.get(p, 1.0)} for p, d in prods.items()], key=lambda x: x["qty"], reverse=True),
+                        "insight": f"Operador enfocado en: {sorted([{'prod': p, 'qty': d['qty']} for p, d in prods.items()], key=lambda x: x['qty'], reverse=True)[0]['prod'] if prods else 'Variado'}"
                     } for op, prods in stats["inyeccion"]["operadores"].items()
                 ], key=lambda x: x["valor"], reverse=True), # Removemos el [:10] para mandar todos
                 "pulido_profundo": {
                     op: {
-                        "mix": sorted([{"prod": p, "qty": q, "pts": q * puntos_map.get(p, 1.0), "u_pts": puntos_map.get(p, 1.0)} for p, q in prods.items()], key=lambda x: x["qty"], reverse=True),
-                        "buenas": sum(prods.values()),
-                        "puntos": sum([q * puntos_map.get(p, 1.0) for p, q in prods.items()]),
-                        "tiempo_estandar": sum([q * tiempo_map.get(p, 0.0) for p, q in prods.items()]),
+                        "mix": sorted([
+                            {
+                                "prod": p, 
+                                "qty": q["qty"], 
+                                "pts": q["qty"] * puntos_map.get(p, 1.0), 
+                                "u_pts": puntos_map.get(p, 1.0),
+                                "costo": costos_map.get(p, 0.0),
+                                "fecha": q["fecha"]
+                            } for p, q in prods.items()
+                        ], key=lambda x: x["qty"], reverse=True),
+                        "buenas": sum(d["qty"] for d in prods.values()),
+                        "puntos": sum([d["qty"] * puntos_map.get(p, 1.0) for p, d in prods.items()]),
+                        "tiempo_estandar": sum([d["qty"] * tiempo_map.get(p, 0.0) for p, d in prods.items()]),
+                        "eficiencia_productiva_pct": round((stats["pulido"]["tiempo_std_ops"].get(op, 0) / stats["pulido"]["tiempo_real_ops"].get(op, 1e-9) * 100), 1) if stats["pulido"]["tiempo_real_ops"].get(op, 0) > 0 else 0,
                         "pnc": stats["pulido"]["pnc_ops"].get(op, 0),
+                        "pnc_operario": stats["pulido"]["pnc_operario_ops"].get(op, 0),
+                        "pnc_maquina": stats["pulido"]["pnc_maquina_ops"].get(op, 0),
                         "costo_pnc": stats["pulido"]["costo_pnc_ops"].get(op, 0),
-                        "insight": f"Especialista destacado en este rango, produciendo principalmente: {sorted([{'prod': p, 'qty': q} for p, q in prods.items()], key=lambda x: x['qty'], reverse=True)[0]['prod'] if prods else 'Variado'}"
-                    } for op, prods in stats["pulido"]["operadores"].items()
+                        "yield_calidad": round((sum(d["qty"] for d in prods.values()) / (sum(d["qty"] for d in prods.values()) + stats["pulido"]["pnc_operario_ops"].get(op, 0)) * 100), 1) if (sum(d["qty"] for d in prods.values()) + stats["pulido"]["pnc_operario_ops"].get(op, 0)) > 0 else 100,
+                        "insight": f"Especialista destacado en este rango, produciendo principalmente: {sorted([{'prod': p, 'qty': d['qty']} for p, d in prods.items()], key=lambda x: x['qty'], reverse=True)[0]['prod'] if prods else 'Variado'}"
+                    } for op, prods in stats["pulido"]["operadores"].items() if sum(d["qty"] for d in prods.values()) > 0
                 }
+            },
+
+            "analytics_pulido": {
+                "consolidado_mensual": sorted([
+                    {
+                        "mes": m,
+                        "total_piezas": v["piezas"],
+                        "eficiencia_productiva_promedio": round((v["std"] / v["real"] * 100), 1) if v["real"] > 0 else 0
+                    } for m, v in stats["pulido"]["mensual"].items()
+                ], key=lambda x: x["mes"], reverse=True),
+
+                "merma_por_origen": {
+                    "maquina": sum(stats["pulido"]["pnc_maquina_ops"].values()),
+                    "operario": sum(stats["pulido"]["pnc_operario_ops"].values())
+                },
+                
+                "evolucion_puntos_op": {
+                    m: {op: pts for op, pts in ops.items() if pts > 0} 
+                    for m, ops in stats["pulido"]["mensual_operadoras"].items()
+                },
+                
+                "operario_referencia": {op: {
+                    p: {
+                        "cantidad_total": d["qty"],
+                        "puntos_unidad": puntos_map.get(p, 1.0),
+                        "costo_unidad": costos_map.get(p, 0.0),
+                        "ultima_fecha": d["fecha"]
+                    } for p, d in prods.items()
+                } for op, prods in stats["pulido"]["operadores"].items() if sum(d["qty"] for d in prods.values()) > 0}
             },
 
             "maquinas": sorted([{"maquina": k, "valor": v} for k, v in stats["inyeccion"]["maquinas"].items()], key=lambda x: x["valor"], reverse=True),
@@ -413,21 +595,33 @@ def obtener_metricas_bi():
         else:
             insights.append("Flujo de producción: El ritmo de Inyección y Pulido está perfectamente sincronizado.")
 
-            
-        # 3. Scrap / PNC
-        total_scrap = sum(stats["pnc_total"].values())
+        # 3. Scrap / PNC (Refinado)
+        merma_maquina = result_data["analytics_pulido"]["merma_por_origen"]["maquina"]
+        merma_operador = result_data["analytics_pulido"]["merma_por_origen"]["operario"]
+        total_scrap = merma_maquina + merma_operador
+        
         if total_scrap > 0:
-            p_scrap = round((total_scrap / (stats["inyeccion"]["total_ok"] + 1)) * 100, 2)
-            insights.append(f"Calidad: El índice de merma global es del {p_scrap}%. {'Controlar Almacén' if stats['pnc_total']['almacen'] > 0 else 'Rangos estables.'}")
+            if merma_maquina > merma_operador:
+                insights.append(f"Calidad: El {round((merma_maquina/total_scrap)*100)}% del scrap viene de fallas técnicas (Máquina/Porosidad). Se recomienda mantenimiento.")
+            else:
+                insights.append(f"Calidad: Se detectó un {round((merma_operador/total_scrap)*100)}% de merma por error humano. Reforzar capacitación en técnica de pulido.")
             
-        # 4. Top Performance
-        if stats["inyeccion"]["operadores"]:
-            top_iny = max(stats["inyeccion"]["operadores"].items(), key=lambda x: sum(x[1].values()))[0]
-            insights.append(f"Líder de Inyección: {top_iny} es el operador más productivo del periodo.")
-            
+        # 4. Top Performance & Productividad
         if stats["pulido"]["operadores"]:
-            top_pul = max(stats["pulido"]["operadores"].items(), key=lambda x: sum([q * puntos_map.get(p, 1.0) for p, q in x[1].items()]))[0]
-            insights.append(f"Líder de Pulido: {top_pul} mantiene el mayor puntaje de esfuerzo.")
+            # Líder de Volumen
+            top_pul_vol = max(result_data["rankings"]["pulido_profundo"].items(), key=lambda x: x[1]["buenas"])[0]
+            # Líder de Calidad (Mejor Yield ignorando máquina)
+            top_pul_cal = max(result_data["rankings"]["pulido_profundo"].items(), key=lambda x: x[1]["yield_calidad"])[0]
+            # Líder de Eficiencia Real (Tiempo)
+            top_pul_ef = max(result_data["rankings"]["pulido_profundo"].items(), key=lambda x: x[1]["eficiencia_productiva_pct"])[0]
+            
+            insights.append(f"Líder de Pulido: {top_pul_vol} tiene la mayor producción de piezas.")
+            insights.append(f"Eficiencia: {top_pul_ef} destaca con el mejor ritmo de trabajo vs tiempo estándar.")
+            insights.append(f"Estrella de Calidad: {top_pul_cal} mantiene el mejor promedio de piezas perfectas (Yield Real).")
+
+        if stats["inyeccion"]["operadores"]:
+            top_iny = max(stats["inyeccion"]["operadores"].items(), key=lambda x: sum(d["qty"] for d in x[1].values()))[0]
+            insights.append(f"Líder de Inyección: {top_iny} es el operador más productivo del periodo.")
 
         result_data["insights_ia"] = insights
         # Mantener retrocompatibilidad

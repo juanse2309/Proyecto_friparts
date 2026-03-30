@@ -6,6 +6,9 @@ window.ModuloDashboard = (function () {
     let selectedOperators = []; // Para comparativa cara a cara
 
     let chartPulidoBoard = null;
+    let chartPulidoEvolucionInst = null;
+    let chartPulidoRankingInst = null;
+    let chartPulidoMermaOrigenInst = null;
     let chartMensualInst = null;
     let inc_unidades_original = [];
     let inc_dinero_original = [];
@@ -18,6 +21,7 @@ window.ModuloDashboard = (function () {
     let isInitialized = false;
     let isFetching = false;
     let tableRowCache = {}; // Cache para búsquedas ultra-rápidas
+    let cacheAnalyticsPulido = null; // Cache para Analiticas de Pulido 
 
     // Helper: Debounce function for performance
     const debounce = (func, wait) => {
@@ -241,8 +245,14 @@ window.ModuloDashboard = (function () {
             renderScrapAlmacenDetalle(data.kpis.scrap_almacen_desglose || []);
 
             // 5. Tabla Pulido
-            renderTablaPulido(data.rankings?.pulido_profundo || []);
-            renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || []);
+            if (data.analytics_pulido) {
+                cacheAnalyticsPulido = data.analytics_pulido;
+            }
+            renderChartPulidoEvolucion(data.analytics_pulido?.evolucion_puntos_op || {});
+            renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
+            renderChartPulidoMermaOrigen(data.analytics_pulido?.merma_por_origen || {maquina: 0, operario: 0});
+            renderTablaPulido(data.rankings?.pulido_profundo || {});
+            renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || {});
 
             // 6. Datos de Jefatura
             if (jefaturaData && (jefaturaData.success || jefaturaData.status === 'success') && jefaturaData.data) {
@@ -359,7 +369,14 @@ window.ModuloDashboard = (function () {
                         const operador = ops[index].nombre;
                         const valor = ops[index].valor;
                         const mixData = ops[index].mix || [];
-                        const detalleMix = mixData.slice(0, 5).map(p => `${p.prod}: ${p.qty.toLocaleString()}`).join('\\n').replace(/'/g, "\\'");
+                        const arr = mixData.slice(0, 10).map(p => ({
+                            ref: p.prod,
+                            cantidad: p.qty,
+                            ultima_fecha: p.fecha,
+                            pts_u: p.u_pts || 0,
+                            costo_u: 0
+                        }));
+                        const detalleMix = encodeURIComponent(JSON.stringify(arr));
                         const insightText = ops[index].insight || "Sin insights disponibles para Inyección.";
                         mostrarModalOperador(operador, valor, 'Inyección', insightText, detalleMix);
                     }
@@ -497,6 +514,161 @@ window.ModuloDashboard = (function () {
         });
     }
 
+    // Paleta de colores para las operadoras
+    const colorsList = [
+        'rgba(59, 130, 246, 0.85)', 'rgba(16, 185, 129, 0.85)', 'rgba(245, 158, 11, 0.85)',
+        'rgba(239, 68, 68, 0.85)', 'rgba(139, 92, 246, 0.85)', 'rgba(236, 72, 153, 0.85)',
+        'rgba(14, 165, 233, 0.85)', 'rgba(20, 184, 166, 0.85)', 'rgba(217, 70, 239, 0.85)',
+        'rgba(249, 115, 22, 0.85)'
+    ];
+
+    function renderChartPulidoEvolucion(evolucionMensual) {
+        const ctx = document.getElementById('chartPulidoEvolucion');
+        if (!ctx || !evolucionMensual || typeof evolucionMensual !== 'object') return;
+
+        const mesesLabels = Object.keys(evolucionMensual).sort(); 
+        if (mesesLabels.length === 0) return;
+
+        const operadorasSet = new Set();
+        mesesLabels.forEach(m => {
+            Object.keys(evolucionMensual[m]).forEach(op => operadorasSet.add(op));
+        });
+        const operadoras = Array.from(operadorasSet);
+
+        // Construir datasets apilados por operaria
+        const datasets = operadoras.map((op, idx) => {
+            const data = mesesLabels.map(m => evolucionMensual[m][op] || 0);
+            return {
+                label: op,
+                data: data,
+                backgroundColor: `hsla(${(idx * 137) % 360}, 70%, 50%, 0.8)`,
+                borderRadius: 4,
+                stack: 'Stack 0'
+            };
+        });
+
+        if (chartPulidoEvolucionInst) chartPulidoEvolucionInst.destroy();
+
+        chartPulidoEvolucionInst = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: mesesLabels, datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => ` ${c.dataset.label}: ${Math.round(c.raw).toLocaleString()} pts`
+                        }
+                    }
+                },
+                scales: {
+                    x: { stacked: true, grid: { display: false } },
+                    y: { 
+                        stacked: true, 
+                        beginAtZero: true,
+                        title: { display: true, text: 'Puntos de Esfuerzo', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderChartPulidoRanking(profundo) {
+        const ctx = document.getElementById('chartPulidoRanking');
+        if (!ctx || !profundo) return;
+
+        const ops = Object.keys(profundo)
+            .map(k => ({ nombre: k, buenas: profundo[k].buenas || 0 }))
+            .sort((a, b) => b.buenas - a.buenas)
+            .slice(0, 10);
+
+        const labels = ops.map(o => o.nombre);
+        const data = ops.map(o => o.buenas);
+
+        if (chartPulidoRankingInst) chartPulidoRankingInst.destroy();
+
+        chartPulidoRankingInst = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Total Puntos',
+                    data: data,
+                    backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                    borderRadius: 5,
+                    barThickness: 20
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => ` ${Math.round(c.raw).toLocaleString()} Puntos Totales`
+                        }
+                    }
+                },
+                scales: {
+                    x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    y: { grid: { display: false }, ticks: { font: { weight: 'bold' } } }
+                }
+            }
+        });
+    }
+
+    function renderChartPulidoMermaOrigen(mermaData) {
+        const ctx = document.getElementById('chartPulidoMermaOrigen');
+        if (!ctx) return;
+
+        const total = (mermaData.maquina || 0) + (mermaData.operario || 0);
+        
+        if (chartPulidoMermaOrigenInst) chartPulidoMermaOrigenInst.destroy();
+
+        if (total === 0) {
+            // No hay merma que mostrar
+            ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+            return;
+        }
+
+        chartPulidoMermaOrigenInst = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Error Operario', 'Falla Máquina'],
+                datasets: [{
+                    data: [mermaData.operario || 0, mermaData.maquina || 0],
+                    backgroundColor: ['rgba(239, 68, 68, 0.85)', 'rgba(245, 158, 11, 0.85)'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 10, font: { size: 10 }, padding: 10 }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const val = context.raw;
+                                const pct = ((val / total) * 100).toFixed(1);
+                                return ` ${context.label}: ${val.toLocaleString()} (${pct}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     function renderTablaPulido(profundo) {
         const tbody = document.querySelector('#tabla-leaderboard-pulido tbody');
         if (!tbody) return;
@@ -521,14 +693,36 @@ window.ModuloDashboard = (function () {
 
             const total = buenas + pnc;
             // Evitar el "100%" falso si hay scrap (PNC)
-            const eficienciaRaw = total > 0 ? (buenas / total) * 100 : 100;
-            const eficiencia = (buenas > 0 && pnc > 0 && eficienciaRaw > 99) ? eficienciaRaw.toFixed(2) : Math.round(eficienciaRaw);
-            const efColor = eficienciaRaw > 95 ? 'success' : (eficienciaRaw > 85 ? 'warning' : 'danger');
+            const calidadRaw = total > 0 ? (buenas / total) * 100 : 100;
+            const calidadYield = (buenas > 0 && pnc > 0 && calidadRaw > 99) ? calidadRaw.toFixed(2) : Math.round(calidadRaw);
+            const ylColor = calidadRaw > 95 ? 'success' : (calidadRaw > 85 ? 'warning' : 'danger');
+
+            const efProductiva = dataOp.eficiencia_productiva_pct || 0;
+            const efTimeColor = efProductiva > 90 ? 'success' : (efProductiva >= 70 ? 'warning' : 'danger');
 
             const topProd = mix[0] ? mix[0].prod : "N/A";
 
-            // Preparar el detalle para el alert (escapar saltos de línea y comillas simples)
-            const detalleMix = mix.slice(0, 5).map(p => `${p.prod}:${p.qty}:${p.u_pts || 1}:${p.pts || 0}`).join('\\n').replace(/'/g, "\\'");
+            // Preparar el detalle para el alert combinando analytics_pulido si existe
+            let detalleMixStr = '';
+            if (cacheAnalyticsPulido && cacheAnalyticsPulido.operario_referencia && cacheAnalyticsPulido.operario_referencia[op]) {
+                const refs = cacheAnalyticsPulido.operario_referencia[op];
+                // refs es un objeto { [ref]: { cantidad_total, puntos_unidad, costo_unidad } }
+                const arr = Object.keys(refs).map(r => ({
+                    ref: r,
+                    cantidad: refs[r].cantidad_total || 0,
+                    pts_u: refs[r].puntos_unidad || 0,
+                    costo_u: refs[r].costo_unidad || 0
+                })).sort((a, b) => b.cantidad - a.cantidad);
+                detalleMixStr = encodeURIComponent(JSON.stringify(arr));
+            } else {
+                const arr = mix.slice(0, 5).map(p => ({
+                    ref: p.prod,
+                    cantidad: p.qty,
+                    pts_u: p.u_pts || 1,
+                    costo_u: 0
+                }));
+                detalleMixStr = encodeURIComponent(JSON.stringify(arr));
+            }
 
             const isChecked = selectedOperators.some(s => s.nombre === op);
 
@@ -540,7 +734,7 @@ window.ModuloDashboard = (function () {
                 // Si es clic en botón (si hubiera), lo maneja el botón
                 if (e.target.closest('button')) return;
                 const insightText = dataOp.insight || "Sin insights disponibles para Pulido.";
-                mostrarModalOperador(op, buenas, 'Pulido', insightText, detalleMix, dataOp.puntos || 0);
+                mostrarModalOperador(op, buenas, 'Pulido', insightText, detalleMixStr, dataOp.puntos || 0, dataOp.pnc_operario, dataOp.pnc_maquina);
             };
             tr.classList.add('hover-scale');
             tr.innerHTML = `
@@ -551,7 +745,7 @@ window.ModuloDashboard = (function () {
                     <input type="checkbox" class="comparison-checkbox form-check-input" 
                         ${isChecked ? 'checked' : ''} 
                         data-op="${op}"
-                        onchange="window.ModuloDashboard.toggleOperatorSelection('${op}', ${buenas}, ${pnc}, ${costoPnc}, ${eficiencia}, ${dataOp.puntos || 0}, ${dataOp.tiempo_estandar || 0}, '${detalleMix}')">
+                        onchange="window.ModuloDashboard.toggleOperatorSelection('${op}', ${buenas}, ${pnc}, ${costoPnc}, ${calidadYield}, ${dataOp.puntos || 0}, ${dataOp.tiempo_estandar || 0}, '${detalleMixStr}')">
                 </td>
                 <td>
                     <div class="fw-bold">${op}</div>
@@ -559,12 +753,15 @@ window.ModuloDashboard = (function () {
                 </td>
                 <td class="text-center fw-bold text-primary">${Math.round(dataOp.puntos || 0).toLocaleString()} pts</td>
                 <td class="text-center fw-bold text-dark">${total.toLocaleString()}</td>
+                <td class="text-center">
+                    <span class="badge bg-${efTimeColor} fs-6 shadow-sm"><i class="fas fa-stopwatch me-1"></i> ${efProductiva}%</span>
+                </td>
                 <td>
                     <div class="d-flex align-items-center gap-2">
                         <div class="progress flex-grow-1" style="height: 8px; border-radius: 10px; background-color: #e2e8f0;">
-                            <div class="progress-bar bg-${efColor}" style="width: ${eficiencia}%"></div>
+                            <div class="progress-bar bg-${ylColor}" style="width: ${calidadYield}%"></div>
                         </div>
-                        <span class="fw-bold text-${efColor}" style="min-width: 40px;">${eficiencia}%</span>
+                        <span class="fw-bold text-${ylColor}" style="min-width: 40px;">${calidadYield}%</span>
                     </div>
                 </td>
             `;
@@ -817,110 +1014,189 @@ window.ModuloDashboard = (function () {
     /**
      * Alterna la vista de las gráficas entre Dinero y Unidades
      */
-    function mostrarModalOperador(nombre, totalOks, proceso, insightStr, detalleMix = null, puntos = null) {
+    function mostrarModalOperador(nombre, totalOks, proceso, insightStr, detalleMix = null, puntos = null, pnc_propio = 0, pnc_maquina = 0) {
 
         let extraHtml = '';
         if (detalleMix) {
-            // Convertir las líneas en items bonitos de lista (soporta \n literal o salto de línea real)
-            const mixLines = detalleMix.split(/\\n|\n/).map(l => {
-                const parts = l.split(':');
-                if (parts.length >= 4) {
-                    const ref = parts[0].trim();
-                    const qty = parseFloat(String(parts[1]).replace(/[^0-9.-]/g, '')) || 0;
-                    const unitPts = parseFloat(String(parts[2]).replace(/[^0-9.-]/g, '')) || 0;
-                    const pts = parseFloat(String(parts[3]).replace(/[^0-9.-]/g, '')) || 0;
+            let mixLines = '';
+            try {
+                const arr = JSON.parse(decodeURIComponent(detalleMix));
+                const isInyeccion = proceso.toUpperCase().includes('INYECCION') || proceso.toUpperCase().includes('INYECCIÓN');
+                
+                let sumPuntos = 0;
+                let sumDinero = 0;
 
+                const filasHtml = arr.map(item => {
+                    const totalPts = item.cantidad * item.pts_u;
+                    const totalCost = item.cantidad * item.costo_u;
+                    sumPuntos += totalPts;
+                    sumDinero += totalCost;
                     return `
-                        <div class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
-                            <span class="fw-medium text-dark text-nowrap" style="font-size: 0.85rem;"><i class="fas fa-cube text-muted me-1"></i> Ref: ${ref}</span>
-                            <div class="d-flex align-items-center gap-1 flex-wrap">
-                                <span class="badge bg-light text-secondary border-0 text-nowrap" style="font-size: 0.75rem;">${qty.toLocaleString()} pz</span>
-                                <span class="text-muted small">×</span>
-                                <span class="badge bg-light text-secondary border-0 text-nowrap" style="font-size: 0.75rem;">${unitPts.toLocaleString()} pts</span>
-                                <span class="text-muted small">=</span>
-                                <span class="badge bg-white text-primary border-primary border-opacity-25 fw-bold text-nowrap" style="min-width: 65px; color: #3b82f6 !important;">${Math.round(pts).toLocaleString()} pts</span>
-                            </div>
-                        </div>`;
-                } else if (parts.length >= 2) {
-                    const ref = parts[0].trim();
-                    const val = parts[1].trim();
-                    return `
-                        <div class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-start align-items-md-center py-2 border-bottom gap-2">
-                            <span class="fw-medium text-dark text-nowrap"><i class="fas fa-cube text-muted me-2"></i> Ref: ${ref}</span>
-                            <span class="badge bg-light text-primary border text-nowrap">${val}</span>
-                        </div>`;
-                }
-                return `<li>${l}</li>`;
-            }).join('');
+                        <tr class="modal-ref-item" data-search="${String(item.ref || '').toLowerCase()} ${String(item.ultima_fecha || '').toLowerCase()}">
+                            <td class="text-start fw-medium"><i class="fas fa-cube text-muted me-1"></i> ${item.ref}</td>
+                            <td class="text-muted" style="font-size: 0.8rem;">${item.ultima_fecha || '---'}</td>
+                            <td><span class="badge bg-light text-dark border">${(item.cantidad || 0).toLocaleString()}</span></td>
+                            <td style="${isInyeccion ? 'display:none;' : ''}">${(item.pts_u || 0).toLocaleString()}</td>
+                            <td class="fw-bold text-primary" style="${isInyeccion ? 'display:none;' : ''}">${Math.round(totalPts).toLocaleString()}</td>
+                            <td class="text-muted" style="${isInyeccion ? 'display:none;' : ''}">$${(item.costo_u || 0).toLocaleString()}</td>
+                            <td class="fw-bold text-success" style="${isInyeccion ? 'display:none;' : ''}">$${Math.round(totalCost).toLocaleString()}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                mixLines = `
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm table-hover text-center align-middle" style="font-size: 0.85rem;">
+                            <thead class="table-light text-secondary">
+                                <tr>
+                                    <th class="text-start">Referencia</th>
+                                     <th>Fecha Auditoría</th>
+                                    <th>Cantidad</th>
+                                    <th style="${isInyeccion ? 'display:none;' : ''}">Pts/U</th>
+                                    <th style="${isInyeccion ? 'display:none;' : ''}">Total Puntos</th>
+                                    <th style="${isInyeccion ? 'display:none;' : ''}">Costo/U</th>
+                                    <th style="${isInyeccion ? 'display:none;' : ''}">Subtotal ($)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${filasHtml}
+                            </tbody>
+                            <tfoot class="bg-light fw-bold" style="${isInyeccion ? 'display:none;' : ''}">
+                                <tr>
+                                    <td colspan="4" class="text-end border-top-0 pt-3">TOTALES:</td>
+                                    <td class="text-primary fs-6 border-top-0 pt-3">${Math.round(sumPuntos).toLocaleString()} pts</td>
+                                    <td class="border-top-0 pt-3"></td>
+                                    <td class="text-success fs-6 border-top-0 pt-3">$${Math.round(sumDinero).toLocaleString()}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                `;
+            } catch (e) {
+                console.error("Error parseando detalleMix JSON:", e);
+                mixLines = `<p class="text-danger small">Error cargando desglose.</p>`;
+            }
 
             extraHtml = `
                 <div class="mt-4 text-start">
-                    <h6 class="fw-bold text-uppercase text-secondary mb-3" style="font-size: 0.8rem; letter-spacing: 1px;">
-                        <i class="fas fa-list-ol ms-1"></i> Referencias Trabajadas
+                    <h6 class="fw-bold text-uppercase text-secondary mb-3 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2" style="font-size: 0.8rem; letter-spacing: 1px;">
+                        <span><i class="fas fa-list-ol ms-1"></i> Análisis de Costos y Puntos</span>
+                        <div class="input-group input-group-sm rounded-pill overflow-hidden border" style="max-width: 200px;">
+                            <span class="input-group-text bg-white border-0"><i class="fas fa-search text-muted"></i></span>
+                            <input type="text" id="modal-search-ref" class="form-control border-0 px-1 shadow-none" placeholder="Buscar ref..." style="font-size: 0.8rem;">
+                        </div>
                     </h6>
-                    <div class="bg-white rounded-3 shadow-sm border p-3">
+                    <div class="bg-white rounded-3 shadow-sm border p-2" style="max-height: 280px; overflow-y: auto;">
                         ${mixLines}
+                        <div id="modal-ref-empty" class="text-center py-4 text-muted d-none">
+                            <i class="fas fa-box-open fs-3 mb-2 opacity-50"></i>
+                            <p class="mb-0 small">No se encontraron referencias</p>
+                        </div>
                     </div>
                 </div>
-                `;
+            `;
         }
 
-        // Definir un color temático según el proceso
-        const themeColor = proceso.toUpperCase() === 'PULIDO' ? '#10b981' : '#3b82f6';
-        const iconProceso = proceso.toUpperCase() === 'PULIDO' ? 'fa-gem' : 'fa-cogs';
+        const themeColor = proceso.toUpperCase().includes('PULIDO') ? '#10b981' : '#3b82f6';
+        const iconProceso = proceso.toUpperCase().includes('PULIDO') ? 'fa-gem' : 'fa-cogs';
+
+        let pncBreakdownHtml = '';
+        if (proceso.toUpperCase().includes('PULIDO')) {
+            pncBreakdownHtml = `
+                <div class="mb-4 text-center p-3 rounded-4 shadow-sm border-0" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);">
+                    <span class="text-secondary fw-bold text-uppercase small" style="letter-spacing: 1px;">Desglose de Auditoría PNC</span>
+                    <div class="d-flex justify-content-center align-items-center gap-3 mt-2">
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-user-edit text-danger me-2"></i>
+                            <span class="fw-bold" style="font-size: 0.95rem;">PNC Operación: <span class="text-danger">${(pnc_propio || 0).toLocaleString()}</span></span>
+                        </div>
+                        <div class="vr" style="height: 20px; opacity: 0.2;"></div>
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-tools text-warning me-2"></i>
+                            <span class="fw-bold" style="font-size: 0.95rem;">PNC Máquina: <span class="text-warning">${(pnc_maquina || 0).toLocaleString()}</span></span>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-muted x-small" style="font-size: 0.7rem;">* El PNC Máquina no afecta el Yield de Calidad del operario.</div>
+                </div>
+            `;
+        }
 
         Swal.fire({
-            title: null, // Quitamos el título estándar para customizar el header completo
+            title: null,
+            showCloseButton: true,
             html: `
-                <div class="modal-operador-custom">
-                    <!-- Cabecera Principal -->
-                    <div class="text-center mb-4">
-                        <div class="d-inline-flex justify-content-center align-items-center rounded-circle mb-3 shadow-sm border" 
-                             style="width: 70px; height: 70px; background-color: #f8fafc;">
-                            <i class="fas fa-user-tie fs-1" style="color: ${themeColor}"></i>
-                        </div>
-                        <h4 class="fw-bold text-dark mb-0">${nombre}</h4>
-                        <span class="badge rounded-pill mt-2 px-3 py-2 shadow-sm" style="background-color: ${themeColor}; color: white; font-weight: 500;">
-                            <i class="fas ${iconProceso} me-1"></i> Área de ${proceso}
-                        </span>
-                    </div>
-
-                    <!-- Insight Box (El tip del Bot) -->
-                    <div class="p-3 bg-light rounded-3 border-start border-4 mb-4 shadow-sm text-start" style="border-left-color: #f59e0b !important;">
-                        <p class="mb-0 fst-italic text-secondary small" style="line-height: 1.5;">
-                            <i class="fas fa-lightbulb text-warning me-1"></i> "${insightStr}"
-                        </p>
-                    </div>
-
-                    <!-- Grid de Estadísticas Rápidas -->
-                    <div class="row g-2 mb-2 text-center">
-                        <div class="col-6">
-                            <div class="p-3 rounded-3" style="background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2);">
-                                <h6 class="text-secondary text-uppercase mb-1" style="font-size: 0.75rem;"><i class="fas fa-check-circle text-success me-1"></i> Piezas Conformes</h6>
-                                <h2 class="fw-bold mb-0 text-success">${totalOks.toLocaleString()}</h2>
+                <div class="modal-body p-0">
+                    <div class="p-4" style="background: linear-gradient(135deg, ${themeColor}15 0%, #ffffff 100%); border-radius: 24px 24px 0 0;">
+                        <div class="d-flex align-items-center justify-content-between mb-4">
+                            <div class="d-flex align-items-center">
+                                <div class="icon-circle bg-white shadow-sm me-3" style="width: 54px; height: 54px; display: flex; align-items: center; justify-content: center; border-radius: 16px; color: ${themeColor};">
+                                    <i class="fas ${iconProceso} fs-3"></i>
+                                </div>
+                                <div>
+                                    <h4 class="fw-bold mb-0 text-dark">${nombre}</h4>
+                                    <span class="badge rounded-pill px-3 py-1" style="background-color: ${themeColor}20; color: ${themeColor}; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">${proceso}</span>
+                                </div>
                             </div>
                         </div>
-                        <div class="col-6">
-                            <div class="p-3 rounded-3" style="background-color: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2);">
-                                <h6 class="text-secondary text-uppercase mb-1" style="font-size: 0.75rem;"><i class="fas fa-star text-primary me-1"></i> Puntaje Esfuerzo</h6>
-                                <h2 class="fw-bold mb-0 text-primary">${puntos !== null ? Math.round(puntos).toLocaleString() : '---'}</h2>
+
+                        ${pncBreakdownHtml}
+
+                        <div class="row g-3">
+                            <div class="col-6 col-md-4">
+                                <div class="card shadow-none border rounded-4 p-3 h-100 text-center">
+                                    <span class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Piezas Buenas</span>
+                                    <div class="fs-4 fw-bold text-dark">${totalOks.toLocaleString()}</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <div class="card shadow-none border rounded-4 p-3 h-100 text-center">
+                                    <span class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Eficiencia Real</span>
+                                    <div class="fs-4 fw-bold text-primary">${Math.round(puntos || 0).toLocaleString()} <small style="font-size: 0.7rem;">pts</small></div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <div class="card shadow-none border rounded-4 p-3 h-100 text-center bg-light">
+                                    <span class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Sugerencia IA</span>
+                                    <div class="small fw-medium text-secondary" style="line-height: 1.2;">${insightStr}</div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Desglose de Mix -->
-                ${extraHtml}
+                    <div class="p-4 bg-white">
+                        ${extraHtml}
+                    </div>
                 </div>
-                `,
+            `,
             showConfirmButton: true,
             confirmButtonText: '<i class="fas fa-times me-1"></i> Cerrar Resumen',
-            confirmButtonColor: '#334155', // Slate 700 para que sea sobrio
-            buttonsStyling: true,
-            customClass: {
-                confirmButton: 'btn rounded-pill px-4 shadow-sm'
-            },
-            width: window.innerWidth > 768 ? '32em' : '95%',
-            padding: window.innerWidth > 768 ? '2rem' : '1rem'
+            confirmButtonColor: '#334155',
+            customClass: { confirmButton: 'btn rounded-pill px-4 shadow-sm' },
+            width: window.innerWidth > 1200 ? '75em' : '95%',
+            didOpen: () => {
+                const searchInput = document.getElementById('modal-search-ref');
+                if (searchInput) {
+                    searchInput.addEventListener('input', (e) => {
+                        const term = e.target.value.toLowerCase().trim();
+                        const items = document.querySelectorAll('.modal-ref-item');
+                        let count = 0;
+                        items.forEach(item => {
+                            const searchStr = item.getAttribute('data-search') || '';
+                            if (searchStr.includes(term)) {
+                                item.style.setProperty('display', '', 'important');
+                                count++;
+                            } else {
+                                item.style.setProperty('display', 'none', 'important');
+                            }
+                        });
+                        const emptyMsg = document.getElementById('modal-ref-empty');
+                        if (emptyMsg) {
+                            if (count === 0) emptyMsg.classList.remove('d-none');
+                            else emptyMsg.classList.add('d-none');
+                        }
+                    });
+                }
+            }
         });
     }
 
@@ -1528,25 +1804,25 @@ window.ModuloDashboard = (function () {
             // Procesar Mix para el Top 5
             let mixHtml = '<div class="text-muted small py-2">Sin datos de referencias</div>';
             if (op.detalleMix) {
-                const lines = op.detalleMix.split(/\\n|\n/).slice(0, 5); // Tomar solo los primeros 5
-                mixHtml = lines.map(l => {
-                    const parts = l.split(':');
-                    if (parts.length >= 4) {
-                        const ref = parts[0].trim().substring(0, 25); // Truncar si es muy largo
-                        const qty = parseFloat(String(parts[1]).replace(/[^0-9.-]/g, '')) || 0;
-                        const pts = parseFloat(String(parts[3]).replace(/[^0-9.-]/g, '')) || 0;
+                try {
+                    const arr = JSON.parse(decodeURIComponent(op.detalleMix)).slice(0, 5); // Tomar solo los primeros 5
+                    mixHtml = arr.map(item => {
+                        const ref = String(item.ref || '').trim().substring(0, 25); // Truncar si es muy largo
+                        const qty = item.cantidad || 0;
+                        const pts = (item.cantidad || 0) * (item.pts_u || 0);
                         return `
                 <div class="d-flex justify-content-between align-items-center mb-1 pb-1 border-bottom border-light">
-                    <span style="font-size: 0.65rem; color: #475569;" class="text-truncate" title="${parts[0].trim()}">${ref}</span>
+                    <span style="font-size: 0.65rem; color: #475569;" class="text-truncate" title="${item.ref}">${ref}</span>
                     <div class="d-flex align-items-center gap-1">
                         <span class="badge bg-light text-dark" style="font-size: 0.6rem;">${qty.toLocaleString()} pz</span>
                         <span class="badge bg-white text-primary border border-primary border-opacity-10" style="font-size: 0.6rem; min-width: 45px;">${Math.round(pts).toLocaleString()} pts</span>
                     </div>
                 </div>
                 `;
-                    }
-                    return '';
-                }).join('');
+                    }).join('');
+                } catch (e) {
+                    console.error("Error parseando mix comparativa", e);
+                }
             }
 
             const html = `
