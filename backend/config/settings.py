@@ -1,4 +1,4 @@
-﻿"""
+"""
 Configuración centralizada de la aplicación.
 Carga variables desde .env y valida que existan.
 """
@@ -59,9 +59,9 @@ class Hojas:
     PARAMETROS_INVENTARIO = "PARAMETROS_INVENTARIO"
     ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
     DB_PROVEEDORES = "DB_PROVEEDORES"
-    FICHAS_INT_CAR = "FICHAS_INT_CAR"
     CONTROL_ASISTENCIA = "CONTROL_ASISTENCIA"
     CORTES_NOMINA = "CORTES_NOMINA"
+    NUEVA_FICHA_MAESTRA = "NUEVA_FICHA_MAESTRA"
 
 class Almacenes:
     """Nombres de almacenes estandarizados."""

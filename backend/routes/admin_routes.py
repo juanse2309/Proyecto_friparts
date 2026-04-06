@@ -1,6 +1,10 @@
-from flask import Blueprint, jsonify, render_template
+from flask import Blueprint, jsonify, render_template, Response
 from backend.utils.auth_middleware import require_role
 from backend.core.database import sheets_client
+from backend.config.settings import Hojas
+import difflib
+import csv
+import io
 
 admin_bp = Blueprint('admin_bp', __name__)
 
@@ -9,15 +13,16 @@ import time as _time
 ADMIN_DASHBOARD_CACHE = {}  # key: (start, end) -> {"timestamp": float, "data": dict}
 ADMIN_CACHE_TTL = 600  # 10 minutos
 
-# Helper function to clean currency strings to int/float
+# Helper function to clean currency strings to int/float (Precision Fix)
 def clean_currency(val):
-    if not val: return 0
-    if isinstance(val, (int, float)): return val
-    s = str(val).replace('$', '').replace('.', '').replace(',', '').strip()
+    if not val: return 0.0
+    if isinstance(val, (int, float)): return float(val)
+    # Requerimiento: replace('$', '').replace('.', '').replace(',', '.')
+    s = str(val).replace('$', '').replace('.', '').replace(',', '.').strip()
     try:
-        return int(s)
+        return float(s)
     except:
-        return 0
+        return 0.0
 
 # Helper function to clean number strings
 def clean_number(val):
@@ -79,7 +84,8 @@ def get_admin_dashboard_data():
     if not actual_start:
         actual_start = datetime(datetime.now().year, 1, 1)
     if not actual_end:
-        actual_end = datetime.now()
+        # Asegurar que tome hasta el final del día actual (Ej: 30 de marzo inclusive)
+        actual_end = datetime.now().replace(hour=23, minute=59, second=59)
 
     # Rango del año pasado (mismos meses)
     def shift_year(dt, years):
@@ -119,26 +125,26 @@ def get_admin_dashboard_data():
             return None
 
     try:
-        # 1. --- PROCESAR RAW_VENTAS (Unidades Mensuales desglosadas y Rankings) ---
+        # 1. --- PROCESAR RAW_VENTAS (Métricas y Rankings) ---
         ws_raw = sheets_client.get_worksheet("RAW_VENTAS")
         raw_values = ws_raw.get_all_values() if ws_raw else []
         
-        # Almacenamos ventas Y pedidos por mes relativo (1-12) para alinear años
-        # La columna H (index 7) de RAW_VENTAS indica "Pedidos" o "Ventas"
-        unidades_mensuales = defaultdict(lambda: {
-            "actual_ventas": 0, "actual_pedidos": 0,
-            "prev_ventas": 0,   "prev_pedidos": 0
+        # Almacenamos métricas consolidadas (Dinero y Unidades) directamente desde RAW_VENTAS
+        stats_mensuales = defaultdict(lambda: {
+            "actual_total_dinero": 0.0, "actual_pedidos_dinero": 0.0,
+            "actual_total_unid": 0,    "actual_pedidos_unid": 0,
+            "prev_total_dinero": 0.0,   "prev_pedidos_dinero": 0.0,
+            "prev_total_unid": 0,      "prev_pedidos_unid": 0
         })
 
         for i in range(1, len(raw_values)):
             row = raw_values[i]
-            if len(row) < 6: continue
+            if len(row) < 8: continue # Col H es index 7
             
             fecha_str = row[2].strip()
-            producto = row[1].strip()
             cantidad = clean_number(row[4])
             total_ingreso = clean_currency(row[5])
-            clasificacion = row[7].strip().lower() if len(row) > 7 else "ventas"
+            clasificacion = row[7].strip().lower()
             es_pedido = "pedido" in clasificacion
 
             if not fecha_str: continue
@@ -152,20 +158,26 @@ def get_admin_dashboard_data():
                     except: continue
                 if not dt_obj: continue
 
-                # A. Periodo actual (solo para unidades mensuales)
-                if actual_start <= dt_obj <= actual_end:
-                    # Acumular por tipo
-                    if es_pedido:
-                        unidades_mensuales[dt_obj.month]["actual_pedidos"] += cantidad
-                    else:
-                        unidades_mensuales[dt_obj.month]["actual_ventas"] += cantidad
+                m = dt_obj.month
 
-                # B. Periodo anterior (mismo rango, año pasado)
-                elif prev_start <= dt_obj <= prev_end:
+                # A. Periodo actual
+                if actual_start <= dt_obj <= actual_end:
+                    # La métrica "Ventas" (barra azul) suma VENTAS + PEDIDOS
+                    stats_mensuales[m]["actual_total_dinero"] += total_ingreso
+                    stats_mensuales[m]["actual_total_unid"] += cantidad
+                    
                     if es_pedido:
-                        unidades_mensuales[dt_obj.month]["prev_pedidos"] += cantidad
-                    else:
-                        unidades_mensuales[dt_obj.month]["prev_ventas"] += cantidad
+                        stats_mensuales[m]["actual_pedidos_dinero"] += total_ingreso
+                        stats_mensuales[m]["actual_pedidos_unid"] += cantidad
+
+                # B. Periodo anterior
+                elif prev_start <= dt_obj <= prev_end:
+                    stats_mensuales[m]["prev_total_dinero"] += total_ingreso
+                    stats_mensuales[m]["prev_total_unid"] += cantidad
+                    
+                    if es_pedido:
+                        stats_mensuales[m]["prev_pedidos_dinero"] += total_ingreso
+                        stats_mensuales[m]["prev_pedidos_unid"] += cantidad
 
             except: continue
 
@@ -192,22 +204,10 @@ def get_admin_dashboard_data():
                 row = dash_values[i]
                 row += [''] * (25 - len(row))
                 
-                # A. Mensual Summary (Cols A, B, C)
+                # A. Mensual Summary (SALTADO: Se usa RAW_VENTAS para mayor precisión)
                 val_a = row[0].strip()
                 p_month = parse_sheet_month(val_a)
-                if p_month:
-                    dt = p_month["dt"]
-                    month_num = p_month["month_num"]
-                    ped_val = clean_currency(row[1])
-                    ven_val = clean_currency(row[2])
-                    
-                    if actual_start <= dt <= actual_end:
-                        dinero_mensual[month_num]["actual_p"] += ped_val
-                        dinero_mensual[month_num]["actual_v"] += ven_val
-                        ano_contexto = p_month["year"]
-                    elif prev_start <= dt <= prev_end:
-                        dinero_mensual[month_num]["prev_p"] += ped_val
-                        dinero_mensual[month_num]["prev_v"] += ven_val
+                # (Ignoramos Cols A, B, C de DB_DASHBOARD_VENTAS para dinero_mensual)
 
                 # B. Top Productos Más Vendidos
                 #    Dinero: Col G=6, H=7  |  Cantidad: Col I=8, J=9
@@ -285,16 +285,16 @@ def get_admin_dashboard_data():
             m = curr.month
             mensual_list.append({
                 "mes": meses_map[m],
-                # Dinero (de DB_DASHBOARD_VENTAS — tabla pivote)
-                "actual_dinero":   dinero_mensual[m]["actual_v"],
-                "actual_pedidos":  dinero_mensual[m]["actual_p"],
-                "prev_dinero":     dinero_mensual[m]["prev_v"],
-                "prev_pedidos":    dinero_mensual[m]["prev_p"],
-                # Unidades (de RAW_VENTAS — col Clasificacion)
-                "actual_unidades":          unidades_mensuales[m]["actual_ventas"],
-                "actual_pedidos_unidades":  unidades_mensuales[m]["actual_pedidos"],
-                "prev_unidades":            unidades_mensuales[m]["prev_ventas"],
-                "prev_pedidos_unidades":    unidades_mensuales[m]["prev_pedidos"]
+                # DINERO (Calculado directamente de RAW_VENTAS)
+                "actual_dinero":   stats_mensuales[m]["actual_total_dinero"], # Suma Ventas + Pedidos
+                "actual_pedidos":  stats_mensuales[m]["actual_pedidos_dinero"],
+                "prev_dinero":     stats_mensuales[m]["prev_total_dinero"],
+                "prev_pedidos":    stats_mensuales[m]["prev_pedidos_dinero"],
+                # UNIDADES (Calculadas directamente de RAW_VENTAS)
+                "actual_unidades":          stats_mensuales[m]["actual_total_unid"],
+                "actual_pedidos_unidades":  stats_mensuales[m]["actual_pedidos_unid"],
+                "prev_unidades":            stats_mensuales[m]["prev_total_unid"],
+                "prev_pedidos_unidades":    stats_mensuales[m]["prev_pedidos_unid"]
             })
             # Siguiente mes
             if curr.month == 12: curr = curr.replace(year=curr.year+1, month=1)
@@ -367,6 +367,98 @@ def get_admin_dashboard_data():
         print(f"DEBUG: ✅ Admin dashboard cacheado para {cache_key}")
 
         return jsonify(response_data)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@admin_bp.route('/api/admin/auditoria-fichas', methods=['GET'])
+@require_role(['admin', 'administrador', 'administracion', 'gerencia'])
+def auditoria_fichas_fuzzy():
+    """
+    Realiza una auditoría de nombres (Fuzzy Matching) entre la nueva ficha maestra
+    y las hojas de producción existentes, exportando los resultados en un archivo CSV.
+    """
+    try:
+        # 1. Obtener datos de la NUEVA_FICHA_MAESTRA
+        ws_nueva = sheets_client.get_worksheet(Hojas.NUEVA_FICHA_MAESTRA)
+        if not ws_nueva:
+            return jsonify({"success": False, "error": "No se encontró la hoja NUEVA_FICHA_MAESTRA"}), 404
+        
+        datos_nuevos = sheets_client.get_all_records_seguro(ws_nueva)
+        
+        # Filtrar filas de "Total" y extraer nombres únicos
+        nuevos_nombres = set()
+        for r in datos_nuevos:
+            prod = str(r.get("Producto", "")).strip()
+            subprod = str(r.get("SubProducto", "")).strip()
+            
+            if not prod or "total" in prod.lower():
+                continue
+                
+            nuevos_nombres.add(prod)
+            if subprod and "total" not in subprod.lower():
+                nuevos_nombres.add(subprod)
+
+        # 2. Obtener nombres existentes de las hojas de origen
+        def extraer_nombres_unicos(nombre_hoja, columnas):
+            ws = sheets_client.get_worksheet(nombre_hoja)
+            if not ws: return set()
+            records = sheets_client.get_all_records_seguro(ws)
+            nombres = set()
+            for r in records:
+                for col in columnas:
+                    val = str(r.get(col, "")).strip()
+                    if val and "total" not in val.lower():
+                        nombres.add(val)
+            return nombres
+
+        nombres_iny = extraer_nombres_unicos(Hojas.INYECCION, ["PRODUCTO", "ID CODIGO", "CODIGO"])
+        nombres_pul = extraer_nombres_unicos(Hojas.PULIDO, ["PRODUCTO", "ID CODIGO", "CODIGO"])
+
+        # Mapeo de búsqueda: nombre -> hoja_origen
+        existentes_map = {}
+        for n in nombres_iny: existentes_map[n] = "INYECCION"
+        for n in nombres_pul: existentes_map[n] = "PULIDO"
+
+        existentes_lista = list(existentes_map.keys())
+
+        # 3. Realizar Fuzzy Matching
+        mapeo_propuesto = []
+        for nombre_nuevo in sorted(list(nuevos_nombres)):
+            coincidencias = difflib.get_close_matches(nombre_nuevo, existentes_lista, n=1, cutoff=0.3)
+            
+            if coincidencias:
+                mejor_match = coincidencias[0]
+                confianza = difflib.SequenceMatcher(None, nombre_nuevo, mejor_match).ratio()
+                origen = existentes_map[mejor_match]
+            else:
+                mejor_match = "SIN COINCIDENCIA"
+                confianza = 0.0
+                origen = "N/A"
+
+            mapeo_propuesto.append({
+                "Nombre_Nuevo_Maestra": nombre_nuevo,
+                "Mejor_Coincidencia_Actual": mejor_match,
+                "Porcentaje_Confianza": f"{round(confianza * 100, 1)}%",
+                "Hoja_Origen_Actual": origen
+            })
+
+        # 4. Generar CSV en memoria (StringIO)
+        output = io.StringIO()
+        fieldnames = ["Nombre_Nuevo_Maestra", "Mejor_Coincidencia_Actual", "Porcentaje_Confianza", "Hoja_Origen_Actual"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        
+        writer.writeheader()
+        writer.writerows(mapeo_propuesto)
+        
+        # 5. Retornar el archivo como descarga
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-disposition": "attachment; filename=auditoria_fichas_mapping.csv"}
+        )
 
     except Exception as e:
         import traceback

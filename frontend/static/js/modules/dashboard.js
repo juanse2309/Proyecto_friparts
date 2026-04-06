@@ -1024,22 +1024,16 @@ window.ModuloDashboard = (function () {
                 const isInyeccion = proceso.toUpperCase().includes('INYECCION') || proceso.toUpperCase().includes('INYECCIÓN');
                 
                 let sumPuntos = 0;
-                let sumDinero = 0;
 
                 const filasHtml = arr.map(item => {
                     const totalPts = item.cantidad * item.pts_u;
-                    const totalCost = item.cantidad * item.costo_u;
                     sumPuntos += totalPts;
-                    sumDinero += totalCost;
                     return `
-                        <tr class="modal-ref-item" data-search="${String(item.ref || '').toLowerCase()} ${String(item.ultima_fecha || '').toLowerCase()}">
+                        <tr class="modal-ref-item" data-search="${String(item.ref || '').toLowerCase()}">
                             <td class="text-start fw-medium"><i class="fas fa-cube text-muted me-1"></i> ${item.ref}</td>
-                            <td class="text-muted" style="font-size: 0.8rem;">${item.ultima_fecha || '---'}</td>
                             <td><span class="badge bg-light text-dark border">${(item.cantidad || 0).toLocaleString()}</span></td>
                             <td style="${isInyeccion ? 'display:none;' : ''}">${(item.pts_u || 0).toLocaleString()}</td>
                             <td class="fw-bold text-primary" style="${isInyeccion ? 'display:none;' : ''}">${Math.round(totalPts).toLocaleString()}</td>
-                            <td class="text-muted" style="${isInyeccion ? 'display:none;' : ''}">$${(item.costo_u || 0).toLocaleString()}</td>
-                            <td class="fw-bold text-success" style="${isInyeccion ? 'display:none;' : ''}">$${Math.round(totalCost).toLocaleString()}</td>
                         </tr>
                     `;
                 }).join('');
@@ -1050,12 +1044,9 @@ window.ModuloDashboard = (function () {
                             <thead class="table-light text-secondary">
                                 <tr>
                                     <th class="text-start">Referencia</th>
-                                     <th>Fecha Auditoría</th>
                                     <th>Cantidad</th>
                                     <th style="${isInyeccion ? 'display:none;' : ''}">Pts/U</th>
                                     <th style="${isInyeccion ? 'display:none;' : ''}">Total Puntos</th>
-                                    <th style="${isInyeccion ? 'display:none;' : ''}">Costo/U</th>
-                                    <th style="${isInyeccion ? 'display:none;' : ''}">Subtotal ($)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1063,10 +1054,8 @@ window.ModuloDashboard = (function () {
                             </tbody>
                             <tfoot class="bg-light fw-bold" style="${isInyeccion ? 'display:none;' : ''}">
                                 <tr>
-                                    <td colspan="4" class="text-end border-top-0 pt-3">TOTALES:</td>
+                                    <td colspan="3" class="text-end border-top-0 pt-3">TOTAL PUNTOS:</td>
                                     <td class="text-primary fs-6 border-top-0 pt-3">${Math.round(sumPuntos).toLocaleString()} pts</td>
-                                    <td class="border-top-0 pt-3"></td>
-                                    <td class="text-success fs-6 border-top-0 pt-3">$${Math.round(sumDinero).toLocaleString()}</td>
                                 </tr>
                             </tfoot>
                         </table>

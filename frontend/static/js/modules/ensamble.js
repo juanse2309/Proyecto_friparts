@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // ensamble.js - Lógica de Ensamble (SMART SEARCH)
 // ============================================
 
@@ -299,7 +299,7 @@ async function registrarEnsamble() {
         const totalPiezas = cantidadBolsas * qty;
         const cantidadReal = Math.max(0, totalPiezas - pnc);
 
-        // NUEVA LÓGICA: Recopilar componentes del BOM si existe
+        // NUEVO: Recopilar componentes del BOM — usando el select activo como fuente de verdad
         const bomItems = document.querySelectorAll('.bom-item');
         let componentes = [];
 
@@ -309,15 +309,29 @@ async function registrarEnsamble() {
                 if (checkbox && checkbox.checked) {
                     const dataRaw = item.querySelector('.bom-data')?.value;
                     if (dataRaw) {
-                        const op = JSON.parse(dataRaw);
+                        const op = JSON.parse(dataRaw.replace(/&apos;/g, "'"));
+
+                        // Si hay un <select> visible, su .value es la fuente de verdad (código limpio seleccionado)
+                        // Si no hay select (componente fijo), usamos op.buje_origen
+                        const selectEl = item.querySelector('.bom-select');
+                        let codigoFinal = selectEl ? selectEl.value : op.buje_origen;
+
+                        // Red de seguridad: eliminar cualquier parte después de "/" (ej. "CB9721 / FR9303" → "CB9721")
+                        if (codigoFinal && codigoFinal.includes('/')) {
+                            codigoFinal = codigoFinal.split('/')[0].trim();
+                            console.warn(`⚠️ [BOM] Código con "/" detectado, limpiando → "${codigoFinal}"`);
+                        }
+
                         componentes.push({
-                            buje_origen: op.buje_origen,
+                            buje_origen: codigoFinal,
                             qty_unitaria: op.qty || op.qty_unitaria || 1
                         });
+                        console.log(`✅ [BOM Submit] Componente capturado: "${codigoFinal}" × ${op.qty || 1}`);
                     }
                 }
             });
         }
+
 
         const datos = {
             fecha_inicio: document.getElementById('fecha-ensamble')?.value || '',
@@ -489,22 +503,55 @@ function renderBOM(opciones) {
     if (!bomSection || !bomLista) return;
 
     bomSection.style.display = 'block';
-    bomLista.innerHTML = opciones.map((op, idx) => `
-        <div class="bom-item" style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; min-width: 150px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+    bomLista.innerHTML = opciones.map((op, idx) => {
+        const tieneAlternativas = op.tiene_alternativas && Array.isArray(op.opciones_alternativas) && op.opciones_alternativas.length > 1;
+
+        // Contenido del selector de componente: dropdown si hay alternativas, texto si no
+        const componenteHtml = tieneAlternativas
+            ? `<select class="bom-select form-select form-select-sm mt-1" data-idx="${idx}" style="font-weight:700; font-size:14px; border:2px solid #f59e0b; border-radius:6px; background:#fffbeb;"
+                onchange="window._actualizarBomData(${idx}, this.value)">
+                ${op.opciones_alternativas.map(alt =>
+                    `<option value="${alt}" ${alt === op.buje_origen ? 'selected' : ''}>${alt}</option>`
+                ).join('')}
+              </select>
+              <div class="text-muted" style="font-size:10px; margin-top:2px;">⚡ Sustituto disponible</div>`
+            : `<div style="font-size: 15px; font-weight: 800; color: #1e293b; margin: 2px 0;">${op.buje_origen}</div>`;
+
+        // bom-data serializa el op completo; se actualiza al cambiar el select
+        return `
+        <div class="bom-item" data-idx="${idx}" style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; min-width: 160px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
             <div class="d-flex justify-content-between align-items-center mb-1">
                 <span style="font-weight: 600; font-size: 11px; color: #64748b; text-transform: uppercase;">
                     <i class="fas fa-puzzle-piece"></i> Componente ${idx + 1}
                 </span>
                 <input type="checkbox" checked class="bom-checkbox" data-idx="${idx}" style="width: 16px; height: 16px; cursor: pointer;" title="Incluir en el descuento de stock">
             </div>
-            <div style="font-size: 15px; font-weight: 800; color: #1e293b; margin: 2px 0;">${op.buje_origen}</div>
-            <div class="text-muted small" style="font-weight: 500;">
+            ${componenteHtml}
+            <div class="text-muted small" style="font-weight: 500; margin-top:4px;">
                 Consumo: <span class="badge bg-light text-dark border">${op.qty} und</span>
             </div>
-            <input type="hidden" class="bom-data" value='${JSON.stringify(op).replace(/'/g, "&apos;")}'>
-        </div>
-    `).join('');
+            <input type="hidden" class="bom-data" data-idx="${idx}" value='${JSON.stringify(op).replace(/'/g, "&apos;")}'>
+        </div>`;
+    }).join('');
 }
+
+// Actualiza el bom-data cuando el usuario cambia el dropdown de sustituto
+window._actualizarBomData = function(idx, nuevoCodigo) {
+    const item = document.querySelector(`.bom-item[data-idx="${idx}"]`);
+    if (!item) return;
+    const hiddenInput = item.querySelector('.bom-data');
+    if (!hiddenInput) return;
+    try {
+        const data = JSON.parse(hiddenInput.value.replace(/&apos;/g, "'"));
+        data.buje_origen = nuevoCodigo;
+        hiddenInput.value = JSON.stringify(data).replace(/'/g, "&apos;");
+        console.log(`🔀 [BOM] Componente ${idx} cambiado a: ${nuevoCodigo}`);
+    } catch(e) {
+        console.warn('Error actualizando bom-data:', e);
+    }
+};
+
+
 
 /**
  * Muestra un mini-selector cuando un producto tiene múltiples opciones de componente

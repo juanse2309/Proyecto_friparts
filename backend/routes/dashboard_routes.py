@@ -150,6 +150,10 @@ def obtener_metricas_bi():
         ws_ped = gc.get_worksheet(Hojas.PEDIDOS)
         reg_ped = get_all_records_seguro(ws_ped)
         
+        # 3.1 Ensambles (NUEVO para Dashboard BI)
+        ws_ens = gc.get_worksheet(Hojas.ENSAMBLES)
+        reg_ens = get_all_records_seguro(ws_ens)
+        
         # 3.5 Costos (Opcional, no fallar si no existe)
         costos_map = {}
         puntos_map = {}
@@ -272,10 +276,15 @@ def obtener_metricas_bi():
                 "mensual_operadoras": collections.defaultdict(lambda: collections.defaultdict(float))
             },
             "pedidos": {"total_solicitado": 0},
+            "ensamble": {
+                "total_ok": 0,
+                "tiempo_real_segundos": 0,
+                "operadores": collections.defaultdict(int)
+            },
             "pnc_total": {"inyeccion": 0, "pulido": 0, "ensamble": 0, "almacen": 0},
             "pnc_almacen_detalle": collections.defaultdict(lambda: {"cantidad": 0, "costo": 0}),
             "perdida_calidad_dinero": 0,
-            "tendencia": collections.defaultdict(lambda: {"inyeccion": 0, "pulido": 0})
+            "tendencia": collections.defaultdict(lambda: {"inyeccion": 0, "pulido": 0, "ensamble": 0})
         }
         
         # Helper interno para totalizar el impacto monetario PNC
@@ -446,13 +455,70 @@ def obtener_metricas_bi():
                     stats["pulido"]["pnc_ops"][op_pnc] += cant
                     stats["pulido"]["costo_pnc_ops"][op_pnc] += cost_lote
 
-        for r in reg_pnc_ens:
+        for r in (reg_pnc_ens or []):
             f_pnc = r.get("FECHA") or r.get("fecha")
             if dentro_de_rango(f_pnc): 
                 cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
-                prod_pnc = str(r.get("CODIGO", "") or "GENERICO").strip()
                 stats["pnc_total"]["ensamble"] += cant
-                sumar_perdida_pnc(prod_pnc, cant)
+                prod_ens = str(r.get("CODIGO", "") or "GENERICO").strip()
+                sumar_perdida_pnc(prod_ens, cant)
+
+        # 4.1 Procesar Ensambles OK (Deduplicación Especial)
+        # Agrupamos por bloque exacto para evitar triplicar kits (CB, INT, CAR)
+        # Y rastreamos intervalos para Auditoría de Solapamientos
+        ens_blocks = {} # (op, fecha, h_ini, h_fin) -> max_qty
+        op_intervals_ens = collections.defaultdict(list) # (op, fecha) -> [(s_start, s_end, qty)]
+
+        for r in (reg_ens or []):
+            f_str = str(r.get("FECHA") or r.get("fecha") or "").strip()
+            if not dentro_de_rango(f_str): continue
+            
+            op = str(r.get("OPERARIO") or r.get("RESPONSABLE") or "").strip().upper()
+            h_ini = r.get("HORA INICIO") or r.get("HORA_INICIO") or ""
+            h_fin = r.get("HORA FIN") or r.get("HORA_FIN") or ""
+            qty = to_int_seguro(r.get("CANTIDAD") or r.get("CANTIDAD REAL"))
+            
+            if not op or not f_str: continue
+            
+            # Deduplicación de Kit: Si son las mismas horas y operario, es la misma producción
+            block_key = (op, f_str, h_ini, h_fin)
+            if block_key not in ens_blocks:
+                ens_blocks[block_key] = qty
+                s_start = parse_time_to_seconds(h_ini)
+                s_end = parse_time_to_seconds(h_fin)
+                if s_start is not None and s_end is not None:
+                    # Rastrear para Auditoría de Solapamientos (Diferentes kits en mismo horario)
+                    op_intervals_ens[(op, f_str)].append((s_start, s_end, qty))
+
+        # Suma Inteligente con Unión de Intervalos (Evitar solapamientos de tiempo)
+        for (op, f_str), intervals in op_intervals_ens.items():
+            intervals.sort() # Ordenar por inicio
+            
+            last_end = -1
+            f_dt = parsear_fecha_dashboard(f_str)
+            
+            for s_start, s_end, qty in intervals:
+                # 1. Sumar cantidad (contamos cada bloque único como producción completa)
+                stats["ensamble"]["total_ok"] += qty
+                stats["ensamble"]["operadores"][op] += qty
+                if f_dt:
+                    stats["tendencia"][str(f_dt)]["ensamble"] += qty
+                
+                # 2. Calcular tiempo real sin solapamientos
+                if s_start >= last_end:
+                    # Bloque secuencial o nuevo
+                    diff = s_end - s_start
+                    if diff < 0: diff += 86400
+                    stats["ensamble"]["tiempo_real_segundos"] += diff
+                    last_end = s_end
+                else:
+                    # Solapamiento: solo sumamos la parte nueva si termina después
+                    if s_end > last_end:
+                        diff = s_end - last_end
+                        if diff < 0: diff += 86400
+                        stats["ensamble"]["tiempo_real_segundos"] += diff
+                        last_end = s_end
+                    # Si no termina después, está contenido totalmente, no suma tiempo extra
 
         for r in reg_pnc_alm:
             f_pnc = r.get("FECHA") or r.get("fecha")

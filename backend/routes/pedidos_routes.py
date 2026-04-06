@@ -23,6 +23,35 @@ def _resolve_tenant():
     logger.info(f"🏢 [Tenant] Resuelto: {tenant} → PEDIDOS={hoja_pedidos}, PRODUCTOS={hoja_productos}")
     return tenant, hoja_pedidos, hoja_productos
 
+def _buscar_producto_inteligente(codigo_buscado, registros):
+    """
+    Búsqueda inteligente en registros de PRODUCTOS.
+    Jerarquía: Exacto > Prefijo (solo para CAR, INT, ENS, CB).
+    Retorna (fila_real, datos_dict) o (None, None).
+    """
+    target = str(codigo_buscado).strip().upper()
+    if not target:
+        return None, None
+
+    PREFIJOS_FLEX = ("CAR", "INT", "ENS", "CB")
+    es_comp = target.startswith(PREFIJOS_FLEX)
+
+    for idx, r in enumerate(registros):
+        v_sis = str(r.get("CODIGO SISTEMA", "")).strip().upper()
+        v_id = str(r.get("ID CODIGO", "")).strip().upper()
+
+        # 1. Coincidencia Exacta
+        if target == v_sis or target == v_id:
+            return idx + 2, r
+
+        # 2. Coincidencia por Prefijo (Solo componentes)
+        if es_comp:
+            if v_sis.startswith(target) or v_id.startswith(target):
+                logger.info(f"   🔍 [Prefix Match] '{target}' hallado en '{v_sis or v_id}'")
+                return idx + 2, r
+
+    return None, None
+
 def obtener_siguiente_id_pedido(hoja_pedidos=None):
     """Genera el siguiente ID secuencial con formato PED9643 (o MPED para Frimetals)."""
     try:
@@ -198,45 +227,54 @@ def registrar_pedido():
             if filas_a_eliminar:
                 logger.info(f"   🗑️ Eliminando {len(filas_a_eliminar)} filas anteriores...")
                 
-                # REVERSIÓN DE STOCK COMPROMETIDO (Antes de borrar)
+                # REVERSIÓN DE STOCK COMPROMETIDO + COMPONENTES BOM (Antes de borrar)
                 try:
+                    from backend.services.bom_service import calcular_descuentos_ensamble
                     ws_productos = sheets_client.get_worksheet(hoja_productos)
                     registros_prods = sheets_client.get_all_records_seguro(ws_productos)
                     headers_prods = ws_productos.row_values(1)
                     col_comp = headers_prods.index("COMPROMETIDO") + 1
-                    
-                    mapa_prods = {str(p["ID CODIGO"]).strip().upper(): (i + 2) for i, p in enumerate(registros_prods)}
-                    # También mapear por codigo sistema
-                    for i, p in enumerate(registros_prods):
-                         c_sis = str(p.get("CODIGO SISTEMA", "")).strip().upper()
-                         if c_sis: mapa_prods[c_sis] = i + 2
 
                     updates_reversion = []
+                    reversion_acum = {}  # {fila: valor_actual_comprometido}
+
                     for prod_ant in productos_anteriores:
                         cod = prod_ant["codigo"]
                         cant = prod_ant["cantidad"]
-                        
-                        if cod in mapa_prods:
-                            fila_p = mapa_prods[cod]
-                            # Obtener valor actual directo de la celda para ser preciso (o confiar en la lectura masiva)
-                            # Confiaremos en lectura masiva por velocidad, riesgo bajo si concurrencia es baja
-                            # Mejor: usar el valor leido y restar.
-                            # OJO: Si alguien mas modificó, podria haber error.
-                            # Para batch update, necesitamos valor actual.
-                            # Re-leer SOLO las celdas afectadas seria lento.
-                            # Asumiremos snapshot de registros_prods es valido.
-                            item_prod = registros_prods[fila_p - 2]
-                            comp_actual = float(item_prod.get("COMPROMETIDO", 0) or 0)
-                            nuevo_comp = max(0, comp_actual - cant)
-                            
-                            updates_reversion.append({
-                                'range': gspread.utils.rowcol_to_a1(fila_p, col_comp),
-                                'values': [[nuevo_comp]]
-                            })
-                    
+
+                        # Revertir producto final
+                        fila_f, datos_f = _buscar_producto_inteligente(cod, registros_prods)
+                        if fila_f:
+                            if fila_f not in reversion_acum:
+                                reversion_acum[fila_f] = float(datos_f.get("COMPROMETIDO", 0) or 0)
+                            reversion_acum[fila_f] = max(0, reversion_acum[fila_f] - cant)
+                            logger.info(f"   ↩️ Revirtiendo {cod}: COMPROMETIDO -= {cant}")
+
+                        # Revertir componentes BOM
+                        try:
+                            bom_rev = calcular_descuentos_ensamble(cod, int(cant))
+                            if bom_rev.get('success') and bom_rev.get('componentes'):
+                                for comp in bom_rev['componentes']:
+                                    cod_inv = comp.get('codigo_inventario', '')
+                                    qty_comp = comp.get('cantidad_total_descontar', 0)
+                                    fila_c, datos_c = _buscar_producto_inteligente(cod_inv, registros_prods)
+                                    if fila_c:
+                                        if fila_c not in reversion_acum:
+                                            reversion_acum[fila_c] = float(datos_c.get("COMPROMETIDO", 0) or 0)
+                                        reversion_acum[fila_c] = max(0, reversion_acum[fila_c] - qty_comp)
+                                        logger.info(f"   ↩️ Revirtiendo BOM {cod_inv}: -= {qty_comp}")
+                        except Exception as e_bom_r:
+                            logger.warning(f"   ⚠️ BOM reversion fallback para {cod}: {e_bom_r}")
+
+                    for fila, valor in reversion_acum.items():
+                        updates_reversion.append({
+                            'range': gspread.utils.rowcol_to_a1(fila, col_comp),
+                            'values': [[valor]]
+                        })
+
                     if updates_reversion:
                         ws_productos.batch_update(updates_reversion)
-                        logger.info(f"   📉 Reversiòn stock comprometido completada ({len(updates_reversion)} updates)")
+                        logger.info(f"   📉 Reversión stock comprometido completada ({len(updates_reversion)} filas)")
 
                 except Exception as e_rev:
                     logger.error(f"❌ Error revirtiendo stock comprometido: {e_rev}")
@@ -385,60 +423,73 @@ def registrar_pedido():
             ws.append_rows(final_rows)
             
             # ==========================================
-            # 📉 ACTUALIZACIÓN DE INVENTARIO (COMPROMETIDO)
+            # 📉 ACTUALIZACIÓN DE INVENTARIO (COMPROMETIDO + BOM)
             # ==========================================
             try:
-                logger.info("📉 Iniciando aumento de COMPROMETIDO...")
+                logger.info("📉 Iniciando compromiso de inventario (BOM + Producto Final)...")
+                from backend.services.bom_service import calcular_descuentos_ensamble
+
                 ws_productos = sheets_client.get_worksheet(hoja_productos)
                 registros_productos = sheets_client.get_all_records_seguro(ws_productos)
                 headers_productos = ws_productos.row_values(1)
-                
+
                 try:
-                    col_idx = headers_productos.index("COMPROMETIDO") + 1
+                    col_comp = headers_productos.index("COMPROMETIDO") + 1
                 except ValueError:
-                    logger.error("❌ Columna 'COMPROMETIDO' no encontrada en PRODUCTOS. No se pudo registrar compromiso.")
-                    col_idx = None
+                    logger.error("❌ Columna 'COMPROMETIDO' no encontrada en PRODUCTOS.")
+                    col_comp = None
 
-                if col_idx:
-                    mapa_productos = {}
-                    for idx, r in enumerate(registros_productos):
-                        c_sis = str(r.get("CODIGO SISTEMA", "")).strip().upper()
-                        id_cod = str(r.get("ID CODIGO", "")).strip().upper()
-                        fila_real = idx + 2
-                        if c_sis: mapa_productos[c_sis] = fila_real
-                        if id_cod: mapa_productos[id_cod] = fila_real
+                if col_comp:
+                    # Acumulador: {fila: nuevo_valor_comprometido}
+                    filas_comp = {}
 
-                    updates_pendientes = []
                     for producto in productos:
                         codigo = str(producto.get('codigo', '')).strip().upper()
                         if " - " in codigo:
-                             codigo = codigo.split(" - ")[0].strip()
-                        
+                            codigo = codigo.split(" - ")[0].strip()
                         cantidad_venta = float(producto.get('cantidad', 0))
-                        
-                        if codigo in mapa_productos:
-                            fila = mapa_productos[codigo]
-                            item_data = registros_productos[fila - 2]
-                            comp_actual = item_data.get("COMPROMETIDO", 0)
-                            
-                            try:
-                                comp_val = float(comp_actual) if comp_actual != '' else 0
-                            except:
-                                comp_val = 0
-                                
-                            nuevo_comp = comp_val + cantidad_venta
-                            
-                            updates_pendientes.append({
-                                'range': f"{gspread.utils.rowcol_to_a1(fila, col_idx)}",
-                                'values': [[nuevo_comp]]
-                            })
-                            logger.info(f"   ✅ Comprometido {codigo}: {comp_val} + {cantidad_venta} = {nuevo_comp}")
-                        else:
-                            logger.warning(f"   ⚠️ Producto {codigo} no encontrado en inventario para comprometer.")
 
-                    if updates_pendientes:
-                        ws_productos.batch_update(updates_pendientes)
-                        logger.info(f"   📉 COMPROMETIDO actualizado correctamente para {len(updates_pendientes)} productos")
+                        # ── FASE 1: Explosión BOM (Comprometer Componentes) ──
+                        try:
+                            bom_res = calcular_descuentos_ensamble(codigo, int(cantidad_venta))
+                            if bom_res.get('success') and bom_res.get('componentes'):
+                                logger.info(f"   🧬 BOM para {codigo}: {len(bom_res['componentes'])} componentes")
+                                for comp in bom_res['componentes']:
+                                    cod_inv = comp.get('codigo_inventario', '')
+                                    qty_comp = comp.get('cantidad_total_descontar', 0)
+                                    fila_c, datos_c = _buscar_producto_inteligente(cod_inv, registros_productos)
+                                    if fila_c:
+                                        if fila_c not in filas_comp:
+                                            filas_comp[fila_c] = float(datos_c.get("COMPROMETIDO", 0) or 0)
+                                        filas_comp[fila_c] += qty_comp
+                                        logger.info(f"      ✅ Componente {cod_inv}: COMPROMETIDO += {qty_comp}")
+                                    else:
+                                        logger.warning(f"      ⚠️ Componente BOM '{cod_inv}' no encontrado en inventario")
+                            else:
+                                logger.info(f"   ℹ️ Sin ficha BOM para {codigo} — solo producto final")
+                        except Exception as e_bom:
+                            logger.warning(f"   ⚠️ Error BOM para {codigo}: {e_bom}")
+
+                        # ── FASE 2: Comprometer Producto Final ──
+                        fila_f, datos_f = _buscar_producto_inteligente(codigo, registros_productos)
+                        if fila_f:
+                            if fila_f not in filas_comp:
+                                filas_comp[fila_f] = float(datos_f.get("COMPROMETIDO", 0) or 0)
+                            filas_comp[fila_f] += cantidad_venta
+                            logger.info(f"   ✅ Producto final {codigo}: COMPROMETIDO += {cantidad_venta}")
+                        else:
+                            logger.warning(f"   ⚠️ Producto {codigo} no encontrado para comprometer")
+
+                    # ── BATCH UPDATE ──
+                    updates_comp = []
+                    for fila, valor in filas_comp.items():
+                        updates_comp.append({
+                            'range': gspread.utils.rowcol_to_a1(fila, col_comp),
+                            'values': [[valor]]
+                        })
+                    if updates_comp:
+                        ws_productos.batch_update(updates_comp)
+                        logger.info(f"   📉 COMPROMETIDO actualizado: {len(updates_comp)} filas")
             except Exception as e_inv:
                 logger.error(f"❌ Error crítico comprometiendo inventario: {str(e_inv)}")
             
@@ -912,56 +963,62 @@ def actualizar_alistamiento():
             ws.batch_update(updates)
             
             # ==========================================
-            # 📉 DESCUENTO REAL DE STOCK AL DESPACHAR
+            # 📉 DESCUENTO REAL DE STOCK AL DESPACHAR (Smart Search + BOM)
             # ==========================================
-            # Si hay productos marcados como despachados ahora, descontar de Físico y Comprometido
             try:
-                # Filtrar solo los productos que se acaban de marcar como despachados "TRUE"
-                # y que tienen una fila identificada en el bucle anterior.
-                # Para simplificar, buscamos los detalles que vienen en el request y tienen despachado=True
                 despachados_ahora = [d for d in detalles if d.get("despachado") == True]
-                
+
                 if despachados_ahora:
-                    logger.info(f"📉 Descontando stock real para {len(despachados_ahora)} items despachados...")
+                    logger.info(f"📉 Descontando stock para {len(despachados_ahora)} items despachados...")
+                    from backend.services.bom_service import calcular_descuentos_ensamble
+
                     ws_productos = sheets_client.get_worksheet(hoja_productos)
-                    registros_productos = ws_productos.get_all_records()
+                    registros_productos = sheets_client.get_all_records_seguro(ws_productos)
                     headers_productos = ws_productos.row_values(1)
-                    
+
                     col_p_term = headers_productos.index("P. TERMINADO") + 1
                     col_comp = headers_productos.index("COMPROMETIDO") + 1
-                    
-                    mapa_productos = {}
-                    for idx, r in enumerate(registros_productos):
-                        c_sis = str(r.get("CODIGO SISTEMA", "")).strip().upper()
-                        id_cod = str(r.get("ID CODIGO", "")).strip().upper()
-                        fila_real = idx + 2
-                        if c_sis: mapa_productos[c_sis] = fila_real
-                        if id_cod: mapa_productos[id_cod] = fila_real
 
                     updates_stock = []
-                    
-                    # Necesitamos saber la CANTIDAD original del pedido para cada producto
-                    # para saber cuánto descontar del stock físico y comprometido
-                    prod_pedido_map = {str(r.get("ID CODIGO")).strip().upper(): float(r.get("CANTIDAD", 0)) 
+                    filas_ya_actualizadas = {}  # {fila: {col: valor}} para evitar colisiones
+
+                    prod_pedido_map = {str(r.get("ID CODIGO")).strip().upper(): float(r.get("CANTIDAD", 0))
                                      for r in registros if str(r.get("ID PEDIDO")) == str(id_pedido)}
 
                     for d in despachados_ahora:
                         cod = str(d.get("codigo")).strip().upper()
                         qty_pedido = prod_pedido_map.get(cod, 0)
-                        
-                        if cod in mapa_productos and qty_pedido > 0:
-                            fila_p = mapa_productos[cod]
-                            item_p = registros_productos[fila_p - 2]
-                            
-                            s_fisico = float(item_p.get("P. TERMINADO", 0) or 0)
-                            s_comp = float(item_p.get("COMPROMETIDO", 0) or 0)
-                            
+                        if qty_pedido <= 0:
+                            continue
+
+                        # ── Producto Final: P. TERMINADO y COMPROMETIDO ──
+                        fila_f, datos_f = _buscar_producto_inteligente(cod, registros_productos)
+                        if fila_f:
+                            s_fisico = float(datos_f.get("P. TERMINADO", 0) or 0)
+                            s_comp = float(datos_f.get("COMPROMETIDO", 0) or 0)
                             nuevo_fisico = max(0, s_fisico - qty_pedido)
                             nuevo_comp = max(0, s_comp - qty_pedido)
-                            
-                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_p, col_p_term), 'values': [[nuevo_fisico]]})
-                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_p, col_comp), 'values': [[nuevo_comp]]})
-                            logger.info(f"   ✅ Stock Real {cod}: Físico({s_fisico}->{nuevo_fisico}), Comprometido({s_comp}->{nuevo_comp})")
+                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_f, col_p_term), 'values': [[nuevo_fisico]]})
+                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_f, col_comp), 'values': [[nuevo_comp]]})
+                            logger.info(f"   ✅ Despacho {cod}: Físico({s_fisico}->{nuevo_fisico}), Comp({s_comp}->{nuevo_comp})")
+                        else:
+                            logger.warning(f"   ⚠️ Producto {cod} no encontrado para despacho")
+
+                        # ── Componentes BOM: Liberar COMPROMETIDO ──
+                        try:
+                            bom_res = calcular_descuentos_ensamble(cod, int(qty_pedido))
+                            if bom_res.get('success') and bom_res.get('componentes'):
+                                for comp in bom_res['componentes']:
+                                    cod_inv = comp.get('codigo_inventario', '')
+                                    qty_comp = comp.get('cantidad_total_descontar', 0)
+                                    fila_c, datos_c = _buscar_producto_inteligente(cod_inv, registros_productos)
+                                    if fila_c and fila_c != fila_f:
+                                        s_comp_c = float(datos_c.get("COMPROMETIDO", 0) or 0)
+                                        nuevo_comp_c = max(0, s_comp_c - qty_comp)
+                                        updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_c, col_comp), 'values': [[nuevo_comp_c]]})
+                                        logger.info(f"   ✅ Liberado {cod_inv}: Comp({s_comp_c}->{nuevo_comp_c})")
+                        except Exception as e_bom_d:
+                            logger.warning(f"   ⚠️ BOM dispatch fallback para {cod}: {e_bom_d}")
 
                     if updates_stock:
                         ws_productos.batch_update(updates_stock)

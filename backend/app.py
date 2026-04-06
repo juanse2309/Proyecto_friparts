@@ -16,6 +16,7 @@ from backend.core.database import sheets_client
 from concurrent.futures import ThreadPoolExecutor
 from backend.utils.report_service import PDFGenerator
 from backend.utils.drive_service import drive_service
+from backend.services.bom_service import calcular_descuentos_ensamble, traducir_codigo_componente
 
 # Global executor for background tasks (PDF, Drive, etc)
 bg_executor = ThreadPoolExecutor(max_workers=3)
@@ -165,7 +166,6 @@ class Hojas:
     PARAMETROS_INVENTARIO = "PARAMETROS_INVENTARIO"
     ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
     DB_PROVEEDORES = "DB_PROVEEDORES"
-    FICHAS_INT_CAR = "FICHAS_INT_CAR"
     PROGRAMACION_INYECCION = "PROGRAMACION_INYECCION"
 
 # ====================================================================
@@ -356,17 +356,35 @@ def buscar_producto_en_inventario(codigo_sistema):
         # Normalizar el código de búsqueda
         codigo_normalizado = normalizar_codigo(codigo_sistema)
         
+        # Prefijos que permiten "Coincidencia de Prefijo" (Componentes)
+        PREFIJOS_FLEXIBLES = ("CAR", "INT", "ENS")
+        es_componente = str(codigo_normalizado).startswith(PREFIJOS_FLEXIBLES)
+        
         for idx, r in enumerate(registros):
             val_hoja = str(r.get('CODIGO SISTEMA', '')).strip()
             id_codigo = str(r.get('ID CODIGO', '')).strip()
             
-            # Comparación rápida (optimizada)
-            if normalizar_codigo(val_hoja) == codigo_normalizado or normalizar_codigo(id_codigo) == codigo_normalizado:
+            v_hoja_norm = normalizar_codigo(val_hoja)
+            id_ficha_norm = normalizar_codigo(id_codigo)
+            
+            # 1. COINCIDENCIA EXACTA (Prioridad Máxima)
+            if v_hoja_norm == codigo_normalizado or id_ficha_norm == codigo_normalizado:
                 return {
                     'fila': idx + 2,
                     'datos': r,
                     'encontrado': True
                 }
+                
+            # 2. COINCIDENCIA POR PREFIJO (Solo para componentes CAR, INT, ENS)
+            if es_componente and codigo_normalizado:
+                # Comprobar si el código de la hoja comienza con el código buscado
+                if v_hoja_norm.startswith(codigo_normalizado) or id_ficha_norm.startswith(codigo_normalizado):
+                    logger.info(f" 🔍 [Prefix Match] Componente '{codigo_normalizado}' hallado por prefijo en '{v_hoja_norm}'")
+                    return {
+                        'fila': idx + 2,
+                        'datos': r,
+                        'encontrado': True
+                    }
         
         return {'encontrado': False, 'error': f'Producto "{codigo_sistema}" no encontrado'}
     except Exception as e:
@@ -2552,145 +2570,53 @@ def obtener_producto(codigo):
 # ========== NUEVO ENDPOINT PARA OBTENER ENSAMBLE DESDE PRODUCTO ==========
 @app.route('/api/inyeccion/ensamble_desde_producto', methods=['GET'])
 def obtener_ensamble_desde_producto():
-    """Dado un codigo de producto (9304 o FR-9304), retorna el codigo ensamble y QTY.
-       Si hay múltiples opciones de componente, retorna todas en 'opciones'."""
+    """
+    Dado un código de producto (9304 o FR-9304), retorna su BOM completo
+    consultando NUEVA_FICHA_MAESTRA a través del motor bom_service.
+    Soporta componentes alternativos (separados por '/') devueltos como opciones_alternativas.
+    """
     try:
         codigo_entrada = request.args.get('codigo', '').strip()
         if not codigo_entrada:
             return jsonify({'success': False, 'error': 'Codigo producto requerido'}), 400
 
-        # Normalizar a CODIGO SISTEMA real (ej: FR-9304 -> 9304)
+        # Normalizar a código sistema (ej: FR-9304 → 9304)
         codigo_sistema = obtener_codigo_sistema_real(codigo_entrada)
 
-        # Buscar TODAS las opciones
-        ss = get_spreadsheet()
-        opciones = []
-        
-        # 1. Cargar FICHAS original para extraer QTYs previamente mapeados
-        qty_map = {}
-        registros_fichas = []
-        try:
-            ws_fichas = ss.worksheet(Hojas.FICHAS)
-            registros_fichas = ws_fichas.get_all_records()
-            for r in registros_fichas:
-                r_cod = obtener_codigo_sistema_real(str(r.get('ID CODIGO', '')).strip())
-                r_buje = obtener_codigo_sistema_real(str(r.get('BUJE ENSAMBLE', '')).strip())
-                r_qty = float(r.get('QTY', 1) or 1)
-                qty_map[f"{r_cod}_{r_buje}"] = r_qty
-        except Exception as e:
-            logger.warning(f"No se pudo cargar FICHAS para QTY mappings: {e}")
+        # Explotar BOM con cantidad ficticia de 1 para obtener estructura de componentes
+        bom_res = calcular_descuentos_ensamble(codigo_sistema, 1)
 
-        # Intentar FICHAS_INT_CAR primero
-        is_new_format = False
-        try:
-            ws_fichas_int = ss.worksheet(Hojas.FICHAS_INT_CAR)
-            registros_fichas_int = ws_fichas_int.get_all_records()
-            if registros_fichas_int and 'Referencia' in registros_fichas_int[0]:
-                is_new_format = True
-        except Exception:
-            registros_fichas_int = []
+        if bom_res.get('success') and bom_res.get('componentes'):
+            componentes_bom = bom_res['componentes']
 
-        if is_new_format:
-            # Lógica para FICHAS_INT_CAR
-            # BUSQUEDA 1: ¿Es el producto final? (Referencia)
-            for r in registros_fichas_int:
-                ref = str(r.get('Referencia', '')).strip()
-                ref_norm = obtener_codigo_sistema_real(ref)
-                if ref_norm == codigo_sistema:
-                    # Recopilar todos los componentes de ESTA fila/receta
-                    bom_receta = []
-                    buje_main = ""
-                    for col in ['Buje', 'INT', 'Carcaza']:
-                        comp = str(r.get(col, '')).strip()
-                        comp_upper = comp.upper()
-                        if comp and comp != "-" and comp_upper not in ["INYECCIÓN", "INYECCION"]:
-                            comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
-                            comp_norm = obtener_codigo_sistema_real(comp_clean)
-                            if col == 'Buje': buje_main = comp_clean
-                            
-                            # Buscar en el mapeo de FICHAS si existe un QTY guardado
-                            qty_desc = qty_map.get(f"{codigo_sistema}_{comp_norm}", 1.0)
-                            bom_receta.append({
-                                'buje_origen': comp_clean,
-                                'qty': qty_desc,
-                                'tipo_componente': col
-                            })
-                    
-                    if bom_receta:
-                        opciones.append({
-                            'codigo_ensamble': ref,
-                            'buje_origen': buje_main or ref,
-                            'qty': 1,
-                            'tipo': 'producto',
-                            'componentes': bom_receta
-                        })
-            
-            # BUSQUEDA 2: ¿Es un componente (Buje, INT, Carcaza)?
-            if not opciones:
-                for r in registros_fichas_int:
-                    ref = str(r.get('Referencia', '')).strip()
-                    ref_norm = obtener_codigo_sistema_real(ref)
-                    comps_cols = ['Buje', 'INT', 'Carcaza']
-                    found_in_cols = False
-                    for col in comps_cols:
-                        comp_val = str(r.get(col, '')).strip()
-                        comp_clean = comp_val.split("/")[0].strip() if "/" in comp_val else comp_val
-                        if obtener_codigo_sistema_real(comp_clean) == codigo_sistema:
-                            found_in_cols = True
-                            break
-                    
-                    if found_in_cols:
-                        # Recopilar BOM completo de esta receta donde se encontro el componente
-                        bom_receta = []
-                        buje_main = ""
-                        for col in comps_cols:
-                            comp = str(r.get(col, '')).strip()
-                            comp_upper = comp.upper()
-                            if comp and comp != "-" and comp_upper not in ["INYECCIÓN", "INYECCION"]:
-                                comp_clean = comp.split("/")[0].strip() if "/" in comp else comp
-                                comp_norm = obtener_codigo_sistema_real(comp_clean)
-                                if col == 'Buje': buje_main = comp_clean
-                                qty_desc = qty_map.get(f"{ref_norm}_{comp_norm}", 1.0)
-                                bom_receta.append({
-                                    'buje_origen': comp_clean,
-                                    'qty': qty_desc,
-                                    'tipo_componente': col
-                                })
-                        
-                        if bom_receta:
-                            opciones.append({
-                                'codigo_ensamble': ref,
-                                'buje_origen': buje_main or ref,
-                                'qty': 1,
-                                'tipo': 'componente',
-                                'componentes': bom_receta
-                            })
-        
-        # Fallback a FICHAS original si INT_CAR no existe, o si no se encontro el producto ahi
-        if not opciones:
-            for r in registros_fichas:
-                id_cod_ficha = str(r.get('ID CODIGO', '')).strip()
-                id_cod_norm = obtener_codigo_sistema_real(id_cod_ficha)
-                if id_cod_norm == codigo_sistema:
-                    buje = str(r.get('BUJE ENSAMBLE', '')).strip()
-                    qty = float(r.get('QTY', 1) or 1)
-                    opciones.append({'codigo_ensamble': id_cod_ficha, 'buje_origen': buje, 'qty': qty, 'tipo': 'producto'})
-            if not opciones:
-                for r in registros_fichas:
-                    buje_ficha = str(r.get('BUJE ENSAMBLE', '')).strip()
-                    buje_norm = obtener_codigo_sistema_real(buje_ficha)
-                    if buje_norm == codigo_sistema:
-                        prod_final = str(r.get('ID CODIGO', '')).strip()
-                        qty = float(r.get('QTY', 1) or 1)
-                        opciones.append({'codigo_ensamble': prod_final, 'buje_origen': buje_ficha, 'qty': qty, 'tipo': 'componente'})
-        
-        if opciones:
+            # Construir la opción única basada en la NUEVA_FICHA_MAESTRA
+            opcion = {
+                'codigo_ensamble': codigo_entrada,
+                'buje_origen': codigo_sistema,
+                'qty': 1,
+                'tipo': 'producto',
+                'componentes': [
+                    {
+                        'buje_origen': comp['codigo_inventario'],           # Código principal
+                        'qty': comp['cantidad_por_kit'],
+                        'tipo_componente': comp.get('codigo_ficha', ''),
+                        'tiene_alternativas': comp.get('tiene_alternativas', False),
+                        'opciones_alternativas': comp.get('opciones_alternativas'),  # Lista o None
+                    }
+                    for comp in componentes_bom
+                ]
+            }
+
+            logger.info(f" [BOM Endpoint] {codigo_sistema}: {len(componentes_bom)} componentes desde NUEVA_FICHA_MAESTRA")
             return jsonify({
                 'success': True,
                 'codigo_sistema': codigo_sistema,
-                'opciones': opciones
+                'opciones': [opcion]
             }), 200
+
         else:
+            # Sin ficha en NUEVA_FICHA_MAESTRA → respuesta vacía segura
+            logger.warning(f" [BOM Endpoint] Sin ficha para '{codigo_sistema}': {bom_res.get('error')}")
             return jsonify({
                 'success': True,
                 'codigo_sistema': codigo_sistema,
@@ -2699,10 +2625,12 @@ def obtener_ensamble_desde_producto():
                 'qty': 1,
                 'opciones': []
             }), 200
-            
+
     except Exception as e:
         logger.error(f" Error en obtener_ensamble_desde_producto: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
 
 @app.route('/api/pulido', methods=['POST'])
 def handle_pulido():
@@ -2951,20 +2879,19 @@ def handle_ensamble():
             return error_response("Codigo de producto requerido")
         
         # ========================================
-        # OBTENER COMPONENTES (Nueva lógica multi-componente)
+        # OBTENER COMPONENTES DESDE BOM (NUEVA_FICHA_MAESTRA)
         # ========================================
-        componentes_a_procesar = data.get('componentes', [])
+        # Usamos el motor de explosión para obtener los componentes reales
+        # La ficha técnica es ahora la ÚNICA fuente de verdad.
+        bom_res = calcular_descuentos_ensamble(codigo_sis, cantidad_real)
         
-        if not componentes_a_procesar:
-            # Fallback legacy: un solo componente (mantiene compatibilidad)
-            buje_origen_id, qty_calculada, producto_final_id = obtener_buje_origen_y_qty(codigo_sis)
-            qty_unitaria = float(data.get('qty_unitaria', qty_calculada))
-            componentes_a_procesar = [{
-                'buje_origen': buje_origen_id,
-                'qty_unitaria': qty_unitaria
-            }]
-        
-        logger.info(f" Componentes a procesar: {len(componentes_a_procesar)}")
+        if not bom_res.get('success'):
+            error_msg = f"Error: El producto {codigo_sis} no tiene una ficha técnica configurada. No se puede procesar el ensamble."
+            logger.warning(f" Tentativa de ensamble fallida: {error_msg}")
+            return jsonify({'success': False, 'error': error_msg}), 400
+            
+        componentes_bom = bom_res.get('componentes', [])
+        logger.info(f" Explosión BOM exitosa para {codigo_sis}: {len(componentes_bom)} componentes encontrados.")
 
         # ========================================
         # CALCULAR CANTIDADES Y ALMACENES
@@ -2989,32 +2916,53 @@ def handle_ensamble():
         # ========================================
         # LOGICA DE STOCK: DESCONTAR COMPONENTES (Loop)
         # ========================================
+        # Cruce de datos: Sincronizar explosión BOM con la elección del usuario en el frontend
+        componentes_frontend = data.get('componentes', [])
         componentes_procesados_exito = []
+        
         try:
-            for comp in componentes_a_procesar:
-                b_id = str(comp.get('buje_origen', '')).strip()
-                q_unit = float(comp.get('qty_unitaria', 1))
+            for i, comp_bom in enumerate(componentes_bom):
+                # 1. Determinar el código base (por defecto del BOM)
+                b_codigo_inventario = comp_bom.get('codigo_inventario')
+                b_codigo_ficha = comp_bom.get('codigo_ficha') # Puede traer el "/" original
+                total_consumo = comp_bom.get('cantidad_total_descontar')
+                q_unit = comp_bom.get('cantidad_por_kit')
                 
-                # Normalizar código del buje
-                b_codigo_sistema, _, _ = obtener_datos_producto(b_id)
-                if not b_codigo_sistema: b_codigo_sistema = b_id
+                # 2. SINCRONIZACIÓN: ¿El usuario eligió un componente específico en el dropdown?
+                # Cruzamos por índice si el frontend envió la lista completa
+                if i < len(componentes_frontend):
+                    seleccion_fe = componentes_frontend[i]
+                    # El frontend envía el valor seleccionado en 'buje_origen'
+                    codigo_seleccionado = str(seleccion_fe.get('buje_origen', '')).strip()
+                    
+                    if codigo_seleccionado:
+                        # Limpieza final SOBRE LA ELECCIÓN del usuario (nunca [0] fijo de la receta)
+                        # Red de seguridad contra basura que pueda enviar el FE
+                        codigo_limpio = codigo_seleccionado.split('/')[0].split('|')[0].strip()
+                        
+                        logger.info(f" 🔀 Sincronizando: Usando selección FE '{codigo_limpio}' en lugar de '{b_codigo_ficha}'")
+                        b_codigo_inventario = traducir_codigo_componente(codigo_limpio)
+                        b_codigo_ficha = codigo_limpio # Para el log de la hoja final
                 
-                total_consumo = cantidad_recibida * q_unit
-                
-                logger.info(f" Procesando stock: Buje {b_codigo_sistema} (-{total_consumo})")
-                exito_resta, msj_resta = registrar_salida(b_codigo_sistema, total_consumo, almacen_origen)
+                # 3. DOBLE LIMPIEZA: Garantizar que NADA con "/" pase al inventario o a Sheets
+                # (Aplica tanto si vino del BOM como si vino del FE)
+                final_code_inv = b_codigo_inventario.split('/')[0].split('|')[0].strip()
+                final_code_sheet = str(b_codigo_ficha).split('/')[0].split('|')[0].strip()
+
+                logger.info(f" Procesando stock: {final_code_inv} (-{total_consumo})")
+                exito_resta, msj_resta = registrar_salida(final_code_inv, total_consumo, almacen_origen)
                 
                 if not exito_resta:
                     # ROLLBACK: Revertir los que ya se descontaron
-                    logger.error(f" Error en stock para {b_codigo_sistema}: {msj_resta}. Iniciando rollback...")
+                    logger.error(f" Error en stock para {final_code_inv}: {msj_resta}. Iniciando rollback...")
                     for prev_comp in componentes_procesados_exito:
                         registrar_entrada(prev_comp['buje'], prev_comp['qty'], almacen_origen)
-                    return jsonify({"success": False, "error": f"Stock insuficiente para {b_codigo_sistema}: {msj_resta}"}), 400
+                    return jsonify({"success": False, "error": f"Stock insuficiente para {final_code_inv}: {msj_resta}"}), 400
                 
                 componentes_procesados_exito.append({
-                    'buje': b_codigo_sistema,
+                    'buje': final_code_inv,
                     'qty': total_consumo,
-                    'buje_id_original': b_id,
+                    'buje_id_original': final_code_sheet, 
                     'qty_unitaria': q_unit
                 })
 
@@ -3030,7 +2978,7 @@ def handle_ensamble():
                 return jsonify({"success": False, "error": msj_suma}), 400
 
         except Exception as e:
-            logger.error(f" Error inesperado en procesamiento de stock: {str(e)}")
+            logger.error(f" Error inesperado en procesamiento de stock: {str(e)}\n{traceback.format_exc()}")
             return jsonify({"success": False, "error": f"Error técnico en stock: {str(e)}"}), 500
 
         # ========================================
@@ -3046,35 +2994,36 @@ def handle_ensamble():
             
             filas_a_insertar = []
             for i, comp in enumerate(componentes_procesados_exito):
-                # Para evitar duplicar Cantidad Final en Dashboard/PowerBI, 
-                # anotamos la CANTIDAD REAL solo en el primer ítem, en los extras va 0.
                 cant_volcado = cantidad_real if i == 0 else 0
                 
                 fila = [
                     fecha_ensamble_f,                                # 1. FECHA
                     id_ensamble,                                     # 2. ID ENSAMBLE
-                    codigo_sis,                                     # 3. ID CODIGO (Final)
-                    cant_volcado,                                   # 4. CANTIDAD
-                    data.get('orden_produccion', ''),               # 5. OP NUMERO
-                    data.get('responsable', ''),                    # 6. RESPONSABLE
-                    data.get('hora_inicio', ''),                    # 7. HORA INICIO
-                    data.get('hora_fin', ''),                       # 8. HORA FIN
-                    comp['buje_id_original'],                       # 9. BUJE ENSAMBLE
-                    comp['qty_unitaria'],                           # 10. QTY (Unitaria)
-                    almacen_origen,                                 # 11. ALMACEN ORIGEN
-                    almacen_destino,                                # 12. ALMACEN DESTINO
-                    data.get('observaciones', '')                   # 13. OBSERVACIONES
+                    codigo_sis,                                      # 3. ID CODIGO (Final)
+                    cant_volcado,                                    # 4. CANTIDAD
+                    data.get('orden_produccion', ''),                # 5. OP NUMERO
+                    data.get('responsable', ''),                     # 6. RESPONSABLE
+                    data.get('hora_inicio', ''),                     # 7. HORA INICIO
+                    data.get('hora_fin', ''),                        # 8. HORA FIN
+                    comp['buje_id_original'],                        # 9. BUJE ENSAMBLE (LIMPIO)
+                    comp['qty_unitaria'],                            # 10. QTY (Unitaria)
+                    almacen_origen,                                  # 11. ALMACEN ORIGEN
+                    almacen_destino,                                 # 12. ALMACEN DESTINO
+                    data.get('observaciones', '')                    # 13. OBSERVACIONES
                 ]
                 
-                # Rellenar hasta el número de encabezados
                 while len(fila) < len(headers):
                     fila.append('')
+                
+                # AUDITORÍA DE REGISTRO FINAL
+                logger.info(f" 📝 [Audit Sheet] Fila {i+1} preparada: {fila[8]} (Final: {fila[2]})")
                 filas_a_insertar.append(fila)
 
-            # Insertar todas las filas a la vez (si hay varias)
+            # Insertar todas las filas
             if filas_a_insertar:
                 append_rows_seguro(ws, filas_a_insertar)
-                logger.info(f" ✓ {len(filas_a_insertar)} componentes registrados en hoja ENSAMBLES")
+                logger.info(f" ✓ {len(filas_a_insertar)} componentes registrados en hoja ENSAMBLES (Limpios)")
+
 
         except Exception as e:
             logger.error(f" Error guardando en Sheets: {str(e)}")
@@ -6321,14 +6270,29 @@ def calcular_dashboard_robusto():
         except Exception as e:
             print(f" Error leyendo PULIDO: {e}")
 
-        # --- 3. ENSAMBLES ---
+        # --- 3. ENSAMBLES (Deduplicado por Bloque de Tiempo) ---
         prod_ens = 0
         try:
-            ws = ss.worksheet("ENSAMBLES")
-            regs = ws.get_all_records()
-            prod_ens = sum(obtener_dato_seguro(r, "CANTIDAD", "int") for r in regs)
+            ws = ss.worksheet(Hojas.ENSAMBLES)
+            regs = get_all_records_seguro(ws)
+            
+            # Agrupar por Operario, Fecha, Horas para evitar triplicar kits
+            ens_blocks = {} # (op, fecha, h_ini, h_fin) -> max_qty
+            for r in regs:
+                op = str(r.get("OPERARIO") or r.get("RESPONSABLE") or "").strip().upper()
+                f_str = str(r.get("FECHA") or r.get("fecha") or "").strip()
+                h_ini = str(r.get("HORA INICIO") or r.get("HORA_INICIO") or "").strip()
+                h_fin = str(r.get("HORA FIN") or r.get("HORA_FIN") or "").strip()
+                qty = to_int_seguro(r.get("CANTIDAD") or r.get("CANTIDAD REAL"))
+                
+                # Deduplicación: Solo sumar una vez por bloque de tiempo el mismo operario
+                block_key = (op, f_str, h_ini, h_fin)
+                if block_key not in ens_blocks:
+                    ens_blocks[block_key] = qty
+            
+            prod_ens = sum(ens_blocks.values())
         except Exception as e:
-            print(f" Error leyendo ENSAMBLES: {e}")
+            print(f" Error procesando ENSAMBLES (Deduplicación): {e}")
 
         # --- 4. VENTAS ---
         ventas = 0
