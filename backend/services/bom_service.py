@@ -14,13 +14,26 @@ Reglas de traducción de códigos:
   └─────────────────┴──────────────────────┘
 """
 import re
+import time
 import logging
 from typing import List, Dict, Optional
+
+import gspread
 
 from backend.core.database import sheets_client
 from backend.config.settings import Hojas
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────
+#  Caché en memoria para NUEVA_FICHA_MAESTRA
+# ──────────────────────────────────────────────
+_FICHA_MAESTRA_CACHE = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 600,  # 10 minutos
+}
 
 
 # ──────────────────────────────────────────────
@@ -149,11 +162,49 @@ def calcular_descuentos_ensamble(
     # ── 1. Normalizar código del kit para búsqueda ────────────────
     codigo_crudo = str(codigo_kit).strip().upper()
     
-    # Código para reporte (mantiene ENS-)
+    # Código para reporte (normalizado con ENS- para coherencia en logs)
     resultado["kit"] = f"ENS-{codigo_crudo.replace('ENS-', '')}"
     
-    # Código limpio para búsqueda (quitamos FR- y ENS- para máxima flexibilidad)
-    codigo_busqueda = codigo_crudo.replace("ENS-", "").replace("FR-", "").strip()
+    # ALIAS SEGURO: Quedarse únicamente con el primer bloque de texto
+    # (Ejemplo: "FR-9380 [KIT]" -> "FR-9380")
+    # Utilizamos .split() sin argumentos para eliminar cualquier tipo de espacio en blanco (tabs, espacios múltiples)
+    codigo_base = codigo_crudo.split()[0] if codigo_crudo.split() else ""
+    
+    # Crear lista de variaciones exactas permitidas para evitar discrepancias de prefijo FR, ENS, MT, DE
+    variaciones_permitidas = [codigo_base]
+    
+    # Variante Súper Blanca (Sin espacios ni guiones para comparación agresiva)
+    def super_clean(s):
+        return str(s).upper().replace(" ", "").replace("-", "").strip()
+    
+    codigo_base_clean = super_clean(codigo_base)
+    
+    # ── 1.1 Expandir variaciones según prefijos comunes ────────────────
+    # Si tiene FR-, añadimos el número solo
+    if codigo_base.startswith("FR-"):
+        variaciones_permitidas.append(codigo_base.replace("FR-", ""))
+    elif codigo_base.startswith("MT-"):
+        variaciones_permitidas.append(codigo_base.replace("MT-", ""))
+    elif codigo_base.startswith("DE-"):
+        variaciones_permitidas.append(codigo_base.replace("DE-", ""))
+    
+    # Si es solo el número, añadimos los prefijos posibles
+    else:
+        # Solo añadimos alias si no es un código ya prefijado (CAR, INT, etc)
+        if not any(codigo_base.startswith(p) for p in ["CAR", "INT", "CB"]):
+            variaciones_permitidas.append(f"FR-{codigo_base}")
+            variaciones_permitidas.append(f"ENS-{codigo_base}")
+            variaciones_permitidas.append(f"MT-{codigo_base}")
+
+    # Asegurar que todas las variaciones estén en mayúsculas y limpias
+    variaciones_permitidas = list(set([v.upper().strip() for v in variaciones_permitidas]))
+    variaciones_super_clean = [super_clean(v) for v in variaciones_permitidas]
+    
+    logger.debug(f" [BOM Debug] Variaciones permitidas: {variaciones_permitidas}")
+    logger.debug(f" [BOM Debug] Variaciones Super-Clean: {variaciones_super_clean}")
+    
+    logger.debug(f" [BOM Debug] Variaciones permitidas para búsqueda: {variaciones_permitidas}")
+    codigo_busqueda = codigo_base # Para logs
 
     # ── 2. Validar cantidad_armada ────────────────────────────────
     if not isinstance(cantidad_armada, (int, float)) or int(cantidad_armada) <= 0:
@@ -163,17 +214,48 @@ def calcular_descuentos_ensamble(
     cantidad_armada = int(cantidad_armada)
     resultado["cantidad_armada"] = cantidad_armada
 
-    # ── 3. Leer NUEVA_FICHA_MAESTRA ───────────────────────────────
+    # ── 3. Leer NUEVA_FICHA_MAESTRA (con Caché TTL) ──────────────
     try:
-        ws = sheets_client.get_worksheet(Hojas.NUEVA_FICHA_MAESTRA)
-        if not ws:
-            resultado["error"] = "No se pudo abrir la hoja NUEVA_FICHA_MAESTRA."
-            logger.error(resultado["error"])
-            return resultado
+        ahora = time.time()
+        cache_valido = (
+            _FICHA_MAESTRA_CACHE["data"] is not None
+            and (ahora - _FICHA_MAESTRA_CACHE["timestamp"]) < _FICHA_MAESTRA_CACHE["ttl"]
+        )
 
-        registros = sheets_client.get_all_records_seguro(ws)
+        if cache_valido:
+            registros = _FICHA_MAESTRA_CACHE["data"]
+            logger.debug(f" [BOM Cache] Usando caché de NUEVA_FICHA_MAESTRA ({len(registros)} registros, edad: {int(ahora - _FICHA_MAESTRA_CACHE['timestamp'])}s)")
+        else:
+            ws = sheets_client.get_worksheet(Hojas.NUEVA_FICHA_MAESTRA)
+            if not ws:
+                resultado["error"] = "No se pudo abrir la hoja NUEVA_FICHA_MAESTRA."
+                resultado["error_tipo"] = "conexion"
+                logger.error(resultado["error"])
+                return resultado
+
+            registros = sheets_client.get_all_records_seguro(ws)
+            # Actualizar caché
+            _FICHA_MAESTRA_CACHE["data"] = registros
+            _FICHA_MAESTRA_CACHE["timestamp"] = ahora
+            logger.info(f" [BOM Cache] Caché de NUEVA_FICHA_MAESTRA actualizado: {len(registros)} registros")
+
+    except gspread.exceptions.APIError as api_err:
+        status_code = getattr(api_err, 'response', None)
+        status_code = status_code.status_code if status_code else 'desconocido'
+        resultado["error"] = f"Límite de peticiones a Google superado (HTTP {status_code}). Intente en 1 minuto."
+        resultado["error_tipo"] = "quota"
+        logger.error(f" [BOM] Error de cuota Google Sheets: {api_err}")
+        # Si hay caché viejo, usarlo como fallback de emergencia
+        if _FICHA_MAESTRA_CACHE["data"] is not None:
+            registros = _FICHA_MAESTRA_CACHE["data"]
+            logger.warning(f" [BOM Cache] Usando caché EXPIRADO como fallback de emergencia ({len(registros)} registros)")
+            resultado.pop("error", None)
+            resultado.pop("error_tipo", None)
+        else:
+            return resultado
     except Exception as e:
         resultado["error"] = f"Error al leer NUEVA_FICHA_MAESTRA: {e}"
+        resultado["error_tipo"] = "conexion"
         logger.error(resultado["error"])
         return resultado
 
@@ -183,20 +265,31 @@ def calcular_descuentos_ensamble(
     logger.debug(f"Iniciando filtrado en NUEVA_FICHA_MAESTRA para: '{codigo_busqueda}'")
     
     for idx, fila in enumerate(registros):
-        producto_raw = str(fila.get("Producto", "")).strip()
+        # Intentar con "Producto Final" (columna real) y fallback a "Producto"
+        producto_raw = str(fila.get("Producto Final", fila.get("Producto", ""))).strip()
         if not producto_raw:
             continue
             
         producto_upper = producto_raw.upper()
         
-        # Limpiamos el valor de la celda (ej. "FR-9380 [KIT]" -> "9380 [KIT]")
-        celda_limpia = producto_upper.replace("ENS-", "").replace("FR-", "").strip()
+        # Comparación Nivel 1: Primer bloque (Token matching)
+        # (Ejemplo: "FR-9380 BUJE..." -> "FR-9380")
+        codigo_celda = producto_upper.split()[0] if producto_upper.split() else ""
         
-        # Filtrado estricto: El primer token de la celda debe coincidir exactamente con el código buscado
-        # Esto evita que "FR-9380" coincida con una descripción de tubo que mencione "9380" en la mitad.
-        celda_tokens = celda_limpia.split()
-        if not celda_tokens or celda_tokens[0] != codigo_busqueda:
+        # Comparación Nivel 2: Super Clean (Comparación agresiva sin distractores)
+        codigo_celda_clean = super_clean(codigo_celda)
+        
+        # LOG DE AUDITORÍA (Solo para depuración de casos difíciles como MT)
+        if "MT" in producto_upper or "7011" in producto_upper:
+             logger.debug(f" [BOM Trial] Fila {idx+2}: Celda='{codigo_celda}', Clean='{codigo_celda_clean}' vs Target='{codigo_base_clean}'")
+
+        # Coincidencia: Ya sea por token exacto o por versión super-limpia
+        match_encontrado = (codigo_celda in variaciones_permitidas) or (codigo_celda_clean in variaciones_super_clean)
+        
+        if not match_encontrado:
             continue
+            
+        logger.info(f" [BOM Match] ¡Coincidencia encontrada para '{codigo_kit}'! Fila {idx+2}: '{producto_raw}'")
 
         subproducto = str(fila.get("SubProducto", "")).strip()
         cantidad_bom = _parsear_cantidad(fila.get("Cantidad", 0))
@@ -205,9 +298,10 @@ def calcular_descuentos_ensamble(
         if not subproducto or "total" in subproducto.lower():
             continue
             
-        # Evitar auto-referencia si el subproducto es el mismo que el producto buscado
-        subpro_limpio = subproducto.upper().replace("ENS-", "").replace("FR-", "").strip()
-        if subpro_limpio == codigo_busqueda:
+        # Evitar auto-referencia si el subproducto es el mismo que el producto buscado (buje base)
+        # Aplicamos la misma lógica de primer bloque para el subproducto
+        subpro_base = subproducto.upper().split(' ')[0]
+        if subpro_base == codigo_busqueda:
             logger.debug(f"Fila {idx+2}: Ignorando auto-referencia '{subproducto}'")
             continue
 

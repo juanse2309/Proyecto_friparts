@@ -1,4 +1,4 @@
-﻿"""
+"""
 Rutas de productos.
 Endpoints REST para operaciones con productos.
 """
@@ -83,6 +83,15 @@ def listar_productos():
         # Resolver tenant desde el rol del usuario en sesión
         tenant = get_tenant_from_request()
 
+        # Forzar limpieza de caché si se solicita
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true' or \
+                        request.args.get('force_refresh', 'false').lower() == 'true'
+
+        if force_refresh and tenant == "friparts":
+            logger.info("🔄 [Caché] Forzando actualización de productos por solicitud del usuario")
+            PRODUCTOS_LISTAR_CACHE["data"] = None
+            PRODUCTOS_LISTAR_CACHE["timestamp"] = 0
+
         # 1. Verificar Caché (solo para Friparts, que usa la caché global)
         if tenant == "friparts" and PRODUCTOS_LISTAR_CACHE["data"] and \
                 (ahora - PRODUCTOS_LISTAR_CACHE["timestamp"] < PRODUCTOS_CACHE_TTL):
@@ -122,6 +131,12 @@ def listar_productos():
             stock_comprometido = int(clean_numeric(comp))
             stock_disponible = stock_fisico - stock_comprometido
             
+            stock_bodega = int(clean_numeric(p.get('STOCK_BODEGA') or 0))
+            minimo = int(clean_numeric(p.get('MINIMO') or p.get('STOCK MINIMO') or p.get('EXISTENCIAS MÍNIMAS') or 10))
+            en_zincado = int(clean_numeric(p.get('EN_ZINCADO') or 0))
+            en_granallado = int(clean_numeric(p.get('EN_GRANALLADO') or 0))
+            clase_rotacion = str(p.get('CLASE_ROTACION') or 'C').strip()
+            
             productos_formateados.append({
                 'codigo_sistema': codigo,
                 'id_codigo': p.get('ID CODIGO') or codigo,
@@ -132,7 +147,11 @@ def listar_productos():
                 'stock_por_pulir': int(p_pulir or 0),
                 'stock_terminado': stock_fisico,
                 'stock_ensamblado': int(p.get('PRODUCTO ENSAMBLADO', 0) or 0),
-                'stock_minimo': int(p.get('STOCK MINIMO', 10) or 10),
+                'stock_bodega': stock_bodega,
+                'stock_minimo': minimo,
+                'clase_rotacion': clase_rotacion,
+                'en_zincado': en_zincado,
+                'en_granallado': en_granallado,
                 'imagen': p.get('IMAGEN', ''),
                 'categoria': p.get('CATEGORIA', ''),
                 'marca': p.get('MARCA', ''),

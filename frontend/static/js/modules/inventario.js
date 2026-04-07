@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // inventario.js - LÃ³gica de Inventario con PaginaciÃ³n
 // ============================================
 
@@ -8,6 +8,78 @@ let paginaActual = 1;
 
 // Placeholder premium de FriTech (SVG en base64 para evitar peticiones extra)
 const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f8fafc;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23e2e8f0;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g)' rx='12'/%3E%3Cg opacity='0.4' transform='translate(0, -5)'%3E%3Cpath d='M30 40c0-2.2 1.8-4 4-4h32c2.2 0 4 1.8 4 4v25c0 2.2-1.8 4-4 4H34c-2.2 0-4-1.8-4-4V40z' fill='%2364748b'/%3E%3Ccircle cx='50' cy='52.5' r='7' fill='%23f1f5f9'/%3E%3Cpath d='M46 32h8l2 4h-12z' fill='%2364748b'/%3E%3C/g%3E%3Ctext x='50' y='82' text-anchor='middle' font-family='sans-serif' font-size='7' fill='%2394a3b8' font-weight='bold'%3EFriTech%3C/text%3E%3C/svg%3E`;
+
+/**
+ * Genera el HTML de la imagen con lógica de fallback multinivel (Súper Radar v2.1)
+ * Orden: Drive Proxy -> Local (Prefijo) -> Local (Sin Prefijo) -> Extensiones -> no-image.svg
+ */
+function obtenerHtmlImagen(p, esMovil = false) {
+    const rawCode = String(p.codigo || '').trim();
+    const codeLower = rawCode.toLowerCase();
+    
+    // Limpieza Inteligente: Extraer parte después del guion si existe (DE-1000 -> 1000)
+    // Si no hay guion, numOnly será igual a codeLower
+    const partes = rawCode.split('-');
+    const numOnly = (partes.length > 1 ? partes.slice(1).join('-') : rawCode).toLowerCase();
+    
+    const imagenUrlRaw = p.imagen || '';
+    
+    // 1. Extraer ID de Drive si existe
+    let driveUrl = '';
+    if (imagenUrlRaw.includes('drive.google.com') || (imagenUrlRaw.length > 20 && !imagenUrlRaw.includes('/'))) {
+        const match = imagenUrlRaw.match(/(?:id=|[ /])([a-zA-Z0-9_-]{25,})/);
+        const fileId = match ? match[1] : (imagenUrlRaw.length > 20 ? imagenUrlRaw : null);
+        if (fileId) driveUrl = `/imagenes/proxy/${fileId}`;
+    }
+
+    // 2. Generar lista de candidatos locales (ORDEN DE PRIORIDAD)
+    const candidatos = [];
+    if (driveUrl) candidatos.push(driveUrl);
+    
+    // Construir lista de extensiones a probar
+    const exts = ['.jpg', '.png', '.jpeg'];
+    
+    // Nivel 2: Buscar con código original completo
+    exts.forEach(ext => candidatos.push(`/static/img/productos/${codeLower}${ext}`));
+    
+    // Nivel 3: Buscar con código limpio (sin prefijo)
+    if (numOnly !== codeLower) {
+        exts.forEach(ext => candidatos.push(`/static/img/productos/${numOnly}${ext}`));
+    }
+
+    // 4. Fallback Final (SVG)
+    const fallbackFinal = `/static/img/no-image.svg`;
+
+    // Determinar Src Inicial
+    let srcInicial = candidatos.length > 0 ? candidatos[0] : fallbackFinal;
+    
+    // Estilos según vista
+    const estilo = esMovil 
+        ? 'width: 100%; height: 100%; object-fit: cover;' 
+        : 'width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer; background: white;';
+    
+    const extraAttr = esMovil ? 'class="card-img"' : 'onclick="window.open(this.src, \'_blank\')" title="Click para ampliar"';
+
+    return `
+        <img src="${srcInicial}" 
+             style="${estilo}"
+             ${extraAttr}
+             data-candidates='${JSON.stringify(candidatos)}'
+             data-fallback="${fallbackFinal}"
+             data-index="0"
+             onerror="
+                const candidates = JSON.parse(this.dataset.candidates || '[]');
+                const nextIdx = parseInt(this.dataset.index || '0') + 1;
+                
+                if (nextIdx < candidates.length) {
+                    this.dataset.index = nextIdx;
+                    this.src = candidates[nextIdx];
+                } else {
+                    this.src = this.dataset.fallback;
+                    this.onerror = null;
+                }
+             ">`;
+}
 
 /**
  * Cargar productos para inventario
@@ -42,15 +114,34 @@ async function cargarProductos(forceRefresh = false) {
 
         if (listaFinal.length > 0) {
             // Normalizar las claves para que coincidan con lo que espera el frontend (minúsculas)
-            window.AppState.productosData = listaFinal.map(p => ({
-                codigo: p.codigo || p.CODIGO || '',
-                descripcion: p.descripcion || p.DESCRIPCION || '',
-                precio: p.precio || p.PRECIO || 0,
-                stock_disponible: p.stock_disponible || p.DISPONIBLE || 0,
-                stock_terminado: p.stock_terminado || p.TERMINADO || 0,
-                existencias_totales: p.existencias_totales || p.TOTAL || p.STOCK || 0,
-                semaforo: p.semaforo || { color: 'gray', estado: '' }
-            }));
+            window.AppState.productosData = listaFinal.map(p => {
+                const term = p.stock_terminado || p.TERMINADO || 0;
+                const comp = p.stock_comprometido || 0;
+                const min = p.stock_minimo || p.MINIMO || 10;
+                const disp = term - comp;
+
+                // Lógica de Semáforo (Fase 2: Frontend Visibility)
+                let semaforo = { color: 'green', estado: 'STOCK OK' };
+                if (disp <= 0) {
+                    semaforo = { color: 'red', estado: 'AGOTADO' };
+                } else if (disp < min) {
+                    semaforo = { color: 'yellow', estado: 'POR PEDIR' };
+                }
+
+                return {
+                    codigo: p.codigo || p.CODIGO || '',
+                    descripcion: p.descripcion || p.DESCRIPCION || '',
+                    precio: p.precio || p.PRECIO || 0,
+                    stock_disponible: disp,
+                    stock_terminado: term,
+                    stock_comprometido: comp,
+                    stock_bodega: p.stock_bodega || p.STOCK_BODEGA || 0,
+                    en_zincado: p.en_zincado || 0,
+                    en_granallado: p.en_granallado || 0,
+                    stock_minimo: min,
+                    semaforo: semaforo
+                };
+            });
             paginaActual = 1; // Resetear a página 1
             renderizarTablaProductos(window.AppState.productosData);
             actualizarEstadisticasInventario(window.AppState.productosData);
@@ -125,28 +216,7 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                 <td class="mobile-card-cell">
                     <div class="mobile-product-card">
                         <div class="card-image-wrapper">
-                            <img src="${localImageJpg}" 
-                                 class="card-img" 
-                                 data-png-src="${localImagePng}"
-                                 data-url-src="${imagenUrl}"
-                                 data-placeholder="${PLACEHOLDER_SVG}"
-                                 data-attempt="0"
-                                 onerror="
-                                    const attempt = parseInt(this.dataset.attempt || '0');
-                                    this.dataset.attempt = (attempt + 1).toString();
-                                    
-                                    if (attempt === 0) {
-                                        // First fail: JPG -> PNG
-                                        this.src = this.dataset.pngSrc;
-                                    } else if (attempt === 1 && this.dataset.urlSrc) {
-                                        // Second fail: PNG -> URL
-                                        this.src = this.dataset.urlSrc;
-                                    } else {
-                                        // Final fallback: Placeholder
-                                        this.src = this.dataset.placeholder;
-                                        this.onerror = null;
-                                    }
-                                 ">
+                            ${obtenerHtmlImagen(p, true)}
                             <span class="mobile-status-badge" style="background: ${getSemaforoColor(semaforoColor)}"></span>
                         </div>
                         
@@ -159,21 +229,32 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                             <h6 class="card-title">${p.descripcion || 'Sin descripción'}</h6>
                             
                             <div class="card-stats-grid">
-                                <div class="stat-item">
+                                <div class="stat-item" title="Producto Terminado">
+                                    <span class="stat-label">TERMINADO</span>
+                                    <span class="stat-value success">${formatNumber(p.stock_terminado || 0)}</span>
+                                </div>
+                                <div class="stat-item" title="Unidades ya asignadas a pedidos">
+                                    <span class="stat-label">COMPROM.</span>
+                                    <span class="stat-value danger" style="color: #ef4444;">${formatNumber(p.stock_comprometido || 0)}</span>
+                                </div>
+                                <div class="stat-item" title="Calculado: TERMINADO - COMPROMETIDO">
                                     <span class="stat-label">DISPONIBLE</span>
-                                    <span class="stat-value success">${formatNumber(p.stock_disponible || 0)}</span>
+                                    <span class="stat-value" style="color: ${(p.stock_terminado - p.stock_comprometido) < p.stock_minimo ? '#dc2626' : '#2563eb'}; font-weight: 800;">
+                                        ${(p.stock_terminado - p.stock_comprometido) < p.stock_minimo ? '⚠️ ' : ''}
+                                        ${formatNumber((p.stock_terminado || 0) - (p.stock_comprometido || 0))}
+                                    </span>
                                 </div>
-                                <div class="stat-item">
-                                    <span class="stat-label">P. TERMINADO</span>
-                                    <span class="stat-value">${formatNumber(p.stock_terminado || 0)}</span>
+                                <div class="stat-item" title="Materia Prima en Bodega">
+                                    <span class="stat-label">BODEGA (MP)</span>
+                                    <span class="stat-value" style="color: #f59e0b;">${formatNumber(p.stock_bodega || 0)}</span>
                                 </div>
-                                <div class="stat-item">
-                                    <span class="stat-label">TOTAL</span>
-                                    <span class="stat-value" style="color: #6366f1;">${formatNumber(p.existencias_totales || 0)}</span>
+                                <div class="stat-item" title="Procesos Externos (Zincado/Granallado)">
+                                    <span class="stat-label">TRÁNSITO</span>
+                                    <span class="stat-value" style="color: #8b5cf6;">${formatNumber((p.en_zincado || 0) + (p.en_granallado || 0))}</span>
                                 </div>
-                                <div class="stat-item">
-                                    <span class="stat-label">COMPR.</span>
-                                    <span class="stat-value secondary">${formatNumber(p.stock_comprometido || 0)}</span>
+                                <div class="stat-item" title="Mínimo Requerido">
+                                    <span class="stat-label">MIN</span>
+                                    <span class="stat-value secondary">${formatNumber(p.stock_minimo || 0)}</span>
                                 </div>
                             </div>
                         </div>
@@ -197,47 +278,25 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
             const semaforoColor = p.semaforo?.color || 'gray';
             const semaforoEstado = p.semaforo?.estado || '';
 
-            // Imagen del producto (thumbnail)
-            const imagenUrl = p.imagen || '';
-            const localImageJpg = `/static/img/productos/${(p.codigo || '').trim()}.jpg`;
-            const localImagePng = `/static/img/productos/${(p.codigo || '').trim()}.png`;
-
-            // Lógica de fallback en HTML string
-            const imagenHtml = `
-                <img src="${localImageJpg}" 
-                     style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer; background: white;" 
-                     onclick="window.open(this.src, '_blank')" 
-                     title="Click para ampliar"
-                     data-png-src="${localImagePng}"
-                     data-url-src="${imagenUrl}"
-                     data-placeholder="${PLACEHOLDER_SVG}"
-                     data-attempt="0"
-                     onerror="
-                        const attempt = parseInt(this.dataset.attempt || '0');
-                        this.dataset.attempt = (attempt + 1).toString();
-                        
-                        if (attempt === 0) {
-                            // First fail: JPG -> PNG
-                            this.src = this.dataset.pngSrc;
-                        } else if (attempt === 1 && this.dataset.urlSrc) {
-                            // Second fail: PNG -> URL
-                            this.src = this.dataset.urlSrc;
-                        } else {
-                            // Final fallback: Placeholder
-                            this.src = this.dataset.placeholder;
-                            this.style.opacity = '0.5';
-                            this.onerror = null;
-                        }
-                     ">`;
+            // Cálculo de Disponible
+            const stockTerminado = p.stock_terminado || 0;
+            const stockComprometido = p.stock_comprometido || 0;
+            const stockMinimo = p.stock_minimo || 0;
+            const disponible = stockTerminado - stockComprometido;
+            const bajoMinimo = disponible < stockMinimo;
 
             tr.innerHTML = `
-                <td style="padding: 10px; text-align: center;">${imagenHtml}</td>
+                <td style="padding: 10px; text-align: center;">${obtenerHtmlImagen(p, false)}</td>
                 <td style="padding: 10px;">${p.codigo || '-'}</td>
-                <td style="padding: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.descripcion || '-'}</td>
-                <td style="padding: 10px; text-align: right;">${formatNumber(p.stock_terminado || 0)}</td>
-                <td style="padding: 10px; text-align: right; color: #6366f1; font-weight: 500;">${formatNumber(p.existencias_totales || 0)}</td>
-                <td style="padding: 10px; text-align: right; color: #ef4444;">${formatNumber(p.stock_comprometido || 0)}</td>
-                <td style="padding: 10px; text-align: right; font-weight: bold; color: #10b981;">${formatNumber(p.stock_disponible || 0)}</td>
+                <td style="padding: 10px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.descripcion || '-'}</td>
+                <td style="padding: 10px; text-align: right; color: #64748b;">${formatNumber(stockTerminado)}</td>
+                <td style="padding: 10px; text-align: right; color: #ef4444;">${formatNumber(stockComprometido)}</td>
+                <td style="padding: 10px; text-align: right; font-weight: ${bajoMinimo ? 'bold' : '600'}; color: ${bajoMinimo ? '#dc2626' : '#2563eb'};">
+                    ${bajoMinimo ? '<i class="fas fa-exclamation-triangle" title="Bajo el Mínimo!"></i> ' : ''}
+                    ${formatNumber(disponible)}
+                </td>
+                <td style="padding: 10px; text-align: right; color: #f59e0b; font-weight: 500;">${formatNumber(p.stock_bodega || 0)}</td>
+                <td style="padding: 10px; text-align: right; color: #8b5cf6; font-weight: 500;" title="Zincado: ${formatNumber(p.en_zincado || 0)} | Granallado: ${formatNumber(p.en_granallado || 0)}">${formatNumber((p.en_zincado || 0) + (p.en_granallado || 0))}</td>
                 <td style="padding: 10px; text-align: center;">
                     <span style="background: ${getSemaforoColor(semaforoColor)}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">
                         ${semaforoEstado}

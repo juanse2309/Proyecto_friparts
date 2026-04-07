@@ -456,7 +456,29 @@ async function actualizarMapeoEnsamble() {
 
     try {
         console.log('🔍 Buscando ensamble para:', bujeCode);
-        const data = await fetchData(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(bujeCode)}`);
+        
+        const response = await fetch(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(bujeCode)}`);
+        
+        // Manejar errores de infraestructura ANTES de parsear JSON
+        if (response.status === 429) {
+            const errData = await response.json().catch(() => ({}));
+            const msg = errData.error || 'Límite de peticiones a Google superado. Intente en 1 minuto.';
+            mostrarNotificacion(`⏳ ${msg}`, 'warning');
+            document.getElementById('ens-id-codigo').value = '⚠️ Reintente en 1 min...';
+            return;
+        }
+        if (response.status === 503) {
+            const errData = await response.json().catch(() => ({}));
+            const msg = errData.error || 'Error de conexión con Google Sheets.';
+            mostrarNotificacion(`🔌 ${msg}`, 'error');
+            document.getElementById('ens-id-codigo').value = '⚠️ Error de conexión';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
 
         if (data && data.success) {
             // Si hay múltiples opciones, mostrar el selector para que el usuario decida
@@ -481,16 +503,21 @@ async function actualizarMapeoEnsamble() {
             } else if (data.codigo_ensamble) {
                 // Caso legacy o fallback directo
                 document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
-                const qtyValue = data.qty || data.qty_unitaria || data.cantidad || 1;
+                const qtyValue = data.qty || data.qty_unitaria || data.cantidad || data.qty_sugerida || 1;
                 document.getElementById('ens-qty-bujes').value = qtyValue;
             }
-            actualizarCalculoEnsamble();
+            
+            // Recalcular inmediatamente
+            if (typeof actualizarCalculoEnsamble === 'function') {
+                actualizarCalculoEnsamble();
+            }
         } else {
             document.getElementById('ens-id-codigo').value = 'NO DEFINIDO';
             document.getElementById('ens-qty-bujes').value = '1';
         }
     } catch (error) {
         console.error('❌ Error buscando mapeo:', error);
+        mostrarNotificacion(`❌ Error cargando receta: ${error.message}`, 'error');
     }
 }
 
@@ -620,7 +647,9 @@ function mostrarSelectorOpciones(opciones) {
                 renderBOM(opcion.componentes);
             }
 
-            actualizarCalculoEnsamble();
+            if (typeof actualizarCalculoEnsamble === 'function') {
+                actualizarCalculoEnsamble();
+            }
 
             // Marcar como seleccionado visualmente
             btnsContainer.querySelectorAll('button').forEach(b => {

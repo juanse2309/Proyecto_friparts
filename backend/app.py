@@ -430,7 +430,7 @@ def obtener_stock(codigo_sistema, almacen):
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
             'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
-            'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
+            'STOCK_BODEGA': 'STOCK_BODEGA',
             'CLIENTE': 'CLIENTE',
             'PNC': 'PNC'
         }
@@ -473,6 +473,7 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
             'POR PULIR': 'POR PULIR',
             'P. TERMINADO': 'P. TERMINADO',
             'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
+            'STOCK_BODEGA': 'STOCK_BODEGA',
             'CLIENTE': 'CLIENTE',
             'PNC': 'PNC'
         }
@@ -2589,11 +2590,16 @@ def obtener_ensamble_desde_producto():
         if bom_res.get('success') and bom_res.get('componentes'):
             componentes_bom = bom_res['componentes']
 
+            # NUEVO: Extraer QTY sugerida del primer componente (cantidad por ensamble)
+            qty_sugerida = 1
+            if componentes_bom:
+                qty_sugerida = componentes_bom[0].get('cantidad_por_kit', 1)
+
             # Construir la opción única basada en la NUEVA_FICHA_MAESTRA
             opcion = {
                 'codigo_ensamble': codigo_entrada,
                 'buje_origen': codigo_sistema,
-                'qty': 1,
+                'qty': qty_sugerida,
                 'tipo': 'producto',
                 'componentes': [
                     {
@@ -2607,16 +2613,37 @@ def obtener_ensamble_desde_producto():
                 ]
             }
 
-            logger.info(f" [BOM Endpoint] {codigo_sistema}: {len(componentes_bom)} componentes desde NUEVA_FICHA_MAESTRA")
+            logger.info(f" [BOM Endpoint] {codigo_sistema}: {len(componentes_bom)} componentes (QTY Sugerida: {qty_sugerida})")
             return jsonify({
                 'success': True,
                 'codigo_sistema': codigo_sistema,
+                'qty_sugerida': qty_sugerida,
                 'opciones': [opcion]
             }), 200
 
         else:
-            # Sin ficha en NUEVA_FICHA_MAESTRA → respuesta vacía segura
-            logger.warning(f" [BOM Endpoint] Sin ficha para '{codigo_sistema}': {bom_res.get('error')}")
+            # Distinguir entre error de infraestructura (429/conexión) y producto sin receta
+            error_tipo = bom_res.get('error_tipo', '')
+            error_msg = bom_res.get('error', 'Error desconocido')
+            
+            if error_tipo == 'quota':
+                logger.error(f" [BOM Endpoint] Error de cuota Google para '{codigo_sistema}': {error_msg}")
+                return jsonify({
+                    'success': False,
+                    'error': error_msg,
+                    'error_tipo': 'quota'
+                }), 429
+            
+            if error_tipo == 'conexion':
+                logger.error(f" [BOM Endpoint] Error de conexión para '{codigo_sistema}': {error_msg}")
+                return jsonify({
+                    'success': False,
+                    'error': error_msg,
+                    'error_tipo': 'conexion'
+                }), 503
+
+            # Sin ficha en NUEVA_FICHA_MAESTRA → respuesta vacía segura (producto legítimamente sin receta)
+            logger.warning(f" [BOM Endpoint] Sin ficha para '{codigo_sistema}': {error_msg}")
             return jsonify({
                 'success': True,
                 'codigo_sistema': codigo_sistema,
@@ -2903,8 +2930,8 @@ def handle_ensamble():
         if cantidad_recibida == 0:
             cantidad_recibida = cantidad_real + pnc
             
-        almacen_origen = data.get('almacen_origen', 'P. TERMINADO')
-        almacen_destino = data.get('almacen_destino', 'PRODUCTO ENSAMBLADO')
+        almacen_origen = data.get('almacen_origen', 'STOCK_BODEGA')
+        almacen_destino = data.get('almacen_destino', 'P. TERMINADO')
 
         # ========================================
         # BUSCAR CODIGO SISTEMA DEL PRODUCTO FINAL

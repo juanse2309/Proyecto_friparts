@@ -8,6 +8,17 @@ import collections
 from datetime import datetime
 from backend.utils.auth_middleware import require_role
 
+def safe_int(value, default=0):
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        s = str(value).replace('$', '').replace(' ', '').replace(',', '')
+        if '.' in s:
+            return int(float(s))
+        return int(s)
+    except (ValueError, TypeError):
+        return default
+
 logger = logging.getLogger(__name__)
 
 procura_bp = Blueprint('procura', __name__, url_prefix='/api/procura')
@@ -36,9 +47,9 @@ def listar_parametros():
         if PARAMETROS_CACHE["data"] and (ahora - PARAMETROS_CACHE["timestamp"] < PARAMETROS_CACHE["ttl"]):
             return jsonify({"status": "success", "data": PARAMETROS_CACHE["data"]}), 200
 
-        ws = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+        ws = gc.get_worksheet(Hojas.PRODUCTOS)
         if not ws:
-            return jsonify({"status": "error", "message": f"Hoja {Hojas.PARAMETROS_INVENTARIO} no encontrada"}), 500
+            return jsonify({"status": "error", "message": f"Hoja {Hojas.PRODUCTOS} no encontrada"}), 500
 
         registros = gc.get_all_records_seguro(ws)
         if not registros:
@@ -46,7 +57,7 @@ def listar_parametros():
 
         productos = []
         for r in registros:
-            codigo = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip()
+            codigo = str(r.get("ID CODIGO", "") or r.get("CODIGO SISTEMA", "")).strip()
             if not codigo: continue
 
             # Normalizar para búsqueda interna (quitando espacios y guiones)
@@ -55,9 +66,9 @@ def listar_parametros():
             productos.append({
                 "codigo": codigo,
                 "codigo_normalizado": codigo_normalizado,
-                "descripcion": str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")).strip(),
-                "existencia_minima": int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0)  or 0),
-                "existencia_ideal": int(r.get("EXISTENCIAS IDEALES", 0) or 0)
+                "descripcion": str(r.get("DESCRIPCION", "")).strip(),
+                "existencia_minima": safe_int(r.get("MINIMO", 0)),
+                "existencia_ideal": 0
             })
 
         # Almacenar en caché
@@ -81,7 +92,7 @@ def listar_proveedores():
         ahora = time.time()
         # Cache de corta duración para permitir actualizaciones
         if PROVEEDORES_CACHE["data"] and (ahora - PROVEEDORES_CACHE["timestamp"] < PROVEEDORES_CACHE["ttl"]):
-            return jsonify({"status": "success", "data": PROVEVEEDORES_CACHE["data"]}), 200
+            return jsonify({"status": "success", "data": PROVEEDORES_CACHE["data"]}), 200
 
         ws = gc.get_worksheet(Hojas.DB_PROVEEDORES)
         if not ws:
@@ -141,19 +152,19 @@ def registrar_oc():
         n_oc = item.get("n_oc", "")
         proveedor = item.get("proveedor", "")
         producto = item.get("producto", "") # Código real
-        cantidad_solicitada = int(item.get("cantidad", 0) or 0)
+        cantidad_solicitada = safe_int(item.get("cantidad", 0))
         
         # Recepción (pueden venir vacíos si es solicitud inicial)
         fecha_factura = item.get("fecha_factura", "")
         n_factura = item.get("n_factura", "")
-        cantidad_fact = int(item.get("cantidad_fact", 0) or 0)
+        cantidad_fact = safe_int(item.get("cantidad_fact", 0))
         fecha_llegada = item.get("fecha_llegada", "")
-        cantidad_recibida = int(item.get("cantidad_recibida", 0) or 0)
+        cantidad_recibida = safe_int(item.get("cantidad_recibida", 0))
         diferencia = cantidad_solicitada - cantidad_recibida
 
         # Fila completa según base (14 columnas)
         observaciones = str(item.get('observaciones', '')).strip()
-        cantidad_enviada = int(item.get("cantidad_enviada", 0) or 0)
+        cantidad_enviada = safe_int(item.get("cantidad_enviada", 0))
         estado_proceso = str(item.get('estado_proceso', 'Normal')).strip()
 
         row = [
@@ -186,12 +197,12 @@ def registrar_oc():
         for r in old_records:
             if str(r.get("N° OC", "")).strip() == str(n_oc_ref).strip():
                 prod_key = str(r.get("PRODUCTO", "")).strip().upper()
-                old_qty_map[prod_key] += int(r.get("CANTIDAD RECIBIDA", 0) or 0)
+                old_qty_map[prod_key] += safe_int(r.get("CANTIDAD RECIBIDA", 0))
 
         new_qty_map = collections.defaultdict(int)
         for it in items:
             prod_key = str(it.get("producto", "")).strip().upper()
-            new_qty_map[prod_key] += int(it.get("cantidad_recibida", 0) or 0)
+            new_qty_map[prod_key] += safe_int(it.get("cantidad_recibida", 0))
 
         # 2. Eliminar filas antiguas
         registros_values = ws_oc.get_all_values()
@@ -202,29 +213,28 @@ def registrar_oc():
         # 3. Insertar nuevas filas
         ws_oc.append_rows(rows_to_insert, value_input_option='USER_ENTERED')
 
-        # 4. Actualizar STOCK_ACTUAL en PARAMETROS_INVENTARIO basado en el DELTA
-        ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+        # 4. Actualizar STOCK_BODEGA en PRODUCTOS basado en el DELTA
+        ws_param = gc.get_worksheet(Hojas.PRODUCTOS)
         if ws_param:
             param_records = gc.get_all_records_seguro(ws_param)
             headers = ws_param.row_values(1)
-            col_stock = headers.index('STOCK_ACTUAL') + 1 if 'STOCK_ACTUAL' in headers else -1
+            col_stock = headers.index('STOCK_BODEGA') + 1 if 'STOCK_BODEGA' in headers else -1
             col_contador = headers.index('CONTADOR_OC') + 1 if 'CONTADOR_OC' in headers else -1
 
             for i, r in enumerate(param_records):
-                cod = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
+                cod = str(r.get("ID CODIGO", "") or r.get("CODIGO SISTEMA", "")).strip().upper()
                 row_idx = i + 2
                 
                 # Actualizar Stock
                 if cod in new_qty_map or cod in old_qty_map:
                     delta = new_qty_map.get(cod, 0) - old_qty_map.get(cod, 0)
                     if delta != 0 and col_stock > 0:
-                        current_s = int(r.get("STOCK_ACTUAL", 0) or 0)
+                        current_s = safe_int(r.get("STOCK_BODEGA", 0))
                         ws_param.update_cell(row_idx, col_stock, current_s + delta)
                 
                 # Incrementar contador si es producto nuevo en esta OC
-                # (Solo si pasamos de 0 items a N items para esta OC en la sesión)
                 if cod in new_qty_map and cod not in old_qty_map and col_contador > 0:
-                    val_c = int(r.get("CONTADOR_OC", 0) or 0)
+                    val_c = safe_int(r.get("CONTADOR_OC", 0))
                     ws_param.update_cell(row_idx, col_contador, val_c + 1)
 
         return jsonify({"success": True, "message": f"Orden {n_oc_ref} guardada y stock actualizado."}), 200
@@ -294,14 +304,14 @@ def buscar_oc(n_oc):
                         "n_oc": str(row.get("N° OC", "") or row.get("N OC", "") or row.get("OC", "")),
                         "proveedor": str(row.get("PROVEEDOR", "") or ""),
                         "producto": str(row.get("PRODUCTO", "") or row.get("CÓDIGO", "")).strip(),
-                        "cantidad": int(row.get("CANTIDAD", 0) or row.get("CANTIDAD SOLICITADA", 0) or 0),
+                        "cantidad": safe_int(row.get("CANTIDAD", 0) or row.get("CANTIDAD SOLICITADA", 0)),
                         "fecha_factura": str(row.get("FECHA FACTURA", "") or ""),
                         "n_factura": str(row.get("N° FACTURA", "") or row.get("N FACTURA", "") or ""),
-                        "cantidad_fact": int(row.get("CANTIDAD FACT", 0) or row.get("CANTIDAD FACTURADA", 0) or 0),
+                        "cantidad_fact": safe_int(row.get("CANTIDAD FACT", 0) or row.get("CANTIDAD FACTURADA", 0)),
                         "fecha_llegada": str(row.get("FECHA LLEGADA", "") or ""),
-                        "cantidad_recibida": int(row.get("CANTIDAD RECIBIDA", 0) or 0),
+                        "cantidad_recibida": safe_int(row.get("CANTIDAD RECIBIDA", 0)),
                         "observaciones": str(row.get("OBSERVACIONES", "") or ""),
-                        "cantidad_enviada": int(row.get("CANTIDAD TOTAL ENVIADA", 0) or 0),
+                        "cantidad_enviada": safe_int(row.get("CANTIDAD TOTAL ENVIADA", 0)),
                         "estado_proceso": str(row.get("ESTADO PROCESO", "") or row.get("ESTADO", "") or "Normal")
                     })
 
@@ -309,13 +319,13 @@ def buscar_oc(n_oc):
             return jsonify({"success": False, "error": f"No se encontró la Orden de Compra {n_oc}"}), 404
 
         # Adornar con descripción desde el maestro
-        ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+        ws_param = gc.get_worksheet(Hojas.PRODUCTOS)
         cat_records = gc.get_all_records_seguro(ws_param) if ws_param else []
         
         def normalizar_para_busqueda(codigo):
             return str(codigo).strip().upper().replace(" ", "").replace("-", "")
 
-        catalogo = {normalizar_para_busqueda(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")): str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")) for r in cat_records if r.get("CÓDIGO") or r.get("CODIGO") or r.get("REFERENCIA") or r.get("REF")}
+        catalogo = {normalizar_para_busqueda(r.get("ID CODIGO", "") or r.get("CODIGO SISTEMA", "")): str(r.get("DESCRIPCION", "")) for r in cat_records if r.get("ID CODIGO") or r.get("CODIGO SISTEMA")}
 
         for item in items_encontrados:
             codigo_limpio = normalizar_para_busqueda(item["producto"])
@@ -335,17 +345,17 @@ def alertas_abastecimiento():
     """
     try:
         # 1. Traer Catálogo Maestro
-        ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+        ws_param = gc.get_worksheet(Hojas.PRODUCTOS)
         cat_records = gc.get_all_records_seguro(ws_param) if ws_param else []
         
         catalogo = {}
         for r in cat_records:
-            codigo = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
+            codigo = str(r.get("ID CODIGO", "") or r.get("CODIGO SISTEMA", "")).strip().upper()
             if codigo:
                 catalogo[codigo] = {
-                    "descripcion": str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")),
-                    "min": int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0),
-                    "stock_actual": int(r.get("STOCK_ACTUAL", 0) or 0)
+                    "descripcion": str(r.get("DESCRIPCION", "")),
+                    "min": safe_int(r.get("MINIMO", 0)),
+                    "stock_actual": safe_int(r.get("STOCK_BODEGA", 0))
                 }
 
         # 2. Generar Alertas basadas en STOCK_ACTUAL
@@ -386,29 +396,25 @@ def rotacion_prioridades():
     """
     try:
         # 1. Traer Parámetros con sus históricos
-        ws_param = gc.get_worksheet(Hojas.PARAMETROS_INVENTARIO)
+        ws_param = gc.get_worksheet(Hojas.PRODUCTOS)
         cat_records = gc.get_all_records_seguro(ws_param) if ws_param else []
         
         catalogo = {}
         for r in cat_records:
-            codigo = str(r.get("CÓDIGO", "") or r.get("CODIGO", "") or r.get("REFERENCIA", "") or r.get("REF", "")).strip().upper()
+            codigo = str(r.get("ID CODIGO", "") or r.get("CODIGO SISTEMA", "")).strip().upper()
             if codigo:
-                minimo = int(r.get("EXISTENCIAS MÍNIMAS", 0) or r.get("EXISTENCIAS MINIMAS", 0) or 0)
-                contador_oc = int(r.get("CONTADOR_OC", 0) or 0)
+                minimo = safe_int(r.get("MINIMO", 0))
+                contador_oc = safe_int(r.get("CONTADOR_OC", 0))
                 
                 # REGLAS DEL BOT DE PROCURA PARA CLASIFICACION ABC ESTATICA-DINAMICA
-                clase_calculada = "C"
-                if contador_oc >= 10 or minimo >= 1000:
-                    clase_calculada = "A"
-                elif contador_oc >= 4 or minimo >= 400:
-                    clase_calculada = "B"
+                clase_calculada = str(r.get("CLASE_ROTACION", "C")).strip().upper() or "C"
                 
                 catalogo[codigo] = {
-                    "descripcion": str(r.get("DESCRIPCIÓN", "") or r.get("DESCRIPCION", "")),
+                    "descripcion": str(r.get("DESCRIPCION", "")),
                     "min": minimo,
                     "clase": clase_calculada,
                     "contador_oc": contador_oc,
-                    "stock_actual": int(r.get("STOCK_ACTUAL", 0) or 0)
+                    "stock_actual": safe_int(r.get("STOCK_BODEGA", 0))
                 }
 
         # 2. Consultar Stock Externo en Tránsito (Zincado/Granallado)
@@ -425,8 +431,8 @@ def rotacion_prioridades():
             # Solo si tiene algún proceso externo marcado
             if "ZINCADO" in procesos or "GRANALLADO" in procesos:
                 # Stock EXTERNO = Enviado - Recibido (lo que aún no vuelve)
-                enviado = int(r.get("CANTIDAD TOTAL ENVIADA", 0) or 0)
-                recibido = int(r.get("CANTIDAD RECIBIDA", 0) or 0)
+                enviado = safe_int(r.get("CANTIDAD TOTAL ENVIADA", 0))
+                recibido = safe_int(r.get("CANTIDAD RECIBIDA", 0))
                 saldo_en_transito = max(0, enviado - recibido)
                 
                 if saldo_en_transito > 0:

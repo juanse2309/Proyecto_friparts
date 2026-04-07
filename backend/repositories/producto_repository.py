@@ -117,7 +117,11 @@ class ProductoRepository:
                     'P. TERMINADO': 0,
                     'PRODUCTO ENSAMBLADO': 0,
                     'COMPROMETIDO': 0,
-                    'STOCK MINIMO': 10
+                    'STOCK MINIMO': 10,
+                    'STOCK_BODEGA': 0,
+                    'EN_ZINCADO': 0,
+                    'EN_GRANALLADO': 0,
+                    'CLASE_ROTACION': 'C'
                 }
                 
                 # Buscar en Mapa de Stock
@@ -129,10 +133,14 @@ class ProductoRepository:
                         'P. TERMINADO': stock_data.get('P. TERMINADO', 0),
                         'PRODUCTO ENSAMBLADO': stock_data.get('PRODUCTO ENSAMBLADO', 0) or stock_data.get('PRODUCTO ENSAMBLado', 0),
                         'COMPROMETIDO': stock_data.get('COMPROMETIDO', 0),
-                        'STOCK MINIMO': stock_data.get('STOCK MINIMO', 10),
+                        'STOCK MINIMO': stock_data.get('STOCK MINIMO', stock_data.get('MINIMO', 10)),
                         'IMAGEN': stock_data.get('IMAGEN', ''), # URL Legacy
                         'MEDIDA': stock_data.get('MEDIDA', ''),
-                        'UBICACION': stock_data.get('UBICACION', '')
+                        'UBICACION': stock_data.get('UBICACION', ''),
+                        'STOCK_BODEGA': stock_data.get('STOCK_BODEGA', 0),
+                        'EN_ZINCADO': stock_data.get('EN_ZINCADO', 0),
+                        'EN_GRANALLADO': stock_data.get('EN_GRANALLADO', 0),
+                        'CLASE_ROTACION': stock_data.get('CLASE_ROTACION', 'C')
                     })
                 
                 productos_finales.append(producto_final)
@@ -160,9 +168,13 @@ class ProductoRepository:
                     'P. TERMINADO': r.get('P. TERMINADO', 0),
                     'PRODUCTO ENSAMBLADO': r.get('PRODUCTO ENSAMBLADO', 0) or r.get('PRODUCTO ENSAMBLado', 0),
                     'COMPROMETIDO': r.get('COMPROMETIDO', 0),
-                    'STOCK MINIMO': r.get('STOCK MINIMO', 10),
+                    'STOCK MINIMO': r.get('STOCK MINIMO', r.get('MINIMO', 10)),
                     'MEDIDA': r.get('MEDIDA', ''),
-                    'UBICACION': r.get('UBICACION', '')
+                    'UBICACION': r.get('UBICACION', ''),
+                    'STOCK_BODEGA': r.get('STOCK_BODEGA', 0),
+                    'EN_ZINCADO': r.get('EN_ZINCADO', 0),
+                    'EN_GRANALLADO': r.get('EN_GRANALLADO', 0),
+                    'CLASE_ROTACION': r.get('CLASE_ROTACION', 'C')
                 }
                 productos_finales.append(producto_final)
                 count_added_from_stock += 1

@@ -1,4 +1,4 @@
-﻿from flask import Blueprint, Response, jsonify
+from flask import Blueprint, Response, jsonify
 import requests
 from functools import lru_cache
 import logging
@@ -42,11 +42,18 @@ def obtener_imagen_google_drive(file_id):
 
 @imagenes_bp.route('/proxy/<file_id>')
 def proxy_imagen(file_id):
-    '''Endpoint de proxy con caché.'''
+    '''Endpoint de proxy con caché. Acepta IDs de archivo de Google Drive.'''
     
-    if not file_id or len(file_id) < 10:
+    if not file_id or len(file_id) < 5:
         return jsonify({'error': 'ID de archivo inválido'}), 400
     
+    # Si el ID parece una URL completa (raro pero posible si se pasa mal), intentar extraer el ID
+    if 'drive.google.com' in file_id:
+        import re
+        match = re.search(r'(?:id=|[ /])([a-zA-Z0-9_-]{25,})', file_id)
+        if match:
+            file_id = match.group(1)
+
     content, content_type = obtener_imagen_google_drive(file_id)
     
     if content:
@@ -59,6 +66,7 @@ def proxy_imagen(file_id):
             }
         )
     else:
+        logger.error(f"❌ Proxy falló para file_id: {file_id}")
         return jsonify({'error': 'No se pudo obtener la imagen del servidor de Google'}), 502
 
 @imagenes_bp.route('/limpiar-cache', methods=['POST'])
