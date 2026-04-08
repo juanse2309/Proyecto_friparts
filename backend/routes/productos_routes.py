@@ -200,6 +200,11 @@ def listar_productos():
 
         for p in productos_formateados:
             codigo_limpio = str(p['codigo']).strip().lower()
+            # Juan Sebastian: Forzar placeholder para FR-5009 (archivo corrupto reportado por usuario)
+            if codigo_limpio in ['fr-5009', '5009']:
+                p['imagen_valida'] = default_image
+                continue
+
             # Clean possible prefix (DE-1000 -> 1000)
             num_only = codigo_limpio.split('-')[1] if '-' in codigo_limpio else codigo_limpio
             

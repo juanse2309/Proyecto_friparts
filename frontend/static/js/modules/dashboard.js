@@ -8,7 +8,6 @@ window.ModuloDashboard = (function () {
     let chartPulidoBoard = null;
     let chartPulidoEvolucionInst = null;
     let chartPulidoRankingInst = null;
-    let chartPulidoMermaOrigenInst = null;
     let chartMensualInst = null;
     let inc_unidades_original = [];
     let inc_dinero_original = [];
@@ -250,7 +249,6 @@ window.ModuloDashboard = (function () {
             }
             renderChartPulidoEvolucion(data.analytics_pulido?.evolucion_puntos_op || {});
             renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
-            renderChartPulidoMermaOrigen(data.analytics_pulido?.merma_por_origen || {maquina: 0, operario: 0});
             renderTablaPulido(data.rankings?.pulido_profundo || {});
             renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || {});
 
@@ -621,53 +619,6 @@ window.ModuloDashboard = (function () {
         });
     }
 
-    function renderChartPulidoMermaOrigen(mermaData) {
-        const ctx = document.getElementById('chartPulidoMermaOrigen');
-        if (!ctx) return;
-
-        const total = (mermaData.maquina || 0) + (mermaData.operario || 0);
-        
-        if (chartPulidoMermaOrigenInst) chartPulidoMermaOrigenInst.destroy();
-
-        if (total === 0) {
-            // No hay merma que mostrar
-            ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
-            return;
-        }
-
-        chartPulidoMermaOrigenInst = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Error Operario', 'Falla Máquina'],
-                datasets: [{
-                    data: [mermaData.operario || 0, mermaData.maquina || 0],
-                    backgroundColor: ['rgba(239, 68, 68, 0.85)', 'rgba(245, 158, 11, 0.85)'],
-                    borderWidth: 0,
-                    hoverOffset: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '65%',
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { boxWidth: 10, font: { size: 10 }, padding: 10 }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (context) => {
-                                const val = context.raw;
-                                const pct = ((val / total) * 100).toFixed(1);
-                                return ` ${context.label}: ${val.toLocaleString()} (${pct}%)`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
 
     function renderTablaPulido(profundo) {
         const tbody = document.querySelector('#tabla-leaderboard-pulido tbody');

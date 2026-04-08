@@ -150,6 +150,10 @@ def get_admin_dashboard_data():
             if not fecha_str: continue
 
             try:
+                # Filtrar registros cancelados (búsqueda en toda la fila para mayor robustez)
+                if any(str(cell).strip().upper() == "CANCELADO" for cell in row):
+                    continue
+
                 dt_obj = None
                 for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y'):
                     try:
@@ -162,22 +166,24 @@ def get_admin_dashboard_data():
 
                 # A. Periodo actual
                 if actual_start <= dt_obj <= actual_end:
-                    # La métrica "Ventas" (barra azul) suma VENTAS + PEDIDOS
-                    stats_mensuales[m]["actual_total_dinero"] += total_ingreso
-                    stats_mensuales[m]["actual_total_unid"] += cantidad
-                    
                     if es_pedido:
+                        # La métrica "Pedidos" (línea naranja) suma solo registros tipo PEDIDO
                         stats_mensuales[m]["actual_pedidos_dinero"] += total_ingreso
                         stats_mensuales[m]["actual_pedidos_unid"] += cantidad
+                    else:
+                        # La métrica "Ventas" (barra azul) suma solo registros tipo VENTA (Facturadas)
+                        # Esto asegura que no se sumen pedidos en las barras, evitando discrepancias de escala.
+                        stats_mensuales[m]["actual_total_dinero"] += total_ingreso
+                        stats_mensuales[m]["actual_total_unid"] += cantidad
 
                 # B. Periodo anterior
                 elif prev_start <= dt_obj <= prev_end:
-                    stats_mensuales[m]["prev_total_dinero"] += total_ingreso
-                    stats_mensuales[m]["prev_total_unid"] += cantidad
-                    
                     if es_pedido:
                         stats_mensuales[m]["prev_pedidos_dinero"] += total_ingreso
                         stats_mensuales[m]["prev_pedidos_unid"] += cantidad
+                    else:
+                        stats_mensuales[m]["prev_total_dinero"] += total_ingreso
+                        stats_mensuales[m]["prev_total_unid"] += cantidad
 
             except: continue
 

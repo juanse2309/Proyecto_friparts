@@ -292,7 +292,11 @@ def obtener_metricas_bi():
             prod_clean = str(producto or "GENERICO").strip().upper()
             if prod_clean not in costos_map and prod_clean != "GENERICO" and "SIN" not in prod_clean:
                 faltan_costos_pnc.add(prod_clean)
+            
+            # [REGRESIÓN]: Asegurar fallback $0 si no existe el costo para no romper el total
             costo_unitario = costos_map.get(prod_clean, 0)
+            if costo_unitario is None: costo_unitario = 0
+            
             costo_lote = cantidad * costo_unitario
             stats["perdida_calidad_dinero"] += costo_lote
             return costo_lote
@@ -404,17 +408,24 @@ def obtener_metricas_bi():
             cant = to_int_seguro(r.get("CANTIDAD"))
             stats["pedidos"]["total_solicitado"] += cant
 
-        # Procesar Scrap (PNC)
-        # Soportar tanto 'CANTIDAD PNC' (app.py) con 'CANTIDAD' (hojas crudas)
+        # --- PROCESAMIENTO PNC (Multi-fuente y Normalización) ---
+        AL_CANT = ["CANTIDAD PNC", "CANTIDAD", "QTY", "unidades", "UNIDADES"]
+        AL_PROD = ["ID CODIGO", "CODIGO ENSAMBLE", "ID PRODUCTO", "PRODUCTO", "CODIGO", "Referencia"]
+
+        def get_val_pnc(record, keys, default=""):
+            for k in keys:
+                val = record.get(k) or record.get(k.upper()) or record.get(k.lower())
+                if val: return val
+            return default
+
         for r in reg_pnc_iny:
             f_pnc = r.get("FECHA") or r.get("fecha")
             id_iny = str(r.get("ID INYECCION") or "").strip()
-            # Si no hay fecha en PNC, usar la de la producción vinculada
             if not f_pnc and id_iny in id_iny_to_date:
                 f_pnc = id_iny_to_date[id_iny]
             
             if dentro_de_rango(f_pnc): 
-                cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
+                cant = to_int_seguro(get_val_pnc(r, AL_CANT))
                 stats["pnc_total"]["inyeccion"] += cant
                 
                 prod_iny = id_iny_to_prod.get(id_iny, "GENERICO")
@@ -423,14 +434,13 @@ def obtener_metricas_bi():
         for r in reg_pnc_pul:
             id_pul = str(r.get("ID PULIDO") or "").strip()
             op_pnc = id_pul_to_op.get(id_pul)
-            f_pnc = r.get("FECHA") or r.get("fecha") or id_pul_to_date.get(id_pul) # Objeto date o str
-            # Obtención de Razón más robusta (revisa varios posibles nombres de columna)
+            f_pnc = r.get("FECHA") or r.get("fecha") or id_pul_to_date.get(id_pul)
             razon_raw = r.get("RAZÓN") or r.get("RAZON") or r.get("MOTIVO") or r.get("DEFECTO") or r.get("OBSERVACIONES") or ""
             razon = str(razon_raw).strip().lower()
 
             if dentro_de_rango(f_pnc): 
-                cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
-                prod_pnc = str(r.get("CODIGO", "") or "GENERICO").strip()
+                cant = to_int_seguro(get_val_pnc(r, AL_CANT))
+                prod_pnc = str(get_val_pnc(r, AL_PROD, "GENERICO")).strip()
                 stats["pnc_total"]["pulido"] += cant
                 cost_lote = sumar_perdida_pnc(prod_pnc, cant)
                 
@@ -458,9 +468,9 @@ def obtener_metricas_bi():
         for r in (reg_pnc_ens or []):
             f_pnc = r.get("FECHA") or r.get("fecha")
             if dentro_de_rango(f_pnc): 
-                cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
+                cant = to_int_seguro(get_val_pnc(r, AL_CANT))
                 stats["pnc_total"]["ensamble"] += cant
-                prod_ens = str(r.get("CODIGO", "") or "GENERICO").strip()
+                prod_ens = str(get_val_pnc(r, AL_PROD, "GENERICO")).strip()
                 sumar_perdida_pnc(prod_ens, cant)
 
         # 4.1 Procesar Ensambles OK (Deduplicación Especial)
@@ -523,9 +533,8 @@ def obtener_metricas_bi():
         for r in reg_pnc_alm:
             f_pnc = r.get("FECHA") or r.get("fecha")
             if dentro_de_rango(f_pnc): 
-                cant = to_int_seguro(r.get("CANTIDAD PNC") or r.get("CANTIDAD"))
-                prod_pnc = str(r.get("ID CODIGO", "") or r.get("CODIGO ENSAMBLE", "") or r.get("ID PRODUCTO", "") or r.get("PRODUCTO", "") or r.get("CODIGO", "")).strip()
-                if not prod_pnc: prod_pnc = "Sin ID"
+                cant = to_int_seguro(get_val_pnc(r, AL_CANT))
+                prod_pnc = str(get_val_pnc(r, AL_PROD, "Sin ID")).strip()
                 stats["pnc_total"]["almacen"] += cant
                 cost_lote = sumar_perdida_pnc(prod_pnc, cant)
                 stats["pnc_almacen_detalle"][prod_pnc]["cantidad"] += cant
