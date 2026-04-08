@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 inventario_bp = Blueprint('inventario', __name__)
 
 
-@inventario_bp.route('/entrada', methods=['POST'])
+@inventario_bp.route('/api/entrada', methods=['POST'])
 def registrar_entrada():
     """Registra una entrada de inventario."""
     try:
@@ -39,7 +39,7 @@ def registrar_entrada():
         }), 500
 
 
-@inventario_bp.route('/salida', methods=['POST'])
+@inventario_bp.route('/api/salida', methods=['POST'])
 def registrar_salida():
     """Registra una salida de inventario."""
     try:
@@ -64,7 +64,7 @@ def registrar_salida():
         }), 500
 
 
-@inventario_bp.route('/conteo', methods=['POST'])
+@inventario_bp.route('/api/conteo', methods=['POST'])
 def registrar_conteo():
     """Registra un conteo de inventario con validación doble."""
     try:
@@ -74,6 +74,7 @@ def registrar_conteo():
         codigo = str(datos.get("codigo")).strip().upper()
         cantidad = int(datos.get("cantidad"))
         responsable = datos.get("responsable")
+        tipo_stock = datos.get("tipo_stock", "principal")
         fecha_hoy = datetime.now().strftime("%Y-%m-%d")
         
         try:
@@ -87,18 +88,22 @@ def registrar_conteo():
         fila_proceso = None
         conteo_existente = None
         for i, r in enumerate(registros):
-            if str(r.get("FECHA")) == fecha_hoy and str(r.get("ID CODIGO")).strip().upper() == codigo and r.get("ESTADO") != "FINALIZADO":
+            if str(r.get("FECHA")) == fecha_hoy and \
+               str(r.get("ID CODIGO")).strip().upper() == codigo and \
+               str(r.get("TIPO STOCK", "principal")) == tipo_stock and \
+               r.get("ESTADO") != "FINALIZADO":
                 fila_proceso = i + 2
                 conteo_existente = r
                 break
         
         if not fila_proceso:
-            # PRIMER CONTEO
+            # PRIMER CONTEO (Añadimos tipo_stock como 9na columna)
             ws_conteos.append_row([
-                fecha_hoy, responsable, codigo, cantidad, "", "", "CONTEO_1_PENDIENTE", ""
+                fecha_hoy, responsable, codigo, cantidad, "", "", "CONTEO_1_PENDIENTE", "", tipo_stock
             ])
             return jsonify({
                 "success": True, 
+                "status": "first_count",
                 "message": f"Primer conteo ({cantidad}) registrado. Se requiere un segundo conteo de validación.",
                 "step": 1
             })
@@ -121,23 +126,33 @@ def registrar_conteo():
                     ws_productos = sheets_client.get_worksheet("PRODUCTOS")
                     registros_prod = sheets_client.get_all_records_seguro(ws_productos)
                     headers_prod = ws_productos.row_values(1)
-                    col_p_term = headers_prod.index("P. TERMINADO") + 1
                     
-                    fila_prod = None
-                    for idx, rp in enumerate(registros_prod):
-                         if str(rp.get("ID CODIGO")).strip().upper() == codigo:
-                             fila_prod = idx + 2
-                             break
+                    # Lógica de Mapeo Inteligente: 
+                    # 1. Si es "Por Pulir", va a esa columna sin importar prefijos.
+                    # 2. Si es "Principal", FR/MT -> P. TERMINADO, Resto -> STOCK_BODEGA.
+                    if tipo_stock == "por_pulir":
+                        col_target_name = "POR PULIR"
+                    else:
+                        col_target_name = "P. TERMINADO" if codigo.startswith(('FR-', 'MT-')) else "STOCK_BODEGA"
+                    col_idx = headers_prod.index(col_target_name) + 1 if col_target_name in headers_prod else None
                     
-                    if fila_prod:
-                         ws_productos.update_cell(fila_prod, col_p_term, cantidad)
-                         logger.info(f"Stock físico de {codigo} actualizado a {cantidad} tras validación.")
+                    if col_idx:
+                        fila_prod = None
+                        for idx, rp in enumerate(registros_prod):
+                             if str(rp.get("ID CODIGO")).strip().upper() == codigo:
+                                 fila_prod = idx + 2
+                                 break
+                        
+                        if fila_prod:
+                             ws_productos.update_cell(fila_prod, col_idx, cantidad)
+                             logger.info(f"Stock físico de {codigo} actualizado en {col_target_name} a {cantidad} tras validación.")
                 except Exception as e_stock:
                     logger.error(f"Error actualizando stock tras conteo coincidente: {e_stock}")
 
                 return jsonify({
                     "success": True, 
-                    "message": "¡Conteo exitoso! Los valores coinciden. Inventario físico actualizado.",
+                    "status": "match",
+                    "message": "¡Conteo exitoso! Los valores coinciden. El stock ha sido actualizado.",
                     "step": 2,
                     "finalizado": True
                 })
@@ -148,24 +163,33 @@ def registrar_conteo():
                 ws_conteos.update_cell(fila_proceso, 8, f"Dif: {c1_val} vs {cantidad}")
                 return jsonify({
                     "success": True, 
-                    "message": "Discrepancia detectada entre el 1er y 2do conteo. Se requiere un TERCER conteo definitivo.",
+                    "status": "discrepancy",
+                    "mensaje": "¡ALERTA DE DISCREPANCIA! Las cuentas no coinciden. Por favor, llame a un administrador o supervisor para realizar el 3er conteo de desempate.",
+                    "message": "¡ALERTA DE DISCREPANCIA! Las cuentas no coinciden.", # Fallback
                     "step": 2,
                     "discrepancia": True
                 })
         
-        elif c2 != "":
-            # ES EL TERCER CONTEO (DEFINITIVO)
-            ws_conteos.update_cell(fila_proceso, 6, cantidad) # CONTEO_3 (Columna F)
-            ws_conteos.update_cell(fila_proceso, 7, "FINALIZADO")
-            ws_conteos.update_cell(fila_proceso, 8, f"Finalizado con 3er conteo (DEFINITIVO)")
+        # ES EL TERCER CONTEO (DEFINITIVO)
+        # El frontend ya debería filtrar por rol, pero aquí registramos que fue un 3er conteo
+        ws_conteos.update_cell(fila_proceso, 6, cantidad) # CONTEO_3 (Columna F)
+        ws_conteos.update_cell(fila_proceso, 7, "FINALIZADO")
+        ws_conteos.update_cell(fila_proceso, 8, f"Finalizado con 3er conteo por {responsable}")
+        
+        # ACTUALIZAR STOCK FISICO REAL (DEFINITIVO)
+        try:
+            ws_productos = sheets_client.get_worksheet("PRODUCTOS")
+            registros_prod = sheets_client.get_all_records_seguro(ws_productos)
+            headers_prod = ws_productos.row_values(1)
             
-            # ACTUALIZAR STOCK FISICO REAL (DEFINITIVO)
-            try:
-                ws_productos = sheets_client.get_worksheet("PRODUCTOS")
-                registros_prod = sheets_client.get_all_records_seguro(ws_productos)
-                headers_prod = ws_productos.row_values(1)
-                col_p_term = headers_prod.index("P. TERMINADO") + 1
-                
+            # Mapeo Inteligente para el 3er conteo
+            if tipo_stock == "por_pulir":
+                col_target_name = "POR PULIR"
+            else:
+                col_target_name = "P. TERMINADO" if codigo.startswith(('FR-', 'MT-')) else "STOCK_BODEGA"
+            col_idx = headers_prod.index(col_target_name) + 1 if col_target_name in headers_prod else None
+
+            if col_idx:
                 fila_prod = None
                 for idx, rp in enumerate(registros_prod):
                         if str(rp.get("ID CODIGO")).strip().upper() == codigo:
@@ -173,17 +197,17 @@ def registrar_conteo():
                             break
                 
                 if fila_prod:
-                        ws_productos.update_cell(fila_prod, col_p_term, cantidad)
-                        logger.info(f"Stock físico de {codigo} actualizado a {cantidad} tras tercer conteo definitivo.")
-            except Exception as e_stock:
-                logger.error(f"Error actualizando stock tras tercer conteo: {e_stock}")
+                        ws_productos.update_cell(fila_prod, col_idx, cantidad)
+                        logger.info(f"Stock físico de {codigo} actualizado en {col_target_name} a {cantidad} tras tercer conteo definitivo.")
+        except Exception as e_stock:
+            logger.error(f"Error actualizando stock tras tercer conteo: {e_stock}")
 
-            return jsonify({
-                "success": True, 
-                "message": f"Conteo finalizado con el tercer valor definitivo: {cantidad}. Inventario actualizado.",
-                "step": 3,
-                "finalizado": True
-            })
+        return jsonify({
+            "success": True, 
+            "message": f"Conteo finalizado con el tercer valor definitivo: {cantidad}. Inventario actualizado.",
+            "step": 3,
+            "finalizado": True
+        })
 
     except Exception as e:
         logger.error(f"Error en conteo: {e}")

@@ -6,8 +6,10 @@ from flask import Blueprint, jsonify, request
 from backend.services.inventario_service import inventario_service
 from backend.repositories.producto_repository import producto_repo, ProductoRepository
 from backend.core.tenant import get_tenant_from_request
+from backend.core.database import sheets_client
 import logging
 import time # Juan Sebastian: Para manejo de caché
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,22 @@ def listar_productos():
         logger.info(f"🌐 [API] Consultando repositorio de productos (tenant={tenant!r})")
         repo = ProductoRepository(tenant=tenant)
         productos = repo.listar_todos()
+
+        # 3. Obtener estados de auditoría activos (Solo para Friparts por ahora)
+        audit_states = {}
+        if tenant == "friparts":
+            try:
+                from backend.app import get_worksheet
+                ws_conteos = get_worksheet("AUDITORIA_CONTEOS")
+                if ws_conteos:
+                    conteos_raw = sheets_client.get_all_records_seguro(ws_conteos)
+                    for c in conteos_raw:
+                        code = str(c.get("ID CODIGO") or "").strip().upper()
+                        state = str(c.get("ESTADO") or "").strip().upper()
+                        if code and state == "DISCREPANCIA":
+                            audit_states[code] = "DISCREPANCIA"
+            except Exception as e_audit:
+                logger.warning(f"No se pudieron cargar estados de auditoría: {e_audit}")
         
         def clean_numeric(val):
             if val is None: return 0
@@ -158,6 +176,7 @@ def listar_productos():
                 'unidad': p.get('UNIDAD', 'PZ'),
                 'precio': precio,
                 'tenant': tenant,
+                'estado_auditoria': audit_states.get(str(p.get('ID CODIGO') or codigo).strip().upper(), 'NORMAL')
             })
         
         # Retornar lista plana para compatibilidad total con pedidos.js y autocomplete
@@ -171,6 +190,37 @@ def listar_productos():
         if tenant == "friparts":
             PRODUCTOS_LISTAR_CACHE["data"] = productos_formateados
             PRODUCTOS_LISTAR_CACHE["timestamp"] = ahora
+
+        # --- VALIDACIÓN PRE-VUELO DE IMÁGENES (Juan Sebastian) ---
+        # Evita errores 404 en consola enviando solo rutas que existen físicamente
+        # o delegando a Drive si es el caso.
+        base_dir = os.getcwd()
+        image_dir = os.path.join(base_dir, 'frontend', 'static', 'img', 'productos')
+        default_image = '/static/img/no-image.svg'
+
+        for p in productos_formateados:
+            codigo_limpio = str(p['codigo']).strip().lower()
+            # Clean possible prefix (DE-1000 -> 1000)
+            num_only = codigo_limpio.split('-')[1] if '-' in codigo_limpio else codigo_limpio
+            
+            # 1. Si ya tiene IMAGEN en Sheets, verificar si es Drive o URL
+            # (Si es Drive, el frontend tiene su proxy, lo dejamos pasar)
+            img_raw = str(p.get('imagen', '')).strip()
+            if img_raw and ('drive.google.com' in img_raw or len(img_raw) > 20):
+                p['imagen_valida'] = img_raw
+                continue
+
+            # 2. Buscar en servidor local (static/img/productos/)
+            found_path = None
+            for name in [codigo_limpio, num_only]:
+                for ext in ['.jpg', '.png', '.jpeg']:
+                    full_name = f"{name}{ext}"
+                    if os.path.exists(os.path.join(image_dir, full_name)):
+                        found_path = f"/static/img/productos/{full_name}"
+                        break
+                if found_path: break
+            
+            p['imagen_valida'] = found_path if found_path else default_image
 
         logger.info(f"📊 [DEBUG-PRODUCTOS] FinalCount={len(productos_formateados)} | Tenant={tenant}")
         return jsonify(productos_formateados), 200

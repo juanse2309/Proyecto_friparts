@@ -14,44 +14,7 @@ const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
  * Orden: Drive Proxy -> Local (Prefijo) -> Local (Sin Prefijo) -> Extensiones -> no-image.svg
  */
 function obtenerHtmlImagen(p, esMovil = false) {
-    const rawCode = String(p.codigo || '').trim();
-    const codeLower = rawCode.toLowerCase();
-    
-    // Limpieza Inteligente: Extraer parte después del guion si existe (DE-1000 -> 1000)
-    // Si no hay guion, numOnly será igual a codeLower
-    const partes = rawCode.split('-');
-    const numOnly = (partes.length > 1 ? partes.slice(1).join('-') : rawCode).toLowerCase();
-    
-    const imagenUrlRaw = p.imagen || '';
-    
-    // 1. Extraer ID de Drive si existe
-    let driveUrl = '';
-    if (imagenUrlRaw.includes('drive.google.com') || (imagenUrlRaw.length > 20 && !imagenUrlRaw.includes('/'))) {
-        const match = imagenUrlRaw.match(/(?:id=|[ /])([a-zA-Z0-9_-]{25,})/);
-        const fileId = match ? match[1] : (imagenUrlRaw.length > 20 ? imagenUrlRaw : null);
-        if (fileId) driveUrl = `/imagenes/proxy/${fileId}`;
-    }
-
-    // 2. Generar lista de candidatos locales (ORDEN DE PRIORIDAD)
-    const candidatos = [];
-    if (driveUrl) candidatos.push(driveUrl);
-    
-    // Construir lista de extensiones a probar
-    const exts = ['.jpg', '.png', '.jpeg'];
-    
-    // Nivel 2: Buscar con código original completo
-    exts.forEach(ext => candidatos.push(`/static/img/productos/${codeLower}${ext}`));
-    
-    // Nivel 3: Buscar con código limpio (sin prefijo)
-    if (numOnly !== codeLower) {
-        exts.forEach(ext => candidatos.push(`/static/img/productos/${numOnly}${ext}`));
-    }
-
-    // 4. Fallback Final (SVG)
-    const fallbackFinal = `/static/img/no-image.svg`;
-
-    // Determinar Src Inicial
-    let srcInicial = candidatos.length > 0 ? candidatos[0] : fallbackFinal;
+    const srcValida = p.imagen_valida || '/static/img/no-image.svg';
     
     // Estilos según vista
     const estilo = esMovil 
@@ -60,25 +23,7 @@ function obtenerHtmlImagen(p, esMovil = false) {
     
     const extraAttr = esMovil ? 'class="card-img"' : 'onclick="window.open(this.src, \'_blank\')" title="Click para ampliar"';
 
-    return `
-        <img src="${srcInicial}" 
-             style="${estilo}"
-             ${extraAttr}
-             data-candidates='${JSON.stringify(candidatos)}'
-             data-fallback="${fallbackFinal}"
-             data-index="0"
-             onerror="
-                const candidates = JSON.parse(this.dataset.candidates || '[]');
-                const nextIdx = parseInt(this.dataset.index || '0') + 1;
-                
-                if (nextIdx < candidates.length) {
-                    this.dataset.index = nextIdx;
-                    this.src = candidates[nextIdx];
-                } else {
-                    this.src = this.dataset.fallback;
-                    this.onerror = null;
-                }
-             ">`;
+    return `<img src="${srcValida}" style="${estilo}" ${extraAttr} onerror="this.onerror=null; this.src = '/static/img/no-image.svg';">`;
 }
 
 /**
@@ -139,7 +84,8 @@ async function cargarProductos(forceRefresh = false) {
                     en_zincado: p.en_zincado || 0,
                     en_granallado: p.en_granallado || 0,
                     stock_minimo: min,
-                    semaforo: semaforo
+                    semaforo: semaforo,
+                    imagen_valida: p.imagen_valida // Juan Sebastian: Usar ruta pre-validada por backend
                 };
             });
             paginaActual = 1; // Resetear a página 1
@@ -285,10 +231,20 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
             const disponible = stockTerminado - stockComprometido;
             const bajoMinimo = disponible < stockMinimo;
 
+            // ESTADO DE AUDITORÍA
+            const tieneDiscrepancia = p.estado_auditoria === 'DISCREPANCIA';
+            if (tieneDiscrepancia) {
+                tr.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'; // Naranja/Rojo muy claro
+                tr.style.borderLeft = '4px solid #ef4444';
+            }
+
             tr.innerHTML = `
                 <td style="padding: 10px; text-align: center;">${obtenerHtmlImagen(p, false)}</td>
                 <td style="padding: 10px;">${p.codigo || '-'}</td>
-                <td style="padding: 10px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.descripcion || '-'}</td>
+                <td style="padding: 10px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    ${p.descripcion || '-'}
+                    ${tieneDiscrepancia ? '<br><span class="badge bg-danger" style="font-size: 10px;">DISCREPANCIA DETECTADA</span>' : ''}
+                </td>
                 <td style="padding: 10px; text-align: right; color: #64748b;">${formatNumber(stockTerminado)}</td>
                 <td style="padding: 10px; text-align: right; color: #ef4444;">${formatNumber(stockComprometido)}</td>
                 <td style="padding: 10px; text-align: right; font-weight: ${bajoMinimo ? 'bold' : '600'}; color: ${bajoMinimo ? '#dc2626' : '#2563eb'};">
@@ -298,9 +254,14 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                 <td style="padding: 10px; text-align: right; color: #f59e0b; font-weight: 500;">${formatNumber(p.stock_bodega || 0)}</td>
                 <td style="padding: 10px; text-align: right; color: #8b5cf6; font-weight: 500;" title="Zincado: ${formatNumber(p.en_zincado || 0)} | Granallado: ${formatNumber(p.en_granallado || 0)}">${formatNumber((p.en_zincado || 0) + (p.en_granallado || 0))}</td>
                 <td style="padding: 10px; text-align: center;">
-                    <span style="background: ${getSemaforoColor(semaforoColor)}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">
-                        ${semaforoEstado}
-                    </span>
+                    ${tieneDiscrepancia 
+                        ? `<button class="btn btn-danger btn-sm w-100 fw-bold" onclick="window.ModuloInventario.abrirModalConteo('${p.codigo}')" style="font-size: 11px;">
+                             <i class="fas fa-gavel"></i> CONTEO 3 (ADMIN)
+                           </button>`
+                        : `<span style="background: ${getSemaforoColor(semaforoColor)}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">
+                             ${semaforoEstado}
+                           </span>`
+                    }
                 </td>
             `;
             fragment.appendChild(tr);
@@ -569,13 +530,124 @@ function configurarEventosInventario() {
     if (formConteo) {
         formConteo.addEventListener('submit', (e) => {
             e.preventDefault();
+            const inputAutocomplete = document.getElementById('conteo-producto-autocomplete');
+            const hiddenCodigo = document.getElementById('conteo-producto-codigo');
+            
+            // Si el hidden no tiene valor, intentar parsear del input visual
+            let codigoVal = hiddenCodigo.value;
+            if (!codigoVal && inputAutocomplete.value.includes(' - ')) {
+                codigoVal = inputAutocomplete.value.split(' - ')[0].trim();
+            } else if (!codigoVal) {
+                codigoVal = inputAutocomplete.value.trim();
+            }
+
+            if (!codigoVal) {
+                Swal.fire('Error', 'Debe seleccionar un producto válido', 'warning');
+                return;
+            }
+
             const data = {
-                codigo: document.getElementById('conteo-producto').value,
+                codigo: codigoVal,
                 cantidad: parseInt(document.getElementById('conteo-cantidad').value),
+                tipo_stock: document.querySelector('input[name="tipo_stock"]:checked')?.value || 'principal',
                 responsable: document.getElementById('conteo-responsable').value,
                 observaciones: document.getElementById('conteo-observaciones').value
             };
             registrarConteo(data);
+        });
+    }
+
+    // Inicializar Autocomplete para Auditoría
+    inicializarAutocompleteAuditoria();
+}
+
+/**
+ * Autocomplete avanzado para Auditoría
+ */
+function inicializarAutocompleteAuditoria() {
+    const input = document.getElementById('conteo-producto-autocomplete');
+    const suggestionsDiv = document.getElementById('conteo-producto-suggestions');
+    const hiddenCodigo = document.getElementById('conteo-producto-codigo');
+
+    if (!input || !suggestionsDiv) return;
+
+    let debounceTimer;
+
+    input.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        const query = e.target.value.trim();
+        hiddenCodigo.value = ''; // Resetear al escribir
+
+        if (query.length < 2) {
+            suggestionsDiv.style.display = 'none';
+            return;
+        }
+
+        debounceTimer = setTimeout(() => {
+            const productos = window.AppState.productosData || [];
+            const queryNorm = query.toLowerCase();
+            
+            const filtrados = productos.filter(p => {
+                const code = String(p.codigo || '').toLowerCase();
+                const desc = String(p.descripcion || '').toLowerCase();
+                return code.includes(queryNorm) || desc.includes(queryNorm);
+            });
+
+            if (filtrados.length === 0) {
+                suggestionsDiv.innerHTML = '<div class="suggestion-item text-muted">No se encontraron productos</div>';
+                suggestionsDiv.style.display = 'block';
+                return;
+            }
+
+            // Usar la utilidad global de renderizado si existe, o implementarla localmente
+            if (typeof window.renderProductSuggestions === 'function') {
+                window.renderProductSuggestions(suggestionsDiv, filtrados.slice(0, 15), (item) => {
+                    input.value = `${item.codigo} - ${item.descripcion}`;
+                    hiddenCodigo.value = item.codigo;
+                    suggestionsDiv.style.display = 'none';
+                    // Saltar a cantidad
+                    document.getElementById('conteo-cantidad')?.focus();
+                });
+                suggestionsDiv.style.display = 'block';
+            } else {
+                // Fallback local
+                suggestionsDiv.innerHTML = filtrados.slice(0, 15).map(p => `
+                    <div class="suggestion-item p-2 border-bottom" style="cursor: pointer;" data-code="${p.codigo}">
+                        <strong>${p.codigo}</strong> - ${p.descripcion}
+                    </div>
+                `).join('');
+                suggestionsDiv.style.display = 'block';
+                
+                suggestionsDiv.querySelectorAll('.suggestion-item').forEach(el => {
+                    el.onclick = () => {
+                        const code = el.getAttribute('data-code');
+                        const p = filtrados.find(x => x.codigo === code);
+                        input.value = `${p.codigo} - ${p.descripcion}`;
+                        hiddenCodigo.value = p.codigo;
+                        suggestionsDiv.style.display = 'none';
+                        document.getElementById('conteo-cantidad')?.focus();
+                    };
+                });
+            }
+        }, 300);
+    });
+
+    // Cerrar al click fuera
+    document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+            suggestionsDiv.style.display = 'none';
+        }
+    });
+
+    // Configurar SmartEnter
+    if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
+        window.ModuloUX.setupSmartEnter({
+            inputIds: ['conteo-producto-autocomplete', 'conteo-cantidad', 'conteo-responsable', 'conteo-observaciones'],
+            actionBtnId: 'btn-registrar-conteo-submit', // Asegúrate de que el botón tenga este ID o usa el submit del form
+            autocomplete: {
+                inputId: 'conteo-producto-autocomplete',
+                suggestionsId: 'conteo-producto-suggestions'
+            }
         });
     }
 }
@@ -583,51 +655,58 @@ function configurarEventosInventario() {
 /**
  * Lógica de Auditoría / Conteo
  */
-function abrirModalConteo() {
+function abrirModalConteo(codigoDefecto = null) {
     const modal = document.getElementById('modalConteoInventario');
-    const selectProd = document.getElementById('conteo-producto');
+    const inputAutocomplete = document.getElementById('conteo-producto-autocomplete');
+    const hiddenCodigo = document.getElementById('conteo-producto-codigo');
     const selectResp = document.getElementById('conteo-responsable');
-    const inputBusqueda = document.getElementById('conteo-buscador-producto');
 
     if (!modal) return;
 
-    // Resetear buscador y select
-    if (inputBusqueda) inputBusqueda.value = '';
-
-    // Función para renderizar opciones de productos
-    const renderizarOpcionesProductos = (filtro = '') => {
-        if (!selectProd) return;
-
-        // Guardar valor actual
-        const valorActual = selectProd.value;
-
-        // Limpiar excepto el placeholder
-        selectProd.innerHTML = '<option value="">Seleccione un producto...</option>';
-
+    // VALIDACIÓN DE PERMISOS PARA CONTEO 3 (DISCREPANCIAS)
+    if (codigoDefecto) {
         const productos = window.AppState.productosData || [];
-        const filtrados = productos.filter(p => {
-            const text = `${p.codigo} ${p.descripcion}`.toLowerCase();
-            return text.includes(filtro.toLowerCase());
-        });
-
-        filtrados.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = p.codigo || p.id_codigo;
-            opt.textContent = `${p.codigo} - ${p.descripcion}`;
-            selectProd.appendChild(opt);
-        });
-
-        // Restaurar valor si aún existe en los filtrados
-        if (valorActual) selectProd.value = valorActual;
-    };
-
-    // Inicializar productos
-    renderizarOpcionesProductos();
-
-    // Evento de búsqueda
-    if (inputBusqueda) {
-        inputBusqueda.oninput = (e) => renderizarOpcionesProductos(e.target.value);
+        const prod = productos.find(p => p.codigo === codigoDefecto);
+        
+        if (prod && prod.estado_auditoria === 'DISCREPANCIA') {
+            const userRole = (window.AppState.user?.rol || '').toLowerCase();
+            const esAutorizado = userRole.includes('admin') || userRole.includes('supervisor');
+            
+            if (!esAutorizado) {
+                Swal.fire({
+                    icon: 'lock',
+                    title: 'Acceso Restringido',
+                    text: 'Solo un Administrador o Supervisor puede resolver una discrepancia de inventario (Conteo 3).',
+                    confirmButtonColor: '#ef4444'
+                });
+                return;
+            }
+        }
     }
+
+    // Resetear campos
+    if (inputAutocomplete) inputAutocomplete.value = '';
+    if (hiddenCodigo) hiddenCodigo.value = '';
+    
+    // Resetear radio buttons a 'principal'
+    const radioPrincipal = document.getElementById('tipo-stock-principal');
+    if (radioPrincipal) radioPrincipal.checked = true;
+
+    // Si viene un código por defecto (ej: desde el botón de la tabla), seleccionarlo
+    if (codigoDefecto && inputAutocomplete) {
+        const prod = (window.AppState.productosData || []).find(p => p.codigo === codigoDefecto);
+        if (prod) {
+            inputAutocomplete.value = `${prod.codigo} - ${prod.descripcion}`;
+            hiddenCodigo.value = prod.codigo;
+        } else {
+            inputAutocomplete.value = codigoDefecto;
+            hiddenCodigo.value = codigoDefecto;
+        }
+    }
+
+    // Limpiar cantidad previa
+    const inputCantidad = document.getElementById('conteo-cantidad');
+    if (inputCantidad) inputCantidad.value = '';
 
     // Poblar responsables (Corregido: r es un objeto {nombre, departamento})
     if (selectResp && selectResp.options.length <= 1) {
@@ -663,24 +742,62 @@ async function registrarConteo(data) {
             body: JSON.stringify(data)
         });
 
-        const result = await response.json();
-        console.log('📥 Respuesta servidor:', result);
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            throw new Error('Respuesta no válida del servidor');
+        }
 
-        if (result.success) {
-            if (result.mensaje.includes('Discrepancia')) {
-                mostrarNotificacion(result.mensaje, 'warning');
-            } else {
-                mostrarNotificacion(result.mensaje, 'success');
-                cerrarModalConteo();
-                cargarProductos(true); // Refrescar para ver cambios si hubo ajuste
-            }
+        const result = await response.json();
+        
+        // CERRAR LOADER ANTES DE MOSTRAR ALERTAS (Crucial para evitar bloqueo)
+        mostrarLoading(false);
+
+        // --- SOLUCIÓN UX: CERRAR Y LIMPIAR MODAL DE INMEDIATO ---
+        cerrarModalConteo();
+        document.getElementById('form-conteo-inventario')?.reset(); 
+
+        // Nueva lógica alineada con el Backend estandarizado
+        const msg = result.mensaje || result.message || "Operación completada";
+
+        if (result.status === 'discrepancy') {
+            await Swal.fire({
+                icon: 'warning',
+                title: '¡ALERTA DE DISCREPANCIA!',
+                text: msg,
+                confirmButtonText: 'Entendido, llamar a Supervisor',
+                confirmButtonColor: '#d33', // Rojo vibrante solicitado
+                allowOutsideClick: false,
+                allowEscapeKey: false
+            });
+        } else if (result.status === 'first_count') {
+            await Swal.fire({
+                icon: 'info',
+                title: 'Primer Conteo Registrado',
+                text: msg,
+                timer: 2500,
+                showConfirmButton: false
+            });
+        } else if (result.status === 'match' || result.success) {
+            await Swal.fire({
+                icon: 'success',
+                title: 'Auditoría Exitosa',
+                text: msg,
+                timer: 2000,
+                showConfirmButton: false
+            });
         } else {
-            mostrarNotificacion(result.error || 'Error al registrar conteo', 'error');
+            Swal.fire('Error', result.error || msg || 'No se pudo guardar el conteo', 'error');
+        }
+
+        if (typeof cargarProductos === 'function') {
+            cargarProductos(true); // Refrescar para ver estado de discrepancia en tabla
         }
     } catch (error) {
+        mostrarLoading(false);
         console.error('Error:', error);
-        mostrarNotificacion('Error de conexión', 'error');
+        Swal.fire('Error de Conexión', 'No se pudo comunicar con el servidor o la respuesta no es válida.', 'error');
     } finally {
+        // Doble aseguramiento
         mostrarLoading(false);
     }
 }

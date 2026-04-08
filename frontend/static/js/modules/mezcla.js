@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // mezcla.js - Lógica de Mezcla Material - NAMESPACED
 // ============================================
 
@@ -136,7 +136,7 @@ const ModuloMezcla = {
 
         const KG_VIRGEN_POR_BULTO = 25;
         const KG_MOLIDO_POR_BULTO = 3.39;
-        const GR_PIGMENTO_POR_BULTO = 12.1;
+        const GR_PIGMENTO_POR_BULTO = 121.1;
 
         const v = (bultos * KG_VIRGEN_POR_BULTO);
         const m = (bultos * KG_MOLIDO_POR_BULTO);

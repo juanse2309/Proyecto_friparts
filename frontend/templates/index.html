@@ -238,7 +238,6 @@
             width: 100%;
             height: 100%;
             background: rgba(15, 23, 42, 0.6);
-            /* Color pizarra con transparencia */
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             display: none;
@@ -246,6 +245,7 @@
             justify-content: center;
             z-index: 10000;
             padding: 20px;
+            overflow-y: auto; /* PERMITE SCROLL SI EL MODAL ES MUY ALTO */
         }
 
         #modalConteoInventario .modal-content {
@@ -256,8 +256,32 @@
             overflow: hidden;
             width: 100%;
             max-width: 500px;
+            margin: auto; /* CENTRADO DINÁMICO CON EL OVERFLOW */
             transform: translateY(0);
             animation: modalAppear 0.3s ease-out;
+            max-height: calc(100vh - 40px); /* NO SE DESBORDA DEL VIEWPORT */
+            display: flex;
+            flex-direction: column;
+        }
+
+        #modalConteoInventario .modal-body {
+            overflow-y: auto; /* PERMITE SCROLL INTERNO SI EL CONTENIDO ES MUY LARGO */
+            flex: 1;
+        }
+
+        /* AJUSTES MÓVILES PARA EL MODAL */
+        @media (max-width: 576px) {
+            #modalConteoInventario.modal-overlay {
+                padding: 10px;
+                align-items: flex-start; /* EVITA QUE EL MODAL SE CORTE ARRIBA SI ES MUCHO CONTENIDO */
+            }
+            #modalConteoInventario .modal-content {
+                border-radius: 16px;
+                max-height: calc(100vh - 20px);
+            }
+            #modalConteoInventario .modal-body {
+                padding: 15px !important;
+            }
         }
 
         @keyframes modalAppear {
@@ -4581,16 +4605,34 @@
 
                 <form id="form-conteo-inventario">
                     <div class="mb-3">
-                        <label class="form-label fw-bold small text-muted">Producto</label>
-                        <div class="input-group mb-2">
-                            <span class="input-group-text bg-light border-end-0"><i
-                                    class="fas fa-search text-muted"></i></span>
-                            <input type="text" id="conteo-buscador-producto" class="form-control border-start-0"
-                                placeholder="Filtrar por código o descripción...">
+                        <label class="form-label fw-bold small text-muted">Producto (Buscador)</label>
+                        <div style="position: relative;">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light border-end-0" style="border-radius: 12px 0 0 12px;"><i class="fas fa-search text-muted"></i></span>
+                                <input type="text" id="conteo-producto-autocomplete" class="form-control form-control-lg border-start-0"
+                                    placeholder="Escribe código (TR-, FR-) o nombre..."
+                                    style="font-size: 1.1rem; border-radius: 0 12px 12px 0;"
+                                    autocomplete="off">
+                            </div>
+                            <!-- Contenedor de Sugerencias Estilizado -->
+                            <div id="conteo-producto-suggestions" class="autocomplete-suggestions shadow-lg" 
+                                style="position: absolute; top: 100%; left: 0; width: 100%; z-index: 9999; max-height: 250px; overflow-y: auto; background: white; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; display: none;"></div>
                         </div>
-                        <select id="conteo-producto" class="form-select select2-ready" required>
-                            <option value="">Seleccione un producto...</option>
-                        </select>
+                        <input type="hidden" id="conteo-producto-codigo">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-muted">Tipo de Inventario a Auditar</label>
+                        <div class="d-flex gap-3 mt-1">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="tipo_stock" id="tipo-stock-principal" value="principal" checked>
+                                <label class="form-check-label small cursor-pointer" for="tipo-stock-principal">Stock Principal</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="tipo_stock" id="tipo-stock-por-pulir" value="por_pulir">
+                                <label class="form-check-label small cursor-pointer" for="tipo-stock-por-pulir">Stock Por Pulir</label>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -4601,7 +4643,8 @@
 
                     <div class="mb-3">
                         <label class="form-label fw-bold small text-muted">Responsable</label>
-                        <select id="conteo-responsable" class="form-select" required>
+                        <select id="conteo-responsable" class="form-select form-select-lg" required
+                            style="border-radius: 12px;">
                             <option value="">¿Quién cuenta?</option>
                         </select>
                     </div>
