@@ -481,12 +481,34 @@
             &copy; 2026 FriParts S.A.S. - Todos los derechos reservados
         </footer>
     </div>
-    <!-- Loading Overlay -->
-    <div id="loading-overlay" class="loading-overlay" style="display: none;">
-        <div class="loading-spinner mb-3"></div>
-        <div class="loading-text h5 fw-bold" id="loading-overlay-text">Trayendo datos de Sheets...</div>
-        <div class="text-white-50 small">Espere un momento, por favor</div>
-    </div> <!-- Sidebar -->
+    <!-- Global Loader (V4.5 Hybrid) para Transiciones -->
+    <div id="global-loader" class="global-loader-container" style="display: none;">
+        <div class="loader-dashboard shadow-lg font-monospace">
+            <!-- Gear animation -->
+            <div class="text-center mb-3">
+                <i class="fas fa-cog gear-spin" style="font-size: 3rem; color: #3b82f6; text-shadow: 0 0 10px rgba(59, 130, 246, 0.5);"></i>
+            </div>
+            
+            <h4 class="mb-4 fw-bold text-center border-bottom pb-2" style="color: #e2e8f0; text-shadow: 0 0 8px rgba(59, 130, 246, 0.3);">SISTEMA FRITECH V4.5</h4>
+            
+            <div class="loader-etapa" id="g-etapa-1">
+                <span class="l-icon loader-status">⏳</span>
+                <span class="l-texto l-texto-dinamico">Conectando con Servidor...</span>
+            </div>
+            <div class="loader-etapa pending" id="g-etapa-2">
+                <span class="l-icon loader-status">⏳</span>
+                <span class="l-texto l-texto-dinamico">Verificando Permisos y Rol...</span>
+            </div>
+            <div class="loader-etapa pending" id="g-etapa-3">
+                <span class="l-icon loader-status">⏳</span>
+                <span class="l-texto l-texto-dinamico">Sincronizando Catálogo...</span>
+            </div>
+            <div class="loader-etapa pending" id="g-etapa-4">
+                <span class="l-icon loader-status">⏳</span>
+                <span class="l-texto l-texto-dinamico">Preparando Interfaces...</span>
+            </div>
+        </div>
+    </div>
     <nav class="sidebar">
         <div class="sidebar-header">
             <div class="company-logo"> <i class="fas fa-industry"></i>
@@ -2910,8 +2932,8 @@
                             <option value="INYECCION">Inyección</option>
                             <option value="PULIDO">Pulido</option>
                             <option value="ENSAMBLE">Ensamble</option>
+                            <option value="VENTAS">Ventas / Facturación</option>
                             <option value="PNC">PNC (Defectos)</option>
-                            <option value="VENTA">Ventas / Facturación</option>
                         </select>
                     </div>
                     <div class="col-md-3">

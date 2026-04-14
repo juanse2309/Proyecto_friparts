@@ -1,4 +1,4 @@
-﻿"""
+"""
 Servicio de inventario.
 Contiene la lógica de negocio para operaciones de inventario.
 """
@@ -7,6 +7,7 @@ from backend.repositories.producto_repository import producto_repo
 from backend.repositories.inventario_repository import inventario_repo
 from backend.core.exceptions import ProductoNoEncontrado, DatosInvalidos
 from backend.utils.validators import Validator
+from backend.utils.formatters import to_int
 import logging
 
 logger = logging.getLogger(__name__)
@@ -217,9 +218,10 @@ class InventarioService:
             }
         except Exception as e:
             logger.error(f"Error obteniendo detalle: {e}")
+            msg = str(e) if "Servidor saturado" in str(e) else "Error interno del servidor"
             return {
                 "status": "error",
-                "message": "Error interno del servidor"
+                "message": msg
             }
 
 

@@ -8,6 +8,15 @@
 const PLACEHOLDER_SVG_PRODUCTO = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f8fafc;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23e2e8f0;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g)' rx='12'/%3E%3Cg opacity='0.4' transform='translate(0, -5)'%3E%3Cpath d='M30 40c0-2.2 1.8-4 4-4h32c2.2 0 4 1.8 4 4v25c0 2.2-1.8 4-4 4H34c-2.2 0-4-1.8-4-4V40z' fill='%2364748b'/%3E%3Ccircle cx='50' cy='52.5' r='7' fill='%23f1f5f9'/%3E%3Cpath d='M46 32h8l2 4h-12z' fill='%2364748b'/%3E%3C/g%3E%3Ctext x='50' y='82' text-anchor='middle' font-family='sans-serif' font-size='7' fill='%2394a3b8' font-weight='bold'%3EFriTech%3C/text%3E%3C/svg%3E`;
 
 /**
+ * Función centralizada para limpiar códigos de prefijos (Regex)
+ * Réplica exacta de la lógica del backend.
+ */
+function limpiarCodigoJS(codigo) {
+    if (!codigo) return '';
+    return String(codigo).trim().toUpperCase().replace(/^[A-Z]+-/, '');
+}
+
+/**
  * Renderiza sugerencias de productos con imagen (Estandarizado)
  * @param {HTMLElement} container - El div de sugerencias
  * @param {Array} items - Lista de productos filtrados
@@ -23,23 +32,26 @@ function renderProductSuggestions(container, items, onSelect) {
     }
 
     container.innerHTML = items.map(prod => {
-        const codigo = String(prod.codigo_sistema || prod.codigo || 'N/A').trim();
+        const codigoOriginal = String(prod.codigo_sistema || prod.codigo || 'N/A').trim();
+        const codigoLimpio = limpiarCodigoJS(codigoOriginal);
         const descripcion = prod.descripcion || 'Sin descripción';
         const precio = prod.precio || 0;
         const stock = prod.stock_disponible ?? prod.stock_total ?? prod.stock ?? 0;
 
-        // Lógica de imágenes multiformato
-        const localImageJpg = `/static/img/productos/${codigo}.jpg`;
-        const localImagePng = `/static/img/productos/${codigo}.png`;
+        // Lógica de imágenes Súper Radar v3.0 (Estandarizado)
+        const localImgOriginal = `/static/img/productos/${codigoOriginal}.jpg`;
+        const localImgLimpio = `/static/img/productos/${codigoLimpio}.jpg`;
+        const localImgPng = `/static/img/productos/${codigoLimpio}.png`;
         const fallbackUrl = prod.imagen || '';
 
         return `
             <div class="suggestion-item product-suggestion-pro" 
                  style="display: flex; align-items: center; gap: 12px; padding: 10px; cursor: pointer; border-bottom: 1px solid #f0f0f0;"
-                 data-codigo="${codigo}">
+                 data-codigo="${codigoOriginal}">
                 
-                <img src="${localImageJpg}" 
-                     data-png-src="${localImagePng}"
+                <img src="${localImgOriginal}" 
+                     data-limpio-src="${localImgLimpio}"
+                     data-png-src="${localImgPng}"
                      data-url-src="${fallbackUrl}"
                      data-placeholder="${PLACEHOLDER_SVG_PRODUCTO}"
                      data-attempt="0"
@@ -48,13 +60,16 @@ function renderProductSuggestions(container, items, onSelect) {
                         this.dataset.attempt = (attempt + 1).toString();
                         
                         if (attempt === 0) {
-                            // Intento 1: JPG -> PNG
+                            // Intento 1: Original -> Código Limpio (.jpg)
+                            this.src = this.dataset.limpioSrc;
+                        } else if (attempt === 1) {
+                            // Intento 2: Limpio (.jpg) -> Limpio (.png)
                             this.src = this.dataset.pngSrc;
-                        } else if (attempt === 1 && this.dataset.urlSrc) {
-                            // Intento 2: PNG -> Cloud URL (si existe)
+                        } else if (attempt === 2 && this.dataset.urlSrc) {
+                            // Intento 3: .png -> Cloud URL (Google Drive)
                             this.src = this.dataset.urlSrc;
                         } else {
-                            // Final: Placeholder
+                            // Final: Fallback SVG
                             this.src = this.dataset.placeholder;
                             this.onerror = null;
                         }
@@ -63,7 +78,7 @@ function renderProductSuggestions(container, items, onSelect) {
                 
                 <div style="flex: 1; min-width: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-                        <strong style="color: #1e293b; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${codigo}</strong>
+                        <strong style="color: #1e293b; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${codigoOriginal}</strong>
                         <span style="color: #64748b; font-size: 0.75rem; font-weight: 600;">Stock: ${stock}</span>
                     </div>
                     <div style="color: #475569; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${descripcion}</div>
@@ -226,13 +241,152 @@ function mostrarNotificacion(mensaje, tipo = 'info', undoData = null) {
     }, 5000);
 }
 
+let gLoaderInterval = null;
+let gLoaderCurrentStep = 1;
+let gLoaderFinished = false;
+
+// Variables for micro-tips
+let gTipsInterval = null;
+const microTips = {
+  1: ["Conectando con Servidor...", "Abriendo sockets...", "Pidiendo autorización..."],
+  2: ["Verificando Permisos...", "Autenticando token...", "Cargando perfiles..."],
+  3: ["Sincronizando Catálogo...", "Leyendo códigos...", "Validando existencias...", "Calculando Stock..."],
+  4: ["Preparando Interfaces...", "Cargando Dashboards...", "Activando módulos..."]
+};
+
+window.mostrarLoaderGlobal = function() {
+    const overlay = document.getElementById('global-loader');
+    if (!overlay) return;
+    
+    // Limpieza de estados anteriores
+    if (gLoaderInterval) clearInterval(gLoaderInterval);
+    if (gTipsInterval) clearInterval(gTipsInterval);
+
+    gLoaderCurrentStep = 1;
+    gLoaderFinished = false;
+    overlay.style.display = 'flex';
+    // Forzar redibujo para reiniciar animación de fade
+    void overlay.offsetWidth; 
+    overlay.style.opacity = '1';
+    
+    for (let i = 1; i <= 4; i++) {
+        const div = document.getElementById(`g-etapa-${i}`);
+        if (!div) continue;
+        div.className = i === 1 ? 'loader-etapa etapa-active' : 'loader-etapa etapa-pending';
+        const icon = div.querySelector('.l-icon');
+        if (icon) icon.textContent = '⏳';
+        
+        const textSpan = div.querySelector('.l-texto-dinamico');
+        if (textSpan && microTips[i]) {
+            textSpan.textContent = microTips[i][0];
+        }
+    }
+    
+    let tipIndex = 1;
+    gTipsInterval = setInterval(() => {
+        if (gLoaderCurrentStep <= 4) {
+            const activeDiv = document.getElementById(`g-etapa-${gLoaderCurrentStep}`);
+            if (activeDiv) {
+                const textSpan = activeDiv.querySelector('.l-texto-dinamico');
+                if (textSpan && microTips[gLoaderCurrentStep]) {
+                    const tipsArr = microTips[gLoaderCurrentStep];
+                    textSpan.textContent = tipsArr[tipIndex % tipsArr.length];
+                    tipIndex++;
+                }
+            }
+        }
+    }, 800);
+
+    gLoaderInterval = setInterval(() => {
+        if (gLoaderCurrentStep > 4) {
+            clearInterval(gLoaderInterval);
+            if (gTipsInterval) clearInterval(gTipsInterval);
+            return;
+        }
+
+        const prevDiv = document.getElementById(`g-etapa-${gLoaderCurrentStep}`);
+        if (prevDiv) {
+            prevDiv.className = 'loader-etapa etapa-complete';
+            const icon = prevDiv.querySelector('.l-icon');
+            if (icon) icon.textContent = '✅';
+        }
+
+        gLoaderCurrentStep++;
+        tipIndex = 1; 
+
+        if (gLoaderCurrentStep > 4 && gLoaderFinished) {
+            cerrarLoaderGlobalUI();
+            return;
+        }
+
+        if (gLoaderCurrentStep <= 4) {
+            const nextDiv = document.getElementById(`g-etapa-${gLoaderCurrentStep}`);
+            if (nextDiv) {
+                nextDiv.className = 'loader-etapa etapa-active';
+                const textSpan = nextDiv.querySelector('.l-texto-dinamico');
+                if (textSpan && microTips[gLoaderCurrentStep]) {
+                    textSpan.textContent = microTips[gLoaderCurrentStep][0];
+                }
+            }
+        }
+    }, 600);
+};
+
+window.ocultarLoaderGlobal = function() {
+    gLoaderFinished = true;
+    if (gLoaderCurrentStep <= 4) {
+        if (gLoaderInterval) clearInterval(gLoaderInterval);
+        if (gTipsInterval) clearInterval(gTipsInterval); 
+        
+        gLoaderInterval = setInterval(() => {
+            const divInfo = document.getElementById(`g-etapa-${gLoaderCurrentStep}`);
+            if (divInfo) {
+                divInfo.className = 'loader-etapa etapa-complete';
+                const icon = divInfo.querySelector('.l-icon');
+                if(icon) icon.textContent = '✅';
+                
+                const textSpan = divInfo.querySelector('.l-texto-dinamico');
+                if (textSpan && microTips[gLoaderCurrentStep]) {
+                    textSpan.textContent = microTips[gLoaderCurrentStep][0];
+                }
+            }
+            gLoaderCurrentStep++;
+            if (gLoaderCurrentStep > 4) {
+                clearInterval(gLoaderInterval);
+                cerrarLoaderGlobalUI();
+            }
+        }, 50); 
+    } else {
+        cerrarLoaderGlobalUI();
+    }
+};
+
+function cerrarLoaderGlobalUI() {
+    if (gLoaderInterval) clearInterval(gLoaderInterval);
+    if (gTipsInterval) clearInterval(gTipsInterval);
+    
+    // Prevenir time-outs atascados
+    gLoaderInterval = null;
+    gTipsInterval = null;
+
+    const overlay = document.getElementById('global-loader');
+    if (overlay) {
+        overlay.style.transition = 'opacity 0.4s ease';
+        overlay.style.opacity = '0';
+        setTimeout(() => {
+            overlay.style.display = 'none';
+        }, 400);
+    }
+}
+
 /**
- * Mostrar/ocultar loading
+ * Mostrar/ocultar loading unificado con V4.5 Híbrido
  */
 function mostrarLoading(mostrar) {
-    const overlay = document.getElementById('loading-overlay');
-    if (overlay) {
-        overlay.style.display = mostrar ? 'flex' : 'none';
+    if (mostrar) {
+        window.mostrarLoaderGlobal();
+    } else {
+        window.ocultarLoaderGlobal();
     }
 }
 

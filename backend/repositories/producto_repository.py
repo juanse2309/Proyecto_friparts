@@ -35,30 +35,79 @@ class ProductoRepository:
             Dict con datos del producto o None si no se encuentra
         """
         try:
-            ws = sheets_client.get_worksheet(self.hoja)
-            if not ws:
-                logger.error(f"Hoja {self.hoja} no encontrada")
-                return None
-            
-            registros = sheets_client.get_all_records_seguro(ws)
+            from backend.utils.formatters import normalizar_codigo
             codigo_normalizado = normalizar_codigo(codigo)
             
-            for idx, registro in enumerate(registros):
-                codigo_sistema = str(registro.get('CODIGO SISTEMA', '')).strip()
-                id_codigo = str(registro.get('ID CODIGO', '')).strip()
-                
-                # Buscar por código completo o normalizado
-                if (codigo_sistema == codigo or 
-                    codigo_sistema == codigo_normalizado or
-                    id_codigo == codigo or
-                    normalizar_codigo(codigo_sistema) == codigo_normalizado):
-                    
-                    # Agregar número de fila para updates
-                    registro['_fila'] = idx + 2
-                    return registro
+            registro_stock = None
+            registro_master = None
+            fila_stock = None
             
-            logger.warning(f"Producto no encontrado: {codigo}")
-            return None
+            # 1. Buscar en PRODUCTOS (Stock)
+            df_stock = sheets_client.get_dataframe(self.hoja)
+            if not df_stock.empty:
+                try:
+                    # Búsqueda segura en múltiples columnas posibles (Soporte multilineas)
+                    cols_stock = df_stock.columns.intersection(['CODIGO SISTEMA', 'CODIGO', 'ID CODIGO', 'PRODUCTO'])
+                    for col in cols_stock:
+                        # Aplicar normalización y buscar match exacto
+                        mask = (df_stock[col].apply(normalizar_codigo) == codigo_normalizado)
+                        res = df_stock[mask]
+                        if not res.empty:
+                            registro_stock = res.iloc[0].to_dict()
+                            fila_stock = int(res.index[0]) + 2
+                            break # Encontrado
+                except Exception as e:
+                    logger.error(f"Error en búsqueda Pandas Stock ({codigo}): {e}")
+            
+            # 2. Buscar en Maestros (DB_PRODUCTOS)
+            master_sheet_name = TenantConfig.get(self.tenant, "DB_PRODUCTOS")
+            df_master = sheets_client.get_dataframe(master_sheet_name)
+            if not df_master.empty:
+                try:
+                    # Búsqueda segura en múltiples columnas del catálogo
+                    cols_mast = df_master.columns.intersection(['CODIGO', 'CODIGO SISTEMA', 'ID CODIGO', 'PRODUCTO'])
+                    for col in cols_mast:
+                        mask = (df_master[col].apply(normalizar_codigo) == codigo_normalizado)
+                        res = df_master[mask]
+                        if not res.empty:
+                            registro_master = res.iloc[0].to_dict()
+                            break # Encontrado
+                except Exception as e:
+                    logger.error(f"Error en búsqueda Pandas Maestro ({codigo}): {e}")
+                        
+            # Si no aparece en ningún lado
+            if not registro_stock and not registro_master:
+                logger.warning(f"Producto no encontrado: {codigo}")
+                return None
+                
+            # 3. Combinación Híbrida Definitiva
+            final = {}
+            if registro_stock:
+                final.update(registro_stock)
+                final['_fila'] = fila_stock
+            
+            if registro_master:
+                # Extraer siempre la descripción real del maestro si está disponible
+                desc_master = str(registro_master.get('DESCRIPCION', registro_master.get('DESCRIPCIÓN', ''))).strip()
+                if desc_master:
+                    final['DESCRIPCION'] = desc_master
+                else:
+                    final['DESCRIPCION'] = final.get('DESCRIPCION', 'Sin descripción')
+                
+                final['PRECIO'] = registro_master.get('PRECIO', final.get('PRECIO', 0))
+                
+                # Rescatar imagen desde maestro solo si el stock local no aportó una
+                if not str(final.get('IMAGEN', '')).strip():
+                    final['IMAGEN'] = registro_master.get('IMAGEN', '')
+                    
+                # Si el código principal vino vacío de stock, heredarlo
+                if not final.get('CODIGO SISTEMA'):
+                    final['CODIGO SISTEMA'] = registro_master.get('CODIGO', '')
+            else:
+                # Nunca lo encontró en Maestros, proveer fallback si en Stock no había Desc
+                final['DESCRIPCION'] = final.get('DESCRIPCION', '') or 'Sin descripción'
+                
+            return final
             
         except Exception as e:
             logger.error(f"Error buscando producto {codigo}: {e}")

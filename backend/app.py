@@ -10,6 +10,7 @@ import time  # Importar time para el cache
 import os
 import json
 import math
+import pandas as pd
 from google.oauth2.service_account import Credentials
 import logging
 from backend.core.database import sheets_client
@@ -17,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from backend.utils.report_service import PDFGenerator
 from backend.utils.drive_service import drive_service
 from backend.services.bom_service import calcular_descuentos_ensamble, traducir_codigo_componente
+from backend.utils.formatters import normalizar_codigo, to_int, limpiar_cadena
 
 # Global executor for background tasks (PDF, Drive, etc)
 bg_executor = ThreadPoolExecutor(max_workers=3)
@@ -167,6 +169,7 @@ class Hojas:
     ORDENES_DE_COMPRA = "ORDENES_DE_COMPRA"
     DB_PROVEEDORES = "DB_PROVEEDORES"
     PROGRAMACION_INYECCION = "PROGRAMACION_INYECCION"
+    RAW_VENTAS = "RAW_VENTAS"
 
 # ====================================================================
 # CONFIGURACIÓN DE CREDENCIALES (compatible con desarrollo y producción)
@@ -698,65 +701,7 @@ def formatear_fecha_para_sheet(fecha_str):
         logger.warning(f"Error formateando fecha '{fecha_str}': {e}")
         return str(fecha_str)
 
-def normalizar_codigo(codigo):
-    """
-    Normaliza un código para comparación EXTREMADAMENTE flexible:
-    - Elimina TODOS los espacios
-    - Elimina TODOS los guiones
-    - Convierte a mayúsculas
-    - Elimina prefijos comunes (FR-, INY-)
-    
-    Ejemplos:
-    - 'fr-9304' → '9304'
-    - ' 9 3 0 4 ' → '9304'
-    - 'FR-9304' → '9304'
-    - 'F R - 9 3 0 4' → '9304'
-    - '9304' → '9304'
-    """
-    if not codigo:
-        logger.debug("🔍 normalizar_codigo: Código vacío recibido")
-        return ""
-    
-    codigo_original = str(codigo)
-    logger.info(f"🔍 normalizar_codigo INPUT: '{codigo_original}'")
-    
-    # Convertir a string y mayúsculas
-    codigo = str(codigo).upper()
-    logger.info(f"   Paso 1 - Mayúsculas: '{codigo}'")
-    
-    # Eliminar TODOS los espacios (incluso en medio)
-    codigo = codigo.replace(" ", "")
-    logger.info(f"   Paso 2 - Sin espacios: '{codigo}'")
-    
-    # Eliminar TODOS los guiones
-    codigo = codigo.replace("-", "")
-    logger.info(f"   Paso 3 - Sin guiones: '{codigo}'")
-    
-    # Quitar prefijos comunes SI EXISTEN (Ignora CAR- e INT-)
-    if codigo.startswith('FR'):
-        codigo = codigo[2:]
-        logger.info(f"   Paso 4 - Quitado prefijo FR: '{codigo}'")
-    elif codigo.startswith('INY'):
-        codigo = codigo[3:]
-        logger.info(f"   Paso 4 - Quitado prefijo INY: '{codigo}'")
-    elif codigo.startswith('CB'):
-        codigo = codigo[2:]
-        logger.info(f"   Paso 4 - Quitado prefijo CB: '{codigo}'")
-    elif codigo.startswith('MT'):
-        codigo = codigo[2:]
-        logger.info(f"   Paso 4 - Quitado prefijo MT: '{codigo}'")
-    elif codigo.startswith('IM'):
-        codigo = codigo[2:]
-        logger.info(f"   Paso 4 - Quitado prefijo IM: '{codigo}'")
-    elif codigo.startswith('DE'):
-        codigo = codigo[2:]
-        logger.info(f"   Paso 4 - Quitado prefijo DE: '{codigo}'")
-    
-    # Trim final por si acaso
-    codigo = codigo.strip()
-    
-    logger.info(f"🔍 normalizar_codigo OUTPUT FINAL: '{codigo}'")
-    return codigo
+# (La función normalizar_codigo se ha movido a backend.utils.formatters para centralización Regex)
 
 def obtener_codigo_sistema_real(codigo_entrada):
     """
@@ -3493,7 +3438,10 @@ def obtener_historial_global():
                         # Campos adicionales validos
                         'RECIBIDOS': to_int_seguro(safe_get_ignore_case(reg, 'CANTIDAD RECIBIDA', safe_get_ignore_case(reg, 'BUJES RECIBIDOS'))),
                         'PNC': to_int_seguro(safe_get_ignore_case(reg, 'PNC')),
-                        'BUENOS': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL')))
+                        'BUENOS': to_int_seguro(safe_get_ignore_case(reg, 'BUJES BUENOS', safe_get_ignore_case(reg, 'CANTIDAD REAL'))),
+                        # Horarios de Pulido
+                        'HORA_INICIO': str(safe_get_ignore_case(reg, 'HORA INICIO', safe_get_ignore_case(reg, 'HORA_INICIO'))),
+                        'HORA_FIN': str(safe_get_ignore_case(reg, 'HORA FIN', safe_get_ignore_case(reg, 'HORA_FIN', safe_get_ignore_case(reg, 'HORA TERMINA'))))
                     })
                 
                 logger.info(f" PULIDO: {procesados} procesados, {saltados} saltados de {len(registros_pul)} totales")
@@ -3502,74 +3450,60 @@ def obtener_historial_global():
                 logger.error(f" Error en PULIDO: {e}")
         
         # ========================================
-        # 3. FACTURACIN / VENTAS
+        # 3. VENTAS (Desde RAW_VENTAS con motor Pandas)
         # ========================================
-        # ========================================
-        # 3. FACTURACIÓN / VENTAS (Desde PEDIDOS)
-        # ========================================
-        if not tipo or tipo in ['VENTA', 'FACTURACION']:
+        if not tipo or tipo in ['VENTAS', 'VENTA', 'FACTURACION']:
             try:
-                # CAMBIO CRÍTICO: Leer de PEDIDOS en lugar de FACTURACION (que no se usa)
-                ws_ped = ss.worksheet(Hojas.PEDIDOS)
-                registros_ped = ws_ped.get_all_records()
-                logger.info(f" VENTAS (desde Pedidos): {len(registros_ped)} registros totales encontrados")
+                logger.info(f" 📦 [VENTAS] Iniciando motor inteligente para RAW_VENTAS")
+                ws_ventas = ss.worksheet(Hojas.RAW_VENTAS)
                 
-                procesados = 0
-                saltados = 0
-                
-                for reg in registros_ped:
-                    # Filtro 1: Estado de Despacho
-                    estado = str(reg.get('ESTADO', '')).strip().upper()
-                    estado_despacho = str(reg.get('ESTADO_DESPACHO', '')).strip().upper()
+                import numpy as np
+                raw_data = ws_ventas.get_all_values()
+                if len(raw_data) > 1:
+                    headers_v = raw_data[0]
+                    df_v = pd.DataFrame(raw_data[1:], columns=headers_v)
                     
-                    # Consideramos venta si está marcado como despachado o si el estado global implica envío
-                    es_venta = (estado_despacho == 'TRUE') or (estado in ['COMPLETADO', 'ENVIADO', 'DESPACHADO', 'ENTREGADO'])
+                    # Normalización de columnas
+                    map_fecha = ['FECHA', 'FEC', 'Fecha']
+                    map_prod = ['PRODUCTO', 'PRODUCTOS', 'PRODUCTO VENTA']
                     
-                    if not es_venta:
-                        continue
-
-                    # Filtro 2: Fecha
-                    fecha_str = str(reg.get('FECHA', ''))
+                    col_fecha = next((c for c in headers_v if c.upper() in map_fecha), 'FECHA')
+                    col_prod = next((c for c in headers_v if c.upper() in map_prod), 'PRODUCTO')
                     
-                    if not fecha_str or fecha_str == '' or fecha_str == 'None':
-                        saltados += 1
-                        continue
+                    procesados_v = 0
+                    for idx, reg in df_v.iterrows():
+                        fecha_str = str(reg.get(col_fecha, ''))
+                        if not fecha_str or fecha_str in ['', 'None']: continue
+                        
+                        fecha_reg = parsear_fecha_flexible(fecha_str)
+                        if not fecha_reg: continue
+                        
+                        if fecha_desde and fecha_reg < fecha_desde: continue
+                        if fecha_hasta and fecha_reg > fecha_hasta: continue
+                        
+                        procesados_v += 1
+                        id_doc = str(reg.get('DOCUMENTO', reg.get('DOC', '')))
+                        cliente = str(reg.get('CLIENTE', reg.get('NOMBRE CLIENTE', '')))
+                        
+                        movimientos.append({
+                            'Fecha': fecha_reg.strftime('%d/%m/%Y'),
+                            'Tipo': 'VENTA',
+                            'Producto': str(reg.get(col_prod, '')),
+                            'Cant': to_int_seguro(reg.get('CANTIDAD', reg.get('CANT', 0))),
+                            'Responsable': cliente,
+                            'Detalle': f"Doc: {id_doc}",
+                            'Orden': id_doc,
+                            'Extra': str(reg.get('VENDEDOR', '')),
+                            'hoja': Hojas.RAW_VENTAS,
+                            'fila': idx + 2
+                        })
                     
-                    fecha_reg = parsear_fecha_flexible(fecha_str)
-                    if not fecha_reg:
-                        saltados += 1
-                        continue
+                    logger.info(f" VENTAS: {procesados_v} registros procesados desde RAW_VENTAS")
+                else:
+                    logger.warning(" Hoja RAW_VENTAS vacía")
                     
-                    if fecha_desde and fecha_reg < fecha_desde:
-                        continue
-                    if fecha_hasta and fecha_reg > fecha_hasta:
-                        continue
-                    
-                    procesados += 1
-                    
-                    # Mapeo de campos para el historial unificado
-                    id_pedido = str(reg.get('ID PEDIDO', ''))
-                    cliente = str(reg.get('CLIENTE', ''))
-                    vendedor = str(reg.get('VENDEDOR', ''))
-                    
-                    movimientos.append({
-                        'Fecha': fecha_reg.strftime('%d/%m/%Y'),
-                        'Tipo': 'VENTA',
-                        'Producto': str(reg.get('ID CODIGO', '')),
-                        'Cant': to_int_seguro(reg.get('CANTIDAD', 0)),
-                        'Responsable': cliente,
-                        'Detalle': f"Pedido: {id_pedido} ({vendedor})",
-                        'Orden': id_pedido,
-                        'Extra': str(reg.get('DESCRIPCION', '')),
-                        'hoja': Hojas.PEDIDOS,
-                        'fila': 0 # No es relevante para edición directa en historial
-                    })
-                
-                logger.info(f" VENTAS: {procesados} procesados como ventas reales")
-                
-                
             except Exception as e:
-                logger.error(f" Error en VENTAS (Pedidos): {e}")
+                logger.error(f" Error en VENTAS (Pandas): {e}")
                 
 
 
@@ -4095,8 +4029,7 @@ def listar_productos_v2():
                 # Buscamos el codigo en varias columnas posibles
                 codigo = str(
                     fila.get('CODIGO SISTEMA', '') or 
-                    fila.get('CODIGO', '') or 
-                    fila.get('REFERENCIA', '')
+                    fila.get('CODIGO', '')
                 ).strip()
                 
                 if not codigo: continue # Ignorar filas vacias
@@ -6301,7 +6234,8 @@ def calcular_dashboard_robusto():
         prod_ens = 0
         try:
             ws = ss.worksheet(Hojas.ENSAMBLES)
-            regs = get_all_records_seguro(ws)
+            from backend.core.database import sheets_client
+            regs = sheets_client.get_all_records_seguro(ws)
             
             # Agrupar por Operario, Fecha, Horas para evitar triplicar kits
             ens_blocks = {} # (op, fecha, h_ini, h_fin) -> max_qty
@@ -6677,6 +6611,37 @@ def undo_last_action():
         logger.error(f" Error en UNDO: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+import threading
+
+def precarga_proactiva_cache():
+    """Demonio de segundo plano para mantener RAM fresca con Latencia Cero."""
+    from backend.core.database import sheets_client
+    import time
+    
+    # Retrasar primera carga 5 segundos para que Flask inicie libre
+    time.sleep(5)
+    
+    hojas_precarga = ['PRODUCTOS', 'RAW_VENTAS', 'INYECCION', 'PULIDO', 'ENSAMBLES']
+    while True:
+        try:
+            start = time.time()
+            total_records = 0
+            for h in hojas_precarga:
+                df = sheets_client.get_dataframe(h)
+                total_records += len(df)
+            
+            elapsed = int((time.time() - start) * 1000)
+            logger.info(f"🚀 RAM Cache inicializado: {total_records} registros cargados en {elapsed} ms.")
+            
+            # Dormir hasta que termine el TTL 5 mins
+            time.sleep(305)
+        except Exception as e:
+            logger.error(f"[DAEMON] Error al precargar cache: {e}")
+            time.sleep(60)
+
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    threading.Thread(target=precarga_proactiva_cache, daemon=True).start()
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5005))
     print("\n" + "="*50)
@@ -6689,7 +6654,7 @@ if __name__ == '__main__':
         host='0.0.0.0',
         port=port,
         debug=True,
-        use_reloader=True
+        use_reloader=False
     )
 
 

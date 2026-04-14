@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // historial.js - Lógica de Historial Global
 // ============================================
 
@@ -9,6 +9,16 @@
     let h_datos = [];
     let h_paginaActual = 1;
     const getHRegistrosPorPagina = () => window.innerWidth < 992 ? 10 : 20;
+
+    /**
+     * Formatear hora a HH:MM (recorta segundos: 13:40:00 → 13:40)
+     */
+    function formatHorario(horaStr) {
+        if (!horaStr || horaStr === '' || horaStr === 'None' || horaStr === 'undefined') return '';
+        const parts = horaStr.toString().trim().split(':');
+        if (parts.length >= 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+        return horaStr.trim();
+    }
 
     /**
      * Cargar datos desde la API
@@ -133,10 +143,13 @@
                                         </button>` : ''}
                                 </div>
                             </div>
-                            <h6 class="mb-1 fw-bold text-dark">${r.Producto || 'Sin Producto'}</h6>
-                            <div class="text-muted small mb-3">
+                            <h6 class="mb-1 fw-bold text-dark td-producto">
+                                ${r.Producto ? `<a href="#" onclick="event.preventDefault(); window.ModuloHistorial.irAProducto('${r.Producto}');" class="text-primary text-decoration-underline">${r.Producto}</a>` : 'Sin Producto'}
+                            </h6>
+                            <div class="text-muted small mb-1">
                                 <i class="fas fa-user me-1"></i> ${responsable}
                             </div>
+                            ${r.Tipo === 'PULIDO' && (r.HORA_INICIO || r.HORA_FIN) && formatHorario(r.HORA_INICIO) ? `<div class="horario-movimiento mb-2"><i class="far fa-clock me-1"></i>${formatHorario(r.HORA_INICIO)} - ${formatHorario(r.HORA_FIN) || '?'}</div>` : ''}
                             
                             <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
                                 <div class="text-center px-2">
@@ -213,10 +226,17 @@
                         <td class="ps-4">${r.Fecha || '-'}</td>
                         <td><span class="badge ${badgeClass}">${r.Tipo || 'N/A'}</span></td>
                         <td>${responsable || '-'}</td>
-                        <td><strong>${r.Producto || '-'}</strong></td>
+                        <td class="td-producto">
+                            <strong>
+                                ${r.Producto ? `<a href="#" onclick="event.preventDefault(); window.ModuloHistorial.irAProducto('${r.Producto}');" class="text-primary text-decoration-underline">${r.Producto}</a>` : '-'}
+                            </strong>
+                        </td>
                         <td><span class="text-primary fw-medium">${orden || '-'}</span></td>
                         <td><small>${maquina || '-'}</small></td>
-                        <td><small class="text-muted">${r.Detalle || '-'}</small></td>
+                        <td>
+                            <small class="text-muted">${r.Detalle || '-'}</small>
+                            ${r.Tipo === 'PULIDO' && (r.HORA_INICIO || r.HORA_FIN) && formatHorario(r.HORA_INICIO) ? `<br><span class="horario-movimiento"><i class="far fa-clock me-1"></i>${formatHorario(r.HORA_INICIO)} - ${formatHorario(r.HORA_FIN) || '?'}</span>` : ''}
+                        </td>
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
                         ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.nombre?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.rol === 'Administración') ?
                         `<td class="text-center">
@@ -285,9 +305,9 @@
     function obtenerBadgeClass(tipo) {
         switch (tipo) {
             case 'INYECCION': return 'bg-primary';
-            case 'PULIDO': return 'bg-info';
-            case 'ENSAMBLE': return 'bg-success';
-            case 'VENTA': return 'bg-warning text-dark';
+            case 'PULIDO': return 'bg-success';
+            case 'ENSAMBLE': return 'badge-ensamble'; // Indigo 600 con contraste garantizado
+            case 'VENTA': return 'bg-warning text-dark fw-bold';
             case 'PNC': return 'bg-danger';
             case 'METALS': return 'bg-dark';
             default: return 'bg-secondary';
@@ -522,6 +542,306 @@
         document.getElementById('modalEditarHistorial').style.display = 'none';
     }
 
+    let swalTimelineState = {
+        page: 1, limit: 100, codigo: null, isLoading: false, hasMore: true,
+        gruposInfo: {
+            'INYECCION': { icon: '🏭', title: 'Inyección', bg: 'primary', color: '#0d6efd', border: 'border-primary' },
+            'PULIDO': { icon: '✨', title: 'Pulido', bg: 'success', color: '#198754', border: 'border-success' },
+            'ENSAMBLE': { icon: '🛠️', title: 'Ensamble', bg: 'indigo', color: '#4f46e5', border: 'border-indigo-subtle', textClass: 'text-indigo' },
+            'COMERCIAL': { icon: '📦', title: 'Comercial (Pedidos/Ventas)', bg: 'dark', color: '#343a40', border: 'border-dark' }
+        }
+    };
+
+    function renderAccordionShell(kpis) {
+        const container = document.getElementById('accordionTimeline');
+        if (!container) return;
+        
+        let html = '';
+        const totales = Object.values(kpis).reduce((a, b) => a + b, 0);
+        if (totales === 0) {
+            container.innerHTML = `<div class="text-center text-muted py-5"><i class="fas fa-archive mb-2 fs-2 text-black-50"></i><br>Sin registros productivos o comerciales</div>`;
+            return;
+        }
+
+        Object.keys(swalTimelineState.gruposInfo).forEach(key => {
+            const kpiSum = parseInt(kpis[key] || 0);
+            if (kpiSum === 0) return;
+
+            const grupo = swalTimelineState.gruposInfo[key];
+            const textClass = grupo.textClass || `text-${grupo.bg}`;
+            const opacityClass = grupo.bgSolid ? 'bg-opacity-100' : 'bg-opacity-10';
+            const borderClass = grupo.bgSolid ? 'border-0' : `border-${grupo.bg}-subtle`;
+            const customStyles = grupo.bgSolid ? `background-color: ${grupo.color} !important; color: white !important;` : '';
+            
+            html += `
+            <div class="accordion-item border-0 mb-3 bg-transparent swal-accordion-group">
+                <h2 class="accordion-header" id="heading-${key}">
+                    <button class="accordion-button collapsed rounded fw-bold ${textClass} bg-${grupo.bg} ${opacityClass} border ${borderClass} shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${key}" style="padding: 12px 20px; ${customStyles}">
+                        <div class="d-flex justify-content-between align-items-center w-100 me-3">
+                            <span><span class="me-2 fs-5" style="${grupo.bgSolid ? 'color: white !important;' : ''}">${grupo.icon}</span> <span style="letter-spacing: 0.5px;">${grupo.title}</span></span>
+                            <span class="badge ${grupo.bgSolid ? 'bg-white text-dark' : 'bg-' + grupo.bg} rounded-pill fs-6 shadow-sm"><i class="fas fa-chart-line me-1"></i> ${kpiSum.toLocaleString()} uds</span>
+                        </div>
+                    </button>
+                </h2>
+                <div id="collapse-${key}" class="accordion-collapse collapse">
+                    <div class="accordion-body px-1 py-3 pt-4" id="body-${key}">
+                    </div>
+                </div>
+            </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+    }
+
+    function appendTimelineItems(movimientos) {
+        movimientos.forEach((m) => {
+            let key = m.tipo;
+            if (m.tipo === 'PEDIDO' || m.tipo === 'VENTA') key = 'COMERCIAL';
+            
+            const bodyParent = document.getElementById(`body-${key}`);
+            if (!bodyParent) return; 
+            
+            const grupo = swalTimelineState.gruposInfo[key];
+            let innerEmoji = '📌';
+            if (m.tipo === 'PEDIDO') innerEmoji = '🛒';
+            else if (m.tipo === 'VENTA') innerEmoji = '📦';
+            else innerEmoji = grupo.icon;
+
+            // Debug para verificar si llegan las horas
+            if (m.tipo === 'PULIDO') {
+                console.log("DEBUG PULIDO ITEM:", {
+                    fecha: m.fecha,
+                    inicio: m.hora_inicio,
+                    fin: m.hora_fin,
+                    formatted: formatHorario(m.hora_inicio)
+                });
+            }
+
+            const searchStr = `${m.tipo} ${m.fecha} ${m.cantidad} ${m.responsable} ${m.detalle}`.toLowerCase();
+            
+            const itemHtml = `
+                <div class="timeline-item d-flex mb-3 align-items-start swal-tl-item bg-${grupo.bg} bg-opacity-10 border border-2 border-top-0 border-bottom-0 border-end-0 border-${grupo.bg}-subtle p-3 rounded" data-search="${searchStr}" style="margin-left:10px;">
+                    <div class="timeline-icon me-3 mt-1" style="font-size: 1.3rem; min-width: 30px; text-align: center;">
+                        ${innerEmoji}
+                    </div>
+                    <div class="timeline-content pb-1 flex-grow-1">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong style="color: ${grupo.color}; font-size: 0.9rem;">${m.tipo}</strong>
+                            <span class="text-muted fw-semibold" style="font-size: 0.75rem;"><i class="far fa-calendar-alt me-1"></i>${m.fecha}</span>
+                        </div>
+                        <div class="mt-2 d-flex align-items-center">
+                            <span class="badge rounded-pill shadow-sm text-white" style="background-color: ${grupo.color}; font-size: 0.75rem;">${m.cantidad} uds</span>
+                            <span class="ms-2 fw-bold text-dark text-truncate d-inline-block" style="max-width: 200px; font-size: 0.85rem;">${m.responsable || '-'}</span>
+                        </div>
+                        ${m.tipo === 'PULIDO' && (m.hora_inicio || m.hora_fin) && (formatHorario(m.hora_inicio) || formatHorario(m.hora_fin)) ? 
+                            `<div class="horario-movimiento mt-1"><i class="far fa-clock me-1"></i>${formatHorario(m.hora_inicio) || '??:??'} - ${formatHorario(m.hora_fin) || '??:??'}</div>` : ''}
+                        <div class="small text-secondary mt-2 lh-sm" style="font-size: 0.8rem;">${m.detalle || ''}</div>
+                    </div>
+                </div>
+            `;
+            bodyParent.insertAdjacentHTML('beforeend', itemHtml);
+        });
+    }
+
+    async function loadTimelinePage(isFirstLoad = false) {
+        if (swalTimelineState.isLoading || (!swalTimelineState.hasMore && !isFirstLoad)) return;
+        swalTimelineState.isLoading = true;
+        
+        const container = document.getElementById('swal-timeline-list');
+        const spinnerId = 'swal-timeline-spinner';
+        
+        if (container && !document.getElementById(spinnerId) && !isFirstLoad) {
+            container.insertAdjacentHTML('beforeend', `<div id="${spinnerId}" class="text-center py-3"><div class="spinner-border text-primary spinner-border-sm" role="status"></div></div>`);
+        }
+
+        try {
+            const res = await fetch(`/api/productos/historial/${encodeURIComponent(swalTimelineState.codigo)}?page=${swalTimelineState.page}&limit=${swalTimelineState.limit}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.status === 'success') {
+                    swalTimelineState.hasMore = data.has_more;
+                    
+                    if (isFirstLoad) {
+                        renderAccordionShell(data.kpis || {});
+                    }
+                    
+                    appendTimelineItems(data.resultados || []);
+                    swalTimelineState.page++;
+
+                    // Disparar redibujado de filtros si hay caja de búsqueda sucia
+                    const searchInput = document.getElementById('swal-timeline-search');
+                    if (searchInput && searchInput.value.trim().length > 0) {
+                        searchInput.dispatchEvent(new Event('input'));
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Error paginando trazabilidad:', e);
+        } finally {
+            if (document.getElementById(spinnerId)) document.getElementById(spinnerId).remove();
+            swalTimelineState.isLoading = false;
+        }
+    }
+
+    /**
+     * Vista Rápida del Producto (Quick View Modal) con PANDAS LATENCY CERO
+     */
+    async function irAProducto(codigo) {
+        if (!codigo) return;
+        
+        swalTimelineState = {
+            page: 1, limit: 500, codigo: codigo, isLoading: false, hasMore: true,
+            gruposInfo: swalTimelineState.gruposInfo
+        };
+        
+        const customStyle = `
+            <style>
+                .timeline-container::-webkit-scrollbar { width: 6px; }
+                .timeline-container::-webkit-scrollbar-track { background: #f8f9fa; border-radius: 4px; }
+                .timeline-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+                .timeline-container::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+            </style>
+        `;
+        
+        const skeletonHeader = `
+            <div id="swal-header-contents">
+                <div class="d-flex align-items-center mb-4 p-3 bg-light rounded-4 shadow-sm" style="border-left: 4px solid #0d6efd;">
+                    <div class="placeholder-glow me-3"><div class="placeholder bg-secondary rounded" style="width: 70px; height: 70px;"></div></div>
+                    <div style="text-align: left; width: 100%;">
+                        <h4 class="mb-1 placeholder-glow"><span class="placeholder col-6"></span></h4>
+                        <div class="small mb-2 placeholder-glow"><span class="placeholder col-8"></span></div>
+                        <div class="d-flex gap-2 mt-1">
+                            <span class="placeholder-glow"><span class="placeholder col-4" style="border-radius: 6px; width: 100px; height: 25px;"></span></span>
+                            <span class="placeholder-glow"><span class="placeholder col-4" style="border-radius: 6px; width: 100px; height: 25px;"></span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="input-group mb-3 pb-2 border-bottom">
+                <span class="input-group-text bg-light border-end-0 text-muted"><i class="fas fa-search"></i></span>
+                <input type="text" id="swal-timeline-search" class="form-control border-start-0 bg-light" placeholder="Filtrar por operario, proceso, orden..." style="font-size: 0.85rem; box-shadow: none;" disabled>
+            </div>
+        `;
+        
+        const skeletonTimeline = `
+            <div id="swal-timeline-list" class="timeline-container px-2 pb-2" style="text-align: left; max-height: 400px; overflow-y: auto; overflow-x: hidden;">
+                <div class="accordion" id="accordionTimeline">
+                    <div class="accordion-item border-0 mb-3 bg-transparent"><div class="placeholder-glow"><div class="placeholder rounded w-100" style="height: 52px; opacity: 0.3;"></div></div></div>
+                    <div class="accordion-item border-0 mb-3 bg-transparent"><div class="placeholder-glow"><div class="placeholder rounded w-100" style="height: 52px; opacity: 0.25;"></div></div></div>
+                    <div class="accordion-item border-0 mb-3 bg-transparent"><div class="placeholder-glow"><div class="placeholder rounded w-100" style="height: 52px; opacity: 0.2;"></div></div></div>
+                    <div class="accordion-item border-0 mb-3 bg-transparent"><div class="placeholder-glow"><div class="placeholder rounded w-100" style="height: 52px; opacity: 0.15;"></div></div></div>
+                </div>
+            </div>
+        `;
+
+        Swal.fire({
+            title: false,
+            html: customStyle + skeletonHeader + skeletonTimeline,
+            width: 650,
+            padding: '1.5rem',
+            showCloseButton: true,
+            showConfirmButton: false,
+            customClass: { popup: 'rounded-4 shadow-lg' },
+            didOpen: async () => {
+                try {
+                    // Peticiones al backend simultaneas tras abrir
+                    const resDetalleP = fetch(`/api/productos/detalle/${encodeURIComponent(codigo)}`);
+                    const resDetalle = await resDetalleP;
+                    
+                    let prodDetalle = null;
+                    if (resDetalle && resDetalle.ok) {
+                        const dataDetalle = await resDetalle.json();
+                        if (dataDetalle.status === 'success') {
+                            prodDetalle = dataDetalle.producto;
+                        }
+                    }
+                    
+                    const desc = prodDetalle ? (prodDetalle.descripcion_larga || prodDetalle.descripcion || 'Sin descripción') : 'Sin descripción';
+                    let srcValida = prodDetalle && prodDetalle.imagen_valida ? prodDetalle.imagen_valida : '/static/img/no-image.svg';
+                    if (srcValida === '') srcValida = '/static/img/no-image.svg';
+                    
+                    const stockDisp = prodDetalle ? (prodDetalle.stock_disponible || 0) : '0';
+                    const stockTerm = prodDetalle ? (prodDetalle.stock_terminado || 0) : '0';
+                    
+                    const headerContainer = document.getElementById('swal-header-contents');
+                    if(headerContainer) {
+                        headerContainer.innerHTML = `
+                            <div class="d-flex align-items-center mb-4 p-3 bg-light rounded-4 shadow-sm" style="border-left: 4px solid #0d6efd;">
+                                <img src="${srcValida}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 8px; border: 1px solid #dee2e6; background: white;" class="me-3 shadow-sm" onerror="this.onerror=null; this.src='/static/img/no-image.svg';">
+                                <div style="text-align: left;">
+                                    <h4 class="mb-1 fw-bold text-dark" style="font-size: 1.1rem; letter-spacing: -0.5px;">${codigo}</h4>
+                                    <div class="text-muted small mb-2" style="font-size: 0.85rem; line-height: 1.2;">${desc}</div>
+                                    <div class="d-flex gap-2 mt-1">
+                                        <span class="badge px-3 py-2 fw-bold shadow-sm" style="background-color: #4e73df; color: white !important; font-size: 0.8rem; border-radius: 6px;"><i class="fas fa-boxes me-1"></i> Stock Total: <span style="font-size: 0.95rem;">${stockTerm}</span></span>
+                                        <span class="badge px-3 py-2 fw-bold shadow-sm" style="background-color: #1cc88a; color: white !important; font-size: 0.8rem; border-radius: 6px;"><i class="fas fa-check-circle me-1"></i> Disponible: <span style="font-size: 0.95rem;">${stockDisp}</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    const searchInput = document.getElementById('swal-timeline-search');
+                    if (searchInput) {
+                        searchInput.disabled = false;
+                        searchInput.focus();
+                        searchInput.addEventListener('input', (e) => {
+                            const val = e.target.value.toLowerCase().trim();
+                            const terms = val.split(' ').filter(t => t.length > 0); 
+                            const groups = document.querySelectorAll('.swal-accordion-group');
+                            groups.forEach(group => {
+                                const items = group.querySelectorAll('.swal-tl-item');
+                                let hasVisibleItems = false;
+                                items.forEach(item => {
+                                    const docStr = item.getAttribute('data-search') || '';
+                                    const matches = terms.length === 0 || terms.every(t => docStr.includes(t));
+                                    if (matches) {
+                                        item.classList.remove('d-none');
+                                        item.classList.add('d-flex');
+                                        item.style.setProperty('display', 'flex', 'important');
+                                        hasVisibleItems = true;
+                                    } else {
+                                        item.classList.remove('d-flex');
+                                        item.classList.add('d-none');
+                                        item.style.setProperty('display', 'none', 'important');
+                                    }
+                                });
+                                if (!hasVisibleItems && terms.length > 0) {
+                                    group.style.setProperty('display', 'none', 'important');
+                                } else {
+                                    group.style.setProperty('display', 'block', 'important');
+                                    if (terms.length > 0) {
+                                        const collapse = group.querySelector('.accordion-collapse');
+                                        const btn = group.querySelector('.accordion-button');
+                                        if (collapse && !collapse.classList.contains('show')) {
+                                            collapse.classList.add('show');
+                                            btn.classList.remove('collapsed');
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    }
+
+                    // Lanzar carga timeline (Sustituirá al Skeleton)
+                    await loadTimelinePage(true);
+
+                    // Enganchar Scroll Infinito
+                    const container = document.getElementById('swal-timeline-list');
+                    if (container) {
+                        container.addEventListener('scroll', async () => {
+                            if (container.scrollTop + container.clientHeight >= container.scrollHeight - 30) {
+                                await loadTimelinePage(false);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error('Error Quick View Flow:', e);
+                }
+            }
+        });
+    }
+
     window.filtrarHistorial = cargarHistorial;
     window.ModuloHistorial = {
         inicializar: initHistorial,
@@ -529,7 +849,8 @@
         cambiarPagina: cambiarPagina,
         editarRegistro: editarRegistro,
         guardarCambios: guardarCambios,
-        cerrarModalEdicion: cerrarModalEdicion
+        cerrarModalEdicion: cerrarModalEdicion,
+        irAProducto: irAProducto
     };
 
     console.log('🚀 Módulo Historial registrado y listo');

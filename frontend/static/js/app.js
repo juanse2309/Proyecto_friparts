@@ -1,4 +1,4 @@
-﻿// Global Error Handler for random execution errors
+// Global Error Handler for random execution errors
 window.onerror = function (msg, url, lineNo, columnNo, error) {
     console.error('🚨 Global Error:', { msg, url, lineNo, columnNo, error });
     // Optional: Send to backend logging endpoint
@@ -38,11 +38,15 @@ async function cargarDatosCompartidos() {
     if (datosCargados || isSharedDataLoading) return;
 
     isSharedDataLoading = true;
-    const overlay = document.getElementById('loading-overlay');
-    const overlayText = document.getElementById('loading-overlay-text');
-
-    if (overlay) overlay.style.display = 'flex';
-    if (overlayText) overlayText.textContent = 'Trayendo datos de Sheets...';
+    isSharedDataLoading = true;
+    if (window.mostrarLoaderGlobal) {
+        window.mostrarLoaderGlobal();
+    } else {
+        const overlay = document.getElementById('loading-overlay');
+        const overlayText = document.getElementById('loading-overlay-text');
+        if (overlay) overlay.style.display = 'flex';
+        if (overlayText) overlayText.textContent = 'Trayendo datos de Sheets...';
+    }
 
     try {
         console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
@@ -123,7 +127,12 @@ async function cargarDatosCompartidos() {
         console.error('❌ Error en cargarDatosCompartidos:', error);
     } finally {
         isSharedDataLoading = false;
-        if (overlay) overlay.style.display = 'none';
+        if (window.ocultarLoaderGlobal) {
+            window.ocultarLoaderGlobal();
+        } else {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) overlay.style.display = 'none';
+        }
     }
 }
 
@@ -220,6 +229,10 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
     }
 
     console.log('📄 Cargando página:', nombrePagina);
+
+    if (window.mostrarLoaderGlobal && nombrePagina !== 'dashboard' && nombrePagina !== window.AppState.paginaActual) {
+        window.mostrarLoaderGlobal();
+    }
 
 
     // --- Limpieza de procesos del módulo anterior ---
@@ -461,6 +474,7 @@ function inicializarModulo(nombrePagina) {
         }
         console.log('🔧 Inicializando módulo:', nombrePagina);
         modulo.inicializar();
+        if (window.ocultarLoaderGlobal) window.ocultarLoaderGlobal();
     }
     else {
         console.warn('⚠️  Módulo no encontrado (intento 1):', nombrePagina);
@@ -493,6 +507,7 @@ function inicializarModulo(nombrePagina) {
             } else {
                 console.error(`❌ Error fatal: Módulo ${nombrePagina} no cargó después del reintento.`);
             }
+            if (window.ocultarLoaderGlobal) window.ocultarLoaderGlobal();
         }, 800);
     }
 }

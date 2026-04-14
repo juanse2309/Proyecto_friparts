@@ -2,6 +2,12 @@ from flask import Blueprint, jsonify, request, session
 from backend.utils.auth_middleware import require_role
 from backend.core.database import sheets_client
 from backend.config.settings import Hojas
+from backend.services.nomina_service import (
+    get_ultima_fecha_corte,
+    filtrar_registros_post_corte,
+    consolidar_horas,
+    construir_detalle_diario,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -159,7 +165,7 @@ def guardar_ausencia():
 
 @asistencia_bp.route('/mis_horas', methods=['GET'])
 def obtener_mis_horas():
-    """Obtiene el historial de asistencia de la semana actual para el colaborador logueado."""
+    """Obtiene el historial de asistencia posterior al último corte para el colaborador logueado."""
     colaborador = session.get('user')
     if not colaborador:
         return jsonify({'status': 'error', 'message': 'Acceso denegado. Usuario no autenticado en sesión.'}), 401
@@ -167,7 +173,7 @@ def obtener_mis_horas():
     try:
         from datetime import datetime
         
-        # Nuevo Filtro: Solo lo posterior al último corte de nómina
+        # 1. Obtener fecha de corte desde el servicio centralizado
         ultima_fecha_corte = get_ultima_fecha_corte()
         
         ws = sheets_client.get_worksheet(Hojas.CONTROL_ASISTENCIA)
@@ -175,32 +181,36 @@ def obtener_mis_horas():
             return jsonify({'status': 'error', 'message': 'No se encontró la hoja de control de asistencia'}), 404
             
         registros = sheets_client.get_all_records_seguro(ws)
-        mis_registros = []
         
-        for r in registros:
-            # Filtrar por nombre
-            if str(r.get('COLABORADOR', '')).strip().upper() == colaborador.strip().upper():
-                fecha_str = str(r.get('FECHA', ''))
+        # 2. Filtrar solo los del colaborador logueado
+        registros_colab = [
+            r for r in registros
+            if str(r.get('COLABORADOR', '')).strip().upper() == colaborador.strip().upper()
+        ]
+        
+        # 3. Aplicar filtro estricto de corte (fecha > ultima_fecha_corte)
+        registros_post_corte = filtrar_registros_post_corte(registros_colab, ultima_fecha_corte)
+        
+        # 4. Construir respuesta
+        mis_registros = []
+        for r in registros_post_corte:
+            fecha_str = str(r.get('FECHA', '')).strip()
+            # Normalizar a YYYY-MM-DD para la respuesta
+            if '-' in fecha_str:
+                fecha_fmt = fecha_str
+            else:
                 try:
-                    # Asumiendo formato YYYY-MM-DD del frontend (o DD/MM/YYYY)
-                    # Intentamos parsear para asegurar que es de esta semana
-                    if '-' in fecha_str:
-                        fecha_reg = datetime.strptime(fecha_str, '%Y-%m-%d')
-                    else:
-                        fecha_reg = datetime.strptime(fecha_str, '%d/%m/%Y')
-                        
-                    if not ultima_fecha_corte or fecha_reg > ultima_fecha_corte:
-                        mis_registros.append({
-                            'fecha': fecha_reg.strftime('%Y-%m-%d'),
-                            'ingreso_real': r.get('INGRESO_REAL', r.get('INGRESO REAL', '')),
-                            'salida_real': r.get('SALIDA_REAL', r.get('SALIDA REAL', '')),
-                            'horas_ordinarias': r.get('HORAS_ORDINARIAS', r.get('HORAS ORDINARIAS', 0)),
-                            'horas_extras': r.get('HORAS_EXTRAS', r.get('HORAS EXTRAS', 0))
-                        })
-                except Exception as parse_e:
-                    logger.warning(f"Error parseando fecha {fecha_str} para {colaborador}: {parse_e}")
-                    # Si falla el parseo, pero el nombre coincide, podríamos enviarlo igual o omitirlo
-                    pass
+                    fecha_fmt = datetime.strptime(fecha_str, '%d/%m/%Y').strftime('%Y-%m-%d')
+                except Exception:
+                    fecha_fmt = fecha_str
+            
+            mis_registros.append({
+                'fecha': fecha_fmt,
+                'ingreso_real': r.get('INGRESO_REAL', r.get('INGRESO REAL', '')),
+                'salida_real': r.get('SALIDA_REAL', r.get('SALIDA REAL', '')),
+                'horas_ordinarias': r.get('HORAS_ORDINARIAS', r.get('HORAS ORDINARIAS', 0)),
+                'horas_extras': r.get('HORAS_EXTRAS', r.get('HORAS EXTRAS', 0))
+            })
 
         # Ordenar por fecha descendente
         mis_registros.sort(key=lambda x: x['fecha'], reverse=True)
@@ -251,105 +261,30 @@ def obtener_registros_dia():
         logger.error(f"Error obteniendo registros_dia para {fecha}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-def get_ultima_fecha_corte():
-    """Helper para obtener la última fecha de corte desde CORTES_NOMINA."""
-    try:
-        from datetime import datetime
-        ws_cortes = sheets_client.get_worksheet(Hojas.CORTES_NOMINA)
-        if not ws_cortes:
-            return None
-        
-        cortes = sheets_client.get_all_records_seguro(ws_cortes)
-        if not cortes:
-            return None
-            
-        ultimo_corte = cortes[-1]
-        fecha_str = ""
-        for k, v in ultimo_corte.items():
-            if 'FECHA' in str(k).upper():
-                fecha_str = str(v).strip()
-                break
-                
-        if fecha_str:
-            if 'T' in fecha_str:
-                return datetime.fromisoformat(fecha_str.split('T')[0])
-            else:
-                return datetime.strptime(fecha_str.split(' ')[0], '%Y-%m-%d')
-    except Exception as e:
-        logger.warning(f"Error detectando última fecha de corte: {e}")
-    return None
+# get_ultima_fecha_corte() → ahora vive en backend.services.nomina_service
 
 @asistencia_bp.route('/consolidado_pendiente', methods=['GET'])
 @require_role(['administracion'])
 def obtener_consolidado_pendiente():
-    """Obtiene el resumen de horas pendientes desde el último corte."""
+    """Obtiene el resumen de horas pendientes desde el último corte (estrictamente mayor)."""
     try:
-        # 1. Obtener última fecha de corte (usando helper)
+        # 1. Fecha de corte desde el servicio centralizado
         ultima_fecha_corte = get_ultima_fecha_corte()
 
-        # 2. Consultar asistencia y filtrar
+        # 2. Consultar asistencia
         ws_asistencia = sheets_client.get_worksheet(Hojas.CONTROL_ASISTENCIA)
         if not ws_asistencia:
             return jsonify({'status': 'error', 'message': 'No se encontró la hoja de asistencia'}), 404
-            
+
         registros = sheets_client.get_all_records_seguro(ws_asistencia)
-        consolidado = {}
-        detalle_diario = []  # Lista de registros individuales para el CSV detallado
-        total_regs = 0
-        from datetime import datetime
 
-        for r in registros:
-            fecha_reg_str = str(r.get('FECHA', '')).strip()
-            if not fecha_reg_str: continue
-            
-            try:
-                # Formato esperado: YYYY-MM-DD
-                fecha_reg = datetime.strptime(fecha_reg_str, '%Y-%m-%d')
-            except:
-                continue
+        # 3. Filtro estricto: solo registros con fecha > ultima_fecha_corte
+        registros_filtrados = filtrar_registros_post_corte(registros, ultima_fecha_corte)
 
-            # Filtrar: Solo registros posteriores al último corte
-            if ultima_fecha_corte and fecha_reg <= ultima_fecha_corte:
-                continue
-                
-            # Helpers para castear valores vacíos o con comas de excel
-            def parse_hours(val):
-                if not val: return 0.0
-                try: 
-                    return float(str(val).replace(',', '.'))
-                except ValueError:
-                    return 0.0
-            
-            colab = r.get('COLABORADOR', 'Desconocido')
-            h_ord = parse_hours(r.get('HORAS_ORDINARIAS', r.get('HORAS ORDINARIAS', 0)))
-            h_ext = parse_hours(r.get('HORAS_EXTRAS', r.get('HORAS EXTRAS', 0)))
-            
-            if colab not in consolidado:
-                consolidado[colab] = {'ordinarias': 0.0, 'extras': 0.0}
-            
-            # Suma acumulativa matemática con redondeo explícito
-            consolidado[colab]['ordinarias'] += h_ord
-            consolidado[colab]['extras'] += h_ext
-            
-            consolidado[colab]['ordinarias'] = round(consolidado[colab]['ordinarias'], 2)
-            consolidado[colab]['extras'] = round(consolidado[colab]['extras'], 2)
-            
-            total_regs += 1
-
-            # Guardar detalle diario para el CSV
-            detalle_diario.append({
-                'colaborador': colab,
-                'fecha': fecha_reg_str,
-                'ingreso': r.get('INGRESO_REAL', r.get('INGRESO REAL', '')),
-                'salida': r.get('SALIDA_REAL', r.get('SALIDA REAL', '')),
-                'horas_ordinarias': h_ord,
-                'horas_extras': h_ext,
-                'motivo': r.get('MOTIVO', ''),
-                'comentarios': r.get('COMENTARIOS', '')
-            })
-
-        # Ordenar detalle por colaborador y luego por fecha
-        detalle_diario.sort(key=lambda x: (x['colaborador'], x['fecha']))
+        # 4. Consolidar horas y detalle
+        consolidado = consolidar_horas(registros_filtrados)
+        detalle_diario = construir_detalle_diario(registros_filtrados)
+        total_regs = len(registros_filtrados)
 
         return jsonify({
             'status': 'success',

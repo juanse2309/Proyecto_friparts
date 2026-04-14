@@ -10,20 +10,54 @@ let paginaActual = 1;
 const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f8fafc;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23e2e8f0;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g)' rx='12'/%3E%3Cg opacity='0.4' transform='translate(0, -5)'%3E%3Cpath d='M30 40c0-2.2 1.8-4 4-4h32c2.2 0 4 1.8 4 4v25c0 2.2-1.8 4-4 4H34c-2.2 0-4-1.8-4-4V40z' fill='%2364748b'/%3E%3Ccircle cx='50' cy='52.5' r='7' fill='%23f1f5f9'/%3E%3Cpath d='M46 32h8l2 4h-12z' fill='%2364748b'/%3E%3C/g%3E%3Ctext x='50' y='82' text-anchor='middle' font-family='sans-serif' font-size='7' fill='%2394a3b8' font-weight='bold'%3EFriTech%3C/text%3E%3C/svg%3E`;
 
 /**
- * Genera el HTML de la imagen con lógica de fallback multinivel (Súper Radar v2.1)
- * Orden: Drive Proxy -> Local (Prefijo) -> Local (Sin Prefijo) -> Extensiones -> no-image.svg
+ * Genera el HTML de la imagen con lógica de fallback multinivel (Súper Radar v3.0)
+ * Orden: Imagen Pre-validada -> Local Original (.jpg) -> Local Limpio (.jpg) -> Local Limpio (.png) -> no-image.svg
  */
 function obtenerHtmlImagen(p, esMovil = false) {
-    const srcValida = p.imagen_valida || '/static/img/no-image.svg';
+    const codigoOriginal = String(p.codigo || p.id_codigo || '').trim();
+    const codigoLimpio = typeof limpiarCodigoJS === 'function' ? limpiarCodigoJS(codigoOriginal) : codigoOriginal;
+    
+    // Rutas de fallback
+    const localImgOriginal = `/static/img/productos/${codigoOriginal}.jpg`;
+    const localImgLimpio = `/static/img/productos/${codigoLimpio}.jpg`;
+    const localImgPng = `/static/img/productos/${codigoLimpio}.png`;
+    const cloudImg = p.imagen || '';
+    
+    // Si el backend ya validó una ruta, la usamos como punto de partida, si no, empezamos el radar
+    const srcInicial = p.imagen_valida || localImgOriginal;
     
     // Estilos según vista
     const estilo = esMovil 
         ? 'width: 100%; height: 100%; object-fit: cover;' 
-        : 'width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer; background: white;';
+        : 'width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer; background: white; border: 1px solid #eee;';
     
     const extraAttr = esMovil ? 'class="card-img"' : 'onclick="window.open(this.src, \'_blank\')" title="Click para ampliar"';
 
-    return `<img src="${srcValida}" style="${estilo}" ${extraAttr} onerror="this.onerror=null; this.src = '/static/img/no-image.svg';">`;
+    return `
+        <img src="${srcInicial}" 
+             data-limpio-src="${localImgLimpio}"
+             data-png-src="${localImgPng}"
+             data-cloud-src="${cloudImg}"
+             data-placeholder="${PLACEHOLDER_SVG}"
+             data-attempt="0"
+             style="${estilo}" 
+             ${extraAttr} 
+             onerror="
+                const attempt = parseInt(this.dataset.attempt || '0');
+                this.dataset.attempt = (attempt + 1).toString();
+                
+                if (attempt === 0) {
+                    this.src = this.dataset.limpioSrc;
+                } else if (attempt === 1) {
+                    this.src = this.dataset.pngSrc;
+                } else if (attempt === 2 && this.dataset.cloudSrc && this.dataset.cloudSrc.length > 10) {
+                    this.src = this.dataset.cloudSrc;
+                } else {
+                    this.src = this.dataset.placeholder;
+                    this.onerror = null;
+                }
+             ">
+    `;
 }
 
 /**
@@ -168,7 +202,7 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                         
                         <div class="card-content">
                             <div class="card-header-flex">
-                                <span class="card-code">${p.codigo}</span>
+                                <span class="card-code" onclick="event.preventDefault(); window.abrirModalHistorial('${p.codigo}');" style="text-decoration: underline; cursor: pointer; color: #0d6efd;">${p.codigo}</span>
                                 <span class="card-status-text" style="color: ${getSemaforoColor(semaforoColor)}">${p.semaforo?.estado || ''}</span>
                             </div>
                             
@@ -240,7 +274,7 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
             tr.innerHTML = `
                 <td style="padding: 10px; text-align: center;">${obtenerHtmlImagen(p, false)}</td>
-                <td style="padding: 10px;">${p.codigo || '-'}</td>
+                <td style="padding: 10px;"><a href="#" onclick="event.preventDefault(); window.abrirModalHistorial('${p.codigo}');" class="text-primary fw-bold text-decoration-underline" style="cursor: pointer;" title="Ver trazabilidad completa">${p.codigo || '-'}</a></td>
                 <td style="padding: 10px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     ${p.descripcion || '-'}
                     ${tieneDiscrepancia ? '<br><span class="badge bg-danger" style="font-size: 10px;">DISCREPANCIA DETECTADA</span>' : ''}
@@ -811,6 +845,19 @@ window.ModuloInventario = {
     cerrarModalConteo: cerrarModalConteo
 };
 
-
-
-
+/**
+ * Función puente global para abrir el Modal de Historial.
+ * Se invoca desde in-place en la tabla y llama al módulo Historial sin recargar.
+ */
+window.abrirModalHistorial = function(codigo) {
+    if (window.ModuloHistorial && typeof window.ModuloHistorial.irAProducto === 'function') {
+        window.ModuloHistorial.irAProducto(codigo);
+    } else {
+        console.error("Módulo de Trazabilidad/Historial no se encuentra disponible.");
+        if (typeof Swal !== 'undefined') {
+            Swal.fire('Atención', 'El módulo de trazabilidad no está disponible en esta vista.', 'info');
+        } else {
+            alert('El módulo de trazabilidad no está disponible.');
+        }
+    }
+};

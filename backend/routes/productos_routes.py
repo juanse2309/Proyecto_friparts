@@ -18,21 +18,64 @@ productos_bp = Blueprint('productos', __name__)
 
 @productos_bp.route('/detalle/<codigo_sistema>', methods=['GET'])
 def detalle_producto(codigo_sistema):
-    """Obtiene el detalle completo de un producto."""
+    """Obtiene el detalle completo de un producto con imagen validada."""
     try:
-        resultado = inventario_service.obtener_detalle_producto(codigo_sistema)
+        from backend.utils.formatters import normalizar_codigo
+        print(f"\n{'='*40}")
+        print(f"🚀 --- PETICIÓN RECIBIDA PARA: {codigo_sistema} ---")
         
+        # 1. Normalización de entrada (Regex)
+        codigo_norm = normalizar_codigo(codigo_sistema)
+        print(f"🔍 --- CÓDIGO NORMALIZADO: {codigo_norm} ---")
+        
+        # 2. Búsqueda en el servicio
+        resultado = inventario_service.obtener_detalle_producto(codigo_norm)
+        
+        # Auditoría Defensiva
+        enc_bodega = "Si" if resultado.get("status") == "success" and resultado["producto"].get("stock_total", 0) > 0 else "No"
+        enc_cat = "Si" if resultado.get("status") == "success" else "No"
+        print(f"📊 Buscando detalle para: [{codigo_norm}] | ¿Encontrado en Bodega?: [{enc_bodega}] | ¿Encontrado en Catálogo?: [{enc_cat}]")
+        print(f"{'='*40}\n")
+
         if resultado["status"] == "success":
+            p = resultado["producto"]
+            # 3. Normalización Simétrica para Imágenes (Súper Radar v3.0)
+            codigo_limpio = normalizar_codigo(str(p.get('codigo_sistema', codigo_norm)))
+            
+            # ... (Resto de la lógica de imágenes se mantiene igual)
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            image_dir = os.path.join(base_dir, 'frontend', 'static', 'img', 'productos')
+            default_image = '/static/img/no-image.svg'
+            
+            img_raw = str(p.get('imagen', '')).strip()
+            if img_raw and ('drive.google.com' in img_raw or len(img_raw) > 20):
+                p['imagen_valida'] = img_raw
+            else:
+                p['imagen_valida'] = f"/static/img/productos/{codigo_limpio}.jpg" if os.path.exists(os.path.join(image_dir, f"{codigo_limpio}.jpg")) else default_image
+
             return jsonify(resultado), 200
         else:
-            return jsonify(resultado), 404
+            # Fallback Defensivo solicitado por el usuario para evitar roturas en frontend
+            return jsonify({
+                "status": "error",
+                "error": "No encontrado",
+                "message": resultado.get("message", "Producto no encontrado en las bases de datos"),
+                "debug_info": {
+                    "codigo_original": codigo_sistema,
+                    "codigo_buscado": codigo_norm,
+                    "catalogo": enc_cat,
+                    "bodega": enc_bodega
+                }
+            }), 200 # Devolvemos 200 con status:error como fallback suave
             
     except Exception as e:
         logger.error(f"Error en endpoint detalle: {e}")
         return jsonify({
             "status": "error",
-            "message": "Error interno del servidor"
+            "message": "Error interno del servidor",
+            "debug_info": str(e)
         }), 500
+
 
 
 @productos_bp.route('/buscar/<query>', methods=['GET'])
@@ -236,3 +279,182 @@ def listar_productos():
             'status': 'error',
             'message': str(e)
         }), 500
+
+
+@productos_bp.route('/historial/<codigo>', methods=['GET'])
+def historial_producto(codigo):
+    """
+    Obtiene la trazabilidad 360 de un producto.
+    """
+    try:
+        from flask import request
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 100))
+        print(f"DEBUG: Paginación - Página {page}, Límite {limit}")
+        
+        tenant = get_tenant_from_request()
+        from datetime import datetime
+        from backend.utils.formatters import normalizar_codigo
+        
+        def parsear_fecha_flex(fecha_str):
+            if not fecha_str or str(fecha_str).strip() in ['', 'None']:
+                return None
+            fecha_str = str(fecha_str).strip()
+            if ' ' in fecha_str: fecha_str = fecha_str.split(' ')[0]
+            if 'T' in fecha_str: fecha_str = fecha_str.split('T')[0]
+            for fmt in ['%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d', '%m/%d/%Y', '%Y/%m/%d', '%d-%m-%Y']:
+                try: return datetime.strptime(fecha_str, fmt)
+                except: pass
+            if '/' in fecha_str:
+                try:
+                    p = fecha_str.split('/')
+                    if len(p) == 3: return datetime(int(p[2]), int(p[1]), int(p[0]))
+                except: pass
+            return None
+
+        def s_get(d, keys, default=''):
+            for k in keys:
+                if k in d: return d[k]
+                for dk, dv in d.items():
+                    if str(dk).strip().upper() == str(k).strip().upper():
+                        return dv
+            return default
+
+        codigo_norm = normalizar_codigo(codigo)
+        movimientos = []
+        
+        # Using Pandas DF to vectorize string contains
+        def buscar_movimientos_pandas(hoja, codigo_search, map_tipo, map_fecha, map_resp, map_cant, map_det, filter_col):
+            movs = []
+            print(f"DEBUG: Iniciando búsqueda en {hoja} para [{codigo_search}] en columna [{filter_col}]")
+            try:
+                from backend.core.database import sheets_client
+                df = sheets_client.get_dataframe(hoja)
+                if df.empty:
+                    print(f"DEBUG: Hoja {hoja} está VACÍA en el caché.")
+                    return movs
+                
+                # Check target filter column, if it doesn't exist try to fallback 
+                if filter_col not in df.columns:
+                    print(f"DEBUG: Columna {filter_col} NO encontrada en {hoja}. Intentando fallback...")
+                    # Fallback to similar columns
+                    for c in df.columns:
+                        if 'CODIGO' in c.upper() or 'PRODUCTO' in c.upper():
+                            filter_col = c
+                            print(f"DEBUG: Fallback exitoso a columna: {filter_col}")
+                            break
+                            
+                if filter_col not in df.columns:
+                    print(f"DEBUG: ERROR CRÍTICO: No se encontró columna de filtrado en {hoja}. Columnas: {list(df.columns)}")
+                    return movs
+                
+                # Normalización simétrica garantizada (Regex-based)
+                df[filter_col] = df[filter_col].apply(normalizar_codigo)
+                
+                # Match Inteligente: Captura el código en cualquier parte de la cadena (Flexible)
+                import re
+                regex_search = fr'{re.escape(str(codigo_search))}'
+                mask = df[filter_col].astype(str).str.contains(regex_search, regex=True, na=False)
+                df_match = df[mask]
+                
+                # LOG OBLIGATORIO SOLICITADO
+                print(f"DEBUG: Registros encontrados en {hoja} para [{codigo_search}]: {len(df_match)} filas")
+                
+                for _, r in df_match.iterrows():
+                    f_str = s_get(r, map_fecha)
+                    f = parsear_fecha_flex(f_str)
+                    
+                    t_str = str(s_get(r, map_tipo)).strip().upper() if map_tipo else hoja.upper()
+                    if hoja == 'RAW_VENTAS':
+                        tipo_mov = 'PEDIDO' if 'PEDIDO' in t_str else 'VENTA'
+                    else:
+                        tipo_mov = hoja.upper() if getattr(hoja, 'upper', None) else hoja
+                        if tipo_mov == 'ENSAMBLES': tipo_mov = 'ENSAMBLE'
+                        
+                    doc_val = str(s_get(r, map_resp))
+                    cant_str = s_get(r, map_cant)
+                    try: cantidad = int(float(str(cant_str))) if cant_str else 0
+                    except: cantidad = 0
+                    
+                    if hoja == 'INYECCION':
+                        det = f"OP: {s_get(r, ['ORDEN PRODUCCION'])} | Maq: {s_get(r, ['MAQUINA'])}"
+                    elif hoja == 'PULIDO':
+                        det = f"Bs: {s_get(r, ['BUJES BUENOS'])} | PNC: {s_get(r, ['PNC'])}"
+                    elif hoja == 'ENSAMBLES':
+                        det = f"OP: {s_get(r, ['OP NUMERO'])}"
+                    else:
+                        det = f"Clasificación: {t_str}"
+                        doc_val = f"Doc: {doc_val}" if doc_val else "-"
+
+                    mov_item = {
+                        'tipo': tipo_mov,
+                        'fecha_obj': f or datetime.min,
+                        'fecha': f.strftime('%d/%m/%Y') if f else '-',
+                        'responsable': doc_val,
+                        'cantidad': cantidad,
+                        'detalle': det
+                    }
+
+                    # Agregar horarios para PULIDO (Búsqueda robusta)
+                    if hoja == 'PULIDO':
+                        mov_item['hora_inicio'] = str(s_get(r, ['HORA INICIO', 'HORA_INICIO', 'INICIO', 'HORA_INI', 'HORA INICIAL']))
+                        mov_item['hora_fin'] = str(s_get(r, ['HORA FIN', 'HORA_FIN', 'FIN', 'HORA_TER', 'HORA FINAL', 'HORA TERMINA']))
+
+                    movs.append(mov_item)
+            except Exception as e:
+                logger.error(f"Error {hoja} pandas historial prod: {e}")
+            return movs
+
+        # Execute accelerated queries
+        mov_iny = buscar_movimientos_pandas('INYECCION', codigo_norm, [], ['FECHA INICIA', 'FECHA'], ['RESPONSABLE'], ['CANTIDAD REAL', 'CANTIDAD'], [], 'ID CODIGO')
+        mov_pul = buscar_movimientos_pandas('PULIDO', codigo_norm, [], ['FECHA'], ['RESPONSABLE', 'OPERARIO', 'USUARIO'], ['CANTIDAD RECIBIDA', 'BUJES BUENOS', 'CANTIDAD REAL'], [], 'ID CODIGO')
+        mov_ens = buscar_movimientos_pandas('ENSAMBLES', codigo_norm, [], ['FECHA', 'FECHA INICIA'], ['RESPONSABLE'], ['CANTIDAD'], [], 'ID CODIGO')
+        from backend.app import Hojas
+        mov_com = buscar_movimientos_pandas(Hojas.RAW_VENTAS, codigo_norm, ['CLASIFICACION', 'CLASIFICACIÓN', 'TIPO'], ['FECHA', 'FEC', 'Fecha'], ['DOCUMENTO', 'DOC', 'ORDEN', 'Documento'], ['CANTIDAD', 'CANT', 'Cantidad'], [], 'PRODUCTOS')
+        
+        movimientos = mov_iny + mov_pul + mov_ens + mov_com
+        
+        # Resumen de depuración solicitado
+        print(f"--- DEBUG: RESULTADOS HISTORIAL PARA {codigo} ---")
+        print(f"¿Inyección?: {len(mov_iny)} filas")
+        print(f"¿Pulido?:    {len(mov_pul)} filas")
+        print(f"¿Ensambles?: {len(mov_ens)} filas")
+        print(f"¿Comercial?: {len(mov_com)} filas")
+        print(f"Total:      {len(movimientos)} registros")
+
+        # Ordenar cronológicamente descendente (más nuevo a más antiguo)
+        movimientos.sort(key=lambda x: x['fecha_obj'], reverse=True)
+        
+        # Calcular KPIs absolutos antes de paginar
+        kpis = { 'INYECCION': 0, 'PULIDO': 0, 'ENSAMBLE': 0, 'COMERCIAL': 0 }
+        for m in movimientos:
+            try: cant = int(m.get('cantidad', 0))
+            except: cant = 0
+            
+            tipo = m.get('tipo', '')
+            if tipo == 'INYECCION': kpis['INYECCION'] += cant
+            elif tipo == 'PULIDO': kpis['PULIDO'] += cant
+            elif tipo == 'ENSAMBLE': kpis['ENSAMBLE'] += cant
+            else: kpis['COMERCIAL'] += cant
+            
+            if 'fecha_obj' in m: del m['fecha_obj']
+
+        total_records = len(movimientos)
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        paginated = movimientos[start_idx:end_idx]
+        has_more = end_idx < total_records
+
+        return jsonify({
+            'status': 'success',
+            'resultados': paginated,
+            'kpis': kpis,
+            'has_more': has_more,
+            'total': total_records,
+            'ENSAMBLE': mov_ens # Llave en singular y mayúsculas según lo solicitado
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error historial_producto: {e}")
+        code = 429 if "saturado" in str(e) else 500
+        return jsonify({'status': 'error', 'message': str(e)}), code
