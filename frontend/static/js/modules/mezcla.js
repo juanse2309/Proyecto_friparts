@@ -1,5 +1,5 @@
 // ============================================
-// mezcla.js - Lógica de Mezcla Material - NAMESPACED
+// mezcla.js - Lógica de Mezcla Material y Molido - NAMESPACED
 // ============================================
 
 const ModuloMezcla = {
@@ -14,6 +14,7 @@ const ModuloMezcla = {
             // Cargar responsables y máquinas desde el cache compartido
             if (window.AppState.sharedData.responsables) {
                 this.poblarSelect('responsable-mezcla', window.AppState.sharedData.responsables);
+                this.poblarSelect('responsable-molido', window.AppState.sharedData.responsables);
             }
 
             console.log('✅ [Mezcla] Datos cargados');
@@ -57,26 +58,6 @@ const ModuloMezcla = {
                 select.value = nombreUsuario;
                 console.log(`✅ [Mezcla] Responsable auto-seleccionado: ${nombreUsuario}`);
             }
-        } else {
-            console.log('⏳ [Mezcla] Esperando usuario para auto-selección...');
-
-            const handler = (e) => {
-                console.log("👤 [Mezcla] Evento user-ready recibido");
-                this.intentarSeleccionarResponsable(select);
-                window.removeEventListener('user-ready', handler);
-            };
-            window.addEventListener('user-ready', handler);
-
-            let attempts = 0;
-            const interval = setInterval(() => {
-                attempts++;
-                if (window.AppState?.user?.name) {
-                    this.intentarSeleccionarResponsable(select);
-                    clearInterval(interval);
-                    window.removeEventListener('user-ready', handler);
-                }
-                if (attempts > 10) clearInterval(interval);
-            }, 500);
         }
     },
 
@@ -103,8 +84,6 @@ const ModuloMezcla = {
                 return;
             }
 
-            console.log('📤 [Mezcla] ENVIANDO:', datos);
-
             const response = await fetch('/api/mezcla', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -115,13 +94,53 @@ const ModuloMezcla = {
             if (res.success) {
                 mostrarNotificacion('✅ Mezcla registrada!', 'success');
                 document.getElementById('form-mezcla')?.reset();
-                if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-mezcla');
                 this.limpiarProporcion();
             } else {
                 mostrarNotificacion(`❌ Error: ${res.error}`, 'error');
             }
         } catch (error) {
             console.error('Error [Mezcla] registrar:', error);
+            mostrarNotificacion('Error de conexión', 'error');
+        } finally {
+            mostrarLoading(false);
+        }
+    },
+
+    /**
+     * Registrar Molido
+     */
+    registrarMolido: async function () {
+        try {
+            mostrarLoading(true);
+
+            const datos = {
+                peso: document.getElementById('peso-molido')?.value || '0',
+                tipo: document.getElementById('tipo-molido')?.value || 'Recuperado',
+                responsable: document.getElementById('responsable-molido')?.value || '',
+                observaciones: document.getElementById('observaciones-molido')?.value || ''
+            };
+
+            if (!datos.responsable || parseFloat(datos.peso) <= 0) {
+                mostrarNotificacion('⚠️ Ingresa peso y responsable', 'warning');
+                mostrarLoading(false);
+                return;
+            }
+
+            const response = await fetch('/api/molido', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(datos)
+            });
+
+            const res = await response.json();
+            if (res.success) {
+                mostrarNotificacion('✅ Molido registrado correctamente', 'success');
+                document.getElementById('form-molido')?.reset();
+            } else {
+                mostrarNotificacion(`❌ Error: ${res.error}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error [Mezcla] registrarMolido:', error);
             mostrarNotificacion('Error de conexión', 'error');
         } finally {
             mostrarLoading(false);
@@ -193,6 +212,14 @@ const ModuloMezcla = {
         if (info) info.innerHTML = '<div style="text-align: center; color: #64748b;">Ingrese cantidad de bultos para ver porcentajes</div>';
     },
 
+    switchTab: function(tabName) {
+        document.querySelectorAll('.mezcla-tab-content').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.mezcla-tab-btn').forEach(el => el.classList.remove('active'));
+        
+        document.getElementById(`tab-${tabName}`).style.display = 'block';
+        document.querySelector(`.mezcla-tab-btn[onclick*="${tabName}"]`).classList.add('active');
+    },
+
     /**
      * Inicializar módulo
      */
@@ -200,39 +227,29 @@ const ModuloMezcla = {
         console.log('🔧 [Mezcla] Inicializando...');
         this.cargarDatos();
 
-        // Registrar persistencia Juan Sebastian Request
-        if (window.FormHelpers) {
-            window.FormHelpers.registrarPersistencia('form-mezcla');
-        }
-
         // Listener para bultos
         document.getElementById('bultos-mezcla')?.addEventListener('input', () => this.calcularPesosAutomaticos());
 
-        const form = document.getElementById('form-mezcla');
-        if (form) {
-            form.onsubmit = (e) => {
+        const formMezcla = document.getElementById('form-mezcla');
+        if (formMezcla) {
+            formMezcla.onsubmit = (e) => {
                 e.preventDefault();
                 this.registrar();
             };
-            form.onreset = () => {
+            formMezcla.onreset = () => {
                 setTimeout(() => this.limpiarProporcion(), 10);
             };
         }
 
-        this.limpiarProporcion();
-
-        // Configurar Smart Enter
-        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
-            window.ModuloUX.setupSmartEnter({
-                inputIds: [
-                    'fecha-mezcla', 'responsable-mezcla', 'maquina-mezcla',
-                    'bultos-mezcla', 'virgen-mezcla', 'molido-mezcla',
-                    'pigmento-mezcla', 'observaciones-mezcla'
-                ],
-                actionBtnId: 'btn-submit-mezcla'
-            });
+        const formMolido = document.getElementById('form-molido');
+        if (formMolido) {
+            formMolido.onsubmit = (e) => {
+                e.preventDefault();
+                this.registrarMolido();
+            };
         }
 
+        this.limpiarProporcion();
         console.log('✅ [Mezcla] Módulo inicializado');
     }
 };

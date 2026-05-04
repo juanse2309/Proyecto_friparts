@@ -56,13 +56,13 @@ window.ModuloMes = {
                 this.productos = window.AppState.sharedData.productos;
             } else {
                 const res = await fetchData('/api/productos/listar');
-                this.productos = res?.productos || [];
+                this.productos = res || [];
             }
 
-            // 3. Cargar estado del dashboard de máquinas
+            // 4. Cargar estado del dashboard de máquinas
             await this.cargarDashboard();
 
-            // 4. Cargar la cola de programación (Vista 1)
+            // 5. Cargar la cola de programación (Vista 1)
             await this.actualizarColaProgramacion();
 
         } catch (error) {
@@ -137,25 +137,42 @@ window.ModuloMes = {
                 </div>`;
             }
 
-            // ── Datos clave del trabajo ─────────────────────────────────
-            const molde = activo?.molde || cola[0]?.molde || 'N/A';
+            // ── Datos clave del trabajo (SQL Native) ────────────────────
+            const item = activo || (cola[0]) || {};
+            const capacidadMolde = item.molde || 'N/A';
             const horaInicio = (m.estado === 'EN_PROCESO' && activo?.hora_inicio)
                 ? `<small class="text-muted"><i class="fas fa-clock me-1"></i>Inicio: ${activo.hora_inicio}</small>` : '';
 
-            // Lista de SKUs del molde (desde la cola del dashboard)
-            const skuList = cola.length > 0
-                ? cola.map(c => `
+            // Lista de SKUs del molde (desde la cola o el activo)
+            let productosDelMontaje = [];
+            if (m.estado === 'EN_PROCESO' && activo) {
+                productosDelMontaje = activo.productos_activos || [{
+                    codigo_sistema: activo.codigo_sistema,
+                    cavidades: activo.cavidades
+                }];
+            } else {
+                productosDelMontaje = cola.map(c => ({
+                    codigo_sistema: c.codigo_sistema,
+                    cavidades: c.cavidades
+                }));
+            }
+
+            const skuList = productosDelMontaje.length > 0
+                ? productosDelMontaje.map(p => `
                     <div class="d-flex justify-content-between align-items-center py-1"
                         style="border-bottom:1px solid #f1f5f9;font-size:.78rem">
-                        <span class="fw-bold" style="color:#1e293b">${c.codigo_producto || '-'}</span>
-                        <span class="badge" style="background:${pal.border}22;color:${pal.border};font-size:.65rem">${c.cavidades} cav.</span>
+                        <span class="fw-bold" style="color:#1e293b">${p.codigo_sistema || '-'}</span>
+                        <span class="badge" style="background:${pal.border}22;color:${pal.border};font-size:.65rem">${p.cavidades} cav.</span>
                     </div>`).join('')
-                : `<div class="text-muted" style="font-size:.75rem">Sin productos en cola.</div>`;
+                : `<div class="text-muted" style="font-size:.75rem">Sin productos.</div>`;
+
+            const totalCavMalla = productosDelMontaje.reduce((s, p) => s + (p.cavidades || 0), 0);
+            const codigosMalla = productosDelMontaje.map(p => p.codigo_sistema).join(', ');
 
             // Botón principal
             const btn = m.estado === 'EN_PROCESO'
                 ? `<button class="btn btn-warning fw-bold w-100 py-2"
-                       onclick="ModuloMes.clickFinalizarDesdeCard('${activo?.id_inyeccion}', ${activo?.cavidades || 1})">
+                       onclick="ModuloMes.clickFinalizarDesdeCard('${activo?.id_inyeccion}', ${totalCavMalla}, '${item.molde || 'N/A'}', '${codigosMalla}', '${activo?.hora_inicio || '06:00'}')">
                        <i class="fas fa-stop-circle me-1"></i> Finalizar Turno
                    </button>`
                 : `<button class="btn btn-success fw-bold w-100 py-2"
@@ -164,7 +181,7 @@ window.ModuloMes = {
                    </button>`;
 
             // Botón liberar (solo PROGRAMADO)
-            const btnLiberar = (m.estado === 'PROGRAMADO' && cola.length > 0)
+            const btnLiberar = (m.estado === 'PROGRAMADO' && productosDelMontaje.length > 0)
                 ? `<button class="btn btn-outline-danger btn-sm w-100 mt-2"
                        onclick="ModuloMes.cancelarBatch('${m.nombre}')">
                        <i class="fas fa-ban me-1"></i> Liberar M\u00e1quina
@@ -186,7 +203,7 @@ window.ModuloMes = {
                         </div>
                         <!-- MOLDE como Héroe -->
                         <div style="font-size:1.35rem;font-weight:900;color:#0f172a;line-height:1.1">
-                            ${molde}
+                             Molde ${capacidadMolde}
                         </div>
                         ${horaInicio}
                     </div>
@@ -194,7 +211,7 @@ window.ModuloMes = {
                     <!-- Lista de SKUs del molde -->
                     <div style="padding:10px 14px;flex-grow:1">
                         <div style="font-size:.6rem;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:6px">
-                            <i class="fas fa-boxes me-1"></i> Productos del Molde
+                            <i class="fas fa-boxes me-1"></i> Productos del Montaje
                         </div>
                         ${skuList}
                     </div>
@@ -250,7 +267,7 @@ window.ModuloMes = {
     /**
      * Finalizar turno desde el botón de la tarjeta de máquina.
      */
-    clickFinalizarDesdeCard: async function (idInyeccion, cavidades) {
+    clickFinalizarDesdeCard: async function (idInyeccion, cavidades, molde, codigo, horaInicio) {
         if (!idInyeccion) return;
 
         // Obtener la hora actual en formato HH:MM para sugerir como Hora Fin
@@ -262,8 +279,14 @@ window.ModuloMes = {
         const { value: formValues } = await Swal.fire({
             title: '\u00bfFinalizar Turno?',
             html: `
-                <div class="text-start fs-6 mb-3 text-muted">Ingresa los cierres totales y revisa los tiempos del turno:</div>
-                
+                <div class="alert alert-info py-2 px-3 mb-3 border-0 text-start" style="background:#e0f2fe;color:#0369a1;border-radius:12px">
+                    <div class="row g-2">
+                        <div class="col-6"><small class="d-block fw-bold opacity-75">MOLDE</small> <strong>${molde}</strong></div>
+                        <div class="col-6"><small class="d-block fw-bold opacity-75">CAVIDADES</small> <strong>${cavidades}</strong></div>
+                        <div class="col-12 mt-1"><small class="d-block fw-bold opacity-75">PRODUCTO(S)</small> <strong>${codigo}</strong></div>
+                    </div>
+                </div>
+
                 <div class="mb-3 text-start px-2">
                     <label class="form-label fw-bold small text-uppercase text-muted mb-1">Cierres del Contador</label>
                     <input type="number" id="swal-cierres" class="form-control form-control-lg text-center fw-bold" placeholder="0" min="1">
@@ -272,14 +295,13 @@ window.ModuloMes = {
                 <div class="row text-start px-2 g-3">
                     <div class="col-6">
                         <label class="form-label fw-bold small text-uppercase text-muted mb-1">Hora Inicio Real</label>
-                        <input type="time" id="swal-hora-inicio" class="form-control" value="06:00">
+                        <input type="time" id="swal-hora-inicio" class="form-control" value="${horaInicio}">
                     </div>
                     <div class="col-6">
                         <label class="form-label fw-bold small text-uppercase text-muted mb-1">Hora Fin Real</label>
                         <input type="time" id="swal-hora-fin" class="form-control" value="${horaSugerida}">
                     </div>
                 </div>
-                <div class="mt-3 small text-muted text-start ps-2"><i class="fas fa-info-circle me-1"></i>La hora de llegada se registrar\u00e1 como 6:00 AM autom\u00e1ticamente.</div>
             `,
             focusConfirm: false,
             showCancelButton: true,
@@ -325,7 +347,6 @@ window.ModuloMes = {
                         timer: 3500, showConfirmButton: false
                     });
                     await this.cargarDashboard();
-                    await this.actualizarPendientesCalidad();
                 } else {
                     Swal.fire('Error', res?.error || 'No se pudo reportar', 'error');
                 }
@@ -644,23 +665,26 @@ window.ModuloMes = {
             return;
         }
 
-        // Agrupar por Máquina — usando Maquina (campo del nuevo formato agrupado)
         const porMaquina = {};
-        this.maquinas.forEach(m => porMaquina[m] = []);
+        this.maquinas.forEach(m => {
+            const mKey = (typeof m === 'string' ? m : String(m)).toUpperCase();
+            porMaquina[mKey] = [];
+        });
 
         this.programacionesActivas.forEach(p => {
-            const maq = p.Maquina || p.MAQUINA || '';
+            const maq = (p.maquina || '').toUpperCase();
             if (porMaquina[maq] !== undefined) {
                 porMaquina[maq].push(p);
-            } else {
-                porMaquina[maq] = [p];
             }
         });
 
-        // Unión de máquinas conocidas + máquinas con trabajo
-        const todasMaquinas = [...new Set([...this.maquinas, ...Object.keys(porMaquina).filter(k => k)])];
+        // Agrupamos nombres de máquinas de forma única
+        const todasMaquinas = [...new Set([
+            ...this.maquinas.map(m => (typeof m === 'string' ? m : String(m)).toUpperCase()),
+            ...Object.keys(porMaquina)
+        ])];
 
-        // Paleta de colores por máquina (gradientes) — cíclica
+        // Paleta de colores...
         const paletas = [
             { grad: 'linear-gradient(135deg,#1d4ed8,#3b82f6)', light: '#eff6ff', accent: '#1d4ed8' },
             { grad: 'linear-gradient(135deg,#6d28d9,#8b5cf6)', light: '#f5f3ff', accent: '#6d28d9' },
@@ -669,11 +693,14 @@ window.ModuloMes = {
         ];
 
         container.innerHTML = todasMaquinas.map((m, idx) => {
-            const progs = porMaquina[m] || [];
-            const tieneTrabajo = progs.length > 0;
+            const items = porMaquina[m] || [];
+            const tieneTrabajo = items.length > 0;
             const pal = paletas[idx % paletas.length];
 
-            // --- Card libre ---
+            // Determinar si hay algo en proceso
+            const esEnProceso = items.some(i => i.estado === 'EN_PROCESO');
+            const statusLabel = esEnProceso ? `EN USO - Molde ${items[0].molde}` : 'PROGRAMADA';
+
             if (!tieneTrabajo) {
                 return `
                 <div class="col-md-6 col-xl-3 mb-3">
@@ -690,23 +717,18 @@ window.ModuloMes = {
                 </div>`;
             }
 
-            // --- Card activa ---
-            // El backend ahora devuelve 1 objeto por molde con un sub-array `productos`
-            const moldeGrupo = progs[0]; // primer (y único) grupo por molde
-            const moldePrincipal = moldeGrupo.Molde || moldeGrupo.MOLDE || 'Sin nombre';
-            // Aplanar los productos de todos los grupos de esta máquina
-            const todosProductos = progs.flatMap(g => g.productos || []);
-            const totalCav = todosProductos.reduce((sum, p) => sum + (parseInt(p.cavidades) || 0), 0);
+            // El molde principal (capacidad)
+            const moldeCapacidad = items[0].molde || 'N/A';
+            const totalCav = items.reduce((sum, p) => sum + (parseInt(p.cavidades) || 0), 0);
 
             return `
             <div class="col-md-6 col-xl-3 mb-3">
                 <div class="card border-0 h-100" style="border-radius:18px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.13)">
-                    <!-- Header gradiente -->
                     <div style="background:${pal.grad};padding:18px 20px 16px">
                         <div class="d-flex justify-content-between align-items-start">
                             <div style="max-width:65%">
                                 <div style="color:rgba(255,255,255,.6);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700">${m}</div>
-                                <div style="color:#fff;font-size:1.1rem;font-weight:800;line-height:1.25;margin-top:4px;word-break:break-word">${moldePrincipal}</div>
+                                <div style="color:#fff;font-size:1.1rem;font-weight:800;line-height:1.25;margin-top:4px;word-break:break-word">Molde ${moldeCapacidad}</div>
                             </div>
                             <div class="text-center" style="min-width:52px">
                                 <div style="color:#fff;font-size:2.4rem;font-weight:900;line-height:1">${totalCav}</div>
@@ -714,23 +736,23 @@ window.ModuloMes = {
                             </div>
                         </div>
                         <div class="d-flex align-items-center gap-2 mt-3">
-                            <span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.75);display:inline-block;
+                            <span style="width:8px;height:8px;border-radius:50%;background:#bef264;display:inline-block;
                                 animation:mes-pulse 1.8s ease-in-out infinite"></span>
-                            <span style="color:rgba(255,255,255,.65);font-size:.68rem;font-weight:600">
-                                EN COLA &middot; ${todosProductos.length} PRODUCTO${todosProductos.length !== 1 ? 'S' : ''}
+                            <span style="color:#fff;font-size:.68rem;font-weight:700">
+                                ${statusLabel} &middot; ${items.length} SKU${items.length !== 1 ? 'S' : ''}
                             </span>
                         </div>
                     </div>
                     <!-- Body: lista de SKUs -->
                     <div style="background:#fff;padding:14px 16px 16px">
                         <div style="margin-bottom:12px">
-                            ${todosProductos.map((p, i) => `
+                            ${items.map((p, i) => `
                                 <div style="display:flex;justify-content:space-between;align-items:center;
                                     padding:9px 12px;
                                     background:${i % 2 === 0 ? pal.light : '#fff'};
                                     border-radius:8px;margin-bottom:3px">
                                     <span style="font-size:1.15rem;font-weight:900;color:${pal.accent}">
-                                        ${p.codigo || '-'}
+                                        ${p.codigo_sistema || '-'}
                                     </span>
                                     <span style="font-size:1.15rem;font-weight:700;color:#374151">
                                         x${p.cavidades || 0}
@@ -807,8 +829,25 @@ window.ModuloMes = {
             return;
         }
 
+        const fecha = document.getElementById('mes-prog-fecha').value;
+        const molde = document.getElementById('mes-prog-molde').value;
+
+        const totalCav = productosParaEnviar.reduce((sum, p) => sum + p.cavidades, 0);
+        const moldeCapacidad = parseInt(document.getElementById('mes-prog-molde').value) || 0;
+
+        if (totalCav !== moldeCapacidad) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error de Cavidades (Regla del Rompecabezas)',
+                text: `El montaje suma ${totalCav} cavidades pero el molde es de ${moldeCapacidad}. Debe coincidir exactamente.`
+            });
+            return;
+        }
+
         const payload = {
             maquina: maquina,
+            fecha: fecha,
+            molde: molde,
             productos: productosParaEnviar,
             observaciones: observaciones,
             responsable_planta: window.AuthModule?.currentUser?.nombre || 'ADMIN'
@@ -864,8 +903,10 @@ window.ModuloMes = {
             try {
                 mostrarLoading(true);
 
-                // Leer la cola de la máquina directamente del dashboard en memoria
-                const maquinaData = (this.dashboardData || []).find(m => m.nombre === maquina);
+                // Leer la cola de la máquina — Búsqueda insensible a mayúsculas
+                const maquinaData = (this.dashboardData || []).find(m => 
+                    (m.nombre || '').toUpperCase() === (maquina || '').toUpperCase()
+                );
                 const cola = maquinaData?.cola || [];
 
                 if (cola.length === 0) {
@@ -874,10 +915,22 @@ window.ModuloMes = {
                     return;
                 }
 
-                // Obtener IDs únicos (Multi-SKU: varios SKUs comparten un mismo id_programacion)
-                const idsUnicos = [...new Set(cola.map(p => p.id_programacion).filter(Boolean))];
+                // Obtener IDs de la cola (Programaciones)
+                const idsProg = [...new Set(cola.map(p => p.id_programacion || p.id).filter(Boolean))];
+                
+                // Obtener ID del trabajo activo (Producción) si aplica
+                const idActivo = maquinaData.trabajo_activo?.id_inyeccion || maquinaData.trabajo_activo?.id;
 
-                for (const id of idsUnicos) {
+                const todosLosIds = [...idsProg];
+                if (idActivo) todosLosIds.push(idActivo);
+
+                if (todosLosIds.length === 0) {
+                    mostrarLoading(false);
+                    Swal.fire('Aviso', 'No hay trabajos para cancelar en esta máquina.', 'info');
+                    return;
+                }
+
+                for (const id of todosLosIds) {
                     await fetchData(`/api/mes/cancelar/${id}`, { method: 'POST' });
                 }
 

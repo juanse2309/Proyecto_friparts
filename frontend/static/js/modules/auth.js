@@ -9,11 +9,17 @@ const AuthModule = {
     // Normalización robusta de roles (quita tildes y pasa a MAYUSCULAS)
     normalizeRole: function (role) {
         if (!role) return 'INVITADO';
-        return role.toString()
+        let r = role.toString()
             .normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "")
             .toUpperCase()
             .trim();
+        
+        // REGLA DE RESCATE: Cualquier variante de ADMIN es TRATADA IGUAL
+        if (r === 'ADMINISTRACION' || r === 'ADMINISTRADOR' || r === 'ADMIN') {
+            return 'ADMIN';
+        }
+        return r;
     },
 
     // Obtener permisos para un rol (soporta coincidencias parciales)
@@ -51,6 +57,7 @@ const AuthModule = {
     permissions: {
         'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMIN': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         // === FRIMETALS ROLES (Phase 2 Multi-Tenant) ===
         'STAFF FRIMETALS': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'pedidos', 'almacen', 'asistencia'],
         'COMERCIAL FRIMETALS': ['metals-dashboard', 'pedidos', 'almacen'],
@@ -581,6 +588,13 @@ const AuthModule = {
     logout: function () {
         this.currentUser = null;
         sessionStorage.removeItem('friparts_user');
+        
+        // LIMPIEZA TOTAL DE ESTADOS DE PRODUCCIÓN (Juan Sebastian request)
+        localStorage.removeItem('pulido_state');
+        localStorage.removeItem('inyeccion_state');
+        localStorage.removeItem('ensamble_state');
+        localStorage.removeItem('mezcla_state');
+        
         // Mostrar Landing
         this.showLandingScreen();
         // Recargar para limpiar estados

@@ -12,7 +12,7 @@ class DriveService:
     """Servicio para subir archivos a Google Drive usando Service Account."""
     
     def __init__(self):
-        self._scopes = ['https://www.googleapis.com/auth/drive.file']
+        self._scopes = ['https://www.googleapis.com/auth/drive']
         self._credentials = self._cargar_credenciales()
         self.service = build('drive', 'v3', credentials=self._credentials)
 
@@ -76,9 +76,32 @@ class DriveService:
                 fields='id',
                 supportsAllDrives=True
             ).execute()
-            
             file_id = file.get('id')
-            logger.info(f"Archivo subido exitosamente a Drive. ID: {file_id}, Nombre: {nombre_destino}")
+            
+            # --- Intento de Transferencia de Propiedad (Para evitar storageQuotaExceeded) ---
+            # Si el Service Account no tiene cuota, transferimos el archivo al dueño de la carpeta.
+            try:
+                folder_meta = self.service.files().get(
+                    fileId=folder_id, 
+                    fields='owners', 
+                    supportsAllDrives=True
+                ).execute()
+                
+                owners = folder_meta.get('owners', [])
+                if owners:
+                    owner_email = owners[0].get('emailAddress')
+                    self.service.permissions().create(
+                        fileId=file_id,
+                        body={'type': 'user', 'role': 'owner', 'emailAddress': owner_email},
+                        transferOwnership=True,
+                        supportsAllDrives=True
+                    ).execute()
+                    logger.info(f" 🚩 Propiedad transferida a: {owner_email}")
+            except Exception as e_transfer:
+                # Es normal que falle si no están en el mismo dominio de Workspace
+                logger.debug(f" No se pudo transferir propiedad (esperado en algunos casos): {e_transfer}")
+
+            logger.info(f" ✅ Archivo '{nombre_destino}' creado en Drive (Folder ID: {folder_id}). ID File: {file_id}")
             return file_id
         except Exception as e:
             logger.error(f"Falla crítica subiendo archivo a Drive (Folder: {folder_id}): {str(e)}")

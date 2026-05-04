@@ -5,6 +5,11 @@
 const ModuloEnsamble = {
     productosData: [],
     responsablesData: [],
+    
+    normalizarCodigo: function(c) {
+        if (!c) return "";
+        return String(c).toUpperCase().replace(/FR-/gi, "").trim();
+    },
     init: async function () {
         console.log('🔧 [Ensamble] Inicializando módulo Smart...');
         await this.cargarDatos();
@@ -242,6 +247,43 @@ const ModuloEnsamble = {
     },
 
     isSubmitting: false,
+    _idEnsambleActivo: null, // ID para persistencia inmediata (patrón Pulido)
+
+    /**
+     * Persistencia inmediata al comenzar ensamble.
+     * Crea un registro EN_PROCESO en db_ensambles visible en el PC al instante.
+     */
+    persistirInicioSQL: async function() {
+        const resp = document.getElementById('responsable-ensamble')?.value?.trim();
+        const idCodigo = this.normalizarCodigo(document.getElementById('ens-id-codigo')?.value || '');
+        const horaInicio = document.getElementById('hora-inicio-ensamble')?.value || '';
+        const op = document.getElementById('op-ensamble')?.value || '';
+
+        if (!resp || !idCodigo || idCodigo === 'NO DEFINIDO') {
+            console.log('⏳ [Ensamble] Persistencia diferida — faltan datos');
+            return;
+        }
+
+        const idEnsamble = 'ENS-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+        this._idEnsambleActivo = idEnsamble;
+
+        try {
+            await fetch('/api/ensamble/iniciar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id_ensamble: idEnsamble,
+                    responsable: resp,
+                    id_codigo: idCodigo,
+                    hora_inicio: horaInicio,
+                    orden_produccion: op
+                })
+            });
+            console.log(`✅ [Ensamble] Inicio persistido en SQL: ${idEnsamble}`);
+        } catch (e) {
+            console.error('Error persistencia inicio ensamble:', e);
+        }
+    },
 
     configurarEventos: function () {
         const form = document.getElementById('form-ensamble');
@@ -257,6 +299,11 @@ const ModuloEnsamble = {
         document.getElementById('cantidad-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
         document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
         document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);
+
+        // Persistir inicio cuando hora_inicio se llena (trigger clave para las tablets)
+        document.getElementById('hora-inicio-ensamble')?.addEventListener('change', () => {
+            this.persistirInicioSQL();
+        });
 
         // El mapeo se dispara desde initAutocompleteComponente al seleccionar
 
@@ -280,8 +327,21 @@ const ModuloEnsamble = {
 // FUNCIONES GLOBALES (Legacy/Compatibilidad)
 // ==========================================
 
-async function registrarEnsamble() {
+async function registrarEnsamble(event) {
+    if (event) event.preventDefault();
     if (ModuloEnsamble.isSubmitting) return;
+
+    const horaInicio = document.getElementById('hora-inicio-ensamble')?.value || '00:00';
+    const horaFin = document.getElementById('hora-fin-ensamble')?.value || '00:00';
+    if (horaFin <= horaInicio) {
+        Swal.fire({
+            title: 'Error de Tiempos',
+            text: 'La Hora de Fin debe ser estrictamente posterior a la Hora de Inicio.',
+            icon: 'error',
+            confirmButtonColor: '#d33'
+        });
+        return;
+    }
 
     try {
         console.log('🚀 [Ensamble] Intentando registrar...');
@@ -319,8 +379,10 @@ async function registrarEnsamble() {
                         // Red de seguridad: eliminar cualquier parte después de "/" (ej. "CB9721 / FR9303" → "CB9721")
                         if (codigoFinal && codigoFinal.includes('/')) {
                             codigoFinal = codigoFinal.split('/')[0].trim();
-                            console.warn(`⚠️ [BOM] Código con "/" detectado, limpiando → "${codigoFinal}"`);
                         }
+
+                        // Normalización GLOBAL
+                        codigoFinal = ModuloEnsamble.normalizarCodigo(codigoFinal);
 
                         componentes.push({
                             buje_origen: codigoFinal,
@@ -333,44 +395,26 @@ async function registrarEnsamble() {
         }
 
 
-        const datos = {
-            fecha_inicio: document.getElementById('fecha-ensamble')?.value || '',
+        const datosFinales = {
+            id_ensamble: ModuloEnsamble._idEnsambleActivo || undefined, // Para upsert si se persistió al iniciar
+            id_codigo: ModuloEnsamble.normalizarCodigo(document.getElementById('ens-id-codigo')?.value || ''),
+            cantidad: totalPiezas,
             responsable: document.getElementById('responsable-ensamble')?.value || '',
+            orden_produccion: document.getElementById('op-ensamble')?.value || '',
+            almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || '',
+            almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || '',
+            qty: parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1,
             hora_inicio: document.getElementById('hora-inicio-ensamble')?.value || '',
             hora_fin: document.getElementById('hora-fin-ensamble')?.value || '',
-            codigo_producto: document.getElementById('ens-id-codigo')?.value || '', // Producto final
-            buje_componente: document.getElementById('ens-buje-componente')?.value || '',
-            qty_unitaria: qty,
-            cantidad_bolsas: cantidadBolsas,
-            cantidad_recibida: cantidadBolsas,
-            cantidad_real: cantidadReal,
-            total_piezas: totalPiezas,
-            almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || 'P. TERMINADO',
-            almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || 'PRODUCTO ENSAMBLADO',
-            orden_produccion: document.getElementById('op-ensamble')?.value || '',
-            pnc: pnc,
-            criterio_pnc: document.getElementById('criterio-pnc-hidden-ensamble')?.value || '',
-            observaciones: document.getElementById('observaciones-ensamble')?.value || '',
-            componentes: componentes.length > 0 ? componentes : [] // Enviar lista si existe
+            fecha_inicio: document.getElementById('fecha-ensamble')?.value || new Date().toISOString().split('T')[0],
+            defectos: window.tmpDefectosEnsamble || [],
+            componentes: componentes // Aseguramos que se envíen
         };
 
-        // Si digitó algo manualmente pero el backend devolvió "NO DEFINIDO", asumimos que es un ensamble directo sin receta (o un BOM si ya armó el array)
-        if (datos.componentes.length === 0 && (!datos.codigo_producto || datos.codigo_producto === 'NO DEFINIDO')) {
-            // Hacemos que el código producto asuma el valor del componente ingresado 
-            datos.codigo_producto = document.getElementById('ens-buje-componente')?.value || '';
-            if (!datos.codigo_producto) {
-                mostrarNotificacion('⚠️ Selecciona un buje componente válido', 'error');
-                mostrarLoading(false);
-                return;
-            }
-        }
-
-        console.log('📤 [Ensamble] DATOS ENVIADOS:', JSON.stringify(datos, null, 2));
-
-        const response = await fetch('/api/ensamble', {
+        const response = await fetch('/api/ensamble/finalizar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datos)
+            body: JSON.stringify(datosFinales)
         });
 
         const resultado = await response.json();
@@ -378,7 +422,7 @@ async function registrarEnsamble() {
 
         if (response.ok && resultado.success) {
             // Preparar datos para restauración
-            const datosRestaurar = { ...datos };
+            const datosRestaurar = { ...datosFinales };
             const metaConCallback = {
                 ...resultado.undo_meta,
                 restoreCallback: async () => {
@@ -417,6 +461,7 @@ async function registrarEnsamble() {
             mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', metaConCallback);
             document.getElementById('form-ensamble')?.reset();
             if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-ensamble');
+            ModuloEnsamble._idEnsambleActivo = null; // Reset para próximo ensamble
             ModuloEnsamble.intentarAutoSeleccionarResponsable();
 
             // Reset state
@@ -495,7 +540,7 @@ async function actualizarMapeoEnsamble() {
                 console.log('✅ Una sola receta encontrada:', opcion);
 
                 document.getElementById('ens-id-codigo').value = opcion.codigo_ensamble || '';
-                document.getElementById('ens-qty-bujes').value = opcion.qty || 1;
+                document.getElementById('ens-qty-bujes').value = 1; // 1 kit = 1 ensamble siempre
 
                 if (opcion.componentes && opcion.componentes.length > 0) {
                     renderBOM(opcion.componentes);
@@ -640,7 +685,7 @@ function mostrarSelectorOpciones(opciones) {
         btn.addEventListener('click', () => {
             // Seleccionar esta opción
             document.getElementById('ens-id-codigo').value = opcion.codigo_ensamble || '';
-            document.getElementById('ens-qty-bujes').value = opcion.qty || 1;
+            document.getElementById('ens-qty-bujes').value = 1; // 1 kit = 1 ensamble siempre
 
             // RENDERIZAR BOM PARA ESTA RECETA ESPECÍFICA (Juan Sebastian request)
             if (opcion.componentes && opcion.componentes.length > 0) {

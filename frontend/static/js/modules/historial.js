@@ -618,7 +618,7 @@
                 });
             }
 
-            const searchStr = `${m.tipo} ${m.fecha} ${m.cantidad} ${m.responsable} ${m.detalle}`.toLowerCase();
+            const searchStr = `${m.tipo} ${m.fecha} ${m.cant || 0} ${m.responsable} ${m.detalle}`.toLowerCase();
             
             const itemHtml = `
                 <div class="timeline-item d-flex mb-3 align-items-start swal-tl-item bg-${grupo.bg} bg-opacity-10 border border-2 border-top-0 border-bottom-0 border-end-0 border-${grupo.bg}-subtle p-3 rounded" data-search="${searchStr}" style="margin-left:10px;">
@@ -631,11 +631,9 @@
                             <span class="text-muted fw-semibold" style="font-size: 0.75rem;"><i class="far fa-calendar-alt me-1"></i>${m.fecha}</span>
                         </div>
                         <div class="mt-2 d-flex align-items-center">
-                            <span class="badge rounded-pill shadow-sm text-white" style="background-color: ${grupo.color}; font-size: 0.75rem;">${m.cantidad} uds</span>
+                            <span class="badge rounded-pill shadow-sm text-white" style="background-color: ${grupo.color}; font-size: 0.75rem;">${m.cant || 0} uds</span>
                             <span class="ms-2 fw-bold text-dark text-truncate d-inline-block" style="max-width: 200px; font-size: 0.85rem;">${m.responsable || '-'}</span>
                         </div>
-                        ${m.tipo === 'PULIDO' && (m.hora_inicio || m.hora_fin) && (formatHorario(m.hora_inicio) || formatHorario(m.hora_fin)) ? 
-                            `<div class="horario-movimiento mt-1"><i class="far fa-clock me-1"></i>${formatHorario(m.hora_inicio) || '??:??'} - ${formatHorario(m.hora_fin) || '??:??'}</div>` : ''}
                         <div class="small text-secondary mt-2 lh-sm" style="font-size: 0.8rem;">${m.detalle || ''}</div>
                     </div>
                 </div>
@@ -773,7 +771,6 @@
                                     <h4 class="mb-1 fw-bold text-dark" style="font-size: 1.1rem; letter-spacing: -0.5px;">${codigo}</h4>
                                     <div class="text-muted small mb-2" style="font-size: 0.85rem; line-height: 1.2;">${desc}</div>
                                     <div class="d-flex gap-2 mt-1">
-                                        <span class="badge px-3 py-2 fw-bold shadow-sm" style="background-color: #4e73df; color: white !important; font-size: 0.8rem; border-radius: 6px;"><i class="fas fa-boxes me-1"></i> Stock Total: <span style="font-size: 0.95rem;">${stockTerm}</span></span>
                                         <span class="badge px-3 py-2 fw-bold shadow-sm" style="background-color: #1cc88a; color: white !important; font-size: 0.8rem; border-radius: 6px;"><i class="fas fa-check-circle me-1"></i> Disponible: <span style="font-size: 0.95rem;">${stockDisp}</span></span>
                                     </div>
                                 </div>

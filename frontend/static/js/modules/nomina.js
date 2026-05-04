@@ -25,7 +25,7 @@ const ModuloNomina = (function () {
             const data = await response.json();
 
             if (data.status === 'success') {
-                datosConsolidados = data.consolidado;
+                datosConsolidados = data.consolidado; // Ahora es un Array
                 detalleDiario = data.detalle_diario || [];
                 totalRegsPendientes = data.total_registros_pendientes;
 
@@ -51,21 +51,19 @@ const ModuloNomina = (function () {
 
     function renderizarTabla() {
         const body = document.getElementById('nomina-body');
-        const nombres = Object.keys(datosConsolidados);
 
-        if (nombres.length === 0) {
+        if (!datosConsolidados || datosConsolidados.length === 0) {
             body.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-muted">No hay registros de asistencia en el periodo actual</td></tr>';
             return;
         }
 
-        body.innerHTML = nombres.map(nombre => {
-            const d = datosConsolidados[nombre];
+        body.innerHTML = datosConsolidados.map(d => {
             return `
                 <tr>
-                    <td class="ps-4 fw-bold">${nombre}</td>
-                    <td class="text-center">${d.ordinarias}</td>
-                    <td class="text-center">${d.extras}</td>
-                    <td class="text-center"><span class="badge bg-soft-info text-info border">Pendiente Corte</span></td>
+                    <td class="ps-4 fw-bold">${d.colaborador}</td>
+                    <td class="text-center">${d.horas_ordinarias}</td>
+                    <td class="text-center">${d.horas_extras}</td>
+                    <td class="text-center"><span class="badge bg-soft-info text-info border">${d.estado || 'Pendiente'}</span></td>
                 </tr>
             `;
         }).join('');

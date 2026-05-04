@@ -10,9 +10,51 @@ window.addEventListener('unhandledrejection', event => {
 });
 
 // GLOBAL FIX: Prevenir que el scroll del ratón cambie los valores de los input type="number"
+// Y LÓGICA DE AUTO-LIMPIEZA (Evitar 05, 050, etc.)
 document.addEventListener('wheel', function (event) {
     if (document.activeElement.type === 'number') {
         document.activeElement.blur();
+    }
+});
+
+document.addEventListener('focusin', function(e) {
+    if (e.target.type === 'number' && e.target.value === '0') {
+        e.target.value = '';
+    }
+});
+
+document.addEventListener('focusout', function(e) {
+    if (e.target.type === 'number' && e.target.value === '') {
+        e.target.value = '0';
+    }
+});
+
+// GLOBAL FIX: Validar visualmente la coherencia del tiempo (Hora Fin > Hora Inicio)
+document.addEventListener('input', function(e) {
+    if (e.target.type === 'time') {
+        const form = e.target.closest('form');
+        if (!form) return;
+        
+        // Determinar prefijo/modulo (ej: inyeccion, pulido, ensamble)
+        const id = e.target.id;
+        const modulo = id.split('-').pop(); // 'inyeccion', 'pulido', 'ensamble'
+        
+        // Buscar ambos inputs
+        const inicioInput = form.querySelector(`input[id*="inicio-${modulo}"]`);
+        const finInput = form.querySelector(`input[id*="fin-${modulo}"], input[id*="termina-${modulo}"]`);
+        
+        if (inicioInput && finInput && inicioInput.value && finInput.value) {
+            const btnSubmit = form.querySelector('button[type="submit"], button[onclick*="registrar"]');
+            
+            // As type="time" always uses 24h format for its .value property
+            if (finInput.value <= inicioInput.value) {
+                finInput.classList.add('is-invalid');
+                if (btnSubmit) btnSubmit.disabled = true;
+            } else {
+                finInput.classList.remove('is-invalid');
+                if (btnSubmit) btnSubmit.disabled = false;
+            }
+        }
     }
 });
 
@@ -178,7 +220,7 @@ window.applyRBACRules = function () {
     };
 
     // Rule 1: Programación - Administración, Nathalia, OSCAR PRIETO (Solo Lectura)
-    const canAccessProg = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole) || userName.includes('NATHALIA LOPEZ');
+    const canAccessProg = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole) || userName.includes('NATHALIA LOPEZ');
     const isOscarPrieto = userName.includes('OSCAR PRIETO');
 
     if (canAccessProg) {
@@ -193,17 +235,17 @@ window.applyRBACRules = function () {
     }
 
     // Rule 2: Reporte Máquina - Inyección, Ensamble, Administración
-    const canAccessRep = ['INYECCION', 'ENSAMBLE', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
+    const canAccessRep = ['ADMIN', 'INYECCION', 'ENSAMBLE', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
     if (!canAccessRep) applyOverlay('#panel-operacion');
     else removeOverlay('#panel-operacion');
 
     // Rule 3: Validación - Auxiliar Inventario, Administración
-    const canAccessVal = ['AUXILIAR INVENTARIO', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
+    const canAccessVal = ['ADMIN', 'AUXILIAR INVENTARIO', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
     if (!canAccessVal) applyOverlay('#panel-legacy');
     else removeOverlay('#panel-legacy');
 
     // Rule 4: Procura - Administración, Compras y Auxiliar Inventario
-    const canAccessProcura = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'COMPRAS', 'AUXILIAR INVENTARIO'].includes(userRole);
+    const canAccessProcura = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'COMPRAS', 'AUXILIAR INVENTARIO'].includes(userRole);
     if (!canAccessProcura) applyOverlay('#procura-page');
     else removeOverlay('#procura-page');
 
@@ -498,7 +540,8 @@ function inicializarModulo(nombrePagina) {
                 'metals-dashboard': window.ModuloMetals,
                 'procura': window.ModuloProcura,
                 'rotacion': window.ModuloRotacion,
-                'asistencia': window.ModuloAsistencia
+                'asistencia': window.ModuloAsistencia,
+                'inyeccion': window.ModuloInyeccion // MAPEADO CORRECTO
             };
             const moduloRetry = modulosRetry[nombrePagina];
             if (moduloRetry?.inicializar) {

@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // inyeccion.js - Lógica de Inyección (SMART SEARCH) - NAMESPACED
 // ============================================
 
@@ -8,6 +8,11 @@ const ModuloInyeccion = {
     items: [],
     isInitialized: false,
     isFetching: false,
+    
+    normalizarCodigo: function(c) {
+        if (!c) return "";
+        return String(c).toUpperCase().replace(/FR-/gi, "").trim();
+    },
 
     init: async function () {
         if (this.isInitialized) return;
@@ -55,7 +60,50 @@ const ModuloInyeccion = {
             window.FormHelpers.registrarPersistencia('form-inyeccion');
         }
 
+        // Persistir inicio al definir hora (patrón Pulido - visible en PC inmediatamente)
+        document.getElementById('hora-inicio-inyeccion')?.addEventListener('change', () => {
+            this.persistirInicioSQL();
+        });
+
         this.isInitialized = true;
+    },
+
+    _idTurnoActivo: null, // ID para persistencia inmediata (patrón Pulido)
+
+    /**
+     * Persistencia inmediata al iniciar turno de inyección.
+     * Crea un registro EN_PROCESO en db_inyeccion visible en el PC al instante.
+     */
+    persistirInicioSQL: async function() {
+        const responsable = document.getElementById('responsable-inyeccion')?.value?.trim();
+        const maquina = document.getElementById('maquina-inyeccion')?.value?.trim();
+        const horaInicio = document.getElementById('hora-inicio-inyeccion')?.value || '';
+        const fecha = document.getElementById('fecha-inyeccion')?.value || '';
+
+        if (!responsable || !maquina) {
+            console.log('⏳ [Inyeccion] Persistencia diferida — faltan responsable o máquina');
+            return;
+        }
+
+        const idInyeccion = 'INY-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+        this._idTurnoActivo = idInyeccion;
+
+        try {
+            await fetch('/api/inyeccion/iniciar_turno', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id_inyeccion: idInyeccion,
+                    responsable: responsable,
+                    maquina: maquina,
+                    hora_inicio: horaInicio,
+                    fecha_inicio: fecha
+                })
+            });
+            console.log(`✅ [Inyeccion] Turno persistido en SQL: ${idInyeccion}`);
+        } catch (e) {
+            console.error('Error persistencia inicio inyección:', e);
+        }
     },
 
     cargarDatos: async function () {
@@ -134,16 +182,28 @@ const ModuloInyeccion = {
             if (res && res.success && res.data) {
                 this.pendientesData = res.data;
                 console.log(`📋 [Inyeccion] ${res.data.length} pendientes cargados:`, res.data);
+                
+                // Agrupar por id_inyeccion para mostrar un solo lote por cada montaje mixto
+                const grupos = {};
                 res.data.forEach(lote => {
-                    // Mapeo robusto a ID (Backend usa "ID INYECCION", frontend a veces "ID_INYECCION")
-                    const id = lote['ID INYECCION'] || lote['ID_INYECCION'];
-                    const maquina = lote['MAQUINA'] || 'S/M';
-                    const producto = lote['ID CODIGO'] || lote['CODIGO_PRODUCTO'] || lote['ID_PRODUCTO_SISTEMA'] || 'VARIOS';
-                    const qty = lote['CANTIDAD REAL'] || lote['CANTIDAD_REAL_FINAL'] || lote['CANTIDAD_REAL'] || 0;
+                    const id = lote.id_inyeccion;
+                    if (!grupos[id]) {
+                        grupos[id] = {
+                            id: id,
+                            maquina: lote.maquina || 'S/M',
+                            codigos: [],
+                            cantidadTotal: 0
+                        };
+                    }
+                    if (lote.id_codigo) grupos[id].codigos.push(lote.id_codigo);
+                    grupos[id].cantidadTotal += parseFloat(lote.cantidad_real) || 0;
+                });
 
+                Object.values(grupos).forEach(g => {
                     const opt = document.createElement('option');
-                    opt.value = id;
-                    opt.textContent = `[${maquina}] ${producto} - ${qty} pzs (${id})`;
+                    opt.value = g.id;
+                    const codigosTexto = [...new Set(g.codigos)].join(', ');
+                    opt.textContent = `Lote: ${g.id} - ${g.maquina} - Códigos: ${codigosTexto}`;
                     select.appendChild(opt);
                 });
             }
@@ -160,134 +220,82 @@ const ModuloInyeccion = {
         console.log(`🎯 [Inyeccion] Lote seleccionado ID: "${idValidacion}"`);
 
         if (!idValidacion) {
-            console.log('🧹 [Inyeccion] No hay ID, limpiando foormulario.');
+            console.log('🧹 [Inyeccion] No hay ID, limpiando formulario.');
             this.limpiarFormularioValidacion();
             return;
         }
 
-        // Búsqueda robusta del lote
-        const lote = this.pendientesData.find(l => (l['ID INYECCION'] || l['ID_INYECCION']) === idValidacion);
-        console.log('📦 [Inyeccion] Datos encontrados del lote:', lote);
-
-        if (!lote) {
-            console.error('❌ [Inyeccion] No se encontró el objeto de datos para este ID.');
+        const registrosDelLote = this.pendientesData.filter(l => l.id_inyeccion === idValidacion);
+        if (registrosDelLote.length === 0) {
+            console.error('❌ [Inyeccion] No se encontraron registros para este ID.');
             return;
         }
 
-        // Extraer id_programacion para traer los SKUs (columna 24 de inyeccion es ID_PROG)
-        const idProg = lote['ID_PROG'] || lote['ID_PROGRAMACION_MES'] || lote['ID_PROGRAMACION'] || lote['ID_PROGRAMACION (MES)'];
-        console.log(`🔗 [Inyeccion] ID PROGRAMACION detectado: "${idProg}"`);
+        const lotePrincipal = registrosDelLote[0];
 
-        if (!idProg) {
-            Swal.fire('Error', 'Este lote no tiene ID de Programación asociado', 'error');
-            return;
-        }
-
-        if (idProg && document.getElementById('legacy-id-programacion')) {
-            document.getElementById('legacy-id-programacion').value = idProg;
-        }
-
-        // Ocultar sección de agregar producto para enfoque en validación
         const container = document.getElementById('contenedor-agregar-producto-inyeccion');
         if (container) container.classList.add('d-none');
 
-        this.limpiarFormularioValidacion(false); // Limpiar pero no el select
+        this.limpiarFormularioValidacion(false);
 
-        // 1. Llenar la Cabecera (Turno) - MAPEOS ROBUSTOS (Espacios vs Underscores)
-        const fechaRaw = (lote['FECHA INICIA'] || lote['FECHA_INICIO'] || '').split(' ')[0];
-        const fechaISO = this.formatearFechaParaInput(fechaRaw);
-        console.log(`📅 [Inyeccion] Mapeando cabecera - Fecha Orig: ${fechaRaw}, ISO: ${fechaISO}`);
-
-        if (fechaISO && document.getElementById('fecha-inyeccion')) {
-            document.getElementById('fecha-inyeccion').value = fechaISO;
+        if (document.getElementById('fecha-inyeccion')) {
+            document.getElementById('fecha-inyeccion').value = (lotePrincipal.fecha || '').split('T')[0];
         }
+        if (document.getElementById('maquina-inyeccion')) document.getElementById('maquina-inyeccion').value = lotePrincipal.maquina || '';
+        if (document.getElementById('responsable-inyeccion')) document.getElementById('responsable-inyeccion').value = lotePrincipal.responsable || '';
 
-        if (document.getElementById('maquina-inyeccion')) document.getElementById('maquina-inyeccion').value = lote['MAQUINA'] || '';
-        if (document.getElementById('responsable-inyeccion')) document.getElementById('responsable-inyeccion').value = lote['RESPONSABLE'] || '';
-
-        if (document.getElementById('hora-llegada-inyeccion')) {
-            const h = lote['HORA LLEGADA'] || lote['HORA_LLEGADA'] || '';
-            document.getElementById('hora-llegada-inyeccion').value = this.formatearHoraParaInput(h);
-        }
+        // Tarea 2: Llenar horas automáticamente
         if (document.getElementById('hora-inicio-inyeccion')) {
-            const h = lote['HORA INICIO'] || lote['HORA_INICIO'] || '';
-            document.getElementById('hora-inicio-inyeccion').value = this.formatearHoraParaInput(h);
+            document.getElementById('hora-inicio-inyeccion').value = lotePrincipal.hora_inicio || '';
         }
         if (document.getElementById('hora-termina-inyeccion')) {
-            const h = lote['HORA TERMINA'] || lote['HORA_TERMINA'] || '';
-            document.getElementById('hora-termina-inyeccion').value = this.formatearHoraParaInput(h);
+            document.getElementById('hora-termina-inyeccion').value = lotePrincipal.hora_fin || '';
+        }
+        if (document.getElementById('hora-llegada-inyeccion')) {
+            document.getElementById('hora-llegada-inyeccion').value = '06:00';
         }
 
-        if (document.getElementById('orden-produccion-inyeccion')) document.getElementById('orden-produccion-inyeccion').value = lote['ORDEN PRODUCCION'] || lote['ORDEN_PRODUCCION'] || lote['OP'] || '';
-        if (document.getElementById('peso-vela-inyeccion')) document.getElementById('peso-vela-inyeccion').value = lote['PESO VELA MAQUINA'] || lote['PESO_VELA_MAQUINA'] || 0;
+        // 2. Poblar los Items desde los registros del lote
+        registrosDelLote.forEach(reg => {
+            const cavs = reg.cavidades || 1;
+            const cantReal = parseFloat(String(reg.cantidad_real || 0).replace(/[^0-9.]/g, '')) || 0;
+            const pncVal = parseFloat(String(reg.pnc || 0).replace(/[^0-9.]/g, '')) || 0;
+            
+            // Tarea 1: Calcular disparos reales
+            const dispCalc = Math.ceil(cantReal / cavs);
+            
+            // Ajuste de Bruto vs Buenas Juan Sebastian Request
+            // Si el backend envía cantReal (Buenas), el Bruto real es cantReal + pncVal
+            const brutoReal = cantReal + pncVal;
 
-        // Los cierres reportados por el operario
-        const disparosBase = parseInt(lote['CONTADOR MAQ.'] || lote['CONTADOR MAQ'] || lote['DISPAROS'] || 0);
-        console.log(`🔢 [Inyeccion] Disparos base detectados: ${disparosBase}`);
+            const nuevoItem = {
+                id_item: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                codigo_producto: reg.id_codigo || reg.codigo_sistema,
+                no_cavidades: cavs,
+                disparos: dispCalc,
+                cantidad_real: brutoReal, // TOTAL (Buenas + PNC)
+                manual_buenas: cantReal,   // BUENAS
+                pnc: pncVal,
+                piezasBuenas: cantReal,
+                observaciones: reg.molde || '',
+                id_inyeccion: reg.id_inyeccion
+            };
+            
+            this.items.push(nuevoItem);
+        });
 
-        // 2. Fetch de los SKUs asociados a esta Programación
-        try {
-            console.log(`🌐 [Inyeccion] Fetching productos para programacion: ${idProg}`);
-            const dataProd = await fetchData(`/api/mes/programacion/${idProg}/productos`);
-            console.log('📦 [Inyeccion] Respuesta productos:', dataProd);
+        this.renderTablaItems();
 
-            if (dataProd && dataProd.success && dataProd.productos?.length > 0) {
-
-                // 3. Poblar la lista de agregar (simulando que Paola los agregó manually)
-                for (let i = 0; i < dataProd.productos.length; i++) {
-                    const p = dataProd.productos[i];
-
-                    const cavs = parseInt(p.cavidades || 1);
-                    const teorica = disparosBase * cavs;
-
-                    // El primero hereda el ID de la cabecera para Upsert. El resto nace nuevo.
-                    const idAsignado = (i === 0) ? idValidacion : undefined;
-
-                    const nuevoItem = {
-                        codigo_producto: p.codigo,
-                        no_cavidades: cavs,
-                        disparos: disparosBase,
-                        cantidad_real: teorica, // Iniciar con la teórica para facilitar el trabajo de Paola
-                        piezasBuenas: teorica,
-                        manual_buenas: null,
-                        pnc: 0,
-                        peso_bujes: 0,
-                        codigo_ensamble: '',
-                        criterio_pnc: '',
-                        observaciones: p.molde || '',
-                        id_inyeccion: idAsignado
-                    };
-
-                    this.items.push(nuevoItem);
-                }
-
-                this.renderTablaItems();
-
-                Swal.fire({
-                    title: 'Familia de Productos Cargada',
-                    text: `Se han precargado ${dataProd.productos.length} productos del ${lote['MAQUINA']}. Por favor ingrese las Cantidades Reales, PNC y Peso para cada uno en la tabla y presione Guardar.`,
-                    icon: 'info',
-                    toast: true,
-                    position: 'top-end',
-                    timer: 6000,
-                    showConfirmButton: false
-                });
-
-            } else {
-                Swal.fire('Advertencia', 'No se encontraron productos programados para este lote.', 'warning');
-            }
-        } catch (error) {
-            console.error('[MES] Error fetching productos asociados:', error);
-            Swal.fire('Error', 'No se pudo obtener la lista de productos de este molde', 'error');
-        }
+        // Marcar explícitamente que estamos en modo validación
+        this.esValidacionMode = true; 
     },
 
     limpiarFormularioValidacion: function (limpiarSelect = true) {
+        this.esValidacionMode = false; // Resetear modo validaciÃ³n
         if (limpiarSelect) {
             const select = document.getElementById('select-validar-lote');
             if (select) select.value = '';
 
-            // Mostrar sección de agregar producto si es manual/limpieza
             const container = document.getElementById('contenedor-agregar-producto-inyeccion');
             if (container) container.classList.remove('d-none');
         }
@@ -511,13 +519,37 @@ const ModuloInyeccion = {
             });
         }
 
-        ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion', 'cantidad-real-inyeccion'].forEach(id => {
+        ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion', 'cantidad-real-inyeccion', 'inyeccion-entrada', 'inyeccion-salida'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => this.calculos());
         });
     },
 
     calculos: function () {
-        const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
+        const entrada = parseInt(document.getElementById('inyeccion-entrada')?.value) || 0;
+        const salida = parseInt(document.getElementById('inyeccion-salida')?.value) || 0;
+        let disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
+        
+        if (salida > 0 && entrada >= 0 && salida >= entrada) {
+            disparos = salida - entrada;
+            const inputDisparos = document.getElementById('cantidad-inyeccion');
+            if (inputDisparos) inputDisparos.value = disparos;
+            
+            if (this.esValidacionMode && this.items && this.items.length > 0) {
+                let reRender = false;
+                this.items.forEach(item => {
+                    if (item.disparos !== disparos) {
+                        item.disparos = disparos;
+                        const produccionTeorica = item.disparos * item.no_cavidades;
+                        item.cantidad_real = produccionTeorica;
+                        item.piezasBuenas = Math.max(0, produccionTeorica - item.pnc);
+                        item.manual_buenas = null;
+                        reRender = true;
+                    }
+                });
+                if (reRender) this.renderTablaItems();
+            }
+        }
+
         const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
         const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
         const inputReal = document.getElementById('cantidad-real-inyeccion');
@@ -575,7 +607,8 @@ const ModuloInyeccion = {
     },
 
     agregarItem: function () {
-        const codigo_producto = document.getElementById('codigo-producto-inyeccion')?.value || '';
+        const rawCode = document.getElementById('codigo-producto-inyeccion')?.value || '';
+        const codigo_producto = this.normalizarCodigo(rawCode);
         const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
         const disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
         const inputReal = document.getElementById('cantidad-real-inyeccion');
@@ -823,6 +856,18 @@ const ModuloInyeccion = {
             return;
         }
 
+        const horaInicio = document.getElementById('hora-inicio-inyeccion')?.value || '00:00';
+        const horaFin = document.getElementById('hora-termina-inyeccion')?.value || '00:00';
+        if (horaFin <= horaInicio) {
+            Swal.fire({
+                title: 'Error de Tiempos',
+                text: 'La Hora de Fin (Termina) debe ser estrictamente posterior a la Hora de Inicio.',
+                icon: 'error',
+                confirmButtonColor: '#d33'
+            });
+            return;
+        }
+
         const btn = document.querySelector('#form-inyeccion button[type="submit"]');
 
         try {
@@ -838,12 +883,14 @@ const ModuloInyeccion = {
                 hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
                 orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
-                // NUEVOS CAMPOS Juan Sebastian
-                entrada_manual: parseFloat(document.getElementById('inyeccion-entrada')?.value) || 0,
-                salida_manual: parseFloat(document.getElementById('inyeccion-salida')?.value) || 0,
-                peso_vela_maquina: parseFloat(document.getElementById('peso-vela-inyeccion')?.value) || 0,
+                // NUEVOS CAMPOS Juan Sebastian - Limpieza Indestructible
+                entrada_manual: parseFloat(String(document.getElementById('inyeccion-entrada')?.value || '0').replace(/[^0-9.]/g, '')) || 0,
+                salida_manual: parseFloat(String(document.getElementById('inyeccion-salida')?.value || '0').replace(/[^0-9.]/g, '')) || 0,
+                peso_vela_maquina: parseFloat(String(document.getElementById('peso-vela-inyeccion')?.value || '0').replace(/[^0-9.]/g, '')) || 0,
                 id_programacion: document.getElementById('legacy-id-programacion')?.value || '',
-                almacen_destino: 'POR PULIR' // Hardcoded as requested
+                almacen_destino: 'POR PULIR',
+                es_validacion: this.esValidacionMode || false,
+                id_inyeccion: this._idTurnoActivo || undefined // Continuidad con persist-on-start
             };
 
             if (!datosTurno.maquina || !datosTurno.responsable) {
@@ -893,6 +940,7 @@ const ModuloInyeccion = {
                 this.renderTablaItems();
                 document.getElementById('form-inyeccion')?.reset();
                 if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-inyeccion');
+                this._idTurnoActivo = null; // Reset para próximo turno
                 this.intentarAutoSeleccionarResponsable();
 
                 // Limpiar turno parcialmente (mantener maquina, fecha, responsable si se desea)

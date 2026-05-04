@@ -34,26 +34,18 @@ import re
 
 def normalizar_codigo(codigo: str) -> str:
     """
-    Normaliza un código de producto con EXPRESIONES REGULARES (Regex).
-    Elimina cualquier prefijo alfanumérico seguido de un guion (MT-, INY-, KIT-, etc.).
-    
-    Ejemplos:
-        normalizar_codigo("FR-9304")   -> "9304"
-        normalizar_codigo("KIT-7025")  -> "7025"
-        normalizar_codigo("BSL-1050")  -> "1050"
-        normalizar_codigo("9304")      -> "9304"
+    Normaliza un código de producto eliminando prefijos de sistema.
     """
-    if not codigo:
+    if codigo is None:
         return ""
     
-    # 1. Convertir a string, limpiar espacios y pasar a mayúsculas
-    codigo_str = str(codigo).strip().upper()
+    # Limpieza estándar: espacios y mayúsculas
+    cod = str(codigo).strip().upper()
     
-    # 2. Regex: Busca letras mayúsculas al inicio seguidas de un guion y las borra
-    # Ejemplo: "MT-7004" -> "7004", "BSL-123" -> "123"
-    codigo_limpio = re.sub(r'^[A-Z]+-', '', codigo_str)
+    # Eliminación obligatoria de prefijo FR- (exigido para trazabilidad limpia)
+    cod = cod.replace("FR-", "")
     
-    return codigo_limpio.strip()
+    return cod.strip()
 
 
 def limpiar_cadena(texto: str) -> str:

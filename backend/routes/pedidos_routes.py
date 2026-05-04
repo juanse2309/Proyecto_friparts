@@ -1,5 +1,4 @@
-
-from backend.utils.auth_middleware import require_role
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
 from flask import Blueprint, jsonify, request, session
 from backend.core.database import sheets_client
 from backend.config.settings import Hojas, TenantConfig
@@ -83,443 +82,145 @@ def obtener_siguiente_id_pedido(hoja_pedidos=None):
         logger.error(f"Error generando siguiente ID pedido: {e}")
         return f"PED{datetime.now().strftime('%M%S')}" # Fallback seguro
 
+def _generar_siguiente_id_pedido_sql():
+    """Genera el siguiente consecutivo PED-XXXX consultando la base de datos SQL."""
+    from backend.models.sql_models import Pedido
+    from backend.core.sql_database import db
+    from sqlalchemy import text
+    try:
+        # Buscar el último registro que tenga el formato PED- usando SQL crudo para mayor precisión en el ordenamiento
+        sql = "SELECT id_pedido FROM db_pedidos WHERE id_pedido LIKE 'PED-%' ORDER BY id DESC LIMIT 1"
+        result = db.session.execute(text(sql)).fetchone()
+        
+        if not result or not result[0]:
+            return "PED-1001" # Base inicial
+            
+        import re
+        match = re.search(r'PED-(\d+)', result[0])
+        if match:
+            ultimo_num = int(match.group(1))
+            return f"PED-{ultimo_num + 1}"
+        
+        return f"PED-{datetime.now().strftime('%M%S')}" # Fallback
+    except Exception as e:
+        logger.error(f"❌ Error generando ID Pedido SQL: {e}")
+        return f"PED-{datetime.now().strftime('%M%S')}"
+
 @pedidos_bp.route('/api/pedidos/registrar', methods=['POST'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN'])
 def registrar_pedido():
     """
-    Registra un pedido con múltiples productos.
-    Estructura esperada:
-    {
-        "fecha": "2026-02-02",
-        "vendedor": "Juan Pérez",
-        "cliente": "Cliente X",
-        "nit": "123456",
-        "forma_pago": "Contado",
-        "descuento_global": 10,
-        "productos": [
-            {"codigo": "9304", "descripcion": "Buje A", "cantidad": 10, "precio_unitario": 5000},
-            {"codigo": "9309", "descripcion": "Buje B", "cantidad": 20, "precio_unitario": 6000}
-        ]
-    }
+    Registra un pedido en PostgreSQL (SQL-Native).
+    Elimina dependencia total de Google Sheets para el guardado.
     """
+    from backend.models.sql_models import Pedido
+    from backend.core.sql_database import db
+    
     try:
-        logger.info("🛒 ===== INICIO REGISTRO DE PEDIDO =====")
-        tenant, hoja_pedidos, hoja_productos = _resolve_tenant()
+        # Asegurar transacción limpia (Evitar InFailedSqlTransaction persistente)
+        db.session.rollback()
         
+        logger.info("🛒 ===== INICIO REGISTRO DE PEDIDO (SQL-NATIVE) =====")
         data = request.json
-        logger.info(f"📦 Datos recibidos del frontend:")
-        logger.info(f"   JSON completo: {json.dumps(data, indent=2, ensure_ascii=False)}")
-        
         if not data:
-            logger.error("❌ No se recibieron datos en el request")
             return jsonify({"success": False, "error": "No data provided"}), 400
 
-        # Extract common fields
-        fecha = data.get('fecha')
+        # 1. Extracción y Validación
+        fecha_str = data.get('fecha')
         vendedor = data.get('vendedor')
         cliente = data.get('cliente')
         nit = data.get('nit', '')
-        direccion = data.get('direccion', '')  # OPCIONAL - Compatible con frontend antiguo
-        ciudad = data.get('ciudad', '')        # OPCIONAL - Compatible con frontend antiguo
+        direccion = data.get('direccion', '')
+        ciudad = data.get('ciudad', '')
         forma_pago = data.get('forma_pago', 'Contado')
-        descuento_global = data.get('descuento_global', 0)
+        descuento_global = str(data.get('descuento_global', '0'))
         observaciones = data.get('observaciones', '')
         productos = data.get('productos', [])
         
-        logger.info(f"📋 Campos extraídos:")
-        logger.info(f"   Fecha: {fecha}")
-        logger.info(f"   Vendedor: {vendedor}")
-        logger.info(f"   Cliente: {cliente}")
-        logger.info(f"   NIT: {nit}")
-        logger.info(f"   Dirección: {direccion}")
-        logger.info(f"   Ciudad: {ciudad}")
-        logger.info(f"   Forma de pago: {forma_pago}")
-        logger.info(f"   Descuento global: {descuento_global}%")
-        logger.info(f"   Total productos: {len(productos)}")
+        print(f"DEBUG: [REGISTRO] Cliente: {cliente} | Dir: {direccion} | Ciudad: {ciudad} | Pago: {forma_pago} | Desc: {descuento_global}%")
+        print(f"DEBUG: [REGISTRO] Productos recibidos: {len(productos)}")
         
-        # --- ENRIQUECIMIENTO DE SEGURIDAD (Si viene vacío del portal) ---
-        if nit and (not direccion or not ciudad):
-            try:
-                nit_clean = str(nit).upper().replace('NIT', '').strip()
-                ws_db = sheets_client.get_worksheet(TenantConfig.get(tenant, 'CLIENTES'))
-                if ws_db:
-                    recs = sheets_client.get_all_records_seguro(ws_db)
-                    match = next((r for r in recs if nit_clean in str(r.get('IDENTIFICACION', '')).upper()), None)
-                    if match:
-                        if not direccion: direccion = match.get('DIRECCION', '')
-                        if not ciudad: ciudad = match.get('CIUDAD', '')
-                        logger.info(f"✨ Datos enriquecidos en registro para {nit}: {direccion}, {ciudad}")
-            except Exception as e_e:
-                logger.error(f"⚠️ Error enriqueciendo en registro: {e_e}")
-        # -----------------------------------------------------------------
-        
-        # Validation
-        if not all([fecha, vendedor, cliente]):
-            logger.error(f"❌ Faltan campos obligatorios: fecha={fecha}, vendedor={vendedor}, cliente={cliente}")
-            return jsonify({"success": False, "error": "Faltan campos obligatorios (fecha, vendedor, cliente)"}), 400
-        
-        if not productos or not isinstance(productos, list):
-            logger.error(f"❌ Array de productos inválido: {productos}")
-            return jsonify({"success": False, "error": "Debe incluir al menos un producto en 'productos'"}), 400
+        if not all([fecha_str, vendedor, cliente]):
+            return jsonify({"success": False, "error": "Faltan campos obligatorios: fecha, vendedor, cliente"}), 400
+            
+        # 2. Generar ID Único Secuencial (PED-XXXX)
+        id_pedido = _generar_siguiente_id_pedido_sql()
+        logger.info(f"🆔 ID Generado para SQL: {id_pedido}")
 
-        # El ID se generará después de verificar si es una edición o un pedido nuevo
-        estado = "PENDIENTE"
-        
-        # Auto-capturar hora actual del servidor (Colombia UTC-5)
+        # Convertir fecha
         try:
+            fecha_dt = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+        except:
+            fecha_dt = datetime.now().date()
+
+        # Capturar hora actual
+        try:
+            import pytz
             tz_colombia = pytz.timezone('America/Bogota')
             hora_actual = datetime.now(tz_colombia).strftime('%I:%M %p')
-        except Exception:
+        except:
             hora_actual = datetime.now().strftime('%I:%M %p')
-        logger.info(f"🕐 Hora auto-capturada: {hora_actual}")
-        
-        # Get or create worksheet
-        ws = sheets_client.get_or_create_worksheet(
-            hoja_pedidos, 
-            rows=1000, 
-            cols=20
-        )
-        
-        logger.info(f"📄 Worksheet '{hoja_pedidos}' obtenida correctamente")
-        
-        # Check headers
-        existing_headers = ws.row_values(1)
-        expected_headers = [
-            "ID PEDIDO", "FECHA", "HORA", "ID CODIGO", "DESCRIPCION", "VENDEDOR", 
-            "CLIENTE", "NIT", "DIRECCION", "CIUDAD", "FORMA DE PAGO", "DESCUENTO %", "TOTAL", 
-            "ESTADO", "CANTIDAD", "PRECIO UNITARIO", "PROGRESO", "CANT_ALISTADA",
-            "PROGRESO_DESPACHO", "CANT_ENVIADA", "DELEGADO_A", "ESTADO_DESPACHO", "NO_DISPONIBLE", 
-            "OBSERVACIONES"
-        ]
-        
-        if not existing_headers:
-            logger.info(f"📝 Creando encabezados en hoja {hoja_pedidos}")
-            ws.append_row(expected_headers)
-            existing_headers = expected_headers
-        else:
-            # Asegurar que la columna de observaciones existe para que get_all_records la vea
-            if "OBSERVACIONES" not in [h.upper() for h in existing_headers]:
-                logger.info(f"➕ Agregando cabecera OBSERVACIONES a la hoja {hoja_pedidos}")
-                new_col_idx = len(existing_headers) + 1
-                ws.update_cell(1, new_col_idx, "OBSERVACIONES")
-                existing_headers.append("OBSERVACIONES")
 
-        # ---------------------------------------------------------
-        # LÓGICA DE EDICIÓN / RETOMAR PEDIDO
-        # ---------------------------------------------------------
-        id_pedido_existente = data.get('id_pedido')
-        if id_pedido_existente:
-            logger.info(f"✏️ MODO EDICIÓN: Actualizando pedido {id_pedido_existente}")
+        # 3. Guardar cada ítem del pedido en la tabla db_pedidos
+        if not productos:
+             return jsonify({"success": False, "error": "Debe incluir al menos un producto"}), 400
+
+        items_agregados = 0
+        for prod in productos:
+            codigo = str(prod.get('codigo', '')).strip().upper()
+            cantidad = float(prod.get('cantidad', 0))
+            precio = float(prod.get('precio_unitario', 0))
+            descripcion = prod.get('descripcion', '')
+            total_item = cantidad * precio
             
-            # 1. Buscar filas del pedido anterior
-            registros = sheets_client.get_all_records_seguro(ws)
-            filas_a_eliminar = []
-            productos_anteriores = []
-            
-            # Recopilar info para reversión de inventario
-            for idx, r in enumerate(registros):
-                if str(r.get("ID PEDIDO")) == str(id_pedido_existente):
-                    filas_a_eliminar.append(idx + 2) # +2 por header y 0-index
-                    productos_anteriores.append({
-                        "codigo": str(r.get("ID CODIGO")).strip().upper(),
-                        "cantidad": float(r.get("CANTIDAD", 0))
-                    })
-            
-            if filas_a_eliminar:
-                logger.info(f"   🗑️ Eliminando {len(filas_a_eliminar)} filas anteriores...")
-                
-                # REVERSIÓN DE STOCK COMPROMETIDO + COMPONENTES BOM (Antes de borrar)
-                try:
-                    from backend.services.bom_service import calcular_descuentos_ensamble
-                    ws_productos = sheets_client.get_worksheet(hoja_productos)
-                    registros_prods = sheets_client.get_all_records_seguro(ws_productos)
-                    headers_prods = ws_productos.row_values(1)
-                    col_comp = headers_prods.index("COMPROMETIDO") + 1
-
-                    updates_reversion = []
-                    reversion_acum = {}  # {fila: valor_actual_comprometido}
-
-                    for prod_ant in productos_anteriores:
-                        cod = prod_ant["codigo"]
-                        cant = prod_ant["cantidad"]
-
-                        # Revertir producto final
-                        fila_f, datos_f = _buscar_producto_inteligente(cod, registros_prods)
-                        if fila_f:
-                            if fila_f not in reversion_acum:
-                                reversion_acum[fila_f] = float(datos_f.get("COMPROMETIDO", 0) or 0)
-                            reversion_acum[fila_f] = max(0, reversion_acum[fila_f] - cant)
-                            logger.info(f"   ↩️ Revirtiendo {cod}: COMPROMETIDO -= {cant}")
-
-                        # Revertir componentes BOM
-                        try:
-                            bom_rev = calcular_descuentos_ensamble(cod, int(cant))
-                            if bom_rev.get('success') and bom_rev.get('componentes'):
-                                for comp in bom_rev['componentes']:
-                                    cod_inv = comp.get('codigo_inventario', '')
-                                    qty_comp = comp.get('cantidad_total_descontar', 0)
-                                    fila_c, datos_c = _buscar_producto_inteligente(cod_inv, registros_prods)
-                                    if fila_c:
-                                        if fila_c not in reversion_acum:
-                                            reversion_acum[fila_c] = float(datos_c.get("COMPROMETIDO", 0) or 0)
-                                        reversion_acum[fila_c] = max(0, reversion_acum[fila_c] - qty_comp)
-                                        logger.info(f"   ↩️ Revirtiendo BOM {cod_inv}: -= {qty_comp}")
-                        except Exception as e_bom_r:
-                            logger.warning(f"   ⚠️ BOM reversion fallback para {cod}: {e_bom_r}")
-
-                    for fila, valor in reversion_acum.items():
-                        updates_reversion.append({
-                            'range': gspread.utils.rowcol_to_a1(fila, col_comp),
-                            'values': [[valor]]
-                        })
-
-                    if updates_reversion:
-                        ws_productos.batch_update(updates_reversion)
-                        logger.info(f"   📉 Reversión stock comprometido completada ({len(updates_reversion)} filas)")
-
-                except Exception as e_rev:
-                    logger.error(f"❌ Error revirtiendo stock comprometido: {e_rev}")
-
-                # Borrar filas (en orden inverso para no alterar índices de las pendientes)
-                for fila in sorted(filas_a_eliminar, reverse=True):
-                    ws.delete_rows(fila)
-                
-                logger.info("   ✅ Filas anteriores eliminadas.")
-            
-            # Usar el ID existente
-            id_pedido = id_pedido_existente
-        else:
-            # NUEVO PEDIDO: Generar consecutivo real PEDxxxx en tiempo real
-            id_pedido = obtener_siguiente_id_pedido(hoja_pedidos)
-            logger.info(f"🆔 Nuevo ID de pedido generado: {id_pedido}")
-        
-        estado = "PENDIENTE"
-
-        
-        subtotal_general = 0
-        rows_to_append = []
-        
-        logger.info(f"🔄 Procesando {len(productos)} productos...")
-        
-        for idx, producto in enumerate(productos):
-            logger.info(f"\n   --- Producto {idx+1}/{len(productos)} ---")
-            logger.info(f"   Datos del producto: {producto}")
-            
-            codigo = producto.get('codigo')
-            descripcion = producto.get('descripcion', '')
-            cantidad = producto.get('cantidad', 0)
-            precio_unitario = producto.get('precio_unitario', 0)
-            
-            logger.info(f"   Código: '{codigo}' (tipo: {type(codigo).__name__})")
-            logger.info(f"   Descripción: '{descripcion}'")
-            logger.info(f"   Cantidad: {cantidad}")
-            logger.info(f"   Precio unitario: {precio_unitario}")
-            
-            # Validate product
-            if not all([codigo, cantidad, precio_unitario]):
-                logger.warning(f"⚠️ Producto incompleto ignorado: {producto}")
-                logger.warning(f"   codigo={codigo}, cantidad={cantidad}, precio_unitario={precio_unitario}")
+            if not codigo or cantidad <= 0:
                 continue
+
+            nuevo_registro = Pedido(
+                id_pedido=id_pedido,
+                fecha=fecha_dt,
+                hora=hora_actual,
+                cliente=cliente,
+                nit=nit,
+                direccion=direccion,
+                ciudad=ciudad,
+                vendedor=vendedor,
+                id_codigo=codigo,
+                descripcion=descripcion,
+                cantidad=cantidad,
+                precio_unitario=precio,
+                total=total_item,
+                estado='PENDIENTE',
+                observaciones=observaciones,
+                forma_de_pago=forma_pago,
+                descuento=descuento_global
+            )
+            db.session.add(nuevo_registro)
+            items_agregados += 1
             
-            # Calculations (sin descuento individual)
-            try:
-                cant_float = float(cantidad)
-                precio_float = float(precio_unitario)
-                
-                subtotal = cant_float * precio_float
-                subtotal_general += subtotal
-                
-                logger.info(f"   ✅ Cálculos: {cant_float} × ${precio_float} = ${subtotal}")
-            except ValueError as ve:
-                logger.error(f"❌ Error en valores numéricos del producto: {producto}")
-                logger.error(f"   Error: {str(ve)}")
-                continue
-            
-            # Prepare row for this product as a dictionary first to avoid index errors
-            row_dict = {h: "" for h in expected_headers}
-            row_dict.update({
-                "ID PEDIDO": id_pedido,
-                "FECHA": fecha,
-                "HORA": hora_actual,
-                "ID CODIGO": codigo,
-                "DESCRIPCION": descripcion,
-                "VENDEDOR": vendedor,
-                "CLIENTE": cliente,
-                "NIT": nit,
-                "DIRECCION": direccion,
-                "CIUDAD": ciudad,
-                "FORMA DE PAGO": forma_pago,
-                "DESCUENTO %": f"{descuento_global}%",
-                "TOTAL": 0,  # Se calcula después
-                "ESTADO": estado,
-                "CANTIDAD": cantidad,
-                "PRECIO UNITARIO": precio_unitario,
-                "PROGRESO": "0%",
-                "CANT_ALISTADA": 0,
-                "PROGRESO_DESPACHO": "0%",
-                "CANT_ENVIADA": 0,
-                "DELEGADO_A": "",
-                "ESTADO_DESPACHO": "FALSE",
-                "NO_DISPONIBLE": "FALSE",
-                "OBSERVACIONES": observaciones
-            })
-            
-            rows_to_append.append(row_dict)
-            logger.info(f"   ✅ Fila preparada para Google Sheets")
-        
-        # Calcular total general con descuento global e IVA 19%
+        # 4. Transacción Atómica
+        db.session.commit()
+        logger.info(f"✅ Pedido {id_pedido} guardado físicamente en PostgreSQL. Items: {items_agregados}")
+
+        # Invalidad caché de pedidos
         try:
-            desc_float = float(descuento_global) / 100
-            subtotal_neto = subtotal_general * (1 - desc_float)
-            iva_general = subtotal_neto * 0.19
-            total_general = subtotal_neto + iva_general
-            
-            total_general = round(total_general, 2)
-            
-            logger.info(f"\n💰 Cálculo de totales:")
-            logger.info(f"   Subtotal bruto: ${subtotal_general}")
-            logger.info(f"   Descuento: {descuento_global}% (${subtotal_general * desc_float})")
-            logger.info(f"   IVA (19%): ${iva_general}")
-            logger.info(f"   Total a Pagar: ${total_general}")
-        except ValueError:
-            total_general = subtotal_general
-            logger.warning(f"⚠️ Error calculando descuento/IVA, usando subtotal: ${total_general}")
-        
-        if subtotal_general > 0:
-            logger.info(f"\n🔢 Calculando totales proporcionales por item...")
-            for i, row_dict in enumerate(rows_to_append):
-                cantidad = float(row_dict["CANTIDAD"])
-                precio_unitario = float(row_dict["PRECIO UNITARIO"])
-                subtotal_item_bruto = cantidad * precio_unitario
-                
-                # Total proporcional con descuento global e IVA
-                subtotal_item_neto = subtotal_item_bruto * (1 - desc_float)
-                total_item = subtotal_item_neto * 1.19
-                total_item = round(total_item, 2)
-                
-                row_dict["TOTAL"] = total_item
-                logger.info(f"   Item {i+1}: ${subtotal_item_bruto} → ${total_item} (con {descuento_global}% desc e IVA)")
-        
-        # Convert dictionary rows to lists in correct order based on existing sheet headers
-        final_rows = []
-        # Ensure 'existing_headers' has all the newly added columns up to date just in case
-        for rd in rows_to_append:
-            # Map dictionary items precisely to whatever column order the sheet physically has
-            row_data = []
-            for h in existing_headers:
-                # Get the value using the exact column name matches
-                # If the key is 'DESCUENTO %' we must be careful with spacing
-                val = rd.get(h.strip(), "") if type(h) == str else ""
-                
-                # Check uppercase fallback just in case
-                if not val and isinstance(h, str):
-                    val = rd.get(h.strip().upper(), "")
-                    
-                row_data.append(val)
-            final_rows.append(row_data)
-        
-        # Append all rows in a single batch to avoid quota issues
-        if final_rows:
-            logger.info(f"\n💾 Guardando {len(final_rows)} filas en Google Sheets (Batch Append) usando {len(existing_headers)} columnas...")
-            ws.append_rows(final_rows)
-            
-            # ==========================================
-            # 📉 ACTUALIZACIÓN DE INVENTARIO (COMPROMETIDO + BOM)
-            # ==========================================
-            try:
-                logger.info("📉 Iniciando compromiso de inventario (BOM + Producto Final)...")
-                from backend.services.bom_service import calcular_descuentos_ensamble
-
-                ws_productos = sheets_client.get_worksheet(hoja_productos)
-                registros_productos = sheets_client.get_all_records_seguro(ws_productos)
-                headers_productos = ws_productos.row_values(1)
-
-                try:
-                    col_comp = headers_productos.index("COMPROMETIDO") + 1
-                except ValueError:
-                    logger.error("❌ Columna 'COMPROMETIDO' no encontrada en PRODUCTOS.")
-                    col_comp = None
-
-                if col_comp:
-                    # Acumulador: {fila: nuevo_valor_comprometido}
-                    filas_comp = {}
-
-                    for producto in productos:
-                        codigo = str(producto.get('codigo', '')).strip().upper()
-                        if " - " in codigo:
-                            codigo = codigo.split(" - ")[0].strip()
-                        cantidad_venta = float(producto.get('cantidad', 0))
-
-                        # ── FASE 1: Explosión BOM (Comprometer Componentes) ──
-                        try:
-                            bom_res = calcular_descuentos_ensamble(codigo, int(cantidad_venta))
-                            if bom_res.get('success') and bom_res.get('componentes'):
-                                logger.info(f"   🧬 BOM para {codigo}: {len(bom_res['componentes'])} componentes")
-                                for comp in bom_res['componentes']:
-                                    cod_inv = comp.get('codigo_inventario', '')
-                                    qty_comp = comp.get('cantidad_total_descontar', 0)
-                                    fila_c, datos_c = _buscar_producto_inteligente(cod_inv, registros_productos)
-                                    if fila_c:
-                                        if fila_c not in filas_comp:
-                                            filas_comp[fila_c] = float(datos_c.get("COMPROMETIDO", 0) or 0)
-                                        filas_comp[fila_c] += qty_comp
-                                        logger.info(f"      ✅ Componente {cod_inv}: COMPROMETIDO += {qty_comp}")
-                                    else:
-                                        logger.warning(f"      ⚠️ Componente BOM '{cod_inv}' no encontrado en inventario")
-                            else:
-                                logger.info(f"   ℹ️ Sin ficha BOM para {codigo} — solo producto final")
-                        except Exception as e_bom:
-                            logger.warning(f"   ⚠️ Error BOM para {codigo}: {e_bom}")
-
-                        # ── FASE 2: Comprometer Producto Final ──
-                        fila_f, datos_f = _buscar_producto_inteligente(codigo, registros_productos)
-                        if fila_f:
-                            if fila_f not in filas_comp:
-                                filas_comp[fila_f] = float(datos_f.get("COMPROMETIDO", 0) or 0)
-                            filas_comp[fila_f] += cantidad_venta
-                            logger.info(f"   ✅ Producto final {codigo}: COMPROMETIDO += {cantidad_venta}")
-                        else:
-                            logger.warning(f"   ⚠️ Producto {codigo} no encontrado para comprometer")
-
-                    # ── BATCH UPDATE ──
-                    updates_comp = []
-                    for fila, valor in filas_comp.items():
-                        updates_comp.append({
-                            'range': gspread.utils.rowcol_to_a1(fila, col_comp),
-                            'values': [[valor]]
-                        })
-                    if updates_comp:
-                        ws_productos.batch_update(updates_comp)
-                        logger.info(f"   📉 COMPROMETIDO actualizado: {len(updates_comp)} filas")
-            except Exception as e_inv:
-                logger.error(f"❌ Error crítico comprometiendo inventario: {str(e_inv)}")
-            
-            # ==========================================
-            # FIN ACTUALIZACIÓN INVENTARIO
-            # ==========================================
-
-            logger.info(f"✅ PEDIDO REGISTRADO EXITOSAMENTE")
-            logger.info(f"   ID: {id_pedido}")
-            logger.info(f"   Cliente: {cliente}")
-            logger.info(f"   Productos: {len(rows_to_append)}")
-            logger.info(f"   Total: ${total_general}")
-            
             from backend.app import invalidar_cache_pedidos
             invalidar_cache_pedidos()
-            
-            return jsonify({
-                "success": True, 
-                "message": "Pedido registrado exitosamente",
-                "id_pedido": id_pedido,
-                "total_productos": len(rows_to_append),
-                "total_general": total_general
-            })
-        else:
-            logger.error("❌ No se pudo procesar ningún producto válido")
-            return jsonify({"success": False, "error": "No se pudo procesar ningún producto válido"}), 400
+        except:
+            pass
+
+        return jsonify({
+            "success": True, 
+            "status": "success",
+            "message": f"Pedido {id_pedido} registrado exitosamente",
+            "id_pedido": id_pedido,
+            "total_productos": len(productos),
+            "productos_guardados": items_agregados
+        }), 201
 
     except Exception as e:
-        logger.error(f"❌ ERROR CRÍTICO registrando pedido: {str(e)}")
-        logger.error(f"   Tipo de error: {type(e).__name__}")
+        db.session.rollback()
+        logger.error(f"❌ ERROR registrando pedido SQL: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500
@@ -527,183 +228,130 @@ def registrar_pedido():
 @pedidos_bp.route('/api/pedidos/detalle/<id_pedido>', methods=['GET'])
 def obtener_detalle_pedido(id_pedido):
     """
-    Obtiene el detalle completo de un pedido por su ID.
-    Útil para la funcionalidad de 'Retomar Pedido'.
+    Obtiene el detalle completo de un pedido desde PostgreSQL (SQL-Native).
+    Útil para la funcionalidad de 'Retomar Pedido' y edición.
     """
+    from backend.models.sql_models import Pedido
     try:
         if not id_pedido:
              return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
 
-        _, hoja_pedidos, _ = _resolve_tenant()
-        ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = sheets_client.get_all_records_seguro(ws)
-        
-        # Filtrar por ID (Normalizado para evitar errores de espacios o mayúsculas)
         id_pedido_buscado = str(id_pedido).strip().upper()
-        items_pedido = [r for r in registros if str(r.get("ID PEDIDO", "")).strip().upper() == id_pedido_buscado]
+        logger.info(f"🔍 [SQL-DETALLE] Consultando pedido: {id_pedido_buscado}")
         
-        if not items_pedido:
-            logger.warning(f"⚠️ Pedido {id_pedido_buscado} no encontrado. IDs disponibles: {[str(r.get('ID PEDIDO'))[:10] for r in registros[:5]]}...")
-            return jsonify({"success": False, "error": f"Pedido {id_pedido} no encontrado en la base de datos"}), 404
+        # 1. Buscar todos los items en SQL
+        items_sql = Pedido.query.filter_by(id_pedido=id_pedido_buscado).all()
+        
+        if not items_sql:
+            return jsonify({
+                "success": False, 
+                "error": f"Pedido {id_pedido} no encontrado en SQL"
+            }), 404
             
-        # Tomamos los datos de cabecera del primer item
-        cabecera = items_pedido[0]
+        # 2. Construir cabecera (usando el primer item)
+        cab = items_sql[0]
         
-        # Búsqueda robusta de observaciones (varias posibilidades de cabecera)
-        obs_val = cabecera.get("OBSERVACIONES") or cabecera.get("OBSERVACION") or \
-                  cabecera.get("NOTAS") or cabecera.get("NOTA") or \
-                  cabecera.get("COMENTARIOS") or cabecera.get("COMENTARIO") or ""
-        
+        # Formatear fecha para el input date del frontend (YYYY-MM-DD)
+        fecha_str = cab.fecha.strftime('%Y-%m-%d') if cab.fecha else ""
+
         pedido = {
-            "id_pedido": cabecera.get("ID PEDIDO"),
-            "fecha": cabecera.get("FECHA"),
-            "hora": cabecera.get("HORA", ""),
-            "vendedor": cabecera.get("VENDEDOR"),
-            "cliente": cabecera.get("CLIENTE"),
-            "nit": cabecera.get("NIT", ""),
-            "direccion": cabecera.get("DIRECCION", ""),
-            "ciudad": cabecera.get("CIUDAD", ""),
-            "forma_pago": cabecera.get("FORMA DE PAGO", "Contado"),
-            "descuento_global": str(cabecera.get("DESCUENTO %", "0")).replace('%', ''),
-            "estado": cabecera.get("ESTADO"),
-            "observaciones": obs_val,
+            "id_pedido": cab.id_pedido,
+            "fecha": fecha_str,
+            "hora": cab.hora or "",
+            "vendedor": cab.vendedor,
+            "cliente": cab.cliente,
+            "nit": cab.nit or "",
+            "direccion": getattr(cab, 'direccion', '') or "",
+            "ciudad": getattr(cab, 'ciudad', '') or "",
+            "forma_pago": getattr(cab, 'forma_de_pago', 'Contado') or "Contado",
+            "descuento_global": getattr(cab, 'descuento', '0') or "0",
+            "estado": cab.estado,
+            "observaciones": cab.observaciones or "",
             "productos": []
         }
         
-        for item in items_pedido:
-            pedido["productos"].append({
-                "codigo": item.get("ID CODIGO"),
-                "descripcion": item.get("DESCRIPCION"),
-                "cantidad": item.get("CANTIDAD"),
-                "precio_unitario": item.get("PRECIO UNITARIO"),
-                "total": item.get("TOTAL"),
-                "cant_alistada": item.get("CANT_ALISTADA", 0),
-                "cant_enviada": item.get("CANT_ENVIADA", 0),
-                "estado_despacho": str(item.get("ESTADO_DESPACHO", "FALSE")).upper() == "TRUE"
-            })
+        def _clean_numeric(val):
+            if not val or str(val).strip() in ['', 'None']: return 0
+            # Limpieza matemática: remover símbolos pero NO el punto decimal
+            s = str(val).replace('$', '').replace(',', '').strip()
+            try:
+                # Primero convertimos a float (entiende el punto) y luego a int si necesario
+                return int(float(s))
+            except: return 0
+
+        # 3. Mapear productos con limpieza de tipos (PG OID 25 Fix)
+        for item in items_sql:
+            # Asegurar que cantidad alistada sea un número limpio para el modal
+            cantidad_lista = _clean_numeric(item.cant_alistada)
             
+            pedido["productos"].append({
+                "codigo": item.id_codigo,
+                "descripcion": item.descripcion or "Sin descripción",
+                "cantidad": _clean_numeric(item.cantidad),
+                "precio_unitario": _clean_numeric(item.precio_unitario),
+                "total": _clean_numeric(item.total),
+                "cant_alistada": cantidad_lista,
+                "cant_lista": cantidad_lista, # Mapeo para el modal del almacén
+                "progreso": item.progreso or "0%"
+            })
+        
         return jsonify({
             "success": True,
             "pedido": pedido
         })
 
     except Exception as e:
-        logger.error(f"Error cargando detalle pedido {id_pedido}: {e}")
+        logger.error(f"❌ ERROR obteniendo detalle pedido SQL: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/pendientes', methods=['GET'])
 def obtener_pedidos_pendientes():
     """
-    Retorna la lista de pedidos que no están completados, agrupados por ID.
-    Utiliza caché global para reducir llamadas a Sheets.
+    Retorna la lista de pedidos que no están completados.
+    Ahora utiliza SQL-First con JOIN de clientes para evitar valores null.
     """
     try:
-        from backend.app import PEDIDOS_PENDIENTES_CACHE
-        import time
-        ahora = time.time()
+        from backend.core.repository_service import repository_service
 
-        # 1. Determinar tenant y hoja de pedidos
-        tenant, hoja_pedidos, _ = _resolve_tenant()
-        cache_state = PEDIDOS_PENDIENTES_CACHE.get(tenant, PEDIDOS_PENDIENTES_CACHE["friparts"])
-
-        # 2. Intentar obtener datos base de la caché
-        pedidos_completos = None
-        if cache_state["data"] and (ahora - cache_state["timestamp"] < cache_state["ttl"]):
-            logger.info(f"⚡ [Cache] Usando pedidos pendientes desde caché ({tenant})")
-            pedidos_completos = cache_state["data"]
-        else:
-            logger.info(f"🌐 [API] Consultando Google Sheets para pedidos pendientes ({tenant})")
-            ws = sheets_client.get_worksheet(hoja_pedidos)
-            if not ws:
-                return jsonify({"success": False, "error": f"Hoja {hoja_pedidos} no encontrada"}), 500
-            
-            registros = sheets_client.get_all_records_seguro(ws)
-            
-            def get_obs(row):
-                # Buscar en varias posibilidades de cabecera de forma robusta
-                keys = row.keys()
-                for k in keys:
-                    if str(k).strip().upper() in ["OBSERVACIONES", "OBSERVACION", "NOTAS", "NOTA", "COMENTARIOS", "COMENTARIO"]:
-                        val = row.get(k)
-                        if val and str(val).strip():
-                            return str(val).strip()
-                return ""
-
-            # Agrupar por ID PEDIDO (Datos en bruto sin filtrar por usuario)
-            agrupados = {}
-            for r in registros:
-                id_pedido = r.get("ID PEDIDO")
-                estado = r.get("ESTADO", "PENDIENTE").upper()
-                if estado != "COMPLETADO":
-                    if id_pedido not in agrupados:
-                        agrupados[id_pedido] = {
-                            "id_pedido": id_pedido,
-                            "fecha": r.get("FECHA"),
-                            "hora": r.get("HORA", ""),
-                            "cliente": r.get("CLIENTE"),
-                            "estado": estado,
-                            "progreso": r.get("PROGRESO", "0%"),
-                            "progreso_despacho": r.get("PROGRESO_DESPACHO", "0%"),
-                            "vendedor": r.get("VENDEDOR"),
-                            "direccion": r.get("DIRECCION", ""),
-                            "ciudad": r.get("CIUDAD", ""),
-                            "observaciones": get_obs(r),
-                            "delegado_a": str(r.get("DELEGADO_A", "")).strip(),
-                            "productos": []
-                        }
-                    else:
-                        # Si ya existe pero no tiene observaciones, intentar con esta fila
-                        if not agrupados[id_pedido].get("observaciones"):
-                            agrupados[id_pedido]["observaciones"] = get_obs(r)
-                    
-                    agrupados[id_pedido]["productos"].append({
-                        "codigo": r.get("ID CODIGO"),
-                        "descripcion": r.get("DESCRIPCION"),
-                        "cantidad": r.get("CANTIDAD"),
-                        "cant_lista": r.get("CANT_ALISTADA", 0),
-                        "cant_enviada": r.get("CANT_ENVIADA", 0),
-                        "total": r.get("TOTAL", 0),
-                        "despachado": str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper() == "TRUE",
-                        "no_disponible": str(r.get("NO_DISPONIBLE", "FALSE")).strip().upper() == "TRUE"
-                    })
-            
-            pedidos_completos = list(agrupados.values())
-            
-            # Guardar en caché específico del tenant
-            cache_state["data"] = pedidos_completos
-            cache_state["timestamp"] = ahora
-
-        # 3. Filtrar por usuario y rol (Lógica de Seguridad RBAC Estricta)
-        import unicodedata
-        def normalize_role(r):
-            if not r: return ""
-            return ''.join((c for c in unicodedata.normalize('NFD', str(r).lower()) if unicodedata.category(c) != 'Mn'))
-
-        rol_session = normalize_role(session.get('role', ''))
-        user_session = str(session.get('user', '')).strip().upper()
+        # 1. Obtener datos desde SQL (JOIN incluido)
+        pedidos = repository_service.get_pedidos_pendientes_sql()
         
-        # Roles con visibilidad global de pedidos + exclusión automática para Frimetals (no usan delegación)
-        es_admin = any(x in rol_session for x in ["administracion", "administrador", "gerencia", "jefe almacen", "comercial", "metals_staff", "metals_admin"])
+        # 2. Determinar tenant para filtrado
+        tenant = get_tenant_from_request()
 
-        pedidos_filtrados = []
-        for p in pedidos_completos:
+        # 3. Filtrar por usuario y rol (Lógica RBAC Estricta)
+        # Compatibilidad: Chequear 'rol' (legacy) y 'role' (estándar)
+        user_session = str(session.get('user', '')).strip().upper()
+        rol_session = str(session.get('rol') or session.get('role', '')).lower()
+        
+        # Roles con visibilidad global
+        es_admin = any(x in rol_session for x in ["admin", "administracion", "administrador", "gerencia", "jefe almacen", "comercial", "metals_staff", "metals_admin"])
+
+        filtrados = []
+        for p in pedidos:
             if es_admin or tenant == "frimetals":
-                pedidos_filtrados.append(p)
+                filtrados.append(p)
             else:
                 # Si no es admin y es Friparts, solo ve lo que tiene asignado
-                if str(p.get("delegado_a", "")).strip().upper() == user_session:
-                    pedidos_filtrados.append(p)
+                if str(p.get("Delegado_a", "")).strip().upper() == user_session:
+                    filtrados.append(p)
+
+        # 4. DEBUG EN TERMINAL (Solicitado por el usuario)
+        print(f"DEBUG ALMACEN: Rol detectado: {rol_session}, Pedidos totales SQL: {len(pedidos)}, Pedidos filtrados: {len(filtrados)}")
 
         return jsonify({
             "success": True, 
-            "pedidos": pedidos_filtrados
+            "pedidos": filtrados
         })
     except Exception as e:
-        logger.error(f"Error cargando pedidos pendientes: {e}")
+        logger.error(f"Error cargando pedidos pendientes (SQL): {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @pedidos_bp.route('/api/pedidos/delegar', methods=['POST'])
-@require_role(['administracion', 'jefe almacen', 'comercial'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN'])
 def delegar_pedido():
     """
     Asigna un pedido a una colaboradora específica.
@@ -752,7 +400,7 @@ def delegar_pedido():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/eliminar-producto', methods=['POST'])
-@require_role(['administracion', 'jefe almacen'])
+@require_role(ROL_ADMINS + ['JEFE ALMACEN'])
 def eliminar_producto_pedido():
     """
     Elimina un producto específico de un pedido y restaura el inventario.
@@ -863,179 +511,84 @@ def eliminar_producto_pedido():
 @pedidos_bp.route('/api/pedidos/actualizar-alistamiento', methods=['POST'])
 def actualizar_alistamiento():
     """
-    Actualiza el progreso y estado de un pedido en Google Sheets.
-    Ahora soporta ESTADO_DESPACHO como boolean (CHECKBOX).
+    Actualiza el progreso y estado de un pedido en PostgreSQL (SQL-Native).
+    Elimina dependencia de Google Sheets.
     """
+    from backend.models.sql_models import Pedido
+    from backend.core.sql_database import db
+    
     try:
         data = request.json
         id_pedido = data.get("id_pedido")
-        progreso = data.get("progreso")          # Alistamiento %
-        progreso_despacho = data.get("progreso_despacho") # Despacho %
-        estado = data.get("estado")              # ej: "EN ALISTAMIENTO", "ENVIADO", etc.
-        detalles = data.get("detalles", [])      # [{codigo, cant_lista, despachado}, ...]
+        estado_general = data.get("estado") # ej: "EN ALISTAMIENTO"
+        detalles = data.get("detalles", []) # [{codigo, cant_lista}, ...]
         
         if not id_pedido:
             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
             
-        tenant, hoja_pedidos, hoja_productos = _resolve_tenant()
-        ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = sheets_client.get_all_records_seguro(ws)
-        headers = ws.row_values(1)
-        
-        # Asegurar columnas necesarias expandiendo la hoja si es necesario
-        def asegurar_columna(nombre):
-            nonlocal headers
-            if nombre not in headers:
-                new_col_idx = len(headers) + 1
-                if new_col_idx > ws.col_count:
-                    ws.add_cols(1)
-                ws.update_cell(1, new_col_idx, nombre)
-                headers.append(nombre)
-                return True
-            return False
+        logger.info(f"📦 [SQL-ALISTAMIENTO] Actualizando pedido: {id_pedido}")
 
-        asegurar_columna("ESTADO")
-        asegurar_columna("PROGRESO")
-        asegurar_columna("CANT_ALISTADA")
-        asegurar_columna("PROGRESO_DESPACHO")
-        # Asegurar columna booleana para despacho
-        asegurar_columna("ESTADO_DESPACHO")
-        asegurar_columna("NO_DISPONIBLE")
-            
-        col_estado = headers.index("ESTADO") + 1
-        col_progreso = headers.index("PROGRESO") + 1
-        col_cant_lista = headers.index("CANT_ALISTADA") + 1
-        col_progreso_despacho = headers.index("PROGRESO_DESPACHO") + 1
-        col_estado_despacho = headers.index("ESTADO_DESPACHO") + 1
-        col_no_disponible = headers.index("NO_DISPONIBLE") + 1
+        # 1. Buscar todos los items del pedido en SQL
+        items_sql = Pedido.query.filter_by(id_pedido=id_pedido).all()
         
-        updates = []
-        for idx, r in enumerate(registros):
-            id_ped_sheet = str(r.get("ID PEDIDO", "")).strip().upper()
-            id_ped_tgt = str(id_pedido).strip().upper()
+        if not items_sql:
+            return jsonify({"success": False, "error": f"Pedido {id_pedido} no encontrado en SQL"}), 404
+
+        items_actualizados = 0
+        def _clean_num(val):
+            if not val or str(val).strip() in ['', 'None']: return 0
+            s = str(val).replace('$', '').replace('.', '').replace(',', '').strip()
+            try: return float(s)
+            except: return 0
+
+        for d in detalles:
+            codigo_front = str(d.get("codigo", "")).strip().upper()
+            cant_lista_front = _clean_num(d.get("cant_lista", 0))
             
-            if id_ped_sheet == id_ped_tgt and id_ped_tgt != "":
-                fila = idx + 2
+            # Buscar el match en SQL para este código dentro del pedido
+            item = next((i for i in items_sql if str(i.id_codigo).strip().upper() == codigo_front), None)
+            
+            if item:
+                # 1. Obtener tope máximo y aplicar filtro min() de seguridad
+                cantidad_total = _clean_num(item.cantidad)
+                cant_segura = min(cant_lista_front, cantidad_total)
                 
-                # Actualizar estado y progreso general
-                updates.append({
-                    'range': gspread.utils.rowcol_to_a1(fila, col_estado),
-                    'values': [[estado]]
-                })
-                if progreso is not None:
-                    updates.append({
-                        'range': gspread.utils.rowcol_to_a1(fila, col_progreso),
-                        'values': [[progreso]]
-                    })
-
-                if progreso_despacho is not None:
-                    updates.append({
-                        'range': gspread.utils.rowcol_to_a1(fila, col_progreso_despacho),
-                        'values': [[progreso_despacho]]
-                    })
+                # 2. Persistir cantidad segura (como entero para evitar bug de .0 -> 000)
+                item.cant_alistada = str(int(cant_segura))
                 
-                # Buscar si este producto tiene una cantidad específica para actualizar
-                codigo_fila = str(r.get("ID CODIGO", "")).strip().upper()
-                for d in detalles:
-                    if str(d.get("codigo", "")).strip().upper() == codigo_fila and codigo_fila != "":
-                        if "cant_lista" in d:
-                            updates.append({
-                                'range': gspread.utils.rowcol_to_a1(fila, col_cant_lista),
-                                'values': [[d.get("cant_lista")]]
-                            })
-                        # ACTUALIZACION CHECKBOX DESPACHO
-                        if "despachado" in d:
-                            # Convertir a TRUE/FALSE string para Sheets
-                            val_despacho = "TRUE" if d.get("despachado") else "FALSE"
-                            updates.append({
-                                'range': gspread.utils.rowcol_to_a1(fila, col_estado_despacho),
-                                'values': [[val_despacho]]
-                            })
-                        # ACTUALIZACION NO_DISPONIBLE
-                        if "no_disponible" in d:
-                            val_nd = "TRUE" if d.get("no_disponible") else "FALSE"
-                            updates.append({
-                                'range': gspread.utils.rowcol_to_a1(fila, col_no_disponible),
-                                'values': [[val_nd]]
-                            })
-        
-        if updates:
-            ws.batch_update(updates)
-            
-            # ==========================================
-            # 📉 DESCUENTO REAL DE STOCK AL DESPACHAR (Smart Search + BOM)
-            # ==========================================
-            try:
-                despachados_ahora = [d for d in detalles if d.get("despachado") == True]
+                # Lógica de progreso y estado por item
+                cantidad_total = _clean_num(item.cantidad)
+                if cantidad_total > 0:
+                    porcentaje = (cant_lista_front / cantidad_total) * 100
+                    item.progreso = f"{int(porcentaje)}%"
+                    
+                    if cant_lista_front >= cantidad_total:
+                        item.estado = 'ALISTADO'
+                        item.progreso = '100%'
+                    else:
+                        item.estado = estado_general or 'EN ALISTAMIENTO'
+                
+                items_actualizados += 1
 
-                if despachados_ahora:
-                    logger.info(f"📉 Descontando stock para {len(despachados_ahora)} items despachados...")
-                    from backend.services.bom_service import calcular_descuentos_ensamble
+        db.session.commit()
+        logger.info(f"✅ [SQL-ALISTAMIENTO] {items_actualizados} items actualizados para {id_pedido}")
 
-                    ws_productos = sheets_client.get_worksheet(hoja_productos)
-                    registros_productos = sheets_client.get_all_records_seguro(ws_productos)
-                    headers_productos = ws_productos.row_values(1)
-
-                    col_p_term = headers_productos.index("P. TERMINADO") + 1
-                    col_comp = headers_productos.index("COMPROMETIDO") + 1
-
-                    updates_stock = []
-                    filas_ya_actualizadas = {}  # {fila: {col: valor}} para evitar colisiones
-
-                    prod_pedido_map = {str(r.get("ID CODIGO")).strip().upper(): float(r.get("CANTIDAD", 0))
-                                     for r in registros if str(r.get("ID PEDIDO")) == str(id_pedido)}
-
-                    for d in despachados_ahora:
-                        cod = str(d.get("codigo")).strip().upper()
-                        qty_pedido = prod_pedido_map.get(cod, 0)
-                        if qty_pedido <= 0:
-                            continue
-
-                        # ── Producto Final: P. TERMINADO y COMPROMETIDO ──
-                        fila_f, datos_f = _buscar_producto_inteligente(cod, registros_productos)
-                        if fila_f:
-                            s_fisico = float(datos_f.get("P. TERMINADO", 0) or 0)
-                            s_comp = float(datos_f.get("COMPROMETIDO", 0) or 0)
-                            nuevo_fisico = max(0, s_fisico - qty_pedido)
-                            nuevo_comp = max(0, s_comp - qty_pedido)
-                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_f, col_p_term), 'values': [[nuevo_fisico]]})
-                            updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_f, col_comp), 'values': [[nuevo_comp]]})
-                            logger.info(f"   ✅ Despacho {cod}: Físico({s_fisico}->{nuevo_fisico}), Comp({s_comp}->{nuevo_comp})")
-                        else:
-                            logger.warning(f"   ⚠️ Producto {cod} no encontrado para despacho")
-
-                        # ── Componentes BOM: Liberar COMPROMETIDO ──
-                        try:
-                            bom_res = calcular_descuentos_ensamble(cod, int(qty_pedido))
-                            if bom_res.get('success') and bom_res.get('componentes'):
-                                for comp in bom_res['componentes']:
-                                    cod_inv = comp.get('codigo_inventario', '')
-                                    qty_comp = comp.get('cantidad_total_descontar', 0)
-                                    fila_c, datos_c = _buscar_producto_inteligente(cod_inv, registros_productos)
-                                    if fila_c and fila_c != fila_f:
-                                        s_comp_c = float(datos_c.get("COMPROMETIDO", 0) or 0)
-                                        nuevo_comp_c = max(0, s_comp_c - qty_comp)
-                                        updates_stock.append({'range': gspread.utils.rowcol_to_a1(fila_c, col_comp), 'values': [[nuevo_comp_c]]})
-                                        logger.info(f"   ✅ Liberado {cod_inv}: Comp({s_comp_c}->{nuevo_comp_c})")
-                        except Exception as e_bom_d:
-                            logger.warning(f"   ⚠️ BOM dispatch fallback para {cod}: {e_bom_d}")
-
-                    if updates_stock:
-                        ws_productos.batch_update(updates_stock)
-
-            except Exception as e_stock:
-                logger.error(f"❌ Error actualizando stock real en despacho: {e_stock}")
-
+        # Opcional: Invalidar caché
+        try:
             from backend.app import invalidar_cache_pedidos
             invalidar_cache_pedidos()
-            
-            return jsonify({"success": True, "message": f"Pedido {id_pedido} actualizado a {estado} ({progreso})"})
-        else:
-            return jsonify({"success": False, "error": "Pedido no encontrado o sin cambios"}), 404
-            
+        except: pass
+
+        return jsonify({
+            "success": True, 
+            "message": f"Progreso actualizado en SQL para {items_actualizados} productos"
+        })
+
     except Exception as e:
-        logger.error(f"Error actualizando alistamiento: {e}")
+        db.session.rollback()
+        logger.error(f"❌ Error alistamiento SQL: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 @pedidos_bp.route('/api/pedidos/cliente', methods=['GET'])
 def obtener_pedidos_cliente():

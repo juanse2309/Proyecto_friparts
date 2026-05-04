@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="/static/css/tv_vista.css?v=1.6.1">
     <link rel="stylesheet" href="/static/css/almacen_scroll.css?v=1.6.1">
     <link rel="stylesheet" href="/static/css/pedidos_styles.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/pulido.css?v=1.6.1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Bootstrap para modales -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -138,6 +139,24 @@
 
         .hover-scale {
             transition: transform 0.3s ease;
+        }
+
+        .autocomplete-suggestions {
+            position: absolute;
+            z-index: 10005;
+            background: white;
+            width: 100%;
+            max-height: 280px;
+            overflow-y: auto;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            border-radius: 0 0 12px 12px;
+            display: none;
+            border: 1px solid #e2e8f0;
+            border-top: none;
+        }
+
+        .autocomplete-suggestions.active {
+            display: block;
         }
 
         .hover-scale:hover {
@@ -814,7 +833,7 @@
                                         <h5 class="card-title fw-bold mb-0" style="color: #1e293b;">
                                             <i class="fas fa-chart-area text-primary me-2"></i>Rendimiento Mensual
                                             <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
-                                                title="Comparativa de facturación vs presupuesto mensual (Datos desde Google Sheets - Histórico)."></i>
+                                                title="Comparativa de facturación vs presupuesto mensual (Datos desde PostgreSQL - Histórico)."></i>
                                         </h5>
                                         <div class="d-flex gap-2">
                                             <button class="chart-toggle-btn active" id="toggle-mensual-money"
@@ -1304,12 +1323,13 @@
                             <tr>
                                 <th style="width: 8%;">IMAGEN</th>
                                 <th style="width: 10%;">CÓDIGO</th>
-                                <th style="width: 22%;">DESCRIPCIÓN</th>
-                                <th style="width: 10%; text-align: right;" title="Materia Prima Físico">P. TERMINADO</th>
+                                <th style="width: 20%;">DESCRIPCIÓN</th>
+                                <th style="width: 10%; text-align: right; color: #f97316;" title="Material inyectado pendiente de pulido">POR PULIR</th>
+                                <th style="width: 10%; text-align: right;" title="Producto ya terminado y validado">P. TERMINADO</th>
                                 <th style="width: 8%; text-align: right;" title="Unidades ya asignadas a pedidos">COMPROM.</th>
                                 <th style="width: 10%; text-align: right; color: #3b82f6; font-weight: bold;" title="Total Disponible: P. TERMINADO - COMPROMETIDO">DISPONIBLE</th>
                                 <th style="width: 10%; text-align: right;" title="Materia Prima en Bodega">BODEGA (MP)</th>
-                                <th style="width: 10%; text-align: right;" title="Procesos Externos (Zincado/Granallado)">PROCESOS EXT.</th>
+                                <th style="width: 8%; text-align: right;" title="Procesos Externos (Zincado/Granallado)">TRÁNSITO</th>
                                 <th style="width: 12%; text-align: center;">ESTADO</th>
                             </tr>
                         </thead>
@@ -1379,7 +1399,7 @@
                                                 <label class="form-label small fw-bold">Fecha de
                                                     Programación</label>
                                                 <input type="date" id="mes-prog-fecha"
-                                                    class="form-control border-0 bg-light" readonly>
+                                                    class="form-control border-0 bg-light">
                                             </div>
                                             <div class="mb-3">
                                                 <label class="form-label small fw-bold">Producto</label>
@@ -1398,9 +1418,9 @@
                                             <div class="row mb-3">
                                                 <div class="col-8">
                                                     <label class="form-label small fw-bold">Molde</label>
-                                                    <input type="text" id="mes-prog-molde"
+                                                    <input type="number" id="mes-prog-molde"
                                                         class="form-control border-0 bg-light"
-                                                        placeholder="Nombre molde...">
+                                                        placeholder="Capacidad molde..." min="1">
                                                 </div>
                                                 <div class="col-4">
                                                     <label class="form-label small fw-bold">Cavidades</label>
@@ -1570,16 +1590,17 @@
                                             placeholder="Cant. Final">
                                     </div>
                                     <div class="form-group"> <label for="hora-llegada-inyeccion"><i
-                                                class="fas fa-stopwatch"></i> Hora Llegada</label>
+                                                class="fas fa-stopwatch"></i> Hora Llegada (24h)</label>
                                         <input type="time" id="hora-llegada-inyeccion">
                                     </div>
                                     <div class="form-group"> <label for="hora-inicio-inyeccion"><i
-                                                class="fas fa-play-circle"></i> Hora Inicio</label>
+                                                class="fas fa-play-circle"></i> Hora Inicio (24h)</label>
                                         <input type="time" id="hora-inicio-inyeccion" required>
                                     </div>
                                     <div class="form-group"> <label for="hora-termina-inyeccion"><i
-                                                class="fas fa-stop-circle"></i> Hora Termina</label>
+                                                class="fas fa-stop-circle"></i> Hora Termina (24h)</label>
                                         <input type="time" id="hora-termina-inyeccion" required>
+                                        <div class="invalid-feedback fw-bold">La hora de fin debe ser posterior a la de inicio.</div>
                                     </div>
                                     <div class="form-group"> <label for="peso-vela-inyeccion"><i
                                                 class="fas fa-weight-hanging"></i> Peso Vela Máquina
@@ -1945,175 +1966,292 @@
         </div>
         </div> <!-- Pulido -->
         <div id="pulido-page" class="page">
-            <header class="top-bar">
-                <button class="btn-icon" id="toggle-sidebar-pulido">
-                    <i class="fas fa-bars"></i>
-                </button>
-                <div class="page-title">
-                    <h1><i class="fas fa-sparkles"></i> Registro de Pulido</h1>
-                    <p class="subtitle">Registra operaciones de pulido y acabado</p>
-                </div>
-            </header>
-            <div class="form-container">
-                <!-- Notification Banner para Último Registro (Pulido) -->
-                <div id="pulido-last-record-banner"
-                    style="display: none; background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); align-items: flex-start; justify-content: space-between;">
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <i class="fas fa-info-circle" style="color: #10b981; font-size: 1.2rem; margin-top: 2px;"></i>
-                        <div>
-                            <h6 style="margin: 0 0 4px 0; color: #065f46; font-size: 0.95rem; font-weight: 600;">
-                                Tu
-                                último registro guardado:</h6>
-                            <p id="pulido-last-record-text" style="margin: 0; color: #047857; font-size: 0.9rem;">
-                            </p>
-                        </div>
-                    </div>
-                    <button type="button"
-                        onclick="document.getElementById('pulido-last-record-banner').style.display='none'"
-                        style="background: none; border: none; color: #059669; padding: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: background-color 0.2s;">
-                        <i class="fas fa-times" style="font-size: 1.1rem;"></i>
+            <header class="top-bar d-flex justify-content-between align-items-center px-4 py-1" style="min-height: 50px; background: linear-gradient(to right, #f8fafc, #ffffff); border-bottom: 1px solid #e2e8f0;">
+                <div class="d-flex align-items-center">
+                    <button class="btn-icon me-3 shadow-none" id="toggle-sidebar-pulido" style="width: 32px; height: 32px;">
+                        <i class="fas fa-bars" style="font-size: 1.1rem;"></i>
                     </button>
+                    <div class="page-title d-none d-md-block">
+                        <h1 class="mb-0 h6 fw-700 text-dark"><i class="fas fa-sparkles text-primary me-2"></i>Módulo de Pulido</h1>
+                    </div>
                 </div>
 
-                <form id="form-pulido" class="styled-form">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="user-chip d-flex align-items-center px-3 py-1 bg-white rounded-pill border shadow-sm">
+                        <i class="fas fa-user-circle text-primary me-2" style="font-size: 1rem;"></i>
+                        <input type="text" id="responsable-pulido" class="border-0 bg-transparent text-dark fw-bold" placeholder="---" style="font-size: 0.8rem; width: 110px; pointer-events: none;">
+                    </div>
+                </div>
+            </header>
+
+            <div class="mode-selector-container px-4 py-2 bg-light border-bottom d-flex justify-content-center align-items-center gap-3">
+                <span class="text-muted fw-bold small"><i class="fas fa-satellite me-1"></i> MODO SATÉLITE</span>
+                <div class="form-check form-switch custom-switch-lg">
+                    <input class="form-check-input" type="checkbox" id="toggle-pulido-mode" onchange="ModuloPulido.cambiarModo(this.checked)" checked>
+                </div>
+                <span class="text-primary fw-bold small"><i class="fas fa-microchip me-1"></i> MODO PLANTA (PRO)</span>
+            </div>
+
+            <div class="form-container mt-3 px-4" style="max-width: 1000px; margin: 0 auto;">
+                
+                <!-- DATOS COMPARTIDOS (SATÉLITE Y PRO) -->
+                <div id="shared-pulido-section" class="styled-form mb-4" style="background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
                     <div class="form-grid">
-                        <!-- Fila 1: Fecha -->
                         <div class="form-group">
                             <label for="fecha-pulido"><i class="fas fa-calendar"></i> Fecha</label>
                             <input type="date" id="fecha-pulido" required>
                         </div>
                         <div class="form-group">
-                            <label for="responsable-pulido"><i class="fas fa-user-circle"></i>
-                                Responsable</label>
-                            <input type="text" id="responsable-pulido" placeholder="Buscar operario..."
-                                autocomplete="off">
-                            <div id="pulido-responsable-suggestions" class="autocomplete-suggestions">
+                            <label for="responsable-pulido-input"><i class="fas fa-user-circle"></i> Responsable</label>
+                            <input type="text" id="responsable-pulido-input" placeholder="Buscar operario..." autocomplete="off">
+                            <div id="pulido-responsable-suggestions" class="autocomplete-suggestions"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="buscador-productos"><i class="fas fa-barcode"></i> Referencia del Buje</label>
+                            <input type="text" id="buscador-productos" placeholder="Buscar código..." autocomplete="off" required>
+                            <div id="pulido-producto-suggestions" class="autocomplete-suggestions"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="orden-produccion-pulido"><i class="fas fa-list-ol"></i> Orden Producción (OP)</label>
+                            <input type="text" id="orden-produccion-pulido" placeholder="OP-XXXX">
+                        </div>
+                        <div class="form-group">
+                            <label for="lote-pulido"><i class="fas fa-box"></i> Lote</label>
+                            <input type="date" id="lote-pulido">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PANEL A: MODO MANUAL (SATÉLITE) -->
+                <div id="panel-pulido-manual">
+                    <form id="form-pulido" class="styled-form">
+                        <div class="form-grid">
+                            <!-- Fila 2: Horas -->
+                            <div class="form-group">
+                                <label for="hora-inicio-pulido"><i class="fas fa-clock text-primary"></i> Hora Inicio (24h)</label>
+                                <input type="time" id="hora-inicio-pulido" value="07:00" required>
                             </div>
-                        </div>
-
-                        <!-- Fila 2: Horas -->
-                        <div class="form-group">
-                            <label for="hora-inicio-pulido"><i class="fas fa-play-circle"></i> Hora
-                                Inicio</label>
-                            <input type="time" id="hora-inicio-pulido" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="hora-fin-pulido"><i class="fas fa-stop-circle"></i> Hora
-                                Fin</label>
-                            <input type="time" id="hora-fin-pulido" required>
-                        </div>
-
-                        <!-- Fila 3: Producto y Lote -->
-                        <div class="form-group">
-                            <label for="codigo-producto-pulido"><i class="fas fa-barcode"></i> Código
-                                Producto</label>
-                            <input type="text" id="codigo-producto-pulido" placeholder="Buscar por código..."
-                                autocomplete="off">
-                            <div id="pulido-producto-suggestions" class="autocomplete-suggestions">
+                            <div class="form-group">
+                                <label for="hora-fin-pulido"><i class="fas fa-history text-secondary"></i> Hora Fin (24h)</label>
+                                <input type="time" id="hora-fin-pulido" value="17:00" required>
+                                <div class="invalid-feedback fw-bold">La hora de fin debe ser posterior a la de inicio.</div>
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="lote-pulido"><i class="fas fa-calendar-alt"></i> Lote
-                                (Fecha)</label>
-                            <input type="date" id="lote-pulido" required>
-                        </div>
 
-                        <!-- Fila 4: Orden y Cantidad Recibida -->
-                        <div class="form-group">
-                            <label for="orden-produccion-pulido"><i class="fas fa-list-ol"></i> Orden
-                                Producción <span class="text-danger">*</span></label>
-                            <input type="text" id="orden-produccion-pulido" placeholder="OP-2026-001" required>
-                            <small class="text-muted d-block mt-1">Si no hay OP, escribe 1234 o
-                                similar.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="entrada-pulido"><i class="fas fa-calculator"></i> Total
-                                Procesado</label>
-                            <input type="number" id="entrada-pulido" min="0" readonly
-                                style="background-color: #f3f4f6; font-weight: bold;">
-                        </div>
-
-                        <!-- Fila 5: Bujes Buenos y PNC -->
-                        <div class="form-group">
-                            <label for="bujes-buenos-pulido"><i class="fas fa-check-circle"></i> Piezas
-                                Buenas</label>
-                            <input type="number" id="bujes-buenos-pulido" min="0" required
-                                style="background-color: #ffffff; border: 2px solid #10b981;">
-                        </div>
-                        <div class="form-group">
-                            <label for="pnc-pulido"><i class="fas fa-times-circle"></i> PNC</label>
-                            <div style="display: flex; gap: 5px;">
-                                <input type="text" id="pnc-pulido" value="0" readonly
-                                    style="background-color: #fce8e6; color: #dc3545; font-weight: bold; text-align: center; cursor: pointer; flex: 1;"
-                                    onclick="window.abrirModalPulido()" title="Click para registrar defectos">
-                                <button type="button" onclick="window.abrirModalPulido()"
-                                    style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;"
-                                    title="Registrar defectos">
-                                    <i class="fas fa-list-ul"></i>
-                                </button>
+                            <!-- Fila 4: Cantidades y PNC Dual -->
+                            <div class="form-group">
+                                <label for="cantidad-recibida-pulido"><i class="fas fa-inbox"></i> Cantidad Recibida (Bruto)</label>
+                                <input type="number" id="cantidad-recibida-pulido" min="0" value="0" class="fw-bold text-primary" oninput="ModuloPulido.actualizarCalculoManual()">
                             </div>
-                        </div>
-
-                        <!-- Fila 6: Observaciones -->
-                        <div class="form-group full-width">
-                            <label for="observaciones-pulido"><i class="fas fa-sticky-note"></i>
-                                Observaciones</label>
-                            <textarea id="observaciones-pulido" rows="3"
-                                placeholder="Notas adicionales del proceso..."></textarea>
-                            <input type="hidden" id="criterio-pnc-hidden">
-                        </div>
-
-                        <!-- PRODUCCIÓN CALCULADA (Destacada) -->
-                        <div class="form-group full-width" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                                       padding: 20px; 
-                                       border-radius: 12px;
-                                       box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-                                       margin: 20px 0;">
-                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-                                <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
-                                <label style="color: white; font-weight: 600; font-size: 18px; margin: 0;">
-                                    ?? Cantidad Real (Calculada)
-                                </label>
-                            </div>
-                            <div style="background: rgba(255,255,255,0.15); 
-                                            padding: 15px; 
-                                            border-radius: 8px;
-                                            backdrop-filter: blur(10px);">
-                                <div id="salida-calculada" style="font-size: 48px; 
-                                               font-weight: bold; 
-                                               color: #10b981; 
-                                               text-align: center;
-                                               text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                                               line-height: 1;">
-                                    0
+                            
+                            <!-- Fila 4: Detalle de Calidad Premium -->
+                            <div class="row g-3 px-2" style="grid-column: 1 / -1;">
+                                <div class="col-md-6">
+                                    <div class="quality-card">
+                                        <div class="quality-title">
+                                            <i class="fas fa-industry text-danger"></i> PNC Inyección
+                                        </div>
+                                        <div class="d-flex flex-column gap-2">
+                                            <input type="number" id="manual-pnc-iny" class="form-control input-premium text-center w-100" value="0" min="0" oninput="ModuloPulido.actualizarCalculoManual()">
+                                            <select id="manual-criterio-iny" class="form-select input-premium w-100">
+                                                <option value="">- Criterio -</option>
+                                                <option value="RECHUPE">Rechupe</option>
+                                                <option value="FALTA DE MATERIAL">Falta de material</option>
+                                                <option value="QUEMADO">Quemado</option>
+                                                <option value="REBABA">Rebaba</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div id="formula-calc-pulido" style="color: rgba(255,255,255,0.9); 
-                                               text-align: center; 
-                                               margin-top: 10px;
-                                               font-size: 14px;">
-                                    Recibida: 0 - PNC: 0 = 0 piezas pulidas
+                                <div class="col-md-6">
+                                    <div class="quality-card" style="border-left: 4px solid #facc15;">
+                                        <div class="quality-title">
+                                            <i class="fas fa-sparkles text-warning"></i> PNC Pulido
+                                        </div>
+                                        <div class="d-flex flex-column gap-2">
+                                            <input type="number" id="manual-pnc-pul" class="form-control input-premium text-center w-100" value="0" min="0" oninput="ModuloPulido.actualizarCalculoManual()">
+                                            <select id="manual-criterio-pul" class="form-select input-premium w-100">
+                                                <option value="">- Criterio -</option>
+                                                <option value="MAL CORTE">Mal corte</option>
+                                                <option value="EXCESO DE PULIDO">Exceso de pulido</option>
+                                                <option value="RAYADO">Rayado</option>
+                                                <option value="MAL ACABADO">Mal acabado</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div id="piezas-buenas-pulido" style="color: #4ade80; 
-                                               text-align: center; 
-                                               margin-top: 5px;
-                                               font-weight: 600;
-                                               font-size: 14px;
-                                               border-top: 1px solid rgba(255,255,255,0.1);
-                                               padding-top: 5px;">
-                                    Total: 0 piezas buenas
+                            </div>
+
+                            <!-- Fila 5: Resultado Destacado -->
+                            <div class="col-12 mt-4 px-2">
+                                <div class="result-highlight">
+                                    <div class="result-label">
+                                        <i class="fas fa-check-double me-2"></i>BUJES BUENOS (TOTAL PARA PAGO)
+                                    </div>
+                                    <div id="manual-bujes-buenos" class="result-value">0</div>
+                                </div>
+                            </div>
+
+                            <!-- Fila 6: Observaciones -->
+                            <div class="form-group full-width">
+                                <label for="observaciones-pulido"><i class="fas fa-sticky-note"></i> Observaciones</label>
+                                <textarea id="observaciones-pulido" rows="2" placeholder="Novedades del turno..."></textarea>
+                            </div>
+                        </div>
+
+                        <div class="form-actions mt-4 d-flex gap-3">
+                            <button type="button" class="btn btn-primary lg" style="flex: 2; padding: 15px; font-weight: 700; font-size: 1.1rem;" onclick="ModuloPulido.registrarPulidoTradicional()">
+                                <i class="fas fa-cloud-upload-alt me-2"></i> GUARDAR EN POSTGRESQL
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" style="flex: 1;" onclick="ModuloPulido.limpiarFormulario()">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- PANEL B: MODO PRO (PLANTA - CRONÓMETRO) -->
+                <div id="panel-pulido-pro" style="display: none;">
+                    <div class="pro-container text-center">
+                        <!-- Sección State -->
+                        <div id="pulido-active-session" class="p-4 mb-3 rounded-4 shadow-sm" style="background: #f8fafc; border: 2px dashed #cbd5e1;">
+                            <div id="pulido-idle-msg">
+                                <i class="fas fa-stopwatch-20 text-muted mb-3" style="font-size: 3rem;"></i>
+                                <h3 class="h5 text-dark fw-700">Sin sesión activa</h3>
+                                <p class="text-muted small">Selecciona un producto y presiona 'Iniciar Jornada'</p>
+                            </div>
+                            
+                            <div id="pulido-active-msg" style="display: none;">
+                                <div class="badge bg-primary mb-2 px-3 py-2 rounded-pill shadow-sm">
+                                    <i class="fas fa-sync fa-spin me-2"></i>TRABAJANDO EN: <span id="current-pulido-job" class="fw-bold fs-6">REF-XXX</span>
+                                </div>
+                                <div id="pulido-pausa-msg" class="alert alert-warning py-2 mb-3 shadow-sm" style="display: none;">
+                                    <i class="fas fa-pause-circle me-2"></i><strong>PAUSADO</strong>
+                                </div>
+
+                                <!-- COLA DE TRABAJO (NUEVO) -->
+                                <div id="pulido-queue-container" class="mt-4 text-start" style="display: none;">
+                                    <h6 class="text-muted fw-bold mb-3 border-bottom pb-2">
+                                        <i class="fas fa-list-ol me-2 text-primary"></i>TRABAJOS EN COLA
+                                    </h6>
+                                    <div id="pulido-queue-list" class="d-flex flex-column gap-2">
+                                        <!-- Tarjetas de cola dinámicas -->
+                                    </div>
+                                </div>
+                                <div id="pulido-main-timer" class="display-3 fw-900 text-dark mb-3" style="font-family: 'Courier New', Courier, monospace;">00:00:00</div>
+
+                            </div>
+                        </div>
+
+                        <!-- Panel de Controles -->
+                        <div class="controls-grid d-grid gap-3" style="grid-template-columns: 1fr 1fr;">
+                            <button id="btn-iniciar-pulido" class="btn btn-primary btn-lg p-3 shadow" onclick="ModuloPulido.iniciarCiclo()" disabled>
+                                <i class="fas fa-play me-2"></i> Iniciar Jornada
+                            </button>
+                            <button id="btn-pausar-pulido" class="btn btn-warning btn-lg p-3 shadow" onclick="ModuloPulido.pausarCiclo()" disabled>
+                                <i class="fas fa-pause me-2"></i> Pausar
+                            </button>
+                            <button id="btn-terminar-pulido" class="btn btn-success btn-lg p-3 shadow full-width" onclick="ModuloPulido.prepararReporteFinal()" disabled>
+                                <i class="fas fa-flag-checkered me-2"></i> TERMINAR Y REPORTAR
+                            </button>
+                            <button id="btn-cambiar-ref-pulido" class="btn btn-secondary btn-lg p-3 shadow full-width" style="display: none;" onclick="ModuloPulido.habilitarCambioReferencia()">
+                                <i class="fas fa-exchange-alt me-2"></i> Cambiar Referencia / Urgencia
+                            </button>
+                        </div>
+
+                        <!-- Stats en vivo -->
+                        <div class="row mt-4 g-2">
+                            <div class="col-6">
+                                <div class="p-3 bg-white border rounded-3 shadow-xs">
+                                    <div class="text-muted small fw-bold">TOTAL PAUSAS</div>
+                                    <div id="pulido-pausas-count" class="h4 mb-0 fw-800">0 min</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="p-3 bg-white border rounded-3 shadow-xs">
+                                    <div class="text-muted small fw-bold">ID SESIÓN</div>
+                                    <div id="pulido-session-id-display" class="small fw-bold text-primary text-truncate">---</div>
                                 </div>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <div class="form-actions">
-                        <button type="submit" id="btn-submit-pulido" class="btn btn-primary"><i class="fas fa-save"></i>
-                            Registrar
-                            Pulido</button>
-                        <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i>
-                            Limpiar</button>
+            </div>
+        </div>
+
+        <!-- MODAL DE REPORTE FINAL (PARA MODO PRO) -->
+        <div id="modal-reporte-final" class="modal-overlay" style="display: none; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 600px; width: 95%;">
+                <div class="modal-content border-0 shadow-2xl rounded-4">
+                    <div class="modal-header bg-success text-white p-4 rounded-top-4">
+                        <h5 class="modal-title fw-bold"><i class="fas fa-clipboard-check me-2"></i>Cierre de Turno de Pulido</h5>
                     </div>
-                </form>
+                    <div class="modal-body p-4 bg-white">
+                        <div id="resumen-turno-pro" class="mb-4 text-center">
+                            <div class="badge bg-light text-dark border px-3 py-2">Resumen de Tiempos</div>
+                            <div class="d-flex justify-content-center gap-4 mt-2">
+                                <div><small class="text-muted d-block">Efectivo</small><span id="modal-tiempo-efectivo" class="fw-bold">0 min</span></div>
+                                <div><small class="text-muted d-block">Total</small><span id="modal-tiempo-total" class="fw-bold">0 min</span></div>
+                            </div>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><i class="fas fa-inbox me-2 text-primary"></i>Total Piezas Recibidas (Bruto):</label>
+                            <input type="number" id="cantidad-recibida-pro" class="form-control form-control-lg text-center fw-bold text-primary" value="0" min="0" oninput="ModuloPulido.actualizarCalculoPro()">
+                        </div>
+
+                        <div class="row g-3 mb-4">
+                            <!-- Inyeccion quality -->
+                            <div class="col-md-6">
+                                <div class="p-3 border rounded-3 h-100" style="background: #fff5f5;">
+                                    <label class="fw-bold text-danger d-block mb-1">PNC Inyección</label>
+                                    <div class="d-flex flex-column gap-2">
+                                        <input type="number" id="pro-pnc-iny" class="form-control text-center text-danger fw-bold w-100" value="0" min="0" oninput="ModuloPulido.actualizarCalculoPro()">
+                                        <select id="pro-criterio-iny" class="form-select form-select-sm w-100">
+                                            <option value="">- Criterio -</option>
+                                            <option value="RECHUPE">Rechupe</option>
+                                            <option value="FALTA DE MATERIAL">Falta de material</option>
+                                            <option value="QUEMADO">Quemado</option>
+                                            <option value="REBABA">Rebaba</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Pulido quality -->
+                            <div class="col-md-6">
+                                <div class="p-3 border rounded-3 h-100" style="background: #fffdf2;">
+                                    <label class="fw-bold text-warning d-block mb-1">PNC Pulido</label>
+                                    <div class="d-flex flex-column gap-2">
+                                        <input type="number" id="pro-pnc-pul" class="form-control text-center text-warning fw-bold w-100" value="0" min="0" oninput="ModuloPulido.actualizarCalculoPro()">
+                                        <select id="pro-criterio-pul" class="form-select form-select-sm w-100">
+                                            <option value="">- Criterio -</option>
+                                            <option value="MAL CORTE">Mal corte</option>
+                                            <option value="EXCESO DE PULIDO">Exceso de pulido</option>
+                                            <option value="RAYADO">Rayado</option>
+                                            <option value="MAL ACABADO">Mal acabado</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="result-block p-4 text-center rounded-4" style="background: #f0fdf4; border: 2px solid #22c55e;">
+                            <label class="fw-bold text-success display-label mb-2 d-block">BUJES BUENOS RESULTANTES</label>
+                            <div id="resultado-buenas-pro" class="display-3 fw-900 text-success line-height-1">0</div>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label class="small fw-bold text-muted">Observaciones:</label>
+                            <textarea id="observaciones-pro" class="form-control" rows="2"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer p-4 pt-0 d-flex gap-3">
+                        <button type="button" class="btn btn-light flex-grow-1" onclick="document.getElementById('modal-reporte-final').style.display='none'">Cancelar</button>
+                        <button type="button" class="btn btn-success flex-grow-2 fw-bold" onclick="ModuloPulido.guardarReportePro()">
+                            <i class="fas fa-check-circle me-1"></i> GUARDAR REPORTE SQL
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -2149,13 +2287,14 @@
                         <!-- Fila 2: Horas -->
                         <div class="form-group">
                             <label for="hora-inicio-ensamble"><i class="fas fa-play-circle"></i> Hora
-                                Inicio</label>
+                                Inicio (24h)</label>
                             <input type="time" id="hora-inicio-ensamble" required>
                         </div>
                         <div class="form-group">
                             <label for="hora-fin-ensamble"><i class="fas fa-stop-circle"></i> Hora
-                                Fin</label>
+                                Fin (24h)</label>
                             <input type="time" id="hora-fin-ensamble" required>
+                            <div class="invalid-feedback fw-bold">La hora de fin debe ser posterior a la de inicio.</div>
                         </div>
 
                         <!-- Fila 3: Buje Componente y Código Ensamble (REFACCIONADO) -->
@@ -2212,7 +2351,7 @@
                             <select id="almacen-origen-ensamble" required>
                                 <option value="">Seleccionar...</option>
                                 <option value="POR PULIR">POR PULIR</option>
-                                <option value="P. TERMINADO">P. TERMINADO</option>
+                                <option value="P. TERMINADO" selected>P. TERMINADO</option>
                                 <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
                             </select>
                         </div>
@@ -2222,7 +2361,7 @@
                                 Destino (Ensambles)</label>
                             <select id="almacen-destino-ensamble" required>
                                 <option value="">Seleccionar...</option>
-                                <option value="PRODUCTO ENSAMBLADO">PRODUCTO ENSAMBLADO</option>
+                                <option value="PRODUCTO ENSAMBLADO" selected>PRODUCTO ENSAMBLADO</option>
                                 <option value="P. TERMINADO">P. TERMINADO</option>
                             </select>
                         </div>
@@ -2303,7 +2442,7 @@
                     </div>
 
                     <div class="form-actions">
-                        <button type="submit" id="btn-submit-ensamble" class="btn btn-primary"><i
+                        <button type="button" id="btn-submit-ensamble" class="btn btn-primary" onclick="registrarEnsamble(event)"><i
                                 class="fas fa-save"></i> Registrar
                             Ensamble</button>
                         <button type="reset" class="btn btn-secondary"><i class="fas fa-redo"></i>
@@ -2829,73 +2968,112 @@
                 </button>
                 <div class="page-title">
                     <h1><i class="fas fa-vial"></i> Control de Mezcla</h1>
-                    <p class="subtitle">Registro de preparación de materia prima</p>
+                    <p class="subtitle">Gestión integral de preparación y molido</p>
                 </div>
             </header>
+
+            <!-- Tabs de Navegación -->
+            <div class="mezcla-tabs-header" style="display: flex; gap: 10px; padding: 10px 20px; background: #fff; border-bottom: 1px solid #e2e8f0;">
+                <button class="mezcla-tab-btn active btn btn-light" onclick="ModuloMezcla.switchTab('preparacion')">
+                    <i class="fas fa-blender"></i> Preparación
+                </button>
+                <button class="mezcla-tab-btn btn btn-light" onclick="ModuloMezcla.switchTab('molido')">
+                    <i class="fas fa-recycle"></i> Registro de Molido
+                </button>
+            </div>
+
             <div class="form-container">
-                <form id="form-mezcla" class="styled-form">
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="fecha-mezcla"><i class="fas fa-calendar"></i> Fecha</label>
-                            <input type="date" id="fecha-mezcla" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="responsable-mezcla"><i class="fas fa-user-shield"></i>
-                                Responsable</label>
-                            <select id="responsable-mezcla" required>
-                                <option value="">Seleccionar...</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="maquina-mezcla"><i class="fas fa-industry"></i> Proceso</label>
-                            <input type="text" id="maquina-mezcla" value="GENERAL" readonly
-                                style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
-                        </div>
-                        <div class="form-group full-width" style="margin-bottom: 15px;">
-                            <label for="bultos-mezcla" style="font-size: 1.1rem; color: #1e40af; font-weight: 700;">
-                                <i class="fas fa-layer-group"></i> Cantidad de Bultos (25kg c/u)
-                            </label>
-                            <input type="number" id="bultos-mezcla" step="1" min="0" placeholder="Ej: 4"
-                                style="border: 2px solid #3b82f6; font-size: 1.2rem; height: 50px; background: #f0f7ff;">
-                        </div>
+                <!-- Tab Preparación -->
+                <div id="tab-preparacion" class="mezcla-tab-content">
+                    <form id="form-mezcla" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="fecha-mezcla"><i class="fas fa-calendar"></i> Fecha</label>
+                                <input type="date" id="fecha-mezcla" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="responsable-mezcla"><i class="fas fa-user-shield"></i> Responsable</label>
+                                <select id="responsable-mezcla" required>
+                                    <option value="">Seleccionar...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="maquina-mezcla"><i class="fas fa-industry"></i> Proceso</label>
+                                <input type="text" id="maquina-mezcla" value="GENERAL" readonly style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
+                            <div class="form-group full-width" style="margin-bottom: 15px;">
+                                <label for="bultos-mezcla" style="font-size: 1.1rem; color: #1e40af; font-weight: 700;">
+                                    <i class="fas fa-layer-group"></i> Cantidad de Bultos (25kg c/u)
+                                </label>
+                                <input type="number" id="bultos-mezcla" step="1" min="0" placeholder="Ej: 4" style="border: 2px solid #3b82f6; font-size: 1.2rem; height: 50px; background: #f0f7ff;">
+                            </div>
 
-                        <div class="form-group">
-                            <label for="virgen-mezcla"><i class="fas fa-fill"></i> Kg Virgen</label>
-                            <input type="number" id="virgen-mezcla" step="0.01" min="0" readonly
-                                style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
-                        </div>
-                        <div class="form-group">
-                            <label for="molido-mezcla"><i class="fas fa-recycle"></i> Kg Molido
-                                (Recuperado)</label>
-                            <input type="number" id="molido-mezcla" step="0.01" min="0" readonly
-                                style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
-                        </div>
-                        <div class="form-group">
-                            <label for="pigmento-mezcla"><i class="fas fa-palette"></i> Pigmento
-                                (gr)</label>
-                            <input type="number" id="pigmento-mezcla" step="1" min="0" value="0" readonly
-                                style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
-                        </div>
+                            <div class="form-group">
+                                <label for="virgen-mezcla"><i class="fas fa-fill"></i> Kg Virgen</label>
+                                <input type="number" id="virgen-mezcla" step="0.01" min="0" readonly style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
+                            <div class="form-group">
+                                <label for="molido-mezcla"><i class="fas fa-recycle"></i> Kg Molido (Recuperado)</label>
+                                <input type="number" id="molido-mezcla" step="0.01" min="0" readonly style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
+                            <div class="form-group">
+                                <label for="pigmento-mezcla"><i class="fas fa-palette"></i> Pigmento (gr)</label>
+                                <input type="number" id="pigmento-mezcla" step="1" min="0" value="0" readonly style="background-color: #f8fafc; color: #64748b; font-weight: bold;">
+                            </div>
 
-                        <div id="info-proporcion" class="form-group full-width"
-                            style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 8px;">
-                            <!-- Se llena vía JS -->
-                        </div>
+                            <div id="info-proporcion" class="form-group full-width" style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 8px;">
+                                <!-- Se llena vía JS -->
+                            </div>
 
-                        <div class="form-group full-width">
-                            <label for="observaciones-mezcla"><i class="fas fa-comment"></i>
-                                Observaciones</label>
-                            <textarea id="observaciones-mezcla" rows="2"
-                                placeholder="Detalles de la mezcla..."></textarea>
+                            <div class="form-group full-width">
+                                <label for="observaciones-mezcla"><i class="fas fa-comment"></i> Observaciones</label>
+                                <textarea id="observaciones-mezcla" rows="2" placeholder="Detalles de la mezcla..."></textarea>
+                            </div>
                         </div>
-                    </div>
-                    <div class="form-actions">
-                        <button type="submit" id="btn-submit-mezcla" class="btn btn-primary"><i class="fas fa-save"></i>
-                            Guardar
-                            Mezcla</button>
-                        <button type="reset" class="btn btn-secondary">Limpiar</button>
-                    </div>
-                </form>
+                        <div class="form-actions">
+                            <button type="submit" id="btn-submit-mezcla" class="btn btn-primary"><i class="fas fa-save"></i> Guardar Mezcla</button>
+                            <button type="reset" class="btn btn-secondary">Limpiar</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Tab Molido (NUEVO) -->
+                <div id="tab-molido" class="mezcla-tab-content" style="display: none;">
+                    <form id="form-molido" class="styled-form">
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="peso-molido" style="font-size: 1.2rem; color: #065f46; font-weight: 700;">
+                                    <i class="fas fa-weight-hanging"></i> Peso del Material (Kg)
+                                </label>
+                                <input type="number" id="peso-molido" step="0.01" min="0" placeholder="0.00" style="border: 2px solid #10b981; font-size: 1.5rem; height: 60px;">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="tipo-molido"><i class="fas fa-tags"></i> Tipo de Material</label>
+                                <select id="tipo-molido" required style="font-weight: bold;">
+                                    <option value="Recuperado" style="color: #065f46;">✅ Recuperado (Limpio)</option>
+                                    <option value="Contaminado" style="color: #991b1b;">⚠️ Contaminado (Re-proceso)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="responsable-molido"><i class="fas fa-user-check"></i> Responsable</label>
+                                <select id="responsable-molido" required></select>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="observaciones-molido"><i class="fas fa-sticky-note"></i> Observaciones / Referencia</label>
+                                <textarea id="observaciones-molido" rows="3" placeholder="Ej: Molido de buje FR-1234, turno mañana..."></textarea>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" id="btn-submit-molido" class="btn btn-success" style="background: #10b981; border-color: #10b981;">
+                                <i class="fas fa-check-circle"></i> Registrar Pesaje
+                            </button>
+                            <button type="reset" class="btn btn-secondary">Limpiar</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div> <!-- Historial -->
         <div id="historial-page" class="page">
@@ -3917,6 +4095,7 @@
                         <option value="Sábado (No Laborable)">Sábado (No Laborable)</option>
                         <option value="Incapacidad">Incapacidad</option>
                         <option value="Cita Médica">Cita Médica</option>
+                        <option value="Vacaciones">Vacaciones</option>
                         <option value="Situación Académica">Situación Académica</option>
                         <option value="Situación Doméstica">Situación Doméstica</option>
                         <option value="Ausencia Injustificada">Ausencia Injustificada</option>
@@ -4166,43 +4345,43 @@
     </datalist>
 
     <!-- Scripts de utilería y comunes -->
-    <script src="/static/js/modules/utils.js?v=1.6.1"></script>
-    <script src="/static/js/modules/auth.js?v=1.6.1"></script>
+    <script src="/static/js/modules/utils.js?v=1.6.2"></script>
+    <script src="/static/js/modules/auth.js?v=1.6.2"></script>
 
-    <script src="/static/js/modules/ui_ux.js?v=1.6.1"></script>
+    <script src="/static/js/modules/ui_ux.js?v=1.6.2"></script>
 
     <!-- Módulo de UI y Validaciones -->
-    <script src="/static/js/modules/validation.js?v=1.6.1"></script>
-    <script src="/static/js/modules/touch-feedback.js?v=1.6.1"></script>
+    <script src="/static/js/modules/validation.js?v=1.6.2"></script>
+    <script src="/static/js/modules/touch-feedback.js?v=1.6.2"></script>
 
     <!-- Funcionalidades de Módulos (IMPORTANTE: ui_ux debe ir ANTES) -->
-    <script src="/static/js/modules/dashboard.js?v=1.6.1"></script>
+    <script src="/static/js/modules/dashboard.js?v=1.6.2"></script>
     <script>console.log("✅ dashboard.js cargado");</script>
-    <script src="/static/js/modules/inventario.js?v=1.6.1"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1.6.1"></script>
-    <script src="/static/js/modules/mes_control.js?v=1.6.1"></script>
-    <script src="/static/js/modules/pulido.js?v=1.6.1"></script>
-    <script src="/static/js/modules/ensamble.js?v=1.6.1"></script>
-    <script src="/static/js/modules/pnc.js?v=1.6.1"></script>
-    <script src="/static/js/modules/facturacion.js?v=1.6.1"></script>
-    <script src="/static/js/modules/reportes.js?v=1.6.1"></script>
-    <script src="/static/js/modules/mezcla.js?v=1.6.1"></script>
-    <script src="/static/js/modules/historial.js?v=1.6.1"></script>
+    <script src="/static/js/modules/inventario.js?v=1.6.2"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1.6.2"></script>
+    <script src="/static/js/modules/mes_control.js?v=1.6.2"></script>
+    <script src="/static/js/modules/pulido.js?v=1.6.2"></script>
+    <script src="/static/js/modules/ensamble.js?v=1.6.2"></script>
+    <script src="/static/js/modules/pnc.js?v=1.6.2"></script>
+    <script src="/static/js/modules/facturacion.js?v=1.6.2"></script>
+    <script src="/static/js/modules/reportes.js?v=1.6.2"></script>
+    <script src="/static/js/modules/mezcla.js?v=1.6.2"></script>
+    <script src="/static/js/modules/historial.js?v=1.6.2"></script>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 
-    <script src="/static/js/modules/pedidos.js?v=1.6.1"></script>
-    <script src="/static/js/modules/almacen.js?v=1.6.1"></script>
-    <script src="/static/js/modules/metals.js?v=1.6.1"></script>
-    <script src="/static/js/modules/portal_client.js?v=1.6.1"></script>
-    <script src="/static/js/modules/procura.js?v=1.6.1"></script>
-    <script src="/static/js/modules/rotacion.js?v=1.6.1"></script>
-    <script src="/static/js/modules/asistencia.js?v=1.6.1"></script>
-    <script src="/static/js/modules/nomina.js?v=1.6.1"></script>
+    <script src="/static/js/modules/pedidos.js?v=1.6.2"></script>
+    <script src="/static/js/modules/almacen.js?v=1.6.2"></script>
+    <script src="/static/js/modules/metals.js?v=1.6.2"></script>
+    <script src="/static/js/modules/portal_client.js?v=1.6.2"></script>
+    <script src="/static/js/modules/procura.js?v=1.6.2"></script>
+    <script src="/static/js/modules/rotacion.js?v=1.6.2"></script>
+    <script src="/static/js/modules/asistencia.js?v=1.6.2"></script>
+    <script src="/static/js/modules/nomina.js?v=1.6.2"></script>
 
     <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
-    <script src="/static/js/app.js?v=1.6.1"></script>
+    <script src="/static/js/app.js?v=1.6.2"></script>
     <script>console.log("✅ app.js cargado");</script>
     <!-- Script de inicialización -->
     <script>

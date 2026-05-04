@@ -1,24 +1,21 @@
-﻿"""
-Repositorio de dashboard.
-Obtiene estadísticas y métricas.
 """
-from backend.core.database import sheets_client
-from backend.config.settings import Hojas
-from backend.utils.formatters import to_int
+Repositorio de dashboard 100% SQL-First.
+Obtiene estadísticas y métricas desde PostgreSQL.
+"""
+from backend.core.sql_database import db
+from backend.models.sql_models import ProduccionInyeccion, RawVentas, Producto
+from sqlalchemy import func
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class DashboardRepository:
-    """Repositorio para datos del dashboard."""
+    """Repositorio para datos del dashboard vía SQLAlchemy."""
     
     def obtener_estadisticas(self, filtro_fecha=None):
         """
-        Obtiene estadísticas generales.
-        
-        Returns:
-            Dict con métricas del dashboard
+        Obtiene estadísticas generales desde SQL.
         """
         try:
             estadisticas = {
@@ -27,83 +24,72 @@ class DashboardRepository:
                 'stock': self._obtener_stock_critico(),
                 'pnc': self._obtener_pnc_pendientes()
             }
-            
             return estadisticas
-            
         except Exception as e:
-            logger.error(f"Error obteniendo estadísticas: {e}")
+            logger.error(f"Error obteniendo estadísticas SQL: {e}")
             return {}
     
     def _obtener_produccion(self):
-        """Obtiene totales de producción."""
+        """Obtiene totales de producción desde db_inyeccion."""
         try:
-            ws = sheets_client.get_worksheet(Hojas.INYECCION)
-            if not ws:
-                return {'total': 0}
-            
-            registros = ws.get_all_records()
-            total = sum(to_int(r.get('CANTIDAD REAL', 0)) for r in registros)
+            # Sumar cantidad_real de la tabla de inyección
+            total = db.session.query(func.sum(ProduccionInyeccion.cantidad_real)).scalar() or 0
+            conteo = db.session.query(func.count(ProduccionInyeccion.id)).scalar() or 0
             
             return {
-                'total': total,
-                'registros': len(registros)
+                'total': int(total),
+                'registros': conteo
             }
-        except:
-            return {'total': 0}
+        except Exception as e:
+            logger.error(f"Error produccion SQL: {e}")
+            return {'total': 0, 'registros': 0}
     
     def _obtener_ventas(self):
-        """Obtiene totales de ventas."""
+        """Obtiene totales de ventas desde db_ventas."""
         try:
-            ws = sheets_client.get_worksheet(Hojas.FACTURACION)
-            if not ws:
-                return {'total': 0}
-            
-            registros = ws.get_all_records()
-            total = sum(to_int(r.get('TOTAL VENTA', 0)) for r in registros)
+            total = db.session.query(func.sum(RawVentas.total_ingresos)).scalar() or 0
+            facturas = db.session.query(func.count(RawVentas.id)).scalar() or 0
             
             return {
-                'total': total,
-                'facturas': len(registros)
+                'total': float(total),
+                'facturas': facturas
             }
-        except:
-            return {'total': 0}
+        except Exception as e:
+            logger.error(f"Error ventas SQL: {e}")
+            return {'total': 0, 'facturas': 0}
     
     def _obtener_stock_critico(self):
-        """Obtiene productos con stock bajo."""
+        """Obtiene productos con stock bajo desde db_productos."""
         try:
-            ws = sheets_client.get_worksheet(Hojas.PRODUCTOS)
-            if not ws:
-                return {'productos': []}
+            # Productos donde (p_terminado + por_pulir) - comprometido < stock_minimo
+            productos_criticos = db.session.query(Producto).filter(
+                (Producto.p_terminado + Producto.por_pulir - Producto.comprometido) < Producto.stock_minimo
+            ).limit(10).all()
             
-            registros = ws.get_all_records()
             criticos = []
+            for p in productos_criticos:
+                stock_actual = float((p.p_terminado or 0) + (p.por_pulir or 0) - (p.comprometido or 0))
+                criticos.append({
+                    'codigo': p.codigo_sistema,
+                    'descripcion': p.descripcion,
+                    'stock_actual': stock_actual,
+                    'stock_minimo': float(p.stock_minimo or 0)
+                })
             
-            for r in registros:
-                stock_fisico = to_int(r.get('P. TERMINADO', 0))
-                stock_por_pulir = to_int(r.get('POR PULIR', 0))
-                stock_comprometido = to_int(r.get('COMPROMETIDO', 0))
-                
-                # Usar stock global (Producción) para métricas críticas
-                stock_global = (stock_fisico + stock_por_pulir) - stock_comprometido
-                stock_minimo = to_int(r.get('STOCK MINIMO', 10))
-                
-                if stock_global < stock_minimo:
-                    criticos.append({
-                        'codigo': r.get('CODIGO SISTEMA', ''),
-                        'descripcion': r.get('DESCRIPCION', ''),
-                        'stock_actual': stock_global,
-                        'stock_minimo': stock_minimo
-                    })
+            total_criticos = db.session.query(func.count(Producto.id)).filter(
+                (Producto.p_terminado + Producto.por_pulir - Producto.comprometido) < Producto.stock_minimo
+            ).scalar() or 0
             
             return {
-                'productos': criticos[:10],
-                'total': len(criticos)
+                'productos': criticos,
+                'total': total_criticos
             }
-        except:
-            return {'productos': []}
+        except Exception as e:
+            logger.error(f"Error stock SQL: {e}")
+            return {'productos': [], 'total': 0}
     
     def _obtener_pnc_pendientes(self):
-        """Obtiene PNC pendientes."""
+        """Métrica de PNC pendiente (Placeholder por ahora)."""
         return {'total': 0, 'pendientes': []}
 
 

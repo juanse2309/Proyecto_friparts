@@ -17,14 +17,15 @@ function obtenerHtmlImagen(p, esMovil = false) {
     const codigoOriginal = String(p.codigo || p.id_codigo || '').trim();
     const codigoLimpio = typeof limpiarCodigoJS === 'function' ? limpiarCodigoJS(codigoOriginal) : codigoOriginal;
     
-    // Rutas de fallback
-    const localImgOriginal = `/static/img/productos/${codigoOriginal}.jpg`;
-    const localImgLimpio = `/static/img/productos/${codigoLimpio}.jpg`;
-    const localImgPng = `/static/img/productos/${codigoLimpio}.png`;
-    const cloudImg = p.imagen || '';
+    // Rutas de fallback (evitar .jpg o .png roto si el código está vacío)
+    const tieneCodigo = codigoOriginal.length > 0;
+    const localImgOriginal = tieneCodigo ? `/static/img/productos/${codigoOriginal}.jpg` : PLACEHOLDER_SVG;
+    const localImgLimpio = tieneCodigo ? `/static/img/productos/${codigoLimpio}.jpg` : PLACEHOLDER_SVG;
+    const localImgPng = tieneCodigo ? `/static/img/productos/${codigoLimpio}.png` : PLACEHOLDER_SVG;
+    const cloudImg = (p.imagen && typeof p.imagen === 'string' && p.imagen.trim() !== '') ? p.imagen : '';
     
     // Si el backend ya validó una ruta, la usamos como punto de partida, si no, empezamos el radar
-    const srcInicial = p.imagen_valida || localImgOriginal;
+    const srcInicial = cloudImg || (p.imagen_valida ? p.imagen_valida : (tieneCodigo ? localImgOriginal : PLACEHOLDER_SVG));
     
     // Estilos según vista
     const estilo = esMovil 
@@ -92,40 +93,58 @@ async function cargarProductos(forceRefresh = false) {
         }
 
         if (listaFinal.length > 0) {
-            // Normalizar las claves para que coincidan con lo que espera el frontend (minúsculas)
+            // Normalizar claves SQL → Frontend (Mapeo SQL-First v2.0)
             window.AppState.productosData = listaFinal.map(p => {
-                const term = p.stock_terminado || p.TERMINADO || 0;
-                const comp = p.stock_comprometido || 0;
-                const min = p.stock_minimo || p.MINIMO || 10;
-                const disp = term - comp;
+                // Campos exactos de la respuesta del JSON SQL
+                const codigoSistema = p.codigo_sistema || p.id_codigo || p.codigo || '';
+                const nombreProducto = p.nombre_producto || p.descripcion || '';
+                const pTerminado = parseFloat(p.p_terminado) || parseFloat(p.stock_terminado) || 0;
+                const stockBodega = parseFloat(p.stock_bodega) || 0;
+                
+                const comp = parseFloat(p.comprometido) || parseFloat(p.stock_comprometido) || 0;
+                const porPulir = parseFloat(p.por_pulir) || 0;
+                const min = parseFloat(p.stock_minimo) || 10;
+                const disp = pTerminado - comp;
 
-                // Lógica de Semáforo (Fase 2: Frontend Visibility)
+                // Lógica de 'Agotados' corregida (SQL-First)
                 let semaforo = { color: 'green', estado: 'STOCK OK' };
-                if (disp <= 0) {
+                
+                // Si no hay terminado ni hay en bodega (MP), está AGOTADO
+                if (pTerminado <= 0 && stockBodega <= 0) {
                     semaforo = { color: 'red', estado: 'AGOTADO' };
+                } else if (pTerminado <= 0 && stockBodega > 0) {
+                    semaforo = { color: 'yellow', estado: 'POR ENSAMBLAR' };
                 } else if (disp < min) {
                     semaforo = { color: 'yellow', estado: 'POR PEDIR' };
+                } else {
+                    semaforo = { color: 'green', estado: 'DISPONIBLE' }; 
                 }
 
+                // Imagen: usar campo SQL directo, no construir rutas a ciegas
+                const imagenSQL = (p.imagen && typeof p.imagen === 'string' && p.imagen.trim() !== '') ? p.imagen : '';
+
                 return {
-                    codigo: p.codigo || p.CODIGO || '',
-                    descripcion: p.descripcion || p.DESCRIPCION || '',
-                    precio: p.precio || p.PRECIO || 0,
+                    codigo: codigoSistema,
+                    id_codigo: p.id_codigo || '',
+                    descripcion: nombreProducto,
+                    precio: parseFloat(p.precio) || 0,
                     stock_disponible: disp,
-                    stock_terminado: term,
+                    stock_terminado: pTerminado,
                     stock_comprometido: comp,
-                    stock_bodega: p.stock_bodega || p.STOCK_BODEGA || 0,
-                    en_zincado: p.en_zincado || 0,
-                    en_granallado: p.en_granallado || 0,
+                    stock_bodega: stockBodega,
+                    por_pulir: porPulir,
+                    en_zincado: parseFloat(p.en_zincado) || 0,
+                    en_granallado: parseFloat(p.en_granallado) || 0,
                     stock_minimo: min,
                     semaforo: semaforo,
-                    imagen_valida: p.imagen_valida // Juan Sebastian: Usar ruta pre-validada por backend
+                    imagen: imagenSQL,
+                    imagen_valida: imagenSQL || null
                 };
             });
             paginaActual = 1; // Resetear a página 1
             renderizarTablaProductos(window.AppState.productosData);
             actualizarEstadisticasInventario(window.AppState.productosData);
-            console.log('✅ Productos cargados y normalizados:', window.AppState.productosData.length);
+            console.log('✅ Productos SQL cargados y normalizados:', window.AppState.productosData.length);
         } else {
             mostrarNotificacion('No hay productos para mostrar', 'warning');
         }
@@ -209,6 +228,10 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                             <h6 class="card-title">${p.descripcion || 'Sin descripción'}</h6>
                             
                             <div class="card-stats-grid">
+                                <div class="stat-item" title="Material en espera de pulido">
+                                    <span class="stat-label">POR PULIR</span>
+                                    <span class="stat-value" style="color: #f97316;">${formatNumber(p.por_pulir || 0)}</span>
+                                </div>
                                 <div class="stat-item" title="Producto Terminado">
                                     <span class="stat-label">TERMINADO</span>
                                     <span class="stat-value success">${formatNumber(p.stock_terminado || 0)}</span>
@@ -279,6 +302,7 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                     ${p.descripcion || '-'}
                     ${tieneDiscrepancia ? '<br><span class="badge bg-danger" style="font-size: 10px;">DISCREPANCIA DETECTADA</span>' : ''}
                 </td>
+                <td style="padding: 10px; text-align: right; color: #f97316; font-weight: 600; background: rgba(249, 115, 22, 0.05);">${formatNumber(p.por_pulir || 0)}</td>
                 <td style="padding: 10px; text-align: right; color: #64748b;">${formatNumber(stockTerminado)}</td>
                 <td style="padding: 10px; text-align: right; color: #ef4444;">${formatNumber(stockComprometido)}</td>
                 <td style="padding: 10px; text-align: right; font-weight: ${bajoMinimo ? 'bold' : '600'}; color: ${bajoMinimo ? '#dc2626' : '#2563eb'};">
@@ -436,11 +460,11 @@ function actualizarEstadisticasInventario(productos) {
 
     const totalProductos = productos.length;
 
-    // Contar productos por estado de semáforo (Saneado Juan Sebastian)
-    const stockOK = productos.filter(p => p.semaforo?.color === 'green').length;
-    const porPedir = productos.filter(p => p.semaforo?.color === 'yellow').length; // Antes bajoStock
-    // Agotados: Incluye 'red' (Critico) y 'dark' (Agotado <= 0)
-    const agotados = productos.filter(p => p.semaforo?.color === 'red' || p.semaforo?.color === 'dark' || p.semaforo?.estado === 'AGOTADO').length;
+    // Contar productos por estado de semáforo según la nueva lógica
+    const stockOK = productos.filter(p => p.stock_terminado > 0 || p.stock_bodega > 0).length; // Disponible si hay Terminado o Bodega
+    const porPedir = productos.filter(p => p.semaforo?.color === 'yellow').length; 
+    // Agotados: Solo si Terminado y Bodega son 0
+    const agotados = productos.filter(p => p.stock_terminado <= 0 && p.stock_bodega <= 0).length;
 
     // Actualizar elementos del HTML (Soporta IDs viejos y nuevos de Premium UI)
     const el_total = document.getElementById('val-total-prod') || document.getElementById('total-productos');

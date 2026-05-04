@@ -18,100 +18,147 @@ productos_bp = Blueprint('productos', __name__)
 
 @productos_bp.route('/detalle/<codigo_sistema>', methods=['GET'])
 def detalle_producto(codigo_sistema):
-    """Obtiene el detalle completo de un producto con imagen validada."""
+    """Obtiene el detalle completo de un producto con auditoría de stock detallada."""
     try:
         from backend.utils.formatters import normalizar_codigo
-        print(f"\n{'='*40}")
-        print(f"🚀 --- PETICIÓN RECIBIDA PARA: {codigo_sistema} ---")
+        from backend.models.sql_models import Producto
         
-        # 1. Normalización de entrada (Regex)
-        codigo_norm = normalizar_codigo(codigo_sistema)
-        print(f"🔍 --- CÓDIGO NORMALIZADO: {codigo_norm} ---")
+        codigo_norm = normalizar_codigo(codigo_sistema).strip().upper()
+        # Intentar búsqueda con código limpio (fallback) por si el catálogo usa el corto
+        codigo_limpio = codigo_norm.replace('FR-', '').replace('CB-', '').replace('ENS-', '').strip()
         
-        # 2. Búsqueda en el servicio
-        resultado = inventario_service.obtener_detalle_producto(codigo_norm)
+        # Búsqueda Robusta: Primero por el normalizado, luego por el limpio
+        p_sql = Producto.query.filter(
+            (Producto.id_codigo == codigo_norm) | 
+            (Producto.codigo_sistema == codigo_norm) |
+            (Producto.id_codigo == codigo_limpio)
+        ).first()
         
-        # Auditoría Defensiva
-        enc_bodega = "Si" if resultado.get("status") == "success" and resultado["producto"].get("stock_total", 0) > 0 else "No"
-        enc_cat = "Si" if resultado.get("status") == "success" else "No"
-        print(f"📊 Buscando detalle para: [{codigo_norm}] | ¿Encontrado en Bodega?: [{enc_bodega}] | ¿Encontrado en Catálogo?: [{enc_cat}]")
-        print(f"{'='*40}\n")
-
-        if resultado["status"] == "success":
-            p = resultado["producto"]
-            # 3. Normalización Simétrica para Imágenes (Súper Radar v3.0)
-            codigo_limpio = normalizar_codigo(str(p.get('codigo_sistema', codigo_norm)))
+        if p_sql:
+            # MÉTRICA MATEMÁTICA PURA
+            v_por_pulir = float(p_sql.por_pulir or 0)
+            v_p_terminado = float(p_sql.p_terminado or 0)
+            v_bodega = float(p_sql.stock_bodega or 0)
             
-            # ... (Resto de la lógica de imágenes se mantiene igual)
+            # La suma que solicita el usuario: Por Pulir + Terminado
+            stock_total_calculado = v_por_pulir + v_p_terminado
+            comp = float(p_sql.comprometido or 0)
+            
+            # Auditoría Crítica en Consola
+            print(f'🔍 [CHECK-STOCK] Buscando: {codigo_sistema} | Encontrado ID: {p_sql.id_codigo} | Por Pulir: {v_por_pulir} | Terminado: {v_p_terminado} | Total: {stock_total_calculado}')
+
+            # CONSTRUCCIÓN DE RESPUESTA SIMPLIFICADA (PEDIDO USUARIO)
+            res_data = {
+                "id_codigo": p_sql.id_codigo,
+                "codigo_sistema": p_sql.codigo_sistema,
+                "descripcion": p_sql.descripcion,
+                "p_terminado": float(v_p_terminado),
+                "por_pulir": float(v_por_pulir),
+                "comprometido": float(comp),
+                "stock_disponible": float(v_p_terminado), # Mapeado a p_terminado según pedido
+                "disponible": float(v_p_terminado),
+                "stock_bodega": float(v_bodega),
+                "imagen": p_sql.imagen or "",
+                "imagen_valida": "" 
+            }
+            
+            # Gestión de Imágenes
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             image_dir = os.path.join(base_dir, 'frontend', 'static', 'img', 'productos')
-            default_image = '/static/img/no-image.svg'
+            codigo_img = normalizar_codigo(str(res_data.get('codigo_sistema', codigo_norm)))
             
-            img_raw = str(p.get('imagen', '')).strip()
-            if img_raw and ('drive.google.com' in img_raw or len(img_raw) > 20):
-                p['imagen_valida'] = img_raw
+            if res_data['imagen'] and ('drive.google.com' in res_data['imagen'] or len(res_data['imagen']) > 20):
+                res_data['imagen_valida'] = res_data['imagen']
             else:
-                p['imagen_valida'] = f"/static/img/productos/{codigo_limpio}.jpg" if os.path.exists(os.path.join(image_dir, f"{codigo_limpio}.jpg")) else default_image
+                img_path = os.path.join(image_dir, f"{codigo_img}.jpg")
+                res_data['imagen_valida'] = f"/static/img/productos/{codigo_img}.jpg" if os.path.exists(img_path) else '/static/img/no-image.svg'
 
-            return jsonify(resultado), 200
+            return jsonify({"status": "success", "producto": res_data}), 200
         else:
-            # Fallback Defensivo solicitado por el usuario para evitar roturas en frontend
-            return jsonify({
-                "status": "error",
-                "error": "No encontrado",
-                "message": resultado.get("message", "Producto no encontrado en las bases de datos"),
-                "debug_info": {
-                    "codigo_original": codigo_sistema,
-                    "codigo_buscado": codigo_norm,
-                    "catalogo": enc_cat,
-                    "bodega": enc_bodega
-                }
-            }), 200 # Devolvemos 200 con status:error como fallback suave
+            print(f'⚠️ [CHECK-STOCK] No se encontró el producto: {codigo_norm}')
+            return jsonify({"status": "error", "message": f"Producto [{codigo_norm}] no encontrado"}), 200
             
     except Exception as e:
-        logger.error(f"Error en endpoint detalle: {e}")
-        return jsonify({
-            "status": "error",
-            "message": "Error interno del servidor",
-            "debug_info": str(e)
-        }), 500
+        logger.error(f"Error crítico en detalle producto SQL: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 200
 
 
 
 @productos_bp.route('/buscar/<query>', methods=['GET'])
 def buscar_productos(query):
-    """Busca productos por código, descripción o OEM."""
+    """
+    Busca productos uniendo con la tabla de costos (SQL-Native).
+    Permite obtener Stock y Precio en una sola consulta.
+    """
     try:
-        limite = request.args.get('limite', 20, type=int)
-        resultados = producto_repo.buscar_por_termino(query, limite)
+        from backend.core.sql_database import db
+        from sqlalchemy import text
         
-        productos_formateados = []
-        for producto in resultados:
-            stock_fisico = int(producto.get('P. TERMINADO', 0) or 0)
-            stock_comprometido = int(producto.get('COMPROMETIDO', 0) or 0)
-            stock_disponible = stock_fisico - stock_comprometido
+        limite = request.args.get('limite', 30, type=int)
+        termino = f"%{query.strip().upper()}%"
+        
+        # SQL con JOIN y Normalización de Prefijos para el cruce
+        sql = """
+            SELECT 
+                p.id_codigo, 
+                p.descripcion as nombre_producto, 
+                p.p_terminado, 
+                p.comprometido, 
+                p.stock_bodega, 
+                p.por_pulir, 
+                p.codigo_sistema, 
+                p.imagen,
+                p.oem,
+                c.precio_de_venta as precio_raw
+            FROM db_productos p
+            LEFT JOIN db_costos c ON 
+                REGEXP_REPLACE(p.id_codigo, '^(FR-|CAR-|INT-|ENS-|CB-)', '') = 
+                REGEXP_REPLACE(c.referencia, '^(FR-|CAR-|INT-|ENS-|CB-)', '')
+            WHERE 
+                p.id_codigo ILIKE :t OR 
+                p.codigo_sistema ILIKE :t OR 
+                p.descripcion ILIKE :t OR
+                p.oem ILIKE :t
+            ORDER BY p.codigo_sistema
+            LIMIT :l
+        """
+        
+        result_query = db.session.execute(text(sql), {"t": termino, "l": limite}).mappings().all()
+        
+        def limpiar_precio(p_str):
+            if not p_str or str(p_str).strip() in ['', 'None']: return 0
+            l = str(p_str).replace('$', '').replace('.', '').replace(',', '').strip()
+            try: return float(l)
+            except: return 0
+
+        resultado = []
+        for r in result_query:
+            p_term = float(r['p_terminado'] or 0)
+            comp = float(r['comprometido'] or 0)
             
-            productos_formateados.append({
-                'codigo_sistema': producto.get('CODIGO SISTEMA', ''),
-                'id_codigo': producto.get('ID CODIGO', ''),
-                'descripcion': producto.get('DESCRIPCION', ''),
-                'stock_fisico': stock_fisico,
-                'stock_comprometido': stock_comprometido,
-                'stock_disponible': stock_disponible,
-                'stock_por_pulir': int(producto.get('POR PULIR', 0) or 0),
-                'stock_terminado': int(producto.get('P. TERMINADO', 0) or 0),
-                'stock_minimo': int(producto.get('STOCK MINIMO', 10) or 10),
-                'imagen': producto.get('IMAGEN', ''),
-                'unidad': producto.get('UNIDAD', 'PZ')
+            resultado.append({
+                "id_codigo": r['id_codigo'],
+                "nombre_producto": r['nombre_producto'],
+                "descripcion": r['nombre_producto'], # Alias para compatibilidad
+                "p_terminado": p_term,
+                "comprometido": comp,
+                "disponible": p_term - comp,
+                "stock_disponible": p_term - comp, # Alias para compatibilidad
+                "stock_bodega": float(r['stock_bodega'] or 0),
+                "por_pulir": float(r['por_pulir'] or 0),
+                "codigo_sistema": r['codigo_sistema'],
+                "imagen": r['imagen'] or "",
+                "oem": r['oem'] or "",
+                "precio": limpiar_precio(r['precio_raw'])
             })
-        
+            
         return jsonify({
             'status': 'success',
-            'resultados': productos_formateados
+            'resultados': resultado
         }), 200
         
     except Exception as e:
-        logger.error(f"Error en búsqueda: {e}")
+        logger.error(f"❌ Error en búsqueda SQL-JOIN: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -120,339 +167,225 @@ def buscar_productos(query):
 
 @productos_bp.route('/listar', methods=['GET'])
 def listar_productos():
-    """Lista todos los productos con información completa. Tenant-aware."""
+    """
+    Lista todos los productos uniendo la tabla maestra con la tabla de costos.
+    Cruza por id_codigo vs referencia aplicando normalización.
+    """
     try:
-        from backend.app import PRODUCTOS_LISTAR_CACHE, PRODUCTOS_CACHE_TTL
-        ahora = time.time()
+        from backend.core.sql_database import db
+        from sqlalchemy import text
+        import re
 
-        # Resolver tenant desde el rol del usuario en sesión
-        tenant = get_tenant_from_request()
-
-        # Forzar limpieza de caché si se solicita
-        force_refresh = request.args.get('refresh', 'false').lower() == 'true' or \
-                        request.args.get('force_refresh', 'false').lower() == 'true'
-
-        if force_refresh and tenant == "friparts":
-            logger.info("🔄 [Caché] Forzando actualización de productos por solicitud del usuario")
-            PRODUCTOS_LISTAR_CACHE["data"] = None
-            PRODUCTOS_LISTAR_CACHE["timestamp"] = 0
-
-        # 1. Verificar Caché (solo para Friparts, que usa la caché global)
-        if tenant == "friparts" and PRODUCTOS_LISTAR_CACHE["data"] and \
-                (ahora - PRODUCTOS_LISTAR_CACHE["timestamp"] < PRODUCTOS_CACHE_TTL):
-            logger.info("⚡ [Cache] Retornando listado de productos desde caché (friparts)")
-            return jsonify(PRODUCTOS_LISTAR_CACHE["data"])
-
-        # 2. Consultar repositorio con el tenant correcto
-        logger.info(f"🌐 [API] Consultando repositorio de productos (tenant={tenant!r})")
-        repo = ProductoRepository(tenant=tenant)
-        productos = repo.listar_todos()
-
-        # 3. Obtener estados de auditoría activos (Solo para Friparts por ahora)
-        audit_states = {}
-        if tenant == "friparts":
-            try:
-                from backend.app import get_worksheet
-                ws_conteos = get_worksheet("AUDITORIA_CONTEOS")
-                if ws_conteos:
-                    conteos_raw = sheets_client.get_all_records_seguro(ws_conteos)
-                    for c in conteos_raw:
-                        code = str(c.get("ID CODIGO") or "").strip().upper()
-                        state = str(c.get("ESTADO") or "").strip().upper()
-                        if code and state == "DISCREPANCIA":
-                            audit_states[code] = "DISCREPANCIA"
-            except Exception as e_audit:
-                logger.warning(f"No se pudieron cargar estados de auditoría: {e_audit}")
+        # SQL avanzado con JOIN normalizado y limpieza de prefijos
+        # Usamos REGEXP_REPLACE para que 'FR-9304' coincida con '9304'
+        sql = """
+            SELECT 
+                p.id_codigo, 
+                p.descripcion as nombre_producto, 
+                p.p_terminado, 
+                p.comprometido, 
+                p.stock_bodega, 
+                p.por_pulir, 
+                p.codigo_sistema, 
+                p.imagen,
+                c.precio_de_venta as precio_raw
+            FROM db_productos p
+            LEFT JOIN db_costos c ON 
+                REGEXP_REPLACE(p.id_codigo, '^(FR-|CAR-|INT-|ENS-|CB-)', '') = 
+                REGEXP_REPLACE(c.referencia, '^(FR-|CAR-|INT-|ENS-|CB-)', '')
+            ORDER BY p.codigo_sistema
+        """
         
-        def clean_numeric(val):
-            if val is None: return 0
-            if isinstance(val, (int, float)): return val
-            # Remove $, whitespace, and thousands separators (dots)
-            # Assuming '.' is thousands and ',' is decimal for Colombian context
-            s = str(val).replace('$', '').replace(' ', '').replace('.', '')
-            s = s.replace(',', '.') # Normalize decimal if any
-            try:
-                return float(s) if s else 0
-            except:
-                return 0
+        result_query = db.session.execute(text(sql)).mappings().all()
+        
+        def limpiar_precio(p_str):
+            if not p_str or str(p_str).strip() in ['', 'None']: return 0
+            # Quitar '$', '.' y espacios para convertir a número puro
+            l = str(p_str).replace('$', '').replace('.', '').replace(',', '').strip()
+            try: return float(l)
+            except: return 0
 
-        productos_formateados = []
-        for p in productos:
-            # Mapeo flexible para Frimetals (CODIGO vs CÓDIGO vs CODIGO SISTEMA, etc)
-            codigo = p.get('CODIGO') or p.get('CÓDIGO') or p.get('CODIGO SISTEMA') or p.get('ID CODIGO', '')
-            desc = p.get('DESCRIPCION') or p.get('DESCRIPCIÓN') or p.get('NOMBRE') or 'Sin descripción'
-            precio = clean_numeric(p.get('PRECIO') or p.get('VALOR'))
+        resultado = []
+        for r in result_query:
+            p_term = float(r['p_terminado'] or 0)
+            comp = float(r['comprometido'] or 0)
             
-            # Stocks (intentar varios nombres comunes)
-            p_term = p.get('P. TERMINADO') or p.get('STOCK') or p.get('EXISTENCIAS') or 0
-            comp = p.get('COMPROMETIDO') or 0
-            p_pulir = p.get('POR PULIR') or 0
-            
-            stock_fisico = int(clean_numeric(p_term))
-            stock_comprometido = int(clean_numeric(comp))
-            stock_disponible = stock_fisico - stock_comprometido
-            
-            stock_bodega = int(clean_numeric(p.get('STOCK_BODEGA') or 0))
-            minimo = int(clean_numeric(p.get('MINIMO') or p.get('STOCK MINIMO') or p.get('EXISTENCIAS MÍNIMAS') or 10))
-            en_zincado = int(clean_numeric(p.get('EN_ZINCADO') or 0))
-            en_granallado = int(clean_numeric(p.get('EN_GRANALLADO') or 0))
-            clase_rotacion = str(p.get('CLASE_ROTACION') or 'C').strip()
-            
-            productos_formateados.append({
-                'codigo_sistema': codigo,
-                'id_codigo': p.get('ID CODIGO') or codigo,
-                'descripcion': desc,
-                'stock_fisico': stock_fisico,
-                'stock_comprometido': stock_comprometido,
-                'stock_disponible': stock_disponible,
-                'stock_por_pulir': int(p_pulir or 0),
-                'stock_terminado': stock_fisico,
-                'stock_ensamblado': int(p.get('PRODUCTO ENSAMBLADO', 0) or 0),
-                'stock_bodega': stock_bodega,
-                'stock_minimo': minimo,
-                'clase_rotacion': clase_rotacion,
-                'en_zincado': en_zincado,
-                'en_granallado': en_granallado,
-                'imagen': p.get('IMAGEN', ''),
-                'categoria': p.get('CATEGORIA', ''),
-                'marca': p.get('MARCA', ''),
-                'unidad': p.get('UNIDAD', 'PZ'),
-                'precio': precio,
-                'tenant': tenant,
-                'estado_auditoria': audit_states.get(str(p.get('ID CODIGO') or codigo).strip().upper(), 'NORMAL')
+            resultado.append({
+                "id_codigo": r['id_codigo'],
+                "nombre_producto": r['nombre_producto'],
+                "descripcion": r['nombre_producto'], # Alias para compatibilidad
+                "p_terminado": p_term,
+                "comprometido": comp,
+                "disponible": p_term - comp,
+                "stock_disponible": p_term - comp, # Alias para compatibilidad
+                "stock_bodega": float(r['stock_bodega'] or 0),
+                "por_pulir": float(r['por_pulir'] or 0),
+                "codigo_sistema": r['codigo_sistema'],
+                "imagen": r['imagen'] or "",
+                "precio": limpiar_precio(r['precio_raw'])
             })
-        
-        # Retornar lista plana para compatibilidad total con pedidos.js y autocomplete
-        # Asegurar que existan los campos 'codigo', 'nombre' y 'label'
-        for p in productos_formateados:
-            p['codigo'] = p['codigo_sistema']
-            p['nombre'] = p['descripcion']
-            p['label'] = f"{p['codigo']} - {p['nombre']}"
-
-        # 3. Guardar en Caché solo para Friparts (opcionalmente formateado o crudo)
-        if tenant == "friparts":
-            PRODUCTOS_LISTAR_CACHE["data"] = productos_formateados
-            PRODUCTOS_LISTAR_CACHE["timestamp"] = ahora
-
-        # --- VALIDACIÓN PRE-VUELO DE IMÁGENES (Juan Sebastian) ---
-        # Evita errores 404 en consola enviando solo rutas que existen físicamente
-        # o delegando a Drive si es el caso.
-        base_dir = os.getcwd()
-        image_dir = os.path.join(base_dir, 'frontend', 'static', 'img', 'productos')
-        default_image = '/static/img/no-image.svg'
-
-        for p in productos_formateados:
-            codigo_limpio = str(p['codigo']).strip().lower()
-            # Juan Sebastian: Forzar placeholder para FR-5009 (archivo corrupto reportado por usuario)
-            if codigo_limpio in ['fr-5009', '5009']:
-                p['imagen_valida'] = default_image
-                continue
-
-            # Clean possible prefix (DE-1000 -> 1000)
-            num_only = codigo_limpio.split('-')[1] if '-' in codigo_limpio else codigo_limpio
             
-            # 1. Si ya tiene IMAGEN en Sheets, verificar si es Drive o URL
-            # (Si es Drive, el frontend tiene su proxy, lo dejamos pasar)
-            img_raw = str(p.get('imagen', '')).strip()
-            if img_raw and ('drive.google.com' in img_raw or len(img_raw) > 20):
-                p['imagen_valida'] = img_raw
-                continue
+        logger.info(f"📊 [SQL-JOIN] Listando {len(resultado)} productos con Precios de db_costos")
+        return jsonify({"items": resultado}), 200
 
-            # 2. Buscar en servidor local (static/img/productos/)
-            found_path = None
-            for name in [codigo_limpio, num_only]:
-                for ext in ['.jpg', '.png', '.jpeg']:
-                    full_name = f"{name}{ext}"
-                    if os.path.exists(os.path.join(image_dir, full_name)):
-                        found_path = f"/static/img/productos/{full_name}"
-                        break
-                if found_path: break
-            
-            p['imagen_valida'] = found_path if found_path else default_image
-
-        logger.info(f"📊 [DEBUG-PRODUCTOS] FinalCount={len(productos_formateados)} | Tenant={tenant}")
-        return jsonify(productos_formateados), 200
-        
     except Exception as e:
-        logger.error(f"Error listando productos: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        logger.error(f"❌ Error en /api/productos/listar (JOIN Costos): {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify([]), 200
 
 
 @productos_bp.route('/historial/<codigo>', methods=['GET'])
 def historial_producto(codigo):
     """
-    Obtiene la trazabilidad 360 de un producto.
+    Obtiene la trazabilidad 360 de un producto 100% SQL-Native.
+    Soporta fallback para códigos sin prefijo (ej: FR-9304 -> 9304).
     """
     try:
-        from flask import request
-        page = int(request.args.get('page', 1))
-        limit = int(request.args.get('limit', 100))
-        print(f"DEBUG: Paginación - Página {page}, Límite {limit}")
-        
-        tenant = get_tenant_from_request()
-        from datetime import datetime
+        from sqlalchemy import text, or_
+        from backend.core.sql_database import db
+        from backend.models.sql_models import (
+            ProduccionInyeccion, ProduccionPulido, Ensamble, 
+            Pedido, Pnc
+        )
         from backend.utils.formatters import normalizar_codigo
+        from datetime import datetime
+
+        codigo_norm = normalizar_codigo(codigo).strip().upper()
+        # Fallback inteligente: Quitar el prefijo para buscar en tablas de producción
+        codigo_limpio = codigo_norm.replace('FR-', '').replace('CB-', '').replace('ENS-', '').strip()
         
-        def parsear_fecha_flex(fecha_str):
-            if not fecha_str or str(fecha_str).strip() in ['', 'None']:
-                return None
-            fecha_str = str(fecha_str).strip()
-            if ' ' in fecha_str: fecha_str = fecha_str.split(' ')[0]
-            if 'T' in fecha_str: fecha_str = fecha_str.split('T')[0]
-            for fmt in ['%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d', '%m/%d/%Y', '%Y/%m/%d', '%d-%m-%Y']:
-                try: return datetime.strptime(fecha_str, fmt)
-                except: pass
-            if '/' in fecha_str:
-                try:
-                    p = fecha_str.split('/')
-                    if len(p) == 3: return datetime(int(p[2]), int(p[1]), int(p[0]))
-                except: pass
-            return None
-
-        def s_get(d, keys, default=''):
-            for k in keys:
-                if k in d: return d[k]
-                for dk, dv in d.items():
-                    if str(dk).strip().upper() == str(k).strip().upper():
-                        return dv
-            return default
-
-        codigo_norm = normalizar_codigo(codigo)
-        movimientos = []
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 500))
         
-        # Using Pandas DF to vectorize string contains
-        def buscar_movimientos_pandas(hoja, codigo_search, map_tipo, map_fecha, map_resp, map_cant, map_det, filter_col):
-            movs = []
-            print(f"DEBUG: Iniciando búsqueda en {hoja} para [{codigo_search}] en columna [{filter_col}]")
-            try:
-                from backend.core.database import sheets_client
-                df = sheets_client.get_dataframe(hoja)
-                if df.empty:
-                    print(f"DEBUG: Hoja {hoja} está VACÍA en el caché.")
-                    return movs
-                
-                # Check target filter column, if it doesn't exist try to fallback 
-                if filter_col not in df.columns:
-                    print(f"DEBUG: Columna {filter_col} NO encontrada en {hoja}. Intentando fallback...")
-                    # Fallback to similar columns
-                    for c in df.columns:
-                        if 'CODIGO' in c.upper() or 'PRODUCTO' in c.upper():
-                            filter_col = c
-                            print(f"DEBUG: Fallback exitoso a columna: {filter_col}")
-                            break
-                            
-                if filter_col not in df.columns:
-                    print(f"DEBUG: ERROR CRÍTICO: No se encontró columna de filtrado en {hoja}. Columnas: {list(df.columns)}")
-                    return movs
-                
-                # Normalización simétrica garantizada (Regex-based)
-                df[filter_col] = df[filter_col].apply(normalizar_codigo)
-                
-                # Match Inteligente: Captura el código en cualquier parte de la cadena (Flexible)
-                import re
-                regex_search = fr'{re.escape(str(codigo_search))}'
-                mask = df[filter_col].astype(str).str.contains(regex_search, regex=True, na=False)
-                df_match = df[mask]
-                
-                # LOG OBLIGATORIO SOLICITADO
-                print(f"DEBUG: Registros encontrados en {hoja} para [{codigo_search}]: {len(df_match)} filas")
-                
-                for _, r in df_match.iterrows():
-                    f_str = s_get(r, map_fecha)
-                    f = parsear_fecha_flex(f_str)
-                    
-                    t_str = str(s_get(r, map_tipo)).strip().upper() if map_tipo else hoja.upper()
-                    if hoja == 'RAW_VENTAS':
-                        tipo_mov = 'PEDIDO' if 'PEDIDO' in t_str else 'VENTA'
-                    else:
-                        tipo_mov = hoja.upper() if getattr(hoja, 'upper', None) else hoja
-                        if tipo_mov == 'ENSAMBLES': tipo_mov = 'ENSAMBLE'
-                        
-                    doc_val = str(s_get(r, map_resp))
-                    cant_str = s_get(r, map_cant)
-                    try: cantidad = int(float(str(cant_str))) if cant_str else 0
-                    except: cantidad = 0
-                    
-                    if hoja == 'INYECCION':
-                        det = f"OP: {s_get(r, ['ORDEN PRODUCCION'])} | Maq: {s_get(r, ['MAQUINA'])}"
-                    elif hoja == 'PULIDO':
-                        det = f"Bs: {s_get(r, ['BUJES BUENOS'])} | PNC: {s_get(r, ['PNC'])}"
-                    elif hoja == 'ENSAMBLES':
-                        det = f"OP: {s_get(r, ['OP NUMERO'])}"
-                    else:
-                        det = f"Clasificación: {t_str}"
-                        doc_val = f"Doc: {doc_val}" if doc_val else "-"
+        eventos = []
+        radar = { 'INYECCION': 0, 'PULIDO': 0, 'ENSAMBLE': 0, 'COMERCIAL': 0, 'PNC': 0 }
 
-                    mov_item = {
-                        'tipo': tipo_mov,
-                        'fecha_obj': f or datetime.min,
-                        'fecha': f.strftime('%d/%m/%Y') if f else '-',
-                        'responsable': doc_val,
-                        'cantidad': cantidad,
-                        'detalle': det
-                    }
+        # 1. BARRIDO DE INYECCIÓN
+        try:
+            res_iny = ProduccionInyeccion.query.filter(
+                or_(
+                    ProduccionInyeccion.id_codigo.ilike(f"%{codigo_norm}%"),
+                    ProduccionInyeccion.id_codigo.ilike(f"%{codigo_limpio}%")
+                )
+            ).all()
+            radar['INYECCION'] = len(res_iny)
+            for r in res_iny:
+                eventos.append({
+                    'tipo': 'INYECCION',
+                    'fecha_dt': r.fecha_inicia if hasattr(r.fecha_inicia, 'year') else datetime.now(),
+                    'fecha': r.fecha_inicia.strftime('%d/%m/%Y') if hasattr(r.fecha_inicia, 'strftime') else str(r.fecha_inicia or ''),
+                    'responsable': str(r.responsable or 'SISTEMA'),
+                    'cant': int(float(r.cantidad_real or 0)),
+                    'detalle': f"Máquina: {r.maquina or ''} | Molde: {r.molde or ''}"
+                })
+        except Exception as e: logger.error(f"Falla bloque Inyección para {codigo}: {e}")
 
-                    # Agregar horarios para PULIDO (Búsqueda robusta)
-                    if hoja == 'PULIDO':
-                        mov_item['hora_inicio'] = str(s_get(r, ['HORA INICIO', 'HORA_INICIO', 'INICIO', 'HORA_INI', 'HORA INICIAL']))
-                        mov_item['hora_fin'] = str(s_get(r, ['HORA FIN', 'HORA_FIN', 'FIN', 'HORA_TER', 'HORA FINAL', 'HORA TERMINA']))
+        # 2. BARRIDO DE PULIDO (ESTRUCTURA REAL)
+        try:
+            res_pul = ProduccionPulido.query.filter(
+                or_(
+                    ProduccionPulido.codigo.ilike(f"%{codigo_norm}%"),
+                    ProduccionPulido.codigo.ilike(f"%{codigo_limpio}%")
+                )
+            ).all()
+            radar['PULIDO'] = len(res_pul)
+            for r in res_pul:
+                evento_dict = {
+                    'tipo': 'PULIDO',
+                    'fecha': r.fecha.strftime('%d/%m/%Y') if hasattr(r.fecha, 'strftime') else str(r.fecha),
+                    'cant': int(r.cantidad_real or 0),
+                    'responsable': r.responsable,
+                    'detalle': f"Hora: {r.hora_inicio} - {r.hora_fin} | OP: {r.orden_produccion or 'N/A'}",
+                    'fecha_dt': r.fecha if hasattr(r.fecha, 'year') else datetime.now()
+                }
+                print(f'[DB-PULIDO] Usando cantidad_real: {evento_dict["cant"]}')
+                eventos.append(evento_dict)
+        except Exception as e: logger.error(f"Falla bloque Pulido para {codigo}: {e}")
 
-                    movs.append(mov_item)
-            except Exception as e:
-                logger.error(f"Error {hoja} pandas historial prod: {e}")
-            return movs
+        # 🔥 3. BARRIDO DE ENSAMBLE
+        try:
+            sql_ens = text("""
+                SELECT id, fecha, responsable, cantidad, op_numero, buje_ensamble 
+                FROM db_ensambles 
+                WHERE id_codigo ILIKE :o OR id_codigo ILIKE :l
+            """)
+            res_ens = db.session.execute(sql_ens, {"o": f"%{codigo_norm}%", "l": f"%{codigo_limpio}%"}).mappings().all()
+            radar['ENSAMBLE'] = len(res_ens)
+            for r in res_ens:
+                f_dt = r['fecha'] if hasattr(r['fecha'], 'year') else None
+                eventos.append({
+                    'tipo': 'ENSAMBLE',
+                    'fecha_dt': f_dt or datetime.now(),
+                    'fecha': f_dt.strftime('%d/%m/%Y') if f_dt else str(r['fecha'] or ''),
+                    'responsable': str(r['responsable'] or 'SISTEMA'),
+                    'cant': int(float(r['cantidad'] or 0)),
+                    'detalle': f"OP: {r['op_numero'] or ''} | {r['buje_ensamble'] or ''}"
+                })
+        except Exception as e: logger.error(f"Falla bloque Ensamble para {codigo}: {e}")
 
-        # Execute accelerated queries
-        mov_iny = buscar_movimientos_pandas('INYECCION', codigo_norm, [], ['FECHA INICIA', 'FECHA'], ['RESPONSABLE'], ['CANTIDAD REAL', 'CANTIDAD'], [], 'ID CODIGO')
-        mov_pul = buscar_movimientos_pandas('PULIDO', codigo_norm, [], ['FECHA'], ['RESPONSABLE', 'OPERARIO', 'USUARIO'], ['CANTIDAD RECIBIDA', 'BUJES BUENOS', 'CANTIDAD REAL'], [], 'ID CODIGO')
-        mov_ens = buscar_movimientos_pandas('ENSAMBLES', codigo_norm, [], ['FECHA', 'FECHA INICIA'], ['RESPONSABLE'], ['CANTIDAD'], [], 'ID CODIGO')
-        from backend.app import Hojas
-        mov_com = buscar_movimientos_pandas(Hojas.RAW_VENTAS, codigo_norm, ['CLASIFICACION', 'CLASIFICACIÓN', 'TIPO'], ['FECHA', 'FEC', 'Fecha'], ['DOCUMENTO', 'DOC', 'ORDEN', 'Documento'], ['CANTIDAD', 'CANT', 'Cantidad'], [], 'PRODUCTOS')
-        
-        movimientos = mov_iny + mov_pul + mov_ens + mov_com
-        
-        # Resumen de depuración solicitado
-        print(f"--- DEBUG: RESULTADOS HISTORIAL PARA {codigo} ---")
-        print(f"¿Inyección?: {len(mov_iny)} filas")
-        print(f"¿Pulido?:    {len(mov_pul)} filas")
-        print(f"¿Ensambles?: {len(mov_ens)} filas")
-        print(f"¿Comercial?: {len(mov_com)} filas")
-        print(f"Total:      {len(movimientos)} registros")
+        # 4. BARRIDO DE VENTAS / PEDIDOS
+        try:
+            res_ped = Pedido.query.filter(Pedido.id_codigo.ilike(f"%{codigo_norm}%")).all()
+            radar['COMERCIAL'] = len(res_ped)
+            for r in res_ped:
+                eventos.append({
+                    'tipo': 'VENTA' if r.estado == 'EXPORTADO_WO' else 'PEDIDO',
+                    'fecha_dt': r.fecha if hasattr(r.fecha, 'year') else datetime.now(),
+                    'fecha': r.fecha.strftime('%d/%m/%Y') if hasattr(r.fecha, 'strftime') else str(r.fecha or ''),
+                    'responsable': str(r.cliente or 'CLIENTE'),
+                    'cant': int(float(r.cantidad or 0)),
+                    'detalle': f"Orden: {r.id_pedido} | Vendedor: {r.vendedor or ''}"
+                })
+        except Exception as e: logger.error(f"Falla bloque Ventas para {codigo}: {e}")
 
-        # Ordenar cronológicamente descendente (más nuevo a más antiguo)
-        movimientos.sort(key=lambda x: x['fecha_obj'], reverse=True)
-        
-        # Calcular KPIs absolutos antes de paginar
+        # 5. BARRIDO DE PNC
+        try:
+            res_pnc = Pnc.query.filter(Pnc.id_codigo.ilike(f"%{codigo_norm}%")).all()
+            radar['PNC'] = len(res_pnc)
+            for r in res_pnc:
+                eventos.append({
+                    'tipo': 'PNC',
+                    'fecha_dt': r.fecha if hasattr(r.fecha, 'year') else datetime.now(),
+                    'fecha': r.fecha.strftime('%d/%m/%Y') if hasattr(r.fecha, 'strftime') else str(r.fecha or ''),
+                    'responsable': 'CONTROL CALIDAD',
+                    'cant': int(float(r.cantidad or 0)),
+                    'detalle': f"Criterio: {r.criterio or ''} | {r.observacion or ''}"
+                })
+        except Exception as e: logger.error(f"Falla bloque PNC para {codigo}: {e}")
+
+        # --- LOG DE AUDITORÍA FINAL ---
+        print(f"📊 [RADAR 360] Auditando {codigo_norm} y fallback {codigo_limpio}: {radar}")
+
+        # --- UNIFICACIÓN Y ORDENAMIENTO ---
+        eventos.sort(key=lambda x: x['fecha_dt'] if x['fecha_dt'] else datetime.min, reverse=True)
+
         kpis = { 'INYECCION': 0, 'PULIDO': 0, 'ENSAMBLE': 0, 'COMERCIAL': 0 }
-        for m in movimientos:
-            try: cant = int(m.get('cantidad', 0))
-            except: cant = 0
-            
-            tipo = m.get('tipo', '')
-            if tipo == 'INYECCION': kpis['INYECCION'] += cant
-            elif tipo == 'PULIDO': kpis['PULIDO'] += cant
-            elif tipo == 'ENSAMBLE': kpis['ENSAMBLE'] += cant
-            else: kpis['COMERCIAL'] += cant
-            
-            if 'fecha_obj' in m: del m['fecha_obj']
+        for e in eventos:
+            c = e.get('cant', 0)
+            if e['tipo'] == 'INYECCION': kpis['INYECCION'] += c
+            elif e['tipo'] == 'PULIDO': kpis['PULIDO'] += c
+            elif e['tipo'] == 'ENSAMBLE': kpis['ENSAMBLE'] += c
+            else: kpis['COMERCIAL'] += c
+            if 'fecha_dt' in e: del e['fecha_dt']
 
-        total_records = len(movimientos)
-        start_idx = (page - 1) * limit
-        end_idx = start_idx + limit
-        paginated = movimientos[start_idx:end_idx]
-        has_more = end_idx < total_records
+        total = len(eventos)
+        start = (page - 1) * limit
+        end = start + limit
+        paginados = eventos[start:end]
 
         return jsonify({
             'status': 'success',
-            'resultados': paginated,
+            'resultados': paginados,
             'kpis': kpis,
-            'has_more': has_more,
-            'total': total_records,
-            'ENSAMBLE': mov_ens # Llave en singular y mayúsculas según lo solicitado
+            'radar': radar,
+            'total': total,
+            'has_more': end < total
         }), 200
+
+    except Exception as e:
+        logger.error(f"Error crítico en Timeline 360 (SQL Final): {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
     except Exception as e:
         logger.error(f"Error historial_producto: {e}")

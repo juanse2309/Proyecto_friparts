@@ -31,7 +31,8 @@ window.ModuloAsistencia = (function () {
         // Mapa de roles con sus áreas de responsabilidad (RBAC Estricto)
         let areasAsignadas = [];
         let esJefe = false;
-        let esRolGerencia = role === 'ADMINISTRACION' || role === 'ADMINISTRADOR' || role === 'GERENCIA';
+        const ADMIN_ROLES = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'ADMIN', 'GERENCIA GLOBAL'];
+        let esRolGerencia = ADMIN_ROLES.includes(role);
 
         if (esRolGerencia) {
             esJefe = true;
@@ -255,14 +256,14 @@ window.ModuloAsistencia = (function () {
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0 text-success"><i class="fas fa-sign-in-alt"></i></span>
                             <input type="time" class="form-control border-start-0 ps-0 bg-white" 
-                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${isAbsent ? '' : c.hora_entrada}" ${isAbsent ? 'disabled' : ''}>
+                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${c.hora_entrada || c.hora_entrada_oficial}" ${isAbsent ? 'disabled' : ''}>
                         </div>
                     </td>
                     <td style="width: 160px;">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0 text-danger"><i class="fas fa-sign-out-alt"></i></span>
                             <input type="time" class="form-control border-start-0 ps-0 bg-white" 
-                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${isAbsent ? '' : c.hora_salida}" ${isAbsent ? 'disabled' : ''}>
+                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${c.hora_salida || c.hora_salida_oficial}" ${isAbsent ? 'disabled' : ''}>
                         </div>
                     </td>
                     <td class="text-center fw-bold text-primary" style="background: rgba(30, 64, 175, 0.02);">
@@ -331,13 +332,13 @@ window.ModuloAsistencia = (function () {
                                     <label class="small fw-bold text-muted mb-1 d-block"><i class="fas fa-sign-in-alt me-1 text-success"></i>Llegada</label>
                                     <input type="time" class="form-control form-control-lg border-0 bg-light shadow-none text-center mx-auto" 
                                            style="border-radius: 15px; font-size: 1.1rem; width: 80%;"
-                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${isAbsent ? '' : c.hora_entrada}" ${isAbsent ? 'disabled' : ''}>
+                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${c.hora_entrada || c.hora_entrada_oficial}" ${isAbsent ? 'disabled' : ''}>
                                 </div>
                                 <div class="col-12 text-center">
                                     <label class="small fw-bold text-muted mb-1 d-block"><i class="fas fa-sign-out-alt me-1 text-danger"></i>Salida</label>
                                     <input type="time" class="form-control form-control-lg border-0 bg-light shadow-none text-center mx-auto" 
                                            style="border-radius: 15px; font-size: 1.1rem; width: 80%;"
-                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${isAbsent ? '' : c.hora_salida}" ${isAbsent ? 'disabled' : ''}>
+                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${c.hora_salida || c.hora_salida_oficial}" ${isAbsent ? 'disabled' : ''}>
                                 </div>
                                 
                                 <div class="col-12">
@@ -368,8 +369,20 @@ window.ModuloAsistencia = (function () {
             `;
         }).join('');
 
-        // Disparar cálculo inicial para todas las filas auto-completadas
-        recalcularTodaLaTabla();
+        // Disparar cálculo inicial y auto-llenado agresivo
+        setTimeout(() => {
+            document.querySelectorAll('#asistencia-body tr, #asistencia-cards-container .card').forEach(row => {
+                const hEntradaInput = row.querySelector('[data-tipo="ingreso"]');
+                const hSalidaInput = row.querySelector('[data-tipo="salida"]');
+                
+                // Si están vacíos, inyectar el horario oficial
+                if (!hEntradaInput.value) hEntradaInput.value = row.dataset.oficialEntrada || "07:00";
+                if (!hSalidaInput.value) hSalidaInput.value = row.dataset.oficialSalida || "17:00";
+                
+                // Trigger del cálculo por fila
+                calcularFila(hEntradaInput);
+            });
+        }, 300);
     }
 
     function cambiarVista(modo) {
@@ -401,83 +414,68 @@ window.ModuloAsistencia = (function () {
         const nombre = parent.dataset.nombre;
         if (!nombre) return;
 
-        // Localizar ambos elementos vinculados al mismo colaborador
+        // Localizar elementos vinculados
         const row = document.querySelector(`#asistencia-body tr[data-nombre="${nombre}"]`);
         const card = Array.from(document.querySelectorAll('#asistencia-cards-container .card'))
             .find(c => c.dataset.nombre === nombre);
 
-        const hRealIngreso = parent.querySelector('[data-tipo="ingreso"]').value;
-        const hRealSalida = parent.querySelector('[data-tipo="salida"]').value;
-        const hOficialEntrada = parent.dataset.oficialEntrada;
-        const hOficialSalida = parent.dataset.oficialSalida;
+        const hRealIngresoInput = parent.querySelector('[data-tipo="ingreso"]').value;
+        const hRealSalidaInput = parent.querySelector('[data-tipo="salida"]').value;
         const fechaStr = document.getElementById('asistencia-fecha').value;
 
-        if (!hRealIngreso || !hRealSalida) return;
+        if (!hRealIngresoInput || !hRealSalidaInput) return;
 
-        // Lógica de cálculo
+        // 1. Convertir a Minutos Totales para Precisión
+        const convertirAMinutos = (horaStr) => {
+            const [hh, mm] = horaStr.split(':').map(Number);
+            return (hh * 60) + mm;
+        };
+
+        const minIngreso = convertirAMinutos(hRealIngresoInput);
+        let minSalida = convertirAMinutos(hRealSalidaInput);
+
+        // 2. Manejo de Jornada Nocturna (si sale antes de entrar, sumamos 24h)
+        if (minSalida < minIngreso) {
+            minSalida += (24 * 60);
+        }
+
+        const totalMinutos = minSalida - minIngreso;
+        const totalHoras = totalMinutos / 60;
+
+        // 3. Regla de Negocio: Máximo 9h Ordinarias
+        // Determinamos el día para el tope (Viernes 8, Sáb/Dom 0)
         const fecha = new Date(fechaStr + 'T00:00:00');
-        const diaSemana = fecha.getDay(); // 0: Dom, 1: Lun ... 6: Sáb
+        const diaSemana = fecha.getDay(); 
+        
+        let maxOrd = 9;
+        if (diaSemana === 5) maxOrd = 8;
+        if (diaSemana === 0 || diaSemana === 6) maxOrd = 0;
 
-        const tIngreso = timeToDecimal(hRealIngreso);
-        const tSalida = timeToDecimal(hRealSalida);
-        const tOficialEntrada = timeToDecimal(hOficialEntrada);
-        const tOficialSalida = timeToDecimal(hOficialSalida);
+        let ordinarias = Math.min(totalHoras, maxOrd);
+        let extras = Math.max(0, totalHoras - ordinarias);
 
-        let totalHoras = tSalida - tIngreso;
-        if (totalHoras < 0) totalHoras += 24; // Turnos que cruzan medianoche
+        // 4. Limpieza de decimales
+        const ordFinal = Number(ordinarias.toFixed(1));
+        const extFinal = Number(extras.toFixed(1));
 
-        let ordinarias = 0;
-        let extras = 0;
-
-        // Reglas de negocio
-        if (diaSemana === 0 || diaSemana === 6) {
-            // Sábado (6) o Domingo (0) -> Todo es Extra
-            ordinarias = 0;
-            extras = totalHoras;
-        } else {
-            // Lunes a Viernes: Solo es ordinario lo que solapa con el horario oficial
-            let tEntradaCalculo = tOficialEntrada;
-            let tSalidaCalculo = tOficialSalida;
-            let maxOrd = 10;
-
-            // Regla estricta de Viernes: Salida a las 16:00 (4:00 PM)
-            if (diaSemana === 5) {
-                tSalidaCalculo = 16.0;
-                maxOrd = 9; // Límite de 9 horas ordinarias (ej: 07:00 a 16:00)
+        // 5. Actualización Sincronizada
+        [row, card].forEach(el => {
+            if (!el) return;
+            el.querySelector('[data-tipo="ingreso"]').value = hRealIngresoInput;
+            el.querySelector('[data-tipo="salida"]').value = hRealSalidaInput;
+            
+            const ordElem = el.querySelector('[data-tipo="ordinarias"]') || el.querySelector('[data-tipo="ordinarias-card"]');
+            const extElem = el.querySelector('[data-tipo="extras"]') || el.querySelector('[data-tipo="extras-card"]');
+            
+            if (ordElem) {
+                if (ordElem.tagName === 'INPUT') ordElem.value = ordFinal;
+                else ordElem.textContent = ordFinal;
             }
-
-            const inicioOrdinario = Math.max(tIngreso, tEntradaCalculo);
-            const finOrdinario = Math.min(tSalida, tSalidaCalculo);
-
-            ordinarias = Math.max(0, finOrdinario - inicioOrdinario);
-            // Capping a un máximo de horas ordinarias permitidas
-            ordinarias = Math.min(maxOrd, ordinarias);
-            extras = Math.max(0, totalHoras - ordinarias);
-        }
-
-        // Mostrar resultados con números limpios (sin decimales innecesarios)
-        const ordFinal = Number(ordinarias.toFixed(2));
-        const extFinal = Number(extras.toFixed(2));
-
-        // ACTUALIZAR TABLA (Donde se leen los datos para Guardar)
-        if (row) {
-            row.querySelector('[data-tipo="ingreso"]').value = hRealIngreso;
-            row.querySelector('[data-tipo="salida"]').value = hRealSalida;
-            const inputOrd = row.querySelector('[data-tipo="ordinarias"]');
-            const inputExt = row.querySelector('[data-tipo="extras"]');
-            if (inputOrd) inputOrd.value = ordFinal;
-            if (inputExt) inputExt.value = extFinal;
-        }
-
-        // ACTUALIZAR CARD (Visual en móvil)
-        if (card) {
-            card.querySelector('[data-tipo="ingreso"]').value = hRealIngreso;
-            card.querySelector('[data-tipo="salida"]').value = hRealSalida;
-            const labelOrd = card.querySelector('[data-tipo="ordinarias-card"]');
-            const labelExt = card.querySelector('[data-tipo="extras-card"]');
-            if (labelOrd) labelOrd.textContent = ordFinal;
-            if (labelExt) labelExt.textContent = extFinal;
-        }
+            if (extElem) {
+                if (extElem.tagName === 'INPUT') extElem.value = extFinal;
+                else extElem.textContent = extFinal;
+            }
+        });
     }
 
     function timeToDecimal(timeStr) {
@@ -721,31 +719,32 @@ window.ModuloAsistencia = (function () {
             const data = await response.json();
 
             if (data.status === 'success') {
+                // ⚡ Sincronización del Encabezado (Admin Fix)
+                const currentRol = data.rol || data.role || 'OPERARIO';
+                const roleElem = document.getElementById('asistencia-user-role');
+                if (roleElem && (roleElem.textContent.includes('...'))) {
+                    const isGerencia = ['ADMINISTRACION', 'ADMIN', 'GERENCIA'].includes(currentRol.toUpperCase());
+                    roleElem.textContent = isGerencia ? 'GERENCIA GLOBAL' : currentRol;
+                    roleElem.classList.add('text-primary', 'fw-bold');
+                }
+
                 if (data.registros && data.registros.length > 0) {
                     let totalOrd = 0;
                     let totalExt = 0;
 
                     body.innerHTML = data.registros.map(r => {
-                        const hOrd = parseFloat(r.horas_ordinarias) || 0;
+                        const hOrd = parseFloat(r.horas_normales) || 0;
                         const hExt = parseFloat(r.horas_extras) || 0;
                         totalOrd += hOrd;
                         totalExt += hExt;
 
-                        // Obtener nombre del día
-                        const diasSemana = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
-                        const f = new Date(r.fecha + 'T00:00:00');
-                        const diaNombre = diasSemana[f.getDay()];
-
                         return `
                         <tr>
                             <td class="fw-bold text-muted">
-                                <div class="d-flex flex-column">
-                                    <span class="text-primary small fw-bold">${diaNombre}</span>
-                                    <span>${r.fecha}</span>
-                                </div>
+                                <span class="text-primary small fw-bold d-block">${r.fecha}</span>
                             </td>
-                            <td><span class="badge bg-light text-dark">${formatTimeDisplay(r.ingreso_real)}</span></td>
-                            <td><span class="badge bg-light text-dark">${formatTimeDisplay(r.salida_real)}</span></td>
+                            <td><span class="badge bg-light text-dark">${r.llegada}</span></td>
+                            <td><span class="badge bg-light text-dark">${r.salida}</span></td>
                             <td class="text-primary fw-bold">${hOrd}</td>
                             <td class="text-danger fw-bold">${hExt}</td>
                         </tr>

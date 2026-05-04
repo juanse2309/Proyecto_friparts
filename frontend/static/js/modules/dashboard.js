@@ -1,3 +1,11 @@
+/**
+ * Modulo BI Dashboard Profesional
+ */
+let isInitialized = false;
+let isFetching = false;
+let searchListenerAttached = false;
+let tableRowCache = {};
+
 window.ModuloDashboard = (function () {
     let chartOperadores = null;
     let chartMaquinas = null;
@@ -16,11 +24,15 @@ window.ModuloDashboard = (function () {
     let lastJefaturaData = null;
     let inc_consolidado_original = [];
     let currentIncSortMode = 'units'; // 'units' or 'money'
-    let searchListenerAttached = false;
-    let isInitialized = false;
-    let isFetching = false;
-    let tableRowCache = {}; // Cache para búsquedas ultra-rápidas
     let cacheAnalyticsPulido = null; // Cache para Analiticas de Pulido 
+    
+    // Cache de 1 minuto para KPIs de SQL
+    let lastFetchTime = 0;
+    let currentBackorderDetail = [];
+    let cachedStats = null;
+    let cachedJefatura = null;
+    let lastCachedParams = null;
+    const CACHE_DURATION = 60 * 1000; // 60 segundos
 
     // Helper: Debounce function for performance
     const debounce = (func, wait) => {
@@ -49,12 +61,18 @@ window.ModuloDashboard = (function () {
             overlay = document.createElement('div');
             overlay.id = 'db-loading-overlay';
             overlay.innerHTML = `
-                <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.7);
-                    z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);">
-                    <div style="text-align:center;padding:2rem;">
-                        <i class="fas fa-sync-alt fa-spin" style="font-size:2.5rem;color:#3b82f6;"></i>
-                        <p style="margin-top:1rem;font-weight:600;color:#334155;">Cargando datos de Sheets...</p>
-                        <p style="font-size:0.8rem;color:#94a3b8;">La primera carga puede tardar unos segundos</p>
+                <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.85);
+                    z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);">
+                    <div style="text-align:center;padding:2.5rem;background:white;border-radius:20px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.15);max-width:450px;width:90%;">
+                        <div class="mb-4">
+                            <i class="fas fa-microchip fa-spin" style="font-size:3rem;color:#3b82f6;"></i>
+                        </div>
+                        <p style="margin-top:1rem;font-weight:700;color:#1e293b;font-size:1.1rem;">Analizando registros de producción y costos...</p>
+                        <p style="font-size:0.9rem;color:#64748b;margin-bottom:1.5rem;">(Esto puede tomar unos segundos)</p>
+                        <div class="progress" style="height:6px;border-radius:10px;background:#f1f5f9;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%;border-radius:10px;"></div>
+                        </div>
+                        <p style="font-size:0.75rem;color:#94a3b8;margin-top:1rem;font-style:italic;">Sincronizando bases de datos industriales en tiempo real</p>
                     </div>
                 </div>`;
             document.body.appendChild(overlay);
@@ -74,6 +92,15 @@ window.ModuloDashboard = (function () {
             console.log("📡 Cargando datos del dashboard...");
             const desde = document.getElementById('db-fecha-desde')?.value;
             const hasta = document.getElementById('db-fecha-hasta')?.value;
+            const currentParams = `${desde}|${hasta}`;
+
+            // Lógica de Cache (1 minuto)
+            const now = Date.now();
+            if (!nocache && cachedStats && lastCachedParams === currentParams && (now - lastFetchTime < CACHE_DURATION)) {
+                console.log("♻️ Usando datos cacheados (Cache < 1min)");
+                renderizarTodo(cachedStats, cachedJefatura);
+                return;
+            }
 
             let url = '/api/dashboard/stats';
             const params = new URLSearchParams();
@@ -90,7 +117,7 @@ window.ModuloDashboard = (function () {
 
             if (window.AppState && window.AppState.user && window.AppState.user.rol) {
                 const rol = window.AppState.user.rol.toUpperCase();
-                isAdminOrManagement = ['ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA', 'COMERCIAL'].includes(rol);
+                isAdminOrManagement = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA', 'COMERCIAL'].includes(rol);
             }
 
             if (isAdminOrManagement) {
@@ -117,6 +144,12 @@ window.ModuloDashboard = (function () {
                     console.log("📊 Datos recibidos (Admin):", { result, jefaturaData });
 
                     if (result && result.status === 'success') {
+                        // Actualizar cache completo
+                        cachedStats = result.data;
+                        cachedJefatura = jefaturaData;
+                        lastFetchTime = Date.now();
+                        lastCachedParams = currentParams;
+
                         renderizarTodo(result.data, jefaturaData);
                     }
                 } catch (fetchErr) {
@@ -134,8 +167,19 @@ window.ModuloDashboard = (function () {
             } else {
                 const result = await responseStats;
                 if (result && result.status === 'success') {
+                    // Actualizar cache
+                    cachedStats = result.data;
+                    cachedJefatura = null;
+                    lastFetchTime = Date.now();
+                    lastCachedParams = currentParams;
+                    
                     renderizarTodo(result.data, null);
                 }
+            }
+
+            // Si llegamos aquí con datos de Jefatura (admin), también cacheamos
+            if (isAdminOrManagement && cachedStats) {
+                // El cache ya se actualizó en el flujo Promise.all anterior si entró por ahí
             }
 
             // Initialize Bootstrap tooltips if they exist
@@ -236,8 +280,11 @@ window.ModuloDashboard = (function () {
                 }
             }
 
-            if (data.maquinas) renderChartMaquinas(data.maquinas);
-            if (data.tendencia) renderChartTendencia(data.tendencia);
+            if (data.maquinas) {
+                const maquinasArr = Array.isArray(data.maquinas) ? data.maquinas : Object.entries(data.maquinas || {}).map(([k, v]) => ({maquina: k, valor: v}));
+                if (maquinasArr.length > 0) renderChartMaquinas(maquinasArr);
+            }
+            if (data.tendencia && Array.isArray(data.tendencia) && data.tendencia.length > 0) renderChartTendencia(data.tendencia);
             if (data.kpis.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
 
             // 4. Detalle Scrap Almacén
@@ -402,6 +449,10 @@ window.ModuloDashboard = (function () {
         if (!ctx) return;
         if (chartMaquinas) chartMaquinas.destroy();
 
+        // Blindaje: Asegurar que maqs sea siempre un array de objetos
+        const maquinasArr = Array.isArray(maqs) ? maqs : Object.entries(maqs || {}).map(([k, v]) => ({maquina: k, valor: v}));
+        if (maquinasArr.length === 0) return;
+
         // Paleta de colores variados para máquinas
         const palette = [
             '#10b981', // Emerald
@@ -415,9 +466,9 @@ window.ModuloDashboard = (function () {
         chartMaquinas = new Chart(ctx, {
             type: 'doughnut',
             data: {
-                labels: maqs.map(m => m.maquina),
+                labels: maquinasArr.map(m => m.maquina),
                 datasets: [{
-                    data: maqs.map(m => m.valor),
+                    data: maquinasArr.map(m => m.valor),
                     backgroundColor: palette,
                     borderWidth: 4,
                     borderColor: '#ffffff',
@@ -453,6 +504,7 @@ window.ModuloDashboard = (function () {
     function renderChartTendencia(tendencia) {
         const ctx = document.getElementById('chartTendencia');
         if (!ctx) return;
+        if (!Array.isArray(tendencia) || tendencia.length === 0) return;
         if (chartTendencia) chartTendencia.destroy();
         chartTendencia = new Chart(ctx, {
             type: 'line',
@@ -733,7 +785,7 @@ window.ModuloDashboard = (function () {
 
         // Mapear roles antiguos/generales a los roles de acceso que configuramos en HTML
         let rolesEfectivos = [];
-        if (['ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA'].includes(rolUsuario)) {
+        if (['ADMIN', 'ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA'].includes(rolUsuario)) {
             rolesEfectivos.push('ADMIN');
             rolesEfectivos.push('GERENCIA');
         }
@@ -864,11 +916,11 @@ window.ModuloDashboard = (function () {
         hace30.setDate(hoy.getDate() - 30);
 
         if (f_desde) {
-            f_desde.value = localStorage.getItem(LS_DESDE) || hace30.toISOString().split('T')[0];
+            f_desde.value = localStorage.getItem(LS_DESDE) || hoy.toISOString().split('T')[0]; // Default a HOY
             f_desde.addEventListener('change', () => localStorage.setItem(LS_DESDE, f_desde.value));
         }
         if (f_hasta) {
-            f_hasta.value = localStorage.getItem(LS_HASTA) || hoy.toISOString().split('T')[0];
+            f_hasta.value = localStorage.getItem(LS_HASTA) || hoy.toISOString().split('T')[0]; // Default a HOY
             f_hasta.addEventListener('change', () => localStorage.setItem(LS_HASTA, f_hasta.value));
         }
 
@@ -1583,109 +1635,110 @@ window.ModuloDashboard = (function () {
         }
     }
 
-    function mostrarDetalleIncumplimiento(cliente) {
-        if (!inc_unidades_original || !inc_dinero_original) return;
-
-        const cliStr = (cliente || "").trim().toLowerCase();
-        const f_unidades = inc_unidades_original.filter(d => (d.cliente || "").trim().toLowerCase() === cliStr);
-        const f_dinero = inc_dinero_original.filter(d => (d.cliente || "").trim().toLowerCase() === cliStr);
-
-        const mapProductos = {};
-        const normalizeProd = p => (p || 'Sin Referencia').trim().toLowerCase();
-
-        f_unidades.forEach(d => {
-            const rawP = d.producto || 'Sin Referencia';
-            const normP = normalizeProd(rawP);
-            if (!mapProductos[normP]) {
-                mapProductos[normP] = { prod: rawP, p_unds: 0, v_unds: 0, f_unds: 0, money: 0 };
-            }
-            mapProductos[normP].p_unds += (Number(d.pedidos) || 0);
-            mapProductos[normP].v_unds += (Number(d.ventas) || 0);
-            mapProductos[normP].f_unds += (Number(d.unidades_fallidas) || 0);
-        });
-
-        f_dinero.forEach(d => {
-            const rawP = d.producto || 'Sin Referencia';
-            const normP = normalizeProd(rawP);
-            if (!mapProductos[normP]) {
-                mapProductos[normP] = { prod: rawP, p_unds: 0, v_unds: 0, f_unds: 0, money: 0 };
-            }
-            mapProductos[normP].money += (Number(d.dinero_perdido) || 0);
-        });
-
-        const listado = Object.values(mapProductos).sort((a, b) => b.f_unds - a.f_unds);
-
-        if (listado.length === 0) {
-            Swal.fire("Información", `No hay detalle de faltantes para ${cliente}`, "info");
-            return;
-        }
-
-        const decodedCliente = cliente.replace(/&quot;/g, '"');
-        let rowsHtml = '';
-        let totP = 0, totV = 0, totF = 0, totM = 0;
-
-        listado.forEach((item, idx) => {
-            totP += item.p_unds;
-            totV += item.v_unds;
-            totF += item.f_unds;
-            totM += item.money;
-
-            const rowBg = idx % 2 === 0 ? 'rgba(248, 250, 252, 0.8)' : '#ffffff';
-
-            rowsHtml += `
-                <tr style="background-color: ${rowBg}; border-bottom: 1px solid #f1f5f9;">
-                    <td class="text-start ps-3 py-3" style="font-size: 0.85rem; width: 42%;">
-                        <div class="fw-bold text-slate-800">${item.prod}</div>
-                    </td>
-                    <td class="text-end pe-3 py-3 text-muted" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.p_unds)}</td>
-                    <td class="text-end pe-3 py-3 text-primary" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.v_unds)}</td>
-                    <td class="text-end pe-3 py-3 text-danger fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.04);">${formatNumber(item.f_unds)}</td>
-                    <td class="text-end pe-4 py-3 text-success fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(item.money)}</td>
-                </tr>
-                `;
-        });
-
+    async function mostrarDetalleIncumplimiento(cliente) {
+        // Mostrar cargando con SweetAlert2
         Swal.fire({
-            title: `<div class="mb-1"><i class="fas fa-history text-danger fs-3"></i></div><div style="font-size:1.25rem; font-weight:800; color: #1e293b;">KPI: Faltantes de Facturación</div><div class="text-muted small fw-normal">${decodedCliente}</div>`,
-            html: `
-                <div class="table-responsive border rounded-3" style="max-height: 520px; overflow-y: auto; position: relative;">
-                    <table class="table table-sm table-hover align-middle mb-0" style="min-width: 900px; border-collapse: separate; border-spacing: 0;">
-                        <thead style="position: sticky; top: 0; z-index: 20; background-color: #1e293b; color: #f8fafc;">
-                            <tr>
-                                <th class="text-start ps-3 py-3" style="font-size:0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: none;">REFERENCIA / PRODUCTO</th>
-                                <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">PEDIDO</th>
-                                <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">FACTURADO</th>
-                                <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">FALTANTE</th>
-                                <th class="text-end pe-4 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">IMPACTO ($)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rowsHtml}
-                        </tbody>
-                        <tfoot style="position: sticky; bottom: 0; z-index: 20; background-color: #f8fafc; border-top: 2px solid #cbd5e1; box-shadow: 0 -4px 6px -1px rgb(0 0 0 / 0.1);">
-                            <tr class="fw-bolder">
-                                <td class="ps-3 py-3 text-uppercase" style="font-size: 0.8rem; color: #475569;">Total Consolidado Historico</td>
-                                <td class="text-end pe-3 py-3 text-dark" style="font-size: 1rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(totP)}</td>
-                                <td class="text-end pe-3 py-3 text-primary" style="font-size: 1rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(totV)}</td>
-                                <td class="text-end pe-3 py-3 text-danger" style="font-size: 1.1rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.06);">${formatNumber(totF)}</td>
-                                <td class="text-end pe-4 py-3 text-success" style="font-size: 1.1rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(totM)}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-                <div class="mt-4 d-flex justify-content-between align-items-center gap-3">
-                    <div class="p-3 bg-light rounded-2 flex-grow-1 text-start" style="font-size: 0.75rem; border-left: 4px solid #ef4444;">
-                        <strong>Definición:</strong> Estos datos representan productos que no pudieron ser entregados en ventas pasadas por falta de disponibilidad.
-                    </div>
-                </div>
-                `,
-            width: window.innerWidth > 768 ? '65em' : '100%',
-            confirmButtonText: '<i class="fas fa-times me-2"></i> Cerrar Análisis',
-            confirmButtonColor: '#334155',
-            customClass: {
-                confirmButton: 'btn rounded-pill px-5 py-2 fw-bold shadow-lg mt-2'
+            title: 'Analizando historial comercial...',
+            text: 'Consultando registros detallados de pedidos y ventas.',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
             }
         });
+
+        try {
+            const desde = document.getElementById('db-fecha-desde')?.value || "";
+            const hasta = document.getElementById('db-fecha-hasta')?.value || "";
+            const decodedCliente = cliente.replace(/&quot;/g, '"');
+            
+            const url = `/api/admin/backorder/detalle?cliente=${encodeURIComponent(decodedCliente)}&desde=${desde}&hasta=${hasta}`;
+            const res = await fetch(url).then(r => r.json());
+
+            if (!res.success || !res.data) {
+                Swal.fire("Error", "No se pudo obtener el detalle de backorder.", "error");
+                return;
+            }
+
+            const listado = res.data;
+
+            if (listado.length === 0) {
+                Swal.fire("Información", `No hay detalle de faltantes para ${decodedCliente}`, "info");
+                return;
+            }
+
+            let rowsHtml = '';
+            let totP = 0, totV = 0, totF = 0, totM = 0;
+
+            listado.forEach((item, idx) => {
+                totP += item.pedidos;
+                totV += item.ventas;
+                totF += item.pendiente;
+                totM += item.impacto;
+
+                const rowBg = idx % 2 === 0 ? 'rgba(248, 250, 252, 0.8)' : '#ffffff';
+
+                rowsHtml += `
+                    <tr style="background-color: ${rowBg}; border-bottom: 1px solid #f1f5f9;">
+                        <td class="text-start ps-3 py-3" style="font-size: 0.85rem; width: 42%;">
+                            <div class="fw-bold text-slate-800">${item.referencia || '-'}</div>
+                            <div class="text-muted small" style="font-size: 0.7rem;">${item.descripcion || ''}</div>
+                        </td>
+                        <td class="text-end pe-3 py-3 text-muted" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.pedidos)}</td>
+                        <td class="text-end pe-3 py-3 text-primary" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.ventas)}</td>
+                        <td class="text-end pe-3 py-3 text-danger fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.04);">${formatNumber(item.pendiente)}</td>
+                        <td class="text-end pe-4 py-3 text-success fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(item.impacto)}</td>
+                    </tr>
+                    `;
+            });
+
+            Swal.fire({
+                title: `<div class="mb-1"><i class="fas fa-history text-danger fs-3"></i></div><div style="font-size:1.25rem; font-weight:800; color: #1e293b;">KPI: Análisis Comercial Detallado</div><div class="text-muted small fw-normal">${decodedCliente}</div>`,
+                html: `
+                    <div class="table-responsive border rounded-3" style="max-height: 520px; overflow-y: auto; position: relative;">
+                        <table class="table table-sm table-hover align-middle mb-0" style="min-width: 900px; border-collapse: separate; border-spacing: 0;">
+                            <thead style="position: sticky; top: 0; z-index: 20; background-color: #1e293b; color: #f8fafc;">
+                                <tr>
+                                    <th class="text-start ps-3 py-3" style="font-size:0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: none;">REFERENCIA / PRODUCTO</th>
+                                    <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">PEDIDO</th>
+                                    <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">FACTURADO</th>
+                                    <th class="text-end pe-3 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">FALTANTE</th>
+                                    <th class="text-end pe-4 py-3" style="font-size:0.75rem; text-transform: uppercase; border-bottom: none;">IMPACTO ($)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rowsHtml}
+                            </tbody>
+                            <tfoot style="position: sticky; bottom: 0; z-index: 20; background-color: #f8fafc; border-top: 2px solid #cbd5e1; box-shadow: 0 -4px 6px -1px rgb(0 0 0 / 0.1);">
+                                <tr class="fw-bolder">
+                                    <td class="ps-3 py-3 text-uppercase" style="font-size: 0.8rem; color: #475569;">Total para este cliente</td>
+                                    <td class="text-end pe-3 py-3 text-dark" style="font-size: 1rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(totP)}</td>
+                                    <td class="text-end pe-3 py-3 text-primary" style="font-size: 1rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(totV)}</td>
+                                    <td class="text-end pe-3 py-3 text-danger" style="font-size: 1.1rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.06);">${formatNumber(totF)}</td>
+                                    <td class="text-end pe-4 py-3 text-success" style="font-size: 1.1rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(totM)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div class="mt-3 d-flex justify-content-end">
+                        <button class="btn btn-outline-success btn-sm fw-bold rounded-pill px-4 shadow-sm" onclick="window.ModuloDashboard.exportarBackorderCliente('${decodedCliente.replace(/'/g, "\\'")}')">
+                            <i class="fas fa-file-csv me-2"></i> Exportar Faltantes (CSV)
+                        </button>
+                    </div>
+                `,
+                width: window.innerWidth > 768 ? '65em' : '100%',
+                confirmButtonText: '<i class="fas fa-times me-2"></i> Cerrar',
+                confirmButtonColor: '#334155',
+                customClass: {
+                    confirmButton: 'btn rounded-pill px-5 py-2 fw-bold shadow-lg mt-2'
+                }
+            });
+
+            currentBackorderDetail = listado;
+
+        } catch (error) {
+            console.error("Error cargando detalle incumplimiento:", error);
+            Swal.fire("Error", "Ocurrió un problema al conectar con el servidor.", "error");
+        }
     }
 
     function toggleOperatorSelection(nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar, detalleMix = null) {
@@ -1836,6 +1889,37 @@ window.ModuloDashboard = (function () {
         modal.show();
     }
 
+    function exportarBackorderCliente(nombreCliente) {
+        if (!currentBackorderDetail || currentBackorderDetail.length === 0) {
+            Swal.fire("Error", "No hay datos para exportar", "error");
+            return;
+        }
+        
+        let csvContent = "\uFEFF"; // BOM para Excel
+        csvContent += "Referencia;Descripcion;Pedido;Facturado;Faltante;Impacto\n";
+        
+        currentBackorderDetail.forEach(item => {
+            const row = [
+                `"${item.referencia || ''}"`,
+                `"${(item.descripcion || '').replace(/"/g, '""')}"`,
+                item.pedidos,
+                item.ventas,
+                item.pendiente,
+                item.impacto
+            ].join(";");
+            csvContent += row + "\n";
+        });
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Backorder_${nombreCliente.replace(/\s+/g, '_')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
     // Attach to windows for HTML access
     window.ModuloDashboard = {
         inicializar: iniciar,
@@ -1844,6 +1928,7 @@ window.ModuloDashboard = (function () {
         mostrarModalOperador: mostrarModalOperador,
         toggleChartView: toggleChartView,
         mostrarDetalleIncumplimiento: mostrarDetalleIncumplimiento,
+        exportarBackorderCliente: exportarBackorderCliente,
         sortIncumplimiento: sortIncumplimiento,
         toggleOperatorSelection,
         abrirModalComparativa

@@ -1,21 +1,17 @@
 from functools import wraps
 from flask import session, jsonify
 
-# Define allowed roles constants
-class Roles:
-    ADMIN = 'admin'
-    ADMINISTRACION = 'administracion'
-    ADMINISTRADOR = 'administrador'
-    INYECCION = 'inyeccion'
-    PULIDO = 'pulido'
-    ENSAMBLE = 'ensamble'
+# Define allowed roles constants (UPPERCASE for strict matching)
+ROL_ADMINS = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA']
+ROL_JEFES = ['JEFE ALMACEN', 'JEFE INYECCION', 'JEFE PULIDO']
+ROL_COMERCIALES = ['COMERCIAL', 'COMERCIAL FRIMETALS', 'STAFF FRIMETALS']
+ROL_OPERARIOS = ['INYECCION', 'PULIDO', 'ALISTAMIENTO', 'ENSAMBLE', 'AUXILIAR INVENTARIO']
 
-def require_role(allowed_roles):
+def require_role(allowed_roles_input):
     """
-    Examines the current user's session role.
-    If the user does not have a session or has an insufficient role, 
-    returns a 401/403 Error before hitting the API endpoint.
-    allowed_roles: A list of strings with acceptable roles for the endpoint.
+    Examines the current user's session role with strict UPPERCASE normalization.
+    allowed_roles_input: A list of strings or a single role string. 
+    Accepts both flat lists and our predefined constants.
     """
     def decorator(f):
         @wraps(f)
@@ -30,26 +26,34 @@ def require_role(allowed_roles):
             
             import unicodedata
             
-            # 2. Extract user's role and clean accents
-            raw_role = str(session.get('role', '')).lower()
+            # 2. Extract user's role and normalize (Accents removed + UPPERCASE)
+            raw_role = str(session.get('role', '')).upper() # ⚡ ALWAYS UPPERCASE
             user_role = ''.join((c for c in unicodedata.normalize('NFD', raw_role) if unicodedata.category(c) != 'Mn'))
             
-            # 3. Admins intuitively have access to almost everything, 
-            #    but we enforce explicit roles here. If ADMIN in allowed_roles, handle it.
-            #    For maximum flexibility, we just check if the user's role is in the list.
-            admin_roles = [Roles.ADMIN, Roles.ADMINISTRADOR, Roles.ADMINISTRACION]
+            # 3. Handle input: Convert nested lists (from constants) to a flat list of upper cases
+            allowed_roles = []
+            if isinstance(allowed_roles_input, list):
+                for r in allowed_roles_input:
+                    if isinstance(r, list): # handle ROL_ADMINS + ['JEFE']
+                        allowed_roles.extend([x.upper() for x in r])
+                    else:
+                        allowed_roles.append(r.upper())
+            else:
+                allowed_roles = [str(allowed_roles_input).upper()]
+
+            # 4. Global God Mode: Admins variation always matches
+            if user_role in ROL_ADMINS:
+                return f(*args, **kwargs)
             
-            if Roles.ADMIN in allowed_roles and user_role in admin_roles:
-                pass # Admin trying to access admin route
-            elif Roles.ADMINISTRADOR in allowed_roles and user_role in admin_roles:
-                pass
-            elif user_role not in allowed_roles:
-                return jsonify({
-                    'success': False, 
-                    'error': f'Insufficient permissions. Role {user_role} cannot access this resource.',
-                    'needs_login': False
-                }), 403
-                
-            return f(*args, **kwargs)
+            # 5. Check specific access
+            if user_role in allowed_roles:
+                return f(*args, **kwargs)
+            
+            return jsonify({
+                'success': False, 
+                'error': f'Insufficient permissions. Role {user_role} is not authorized for this action.',
+                'needs_login': False
+            }), 403
+            
         return decorated_function
     return decorator

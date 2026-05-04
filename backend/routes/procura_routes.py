@@ -6,7 +6,7 @@ import logging
 import uuid
 import collections
 from datetime import datetime
-from backend.utils.auth_middleware import require_role
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 
 def safe_int(value, default=0):
     try:
@@ -36,7 +36,7 @@ PROVEEDORES_CACHE = {
 }
 
 @procura_bp.route('/listar_parametros', methods=['GET'])
-@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
 def listar_parametros():
     """
     Obtiene el catálogo maestro de carcasas, internos, tornillería y otros.
@@ -83,7 +83,7 @@ def listar_parametros():
 
 
 @procura_bp.route('/listar_proveedores', methods=['GET'])
-@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
 def listar_proveedores():
     """
     Lista los proveedores con detalles completos desde la hoja DB_PROVEEDORES.
@@ -131,7 +131,7 @@ def listar_proveedores():
 
 
 @procura_bp.route('/registrar_oc', methods=['POST'])
-@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
 def registrar_oc():
     """
     Registra nuevas Órdenes de Compra en lote o actualiza recepción (registra nuevo movimiento iterativo).
@@ -245,7 +245,7 @@ def registrar_oc():
 
 
 @procura_bp.route('/siguiente_oc', methods=['GET'])
-@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
 def siguiente_oc():
     """
     Lee la hoja ORDENES_DE_COMPRA para encontrar el número de OC más alto (Ej: OC-105)
@@ -284,7 +284,7 @@ def siguiente_oc():
 
 
 @procura_bp.route('/buscar_oc/<n_oc>', methods=['GET'])
-@require_role(['administracion', 'auxiliar inventario', 'ensamble'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
 def buscar_oc(n_oc):
     """
     Busca todas las líneas correspondientes a una N° OC y las retorna para edición.

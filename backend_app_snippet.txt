@@ -1,0 +1,56 @@
+﻿
+> backend\app.py:5821:def handle_mezcla():
+  backend\app.py:5822:    """Registra una nueva mezcla de material en SQL-Native."""
+  backend\app.py:5823:    try:
+  backend\app.py:5824:        from backend.models.sql_models import Mezcla
+  backend\app.py:5825:        from backend.core.sql_database import db
+  backend\app.py:5826:        data = request.get_json()
+  backend\app.py:5827:        logger.info(f" >>> [SQL] Registrando mezcla: {data}")
+  backend\app.py:5828:        
+  backend\app.py:5829:        # Extraccion y casteo seguro de pesos
+  backend\app.py:5830:        try:
+  backend\app.py:5831:            virgen = float(data.get('virgen', 0) or 0)
+  backend\app.py:5832:            molido = float(data.get('molido', 0) or 0)
+  backend\app.py:5833:            pigmento = float(data.get('pigmento', 0) or 0)
+  backend\app.py:5834:            
+  backend\app.py:5835:            # Fecha y Hora: Si viene del frontend yyyy-mm-dd, la parseamos
+  backend\app.py:5836:            f_str = data.get('fecha', '')
+  backend\app.py:5837:            ahora = datetime.now()
+  backend\app.py:5838:            fecha_dt = datetime.strptime(f_str, '%Y-%m-%d').date() if f_str else ahora.date()
+  backend\app.py:5839:            hora_str = ahora.strftime('%H:%M:%S')
+  backend\app.py:5840:            
+  backend\app.py:5841:            # Generar Lote Interno Automático
+  backend\app.py:5842:            lote_interno = f"M-{fecha_dt.strftime('%Y%m%d')}-{ahora.strftime('%H%M')}"
+  backend\app.py:5843:            
+  backend\app.py:5844:        except Exception as e:
+  backend\app.py:5845:            logger.error(f" Error Parseando datos de mezcla: {e}")
+  backend\app.py:5846:            return jsonify({'success': False, 'error': 'Formato de datos numéricos o fecha 
+inválido'}), 400
+  backend\app.py:5847:
+  backend\app.py:5848:        nueva_mezcla = Mezcla(
+  backend\app.py:5849:            fecha=fecha_dt,
+  backend\app.py:5850:            hora=hora_str,
+  backend\app.py:5851:            responsable=data.get('responsable', 'SISTEMA'),
+  backend\app.py:5852:            maquina=data.get('maquina', 'PROCESO GRAL'),
+  backend\app.py:5853:            virgen_kg=virgen,
+  backend\app.py:5854:            molido_kg=molido,
+  backend\app.py:5855:            pigmento_kg=pigmento,
+  backend\app.py:5856:            lote_interno=lote_interno,
+  backend\app.py:5857:            observaciones=data.get('observaciones', '')
+  backend\app.py:5858:        )
+  backend\app.py:5859:        
+  backend\app.py:5860:        db.session.add(nueva_mezcla)
+  backend\app.py:5861:        db.session.commit()
+  backend\app.py:5862:        
+  backend\app.py:5863:        logger.info(f" ✅ Mezcla Lote {lote_interno} guardada en PostgreSQL.")
+  backend\app.py:5864:        return jsonify({'success': True, 'mensaje': 'Mezcla registrada correctamente en SQL', 
+'lote': lote_interno}), 200
+  backend\app.py:5865:        
+  backend\app.py:5866:    except Exception as e:
+  backend\app.py:5867:        db.session.rollback()
+  backend\app.py:5868:        logger.error(f" Error en /api/mezcla SQL: {str(e)}")
+  backend\app.py:5869:        return jsonify({'success': False, 'error': str(e)}), 500
+  backend\app.py:5870:        return jsonify({'success': False, 'error': f"Error de persistencia: {str(e)}"}), 500
+  backend\app.py:5871:
+
+

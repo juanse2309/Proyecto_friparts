@@ -669,6 +669,8 @@ const AlmacenModule = {
                         <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px;">${isMetals ? 'Alistado' : 'Empacado'}</small>
                         <input type="number" class="form-control border-0 bg-transparent text-center fw-bold p-0" 
                             value="${prod.cant_lista}" 
+                            max="${prod.cantidad}"
+                            oninput="if(this.value > ${prod.cantidad}) this.value = ${prod.cantidad};"
                             onchange="AlmacenModule.cambiarCantidad(${index}, this.value, 'cant_lista')"
                             style="font-size: 2.5rem; color: #1e293b; height: auto; box-shadow: none;">
                     </div>

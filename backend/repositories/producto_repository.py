@@ -1,11 +1,11 @@
 """
-Repositorio de productos.
-Centraliza TODO el acceso a la hoja PRODUCTOS.
+Repositorio de productos 100% SQL-First.
+Centraliza el acceso a la tabla db_productos en PostgreSQL.
 """
 from typing import Optional, List, Dict
-from backend.core.database import sheets_client
-from backend.config.settings import Hojas, Almacenes, TenantConfig
-from backend.utils.formatters import normalizar_codigo, to_int
+from sqlalchemy import func
+from backend.core.sql_database import db
+from backend.models.sql_models import Producto
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,339 +13,129 @@ logger = logging.getLogger(__name__)
 
 class ProductoRepository:
     """
-    Repositorio para operaciones con productos.
-
-    Args:
-        tenant: 'friparts' (default) | 'frimetals'
-                Determina de qué hojas de Google Sheets se leen/escriben los datos.
+    Repositorio para operaciones con productos vía SQLAlchemy.
     """
 
     def __init__(self, tenant: str = "friparts"):
         self.tenant = tenant
-        self.hoja = TenantConfig.get(tenant, "PRODUCTOS")
     
     def buscar_por_codigo(self, codigo: str) -> Optional[Dict]:
         """
-        Busca un producto por código (acepta FR-9304 o 9304).
-        
-        Args:
-            codigo: Código del producto (con o sin prefijo)
-        
-        Returns:
-            Dict con datos del producto o None si no se encuentra
+        Busca un producto en SQL por código de sistema o ID.
         """
         try:
             from backend.utils.formatters import normalizar_codigo
-            codigo_normalizado = normalizar_codigo(codigo)
+            cod_norm = normalizar_codigo(codigo)
             
-            registro_stock = None
-            registro_master = None
-            fila_stock = None
+            # Buscar por codigo_sistema o id_codigo (Flexible y tolerante a prefijos)
+            p = db.session.query(Producto).filter(
+                (Producto.codigo_sistema.ilike(f"%{cod_norm}%")) | 
+                (Producto.id_codigo.ilike(f"%{cod_norm}%"))
+            ).first()
             
-            # 1. Buscar en PRODUCTOS (Stock)
-            df_stock = sheets_client.get_dataframe(self.hoja)
-            if not df_stock.empty:
-                try:
-                    # Búsqueda segura en múltiples columnas posibles (Soporte multilineas)
-                    cols_stock = df_stock.columns.intersection(['CODIGO SISTEMA', 'CODIGO', 'ID CODIGO', 'PRODUCTO'])
-                    for col in cols_stock:
-                        # Aplicar normalización y buscar match exacto
-                        mask = (df_stock[col].apply(normalizar_codigo) == codigo_normalizado)
-                        res = df_stock[mask]
-                        if not res.empty:
-                            registro_stock = res.iloc[0].to_dict()
-                            fila_stock = int(res.index[0]) + 2
-                            break # Encontrado
-                except Exception as e:
-                    logger.error(f"Error en búsqueda Pandas Stock ({codigo}): {e}")
-            
-            # 2. Buscar en Maestros (DB_PRODUCTOS)
-            master_sheet_name = TenantConfig.get(self.tenant, "DB_PRODUCTOS")
-            df_master = sheets_client.get_dataframe(master_sheet_name)
-            if not df_master.empty:
-                try:
-                    # Búsqueda segura en múltiples columnas del catálogo
-                    cols_mast = df_master.columns.intersection(['CODIGO', 'CODIGO SISTEMA', 'ID CODIGO', 'PRODUCTO'])
-                    for col in cols_mast:
-                        mask = (df_master[col].apply(normalizar_codigo) == codigo_normalizado)
-                        res = df_master[mask]
-                        if not res.empty:
-                            registro_master = res.iloc[0].to_dict()
-                            break # Encontrado
-                except Exception as e:
-                    logger.error(f"Error en búsqueda Pandas Maestro ({codigo}): {e}")
-                        
-            # Si no aparece en ningún lado
-            if not registro_stock and not registro_master:
-                logger.warning(f"Producto no encontrado: {codigo}")
+            if not p:
                 return None
                 
-            # 3. Combinación Híbrida Definitiva
-            final = {}
-            if registro_stock:
-                final.update(registro_stock)
-                final['_fila'] = fila_stock
-            
-            if registro_master:
-                # Extraer siempre la descripción real del maestro si está disponible
-                desc_master = str(registro_master.get('DESCRIPCION', registro_master.get('DESCRIPCIÓN', ''))).strip()
-                if desc_master:
-                    final['DESCRIPCION'] = desc_master
-                else:
-                    final['DESCRIPCION'] = final.get('DESCRIPCION', 'Sin descripción')
-                
-                final['PRECIO'] = registro_master.get('PRECIO', final.get('PRECIO', 0))
-                
-                # Rescatar imagen desde maestro solo si el stock local no aportó una
-                if not str(final.get('IMAGEN', '')).strip():
-                    final['IMAGEN'] = registro_master.get('IMAGEN', '')
-                    
-                # Si el código principal vino vacío de stock, heredarlo
-                if not final.get('CODIGO SISTEMA'):
-                    final['CODIGO SISTEMA'] = registro_master.get('CODIGO', '')
-            else:
-                # Nunca lo encontró en Maestros, proveer fallback si en Stock no había Desc
-                final['DESCRIPCION'] = final.get('DESCRIPCION', '') or 'Sin descripción'
-                
-            return final
+            return self._to_dict(p)
             
         except Exception as e:
-            logger.error(f"Error buscando producto {codigo}: {e}")
+            logger.error(f"Error buscando producto SQL {codigo}: {e}")
             return None
     
     def listar_todos(self) -> List[Dict]:
         """
-        Obtiene todos los productos usando la Estrategia Híbrida:
-        1. Datos Maestros (Precio, Desc): desde DB_Productos.
-        2. Stock: desde PRODUCTOS (cruce por Código).
+        Lista todos los productos desde db_productos.
         """
         try:
-            # 1. Obtener Datos Maestros (hoja maestra del tenant)
-            ws_master = sheets_client.get_worksheet(TenantConfig.get(self.tenant, "DB_PRODUCTOS"))
-            if not ws_master:
-                logger.error("No se encontró DB_Productos")
-                return []
-            
-            master_records = sheets_client.get_all_records_seguro(ws_master)
-            
-            # 2. Obtener Datos Stock (PRODUCTOS)
-            ws_stock = sheets_client.get_worksheet(self.hoja)
-            stock_records = sheets_client.get_all_records_seguro(ws_stock) if ws_stock else []
-            
-            # 3. Indexar Stock para búsqueda rápida
-            # Clave: Código normalizado -> Registro completo
-            stock_map = {}
-            for r in stock_records:
-                # Normalizar claves posibles
-                cod = str(r.get('CODIGO SISTEMA', '')).strip().upper()
-                id_cod = str(r.get('ID CODIGO', '')).strip().upper()
-                
-                if cod: stock_map[cod] = r
-                if id_cod: stock_map[id_cod] = r
-
-            productos_finales = []
-            codigos_incluidos = set()  # Track códigos ya procesados
-            
-            # 4. Construir lista final basada en Master (DB_PRODUCTOS)
-            for item in master_records:
-                codigo = str(item.get('CODIGO', '')).strip()
-                if not codigo: continue # Skip vacíos
-                
-                codigo_norm = codigo.upper()
-                codigos_incluidos.add(codigo_norm)
-                
-                # Datos base del Master
-                producto_final = {
-                    'CODIGO SISTEMA': codigo,
-                    'ID CODIGO': codigo, # Fallback
-                    'DESCRIPCION': item.get('DESCRIPCION', 'Sin descripción'),
-                    'PRECIO': item.get('PRECIO', 0),
-                    'IMAGEN': '', # Se llenará si existe en stock o se usará local
-                    # Stocks en 0 por defecto
-                    'POR PULIR': 0,
-                    'P. TERMINADO': 0,
-                    'PRODUCTO ENSAMBLADO': 0,
-                    'COMPROMETIDO': 0,
-                    'STOCK MINIMO': 10,
-                    'STOCK_BODEGA': 0,
-                    'EN_ZINCADO': 0,
-                    'EN_GRANALLADO': 0,
-                    'CLASE_ROTACION': 'C'
-                }
-                
-                # Buscar en Mapa de Stock
-                stock_data = stock_map.get(codigo_norm)
-                if stock_data:
-                    # Si existe en hoja de stock, cruzamos datos de inventario
-                    producto_final.update({
-                        'POR PULIR': stock_data.get('POR PULIR', 0),
-                        'P. TERMINADO': stock_data.get('P. TERMINADO', 0),
-                        'PRODUCTO ENSAMBLADO': stock_data.get('PRODUCTO ENSAMBLADO', 0) or stock_data.get('PRODUCTO ENSAMBLado', 0),
-                        'COMPROMETIDO': stock_data.get('COMPROMETIDO', 0),
-                        'STOCK MINIMO': stock_data.get('STOCK MINIMO', stock_data.get('MINIMO', 10)),
-                        'IMAGEN': stock_data.get('IMAGEN', ''), # URL Legacy
-                        'MEDIDA': stock_data.get('MEDIDA', ''),
-                        'UBICACION': stock_data.get('UBICACION', ''),
-                        'STOCK_BODEGA': stock_data.get('STOCK_BODEGA', 0),
-                        'EN_ZINCADO': stock_data.get('EN_ZINCADO', 0),
-                        'EN_GRANALLADO': stock_data.get('EN_GRANALLADO', 0),
-                        'CLASE_ROTACION': stock_data.get('CLASE_ROTACION', 'C')
-                    })
-                
-                productos_finales.append(producto_final)
-            
-            # 5. FIX: Incluir productos de PRODUCTOS que NO existan en DB_PRODUCTOS
-            #    Esto asegura que referencias CB, CM, y cualquier otro prefijo aparezcan.
-            count_added_from_stock = 0
-            for r in stock_records:
-                cod_sistema = str(r.get('CODIGO SISTEMA', '')).strip()
-                id_cod = str(r.get('ID CODIGO', '')).strip()
-                codigo_clave = (cod_sistema or id_cod).upper()
-                
-                if not codigo_clave or codigo_clave in codigos_incluidos:
-                    continue  # Ya fue procesado desde DB_PRODUCTOS
-                
-                codigos_incluidos.add(codigo_clave)
-                
-                producto_final = {
-                    'CODIGO SISTEMA': cod_sistema or id_cod,
-                    'ID CODIGO': id_cod or cod_sistema,
-                    'DESCRIPCION': r.get('DESCRIPCION', '') or r.get('DESCRIPCIÓN', '') or 'Sin descripción',
-                    'PRECIO': r.get('PRECIO', 0),
-                    'IMAGEN': r.get('IMAGEN', ''),
-                    'POR PULIR': r.get('POR PULIR', 0),
-                    'P. TERMINADO': r.get('P. TERMINADO', 0),
-                    'PRODUCTO ENSAMBLADO': r.get('PRODUCTO ENSAMBLADO', 0) or r.get('PRODUCTO ENSAMBLado', 0),
-                    'COMPROMETIDO': r.get('COMPROMETIDO', 0),
-                    'STOCK MINIMO': r.get('STOCK MINIMO', r.get('MINIMO', 10)),
-                    'MEDIDA': r.get('MEDIDA', ''),
-                    'UBICACION': r.get('UBICACION', ''),
-                    'STOCK_BODEGA': r.get('STOCK_BODEGA', 0),
-                    'EN_ZINCADO': r.get('EN_ZINCADO', 0),
-                    'EN_GRANALLADO': r.get('EN_GRANALLADO', 0),
-                    'CLASE_ROTACION': r.get('CLASE_ROTACION', 'C')
-                }
-                productos_finales.append(producto_final)
-                count_added_from_stock += 1
-            
-            logger.info(
-                f"Hybrid Sync: {len(productos_finales)} productos totales "
-                f"(Master: {len(master_records)}, Extra desde PRODUCTOS: {count_added_from_stock})"
-            )
-            return productos_finales
-
+            productos = db.session.query(Producto).order_by(Producto.codigo_sistema).all()
+            return [self._to_dict(p) for p in productos]
         except Exception as e:
-            logger.error(f"Error listando productos (Híbrido): {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"Error listando productos SQL: {e}")
             return []
     
-    def obtener_stock(self, codigo: str, almacen: str) -> int:
+    def obtener_stock(self, codigo: str, almacen: str) -> float:
         """
-        Obtiene el stock de un producto en un almacén específico.
-        
-        Args:
-            codigo: Código del producto
-            almacen: Nombre del almacén
-        
-        Returns:
-            int: Cantidad en stock (0 si no existe)
+        Obtiene el stock de un producto desde SQL.
         """
         try:
-            producto = self.buscar_por_codigo(codigo)
-            if not producto:
-                return 0
+            p = self.buscar_por_codigo(codigo)
+            if not p: return 0
             
-            # Normalizar nombre de almacén
-            almacen_norm = Almacenes.normalizar(almacen)
-            return to_int(producto.get(almacen_norm, 0))
-            
-        except Exception as e:
-            logger.error(f"Error obteniendo stock: {e}")
+            # Mapear nombre de almacén a columna SQL
+            mapeo = {
+                'POR PULIR': 'POR PULIR',
+                'P. TERMINADO': 'P. TERMINADO',
+                'PRODUCTO ENSAMBLADO': 'PRODUCTO ENSAMBLADO',
+                'COMPROMETIDO': 'COMPROMETIDO'
+            }
+            col = mapeo.get(almacen.upper(), 'P. TERMINADO')
+            return float(p.get(col, 0))
+        except:
             return 0
     
-    def actualizar_stock(self, codigo: str, nuevo_stock: int, almacen: str) -> bool:
+    def actualizar_stock(self, codigo: str, nuevo_stock: float, almacen: str) -> bool:
         """
-        Actualiza el stock de un producto en un almacén.
-        
-        Args:
-            codigo: Código del producto
-            nuevo_stock: Nueva cantidad
-            almacen: Nombre del almacén
-        
-        Returns:
-            bool: True si se actualizó correctamente
+        Actualiza una columna de stock en SQL.
         """
         try:
-            producto = self.buscar_por_codigo(codigo)
-            if not producto:
-                logger.error(f"Producto {codigo} no encontrado para actualizar stock")
-                return False
+            from backend.utils.formatters import normalizar_codigo
+            cod_norm = normalizar_codigo(codigo)
             
-            ws = sheets_client.get_worksheet(self.hoja)
-            headers = ws.row_values(1)
+            p = db.session.query(Producto).filter(
+                (func.upper(Producto.codigo_sistema) == cod_norm) | 
+                (func.upper(Producto.id_codigo) == cod_norm)
+            ).first()
             
-            # Normalizar almacén
-            almacen_norm = Almacenes.normalizar(almacen)
+            if not p: return False
             
-            if almacen_norm not in headers:
-                logger.error(f"Columna {almacen_norm} no existe en PRODUCTOS")
-                return False
+            almacen_upper = almacen.upper()
+            if 'PULIR' in almacen_upper: p.por_pulir = nuevo_stock
+            elif 'TERMINADO' in almacen_upper: p.p_terminado = nuevo_stock
+            elif 'ENSAMBLADO' in almacen_upper: p.producto_ensamblado = nuevo_stock
+            elif 'COMPROMETIDO' in almacen_upper: p.comprometido = nuevo_stock
             
-            col_index = headers.index(almacen_norm) + 1
-            fila = producto['_fila']
-            
-            ws.update_cell(fila, col_index, nuevo_stock)
-            logger.info(f"Stock actualizado: {codigo} en {almacen_norm} = {nuevo_stock}")
+            db.session.commit()
             return True
-            
         except Exception as e:
-            logger.error(f"Error actualizando stock: {e}")
+            db.session.rollback()
+            logger.error(f"Error actualizando stock SQL: {e}")
             return False
-    
+
     def buscar_por_termino(self, termino: str, limite: int = 20) -> List[Dict]:
         """
-        Busca productos por término (código, descripción, OEM).
-        
-        Args:
-            termino: Texto a buscar
-            limite: Número máximo de resultados
-        
-        Returns:
-            Lista de productos que coinciden
+        Busca productos por término en SQL.
+        Soporta búsqueda parcial: '9304' encontrará 'FR-9304'.
         """
         try:
-            ws = sheets_client.get_worksheet(self.hoja)
-            if not ws:
-                return []
+            t = f"%{termino.strip()}%"
+            res = db.session.query(Producto).filter(
+                (Producto.codigo_sistema.ilike(t)) |
+                (Producto.id_codigo.ilike(t)) |
+                (Producto.descripcion.ilike(t)) |
+                (Producto.oem.ilike(t))
+            ).limit(limite).all()
             
-            registros = sheets_client.get_all_records_seguro(ws)
-            resultados = []
-            termino_lower = termino.lower()
-            
-            for registro in registros:
-                # Buscar en múltiples campos
-                codigo_sistema = str(registro.get('CODIGO SISTEMA', '')).lower()
-                id_codigo = str(registro.get('ID CODIGO', '')).lower()
-                descripcion = str(registro.get('DESCRIPCION', '')).lower()
-                oem = str(registro.get('OEM', '')).lower()
-                
-                if (termino_lower in codigo_sistema or
-                    termino_lower in id_codigo or
-                    termino_lower in descripcion or
-                    termino_lower in oem):
-                    resultados.append(registro)
-                    
-                    if len(resultados) >= limite:
-                        break
-            
-            return resultados
-            
+            return [self._to_dict(p) for p in res]
         except Exception as e:
-            logger.error(f"Error en búsqueda: {e}")
+            logger.error(f"Error en buscar_por_termino: {e}")
             return []
 
+    def _to_dict(self, p: Producto) -> Dict:
+        """Convierte modelo SQLAlchemy a diccionario amigable para el frontend legacy."""
+        return {
+            'id': p.id,
+            'CODIGO SISTEMA': p.codigo_sistema,
+            'ID CODIGO': p.id_codigo,
+            'DESCRIPCION': p.descripcion,
+            'PRECIO': float(p.precio or 0),
+            'POR PULIR': float(p.por_pulir or 0),
+            'P. TERMINADO': float(p.p_terminado or 0),
+            'COMPROMETIDO': float(p.comprometido or 0),
+            'PRODUCTO ENSAMBLADO': float(p.producto_ensamblado or 0),
+            'STOCK MINIMO': float(p.stock_minimo or 10),
+            'IMAGEN': p.imagen or '',
+            'OEM': p.oem or ''
+        }
 
-# Instancia única global — siempre apunta a Friparts (backward-compatible).
-# Para Frimetals instanciar directamente: ProductoRepository(tenant='frimetals')
+
 producto_repo = ProductoRepository(tenant="friparts")

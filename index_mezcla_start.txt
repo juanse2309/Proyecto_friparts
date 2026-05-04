@@ -1,0 +1,6 @@
+﻿
+> frontend\templates\index.html:2964:        <div id="mezcla-page" class="page">
+  frontend\templates\index.html:2965:            <header class="top-bar">
+  frontend\templates\index.html:2966:                <button class="btn-icon" id="toggle-sidebar-mezcla">
+
+

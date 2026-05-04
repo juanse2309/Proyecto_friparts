@@ -1,0 +1,59 @@
+﻿
+> frontend\templates\index.html:559:            <li class="menu-item" data-page="historial"> <a href="#"><i class="fas 
+fa-history"></i><span>Historial
+  frontend\templates\index.html:560:                        Global</span></a> </li>
+  frontend\templates\index.html:561:            <li class="menu-item" data-page="pedidos"> <a href="#"><i
+> frontend\templates\index.html:1958:                                        historial...
+  frontend\templates\index.html:1959:                                    </td>
+  frontend\templates\index.html:1960:                                </tr>
+> frontend\templates\index.html:3039:        </div> <!-- Historial -->
+> frontend\templates\index.html:3040:        <div id="historial-page" class="page">
+  frontend\templates\index.html:3041:            <header class="top-bar">
+> frontend\templates\index.html:3042:                <button class="btn-icon" id="toggle-sidebar-historial">
+  frontend\templates\index.html:3043:                    <i class="fas fa-bars"></i>
+  frontend\templates\index.html:3044:                </button>
+> frontend\templates\index.html:3046:                    <h1><i class="fas fa-history"></i> Historial de 
+Movimientos</h1>
+  frontend\templates\index.html:3047:                    <p class="subtitle">Auditoría completa de Inyección, Pulido, 
+Ensamble y Ventas</p>
+  frontend\templates\index.html:3048:                </div>
+> frontend\templates\index.html:3050:                    <button class="btn btn-secondary" id="btn-exportar-historial">
+  frontend\templates\index.html:3051:                        <i class="fas fa-file-excel"></i> Exportar
+  frontend\templates\index.html:3052:                    </button>
+> frontend\templates\index.html:3079:                        <button onclick="filtrarHistorial()" class="btn 
+btn-primary w-100" style="height: 38px;">
+  frontend\templates\index.html:3080:                            <i class="fas fa-filter"></i> Aplicar Filtros
+  frontend\templates\index.html:3081:                        </button>
+> frontend\templates\index.html:3087:                <div id="historial-container">
+  frontend\templates\index.html:3088:                    <div class="text-center py-5 text-muted">
+  frontend\templates\index.html:3089:                        <i class="fas fa-search fa-3x mb-3" style="opacity: 
+0.2;"></i>
+> frontend\templates\index.html:3097:                Total registros: <span id="total-registros-historial" 
+class="fw-bold">0</span>. Juan
+  frontend\templates\index.html:3098:                Sebastian.
+  frontend\templates\index.html:3099:            </div>
+> frontend\templates\index.html:4330:    <script src="/static/js/modules/historial.js?v=1.6.2"></script>
+  frontend\templates\index.html:4331:    <!-- Librerías para PDF -->
+  frontend\templates\index.html:4332:    <script 
+src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+> frontend\templates\index.html:4640:    <!-- Modal Edición Historial (Especial para Paola) -->
+> frontend\templates\index.html:4641:    <div id="modalEditarHistorial" class="modal-overlay" style="display: none;">
+  frontend\templates\index.html:4642:        <div class="modal-content"
+  frontend\templates\index.html:4643:            style="max-width: 900px; border-radius: 12px; background-color: 
+#ffffff; border: 1px solid #e2e8f0; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
+> frontend\templates\index.html:4648:                    onclick="ModuloHistorial.cerrarModalEdicion()"></button>
+  frontend\templates\index.html:4649:            </div>
+  frontend\templates\index.html:4650:            <div class="modal-body p-4" style="max-height: 70vh; overflow-y: 
+auto; background-color: #f8fafc;">
+> frontend\templates\index.html:4651:                <form id="form-editar-historial">
+  frontend\templates\index.html:4652:                    <input type="hidden" id="edit-hoja">
+  frontend\templates\index.html:4653:                    <input type="hidden" id="edit-fila">
+> frontend\templates\index.html:4661:                            onclick="ModuloHistorial.guardarCambios()">
+  frontend\templates\index.html:4662:                            <i class="fas fa-check me-2"></i> Guardar Cambios
+  frontend\templates\index.html:4663:                        </button>
+> frontend\templates\index.html:4664:                        <button type="button" class="btn btn-secondary" 
+onclick="ModuloHistorial.cerrarModalEdicion()">
+  frontend\templates\index.html:4665:                            Cancelar
+  frontend\templates\index.html:4666:                        </button>
+
+

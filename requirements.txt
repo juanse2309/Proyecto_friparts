@@ -11,3 +11,6 @@ pandas
 openpyxl
 pytz
 reportlab
+flask-sqlalchemy
+sqlalchemy
+psycopg2-binary
