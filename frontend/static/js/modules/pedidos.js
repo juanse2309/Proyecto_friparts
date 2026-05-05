@@ -9,6 +9,31 @@ const ModuloPedidos = {
     ultimoIdRegistrado: null, // ID generado por el servidor
     idPedidoEdicion: null,   // ID del pedido que se está editando
 
+    _productosLoading: false,
+    _productosReady: false,
+
+    _emitProductosReady: function () {
+        this._productosLoading = false;
+        this._productosReady = true;
+        document.dispatchEvent(new CustomEvent('pedidos-productos-ready'));
+    },
+
+    _tryHydrateProductosFromAppState: function () {
+        try {
+            const isFrimetals = (window.AppState?.user?.division === 'FRIMETALS');
+            const shared = window.AppState?.sharedData?.productos;
+            if (!isFrimetals && !this._productosReady && Array.isArray(shared) && shared.length > 0) {
+                this.productosData = shared;
+                this._emitProductosReady();
+                console.log("✅ Hidratando productos desde AppState en Pedidos:", this.productosData.length);
+                return true;
+            }
+        } catch (e) {
+            console.warn("⚠️ No se pudo hidratar productos desde AppState:", e);
+        }
+        return false;
+    },
+
 
     init: function () {
         if (this._initDone) return;
@@ -47,6 +72,22 @@ const ModuloPedidos = {
         const inputFecha = document.getElementById('ped-fecha');
         if (inputFecha) {
             inputFecha.valueAsDate = new Date();
+        }
+
+        // Si AppState.sharedData se hidrata después (app.js), tomar productos y refrescar autocomplete
+        if (!this._sharedDataReadyListenerAdded) {
+            this._sharedDataReadyListenerAdded = true;
+            document.addEventListener('shared-data-ready', () => {
+                if (this._tryHydrateProductosFromAppState()) {
+                    // Si el usuario está escribiendo, refrescar sugerencias
+                    const inputProd = document.getElementById('ped-producto');
+                    const suggestionsDiv = document.getElementById('ped-producto-suggestions');
+                    const q = inputProd?.value?.trim?.() || '';
+                    if (suggestionsDiv && q.length >= 2) {
+                        this.buscarProductos(q, suggestionsDiv);
+                    }
+                }
+            }, { once: true });
         }
 
         // 6. Configurar gestión de Enter (Smart Enter)
@@ -102,8 +143,11 @@ const ModuloPedidos = {
             if (!isFrimetals && window.AppState && window.AppState.sharedData.productos.length > 0) {
                 this.productosData = window.AppState.sharedData.productos;
                 console.log("✅ Usando productos desde AppState en Pedidos:", this.productosData.length);
+                this._emitProductosReady();
             } else {
                 console.log("🔄 Solicitando productos al servidor (tenant-aware)...");
+                this._productosLoading = true;
+                this._productosReady = false;
                 const respProd = await fetch('/api/productos/listar');
                 const productosResp = await respProd.json();
                 const rawList = Array.isArray(productosResp) ? productosResp : (productosResp.items || []);
@@ -118,11 +162,14 @@ const ModuloPedidos = {
                     stock_disponible: p.stock_disponible !== undefined ? p.stock_disponible : (p.stock || 0),
                     stock_total: p.existencias_totales || p.stock_total || 0,
                 }));
+                this._emitProductosReady();
             }
             const conPrecio = this.productosData.filter(p => p.precio > 0).length;
             console.log(`✅ Productos listos en Pedidos: ${this.productosData.length} total, ${conPrecio} con precio`);
         } catch (e) {
             console.error("Error cargando productos para Pedidos:", e);
+            this._productosLoading = false;
+            this._productosReady = false;
         }
 
         // Pre-fill vendedor
@@ -257,6 +304,29 @@ const ModuloPedidos = {
     },
 
     buscarProductos: function (query, suggestionsDiv) {
+        // UX: mientras la data está cargando, no mostrar "no se encontraron"
+        if ((this._productosLoading || !this._productosReady) && (!this.productosData || this.productosData.length === 0)) {
+            suggestionsDiv.innerHTML = `
+                <div class="suggestion-item text-muted">
+                    <i class="fas fa-spinner fa-spin me-2"></i> Cargando productos...
+                </div>
+            `;
+            suggestionsDiv.classList.add('active');
+
+            // Refrescar una sola vez cuando termine la carga (sin apilar listeners)
+            if (!this._productosAutocompleteRefreshQueued) {
+                this._productosAutocompleteRefreshQueued = true;
+                document.addEventListener('pedidos-productos-ready', () => {
+                    this._productosAutocompleteRefreshQueued = false;
+                    const inputProd = document.getElementById('ped-producto');
+                    const div = document.getElementById('ped-producto-suggestions');
+                    const q = inputProd?.value?.trim?.() || '';
+                    if (div && q.length >= 2) this.buscarProductos(q, div);
+                }, { once: true });
+            }
+            return;
+        }
+
         const queryNorm = this.normalizeString(query);
         const resultados = this.productosData.filter(prod => {
             const codigoNorm = this.normalizeString(prod.codigo_sistema || prod.codigo || '');
@@ -321,28 +391,41 @@ const ModuloPedidos = {
         }
 
         if (nombreVendedor) {
+            const wasDifferent = (inputVendedor.value !== nombreVendedor);
             inputVendedor.value = nombreVendedor;
             inputVendedor.readOnly = true;
-            console.log(`✅ Vendedor asignado: ${nombreVendedor}`);
+            if (wasDifferent || this._lastVendedorAsignado !== nombreVendedor) {
+                console.log(`✅ Vendedor asignado: ${nombreVendedor}`);
+            }
+            this._lastVendedorAsignado = nombreVendedor;
         } else {
-            console.log('ℹ️  Vendedor pendiente: esperando login de usuario');
+            if (!this._vendedorPendienteLogged) {
+                console.log('ℹ️  Vendedor pendiente: esperando login de usuario');
+                this._vendedorPendienteLogged = true;
+            }
 
-            // Retry on event
-            window.addEventListener('user-ready', (e) => {
-                console.log("👤 Evento user-ready recibido en Pedidos");
-                this.actualizarVendedor();
-            });
-
-            // Polling fallback (max 5 seconds)
-            let attempts = 0;
-            const interval = setInterval(() => {
-                attempts++;
-                if (window.AppState?.user?.name) {
+            // Fallback: reintentar cuando el usuario esté listo (no apilar listeners)
+            if (!this._userReadyListenerAdded) {
+                this._userReadyListenerAdded = true;
+                document.addEventListener('user-ready', () => {
+                    console.log("👤 Evento user-ready recibido en Pedidos");
                     this.actualizarVendedor();
-                    clearInterval(interval);
-                }
-                if (attempts > 10) clearInterval(interval);
-            }, 500);
+                }, { once: true });
+            }
+
+            // Polling fallback (max 5 seconds) - una sola vez por ciclo de vida del módulo
+            if (!this._vendedorPollingStarted) {
+                this._vendedorPollingStarted = true;
+                let attempts = 0;
+                const interval = setInterval(() => {
+                    attempts++;
+                    if (window.AppState?.user?.name) {
+                        this.actualizarVendedor();
+                        clearInterval(interval);
+                    }
+                    if (attempts > 10) clearInterval(interval);
+                }, 500);
+            }
         }
     },
 
@@ -1267,6 +1350,14 @@ const ModuloPedidos = {
 
         // 1. Asegurar setup de UI y listeners
         this.init();
+        // Set vendedor de inmediato (sin esperar fetch de datos)
+        this.actualizarVendedor();
+
+        // Fallback: si el usuario se hidrata después, reintentar una vez
+        if (!this._userReadyListenerAdded) {
+            this._userReadyListenerAdded = true;
+            document.addEventListener('user-ready', () => this.actualizarVendedor(), { once: true });
+        }
 
         // Evitar múltiples cargas simultáneas
         if (this._cargando) {

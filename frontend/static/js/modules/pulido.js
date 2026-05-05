@@ -14,6 +14,8 @@ const ModuloPulido = {
     tiempoAcumuladoMs: 0, // NUEVO: Tiempo de segmentos anteriores
     timerInterval: null,
     sessionId: null,
+    // Descuentos automáticos por pausas programadas (ms)
+    descuentoProgramadoMs: 0,
 
     // Helper de Normalización
     normalizarCodigo: function(c) {
@@ -21,11 +23,53 @@ const ModuloPulido = {
         return String(c).toUpperCase().replace(/FR-/gi, "").trim();
     },
 
+    // ==========================================================
+    // STORAGE NAMESPACING (evita colisiones en tablet compartida)
+    // ==========================================================
+    getOperarioActual: function () {
+        // Prioridad: sesión autenticada -> input -> fallback
+        const u = window.AuthModule?.currentUser?.nombre
+            || window.AppState?.user?.nombre
+            || window.AppState?.user?.name;
+        const input = document.getElementById('responsable-pulido-input')?.value;
+        const raw = (u || input || '').toString().trim();
+        return raw;
+    },
+
+    storageKey: function (baseKey) {
+        const operario = (this.getOperarioActual() || 'ANON').toString().trim().toUpperCase();
+        return `${baseKey}::${operario}`;
+    },
+
+    getLastResponsableKey: function () {
+        return this.storageKey('pulido_last_responsable');
+    },
+
+    getStateKey: function () {
+        return this.storageKey('pulido_state');
+    },
+
+    // Limpia posibles keys antiguas globales (migración suave)
+    limpiarLegacyStorageKeys: function () {
+        try {
+            if (localStorage.getItem('pulido_state') && !localStorage.getItem(this.getStateKey())) {
+                // No migramos: solo evitamos que afecte a otro operario
+                localStorage.removeItem('pulido_state');
+            }
+            if (localStorage.getItem('pulido_last_responsable') && !localStorage.getItem(this.getLastResponsableKey())) {
+                localStorage.removeItem('pulido_last_responsable');
+            }
+        } catch (e) {
+            console.warn('[Pulido] No se pudo limpiar legacy keys:', e);
+        }
+    },
+
     inicializar: async function () {
         console.log('🔧 [Pulido] Inicializando módulo DUAL FINAL...');
         this.configurarUI();
         await this.cargarDatosMaestros();
         this.initAutocompletes();
+        this.limpiarLegacyStorageKeys();
         this.cargarCacheUI();
         await this.verificarTrabajoActivo(); // Rehidratar desde SQL
         this.cargarEstadoLocal(); // Fallback/Sync local
@@ -35,6 +79,16 @@ const ModuloPulido = {
         if (switchEl) {
             this.cambiarModo(switchEl.checked);
         }
+
+        // Si cambia el usuario en el mismo navegador (tablet compartida),
+        // cortar intervalos y cargar estado del nuevo operario.
+        const onUserReady = () => {
+            if (this.timerInterval) clearInterval(this.timerInterval);
+            this.timerInterval = null;
+            this.cargarCacheUI();
+            this.verificarTrabajoActivo().then(() => this.cargarEstadoLocal());
+        };
+        document.addEventListener('user-ready', onUserReady);
     },
 
     guardarEstadoLocal: function() {
@@ -44,6 +98,7 @@ const ModuloPulido = {
             startTime: this.startTime ? this.startTime.getTime() : null,
             totalPausaMs: this.totalPausaMs,
             tiempoAcumuladoMs: this.tiempoAcumuladoMs,
+            descuentoProgramadoMs: this.descuentoProgramadoMs || 0,
             enPausa: this.enPausa,
             pausaTime: this.pausaTime ? this.pausaTime.getTime() : null,
             sesionesEnPausa: this.sesionesEnPausa,
@@ -56,11 +111,11 @@ const ModuloPulido = {
                 lote: document.getElementById('lote-pulido')?.value
             }
         };
-        localStorage.setItem('pulido_state', JSON.stringify(estado));
+        localStorage.setItem(this.getStateKey(), JSON.stringify(estado));
     },
 
     cargarEstadoLocal: function() {
-        const raw = localStorage.getItem('pulido_state');
+        const raw = localStorage.getItem(this.getStateKey());
         if (!raw) return;
         try {
             const estado = JSON.parse(raw);
@@ -68,19 +123,19 @@ const ModuloPulido = {
                 // BLINDAJE OPERARIO: Solo rehidratar si el operario guardado
                 // coincide con el operario actualmente logueado
                 const operarioActual = document.getElementById('responsable-pulido-input')?.value?.trim()
-                    || localStorage.getItem('pulido_last_responsable') || '';
+                    || localStorage.getItem(this.getLastResponsableKey()) || '';
                 const operarioGuardado = (estado.responsable || estado.formData?.resp || '').trim();
 
                 if (operarioActual && operarioGuardado && operarioActual.toUpperCase() !== operarioGuardado.toUpperCase()) {
                     console.log(`🚫 [Pulido] Estado local pertenece a '${operarioGuardado}' pero el operario actual es '${operarioActual}' — ignorando.`);
-                    localStorage.removeItem('pulido_state');
+                    localStorage.removeItem(this.getStateKey());
                     return;
                 }
 
                 // BLINDAJE hora_inicio: No arrancar cronómetro con startTime nulo
                 if (!estado.startTime) {
                     console.log('🚫 [Pulido] startTime nulo en estado local — descartando sesión corrupta.');
-                    localStorage.removeItem('pulido_state');
+                    localStorage.removeItem(this.getStateKey());
                     return;
                 }
 
@@ -90,6 +145,7 @@ const ModuloPulido = {
                 this.startTime = new Date(estado.startTime);
                 this.totalPausaMs = estado.totalPausaMs;
                 this.tiempoAcumuladoMs = estado.tiempoAcumuladoMs || 0;
+                this.descuentoProgramadoMs = estado.descuentoProgramadoMs || 0;
                 this.enPausa = estado.enPausa;
                 if (estado.pausaTime) this.pausaTime = new Date(estado.pausaTime);
 
@@ -134,7 +190,7 @@ const ModuloPulido = {
             }
         } catch (e) {
             console.error("Error rehidratando:", e);
-            localStorage.removeItem('pulido_state');
+            localStorage.removeItem(this.getStateKey());
         }
     },
 
@@ -214,7 +270,7 @@ const ModuloPulido = {
     },
 
     verificarTrabajoActivo: async function() {
-        const resp = document.getElementById('responsable-pulido-input')?.value || localStorage.getItem('pulido_last_responsable');
+        const resp = document.getElementById('responsable-pulido-input')?.value || localStorage.getItem(this.getLastResponsableKey());
         if (!resp) return;
 
         try {
@@ -239,6 +295,7 @@ const ModuloPulido = {
                 this.sessionId = data.session.id_pulido;
                 this.startTime = new Date(data.session.hora_inicio_dt);
                 this.tiempoAcumuladoMs = (data.session.duracion_segundos || 0) * 1000;
+                // Si el backend provee descuento programado en el futuro, se puede hidratar aquí.
                 
                 // Poblar UI con responsable verificado (mismo operario)
                 const rInput = document.getElementById('responsable-pulido-input');
@@ -430,7 +487,9 @@ const ModuloPulido = {
         
         const now = new Date();
         const segmentTime = now - this.startTime - this.totalPausaMs;
+        const descuentoSegmento = this.calcularDescuentoProgramadoMs(this.startTime, now);
         const totalElapsedMs = this.tiempoAcumuladoMs + segmentTime;
+        const totalDescuentoProgramadoMs = (this.descuentoProgramadoMs || 0) + descuentoSegmento;
 
         const prodRaw = document.getElementById('buscador-productos').value;
         const prod = this.normalizarCodigo(prodRaw);
@@ -444,7 +503,8 @@ const ModuloPulido = {
             op,
             lote,
             resp,
-            tiempoAcumuladoMs: totalElapsedMs
+            tiempoAcumuladoMs: totalElapsedMs,
+            descuentoProgramadoMs: totalDescuentoProgramadoMs
         };
 
         // Guardado preventivo en DB
@@ -467,6 +527,7 @@ const ModuloPulido = {
         
         // Reset local para nueva urgencia
         this.limpiarSesionLocal();
+        this.descuentoProgramadoMs = totalDescuentoProgramadoMs; // conservar acumulado para el operario
         this.renderCola();
         this.guardarEstadoLocal();
 
@@ -522,6 +583,7 @@ const ModuloPulido = {
         
         this.sessionId = s.sessionId;
         this.tiempoAcumuladoMs = s.tiempoAcumuladoMs;
+        this.descuentoProgramadoMs = s.descuentoProgramadoMs || 0;
         this.startTime = new Date(); // El nuevo segmento empieza AHORA
         this.totalPausaMs = 0; // Reset pausas del nuevo segmento
         
@@ -541,6 +603,7 @@ const ModuloPulido = {
         this.startTime = null;
         this.totalPausaMs = 0;
         this.tiempoAcumuladoMs = 0;
+        // NOTA: descuentoProgramadoMs se conserva por operario para sesiones multi-segmento
         this.enPausa = false;
 
         document.getElementById('pulido-idle-msg').style.display = 'block';
@@ -567,9 +630,14 @@ const ModuloPulido = {
         // El tiempo total es la suma de lo acumulado (sesiones previas) + el segmento actual
         const msSegmentoActual = this.startTime ? (now - this.startTime - this.totalPausaMs) : 0;
         const msTotales = this.tiempoAcumuladoMs + msSegmentoActual;
+        const descuentoSegmento = (this.startTime ? this.calcularDescuentoProgramadoMs(this.startTime, now) : 0);
+        const descuentoTotal = (this.descuentoProgramadoMs || 0) + descuentoSegmento;
+        const msEfectivos = Math.max(0, msTotales - descuentoTotal);
         
         const totalMin = Math.floor(msTotales / 60000);
         const totalSec = Math.floor(msTotales / 1000);
+        const efectivoMin = Math.floor(msEfectivos / 60000);
+        const efectivoSec = Math.floor(msEfectivos / 1000);
         
         // Validación flexible: 30 segundos para urgencias/retomados, 1 min para nuevos
         const umbralSegundos = (this.tiempoAcumuladoMs > 0) ? 10 : 30; 
@@ -585,7 +653,13 @@ const ModuloPulido = {
         }
 
         document.getElementById('modal-tiempo-total').innerText = totalMin + ' min ' + (totalSec % 60) + 's';
-        document.getElementById('modal-tiempo-efectivo').innerText = totalMin + ' min';
+        document.getElementById('modal-tiempo-efectivo').innerText =
+            `${efectivoMin} min ${(efectivoSec % 60)}s`;
+
+        // Mostrar descuento programado si aplica (sin depender de HTML preexistente)
+        const descuentoMin = Math.floor(descuentoTotal / 60000);
+        const descuentoSec = Math.floor(descuentoTotal / 1000);
+        this._renderDescuentoProgramadoUI(descuentoTotal, descuentoMin, descuentoSec);
         
         // Reset inputs modal
         document.getElementById('cantidad-recibida-pro').value = 0;
@@ -643,6 +717,11 @@ const ModuloPulido = {
     // ==========================================
 
     guardarReportePro: async function () {
+        const now = new Date();
+        const descuentoSegmento = (this.startTime ? this.calcularDescuentoProgramadoMs(this.startTime, now) : 0);
+        const descuentoTotal = (this.descuentoProgramadoMs || 0) + descuentoSegmento;
+        const detalleDescuento = this.generarDetalleDescuentoProgramado(this.startTime, now);
+
         const data = {
             id_pulido: this.sessionId,
             fecha_inicio: document.getElementById('fecha-pulido')?.value || new Date().toISOString().split('T')[0],
@@ -662,7 +741,9 @@ const ModuloPulido = {
             departamento: 'PULIDO',
             almacen_destino: 'P. TERMINADO',
             modo: 'PRO',
-            tiempo_acumulado_ms: this.tiempoAcumuladoMs // Enviar el tiempo de segmentos previos
+            tiempo_acumulado_ms: this.tiempoAcumuladoMs, // Enviar el tiempo de segmentos previos
+            descuento_programado_ms: descuentoTotal,
+            detalle_descuento_programado: detalleDescuento
         };
 
         if (!data.responsable || !data.codigo_producto || !data.cantidad_recibida || data.cantidad_recibida <= 0) {
@@ -841,7 +922,7 @@ const ModuloPulido = {
                 this.renderSuggestions(suggestionsResp, resultados, (item) => {
                     const val = typeof item === 'object' ? item.nombre : item;
                     inputResp.value = val;
-                    localStorage.setItem('pulido_last_responsable', val);
+                    localStorage.setItem(this.getLastResponsableKey(), val);
                     suggestionsResp.classList.remove('active');
                     inputResp.dispatchEvent(new Event('input'));
                 });
@@ -889,11 +970,112 @@ const ModuloPulido = {
     },
 
     cargarCacheUI: function () {
-        const lastResp = localStorage.getItem('pulido_last_responsable');
+        const lastResp = localStorage.getItem(this.getLastResponsableKey());
         if (lastResp) {
             const input = document.getElementById('responsable-pulido-input');
             if (input) input.value = lastResp;
         }
+    },
+
+    // ==========================================================
+    // PAUSAS PROGRAMADAS (descuento automático)
+    // ==========================================================
+    getVentanasPausasProgramadas: function () {
+        // Ventanas fijas locales (Bogotá) por turno estándar
+        return [
+            { tipo: 'MICROBREAK', inicio: '07:00', fin: '07:05' },
+            { tipo: 'DESAYUNO',   inicio: '09:00', fin: '09:20' },
+            { tipo: 'MICROBREAK', inicio: '11:00', fin: '11:05' },
+            { tipo: 'ALMUERZO',   inicio: '13:00', fin: '13:40' },
+            { tipo: 'MICROBREAK', inicio: '15:00', fin: '15:05' }
+        ];
+    },
+
+    _toDateTimeSameDay: function (baseDate, hhmm) {
+        const [h, m] = hhmm.split(':').map(n => parseInt(n, 10));
+        const d = new Date(baseDate);
+        d.setHours(h, m, 0, 0);
+        return d;
+    },
+
+    _overlapMs: function (aStart, aEnd, bStart, bEnd) {
+        const start = Math.max(aStart.getTime(), bStart.getTime());
+        const end = Math.min(aEnd.getTime(), bEnd.getTime());
+        return Math.max(0, end - start);
+    },
+
+    calcularDescuentoProgramadoMs: function (inicio, fin) {
+        if (!inicio || !fin) return 0;
+        const aStart = new Date(inicio);
+        const aEnd = new Date(fin);
+        if (isNaN(aStart.getTime()) || isNaN(aEnd.getTime()) || aEnd <= aStart) return 0;
+
+        // Soportar cruces de medianoche (muy raro). Si cruza, limitamos a mismo día para evitar descuento erróneo.
+        const sameDay = aStart.toDateString() === aEnd.toDateString();
+        if (!sameDay) return 0;
+
+        let total = 0;
+        for (const v of this.getVentanasPausasProgramadas()) {
+            const bStart = this._toDateTimeSameDay(aStart, v.inicio);
+            const bEnd = this._toDateTimeSameDay(aStart, v.fin);
+            total += this._overlapMs(aStart, aEnd, bStart, bEnd);
+        }
+        return total;
+    },
+
+    generarDetalleDescuentoProgramado: function (inicio, fin) {
+        if (!inicio || !fin) return [];
+        const aStart = new Date(inicio);
+        const aEnd = new Date(fin);
+        const sameDay = aStart.toDateString() === aEnd.toDateString();
+        if (!sameDay) return [];
+
+        const detalle = [];
+        for (const v of this.getVentanasPausasProgramadas()) {
+            const bStart = this._toDateTimeSameDay(aStart, v.inicio);
+            const bEnd = this._toDateTimeSameDay(aStart, v.fin);
+            const ms = this._overlapMs(aStart, aEnd, bStart, bEnd);
+            if (ms > 0) {
+                detalle.push({
+                    tipo: v.tipo,
+                    inicio: v.inicio,
+                    fin: v.fin,
+                    minutos: Math.round(ms / 60000)
+                });
+            }
+        }
+        return detalle;
+    },
+
+    _renderDescuentoProgramadoUI: function (descuentoTotalMs, descuentoMin, descuentoSec) {
+        const modal = document.getElementById('modal-reporte-final');
+        if (!modal) return;
+
+        let el = document.getElementById('modal-descuento-programado');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'modal-descuento-programado';
+            el.style.marginTop = '6px';
+            el.style.fontSize = '0.9rem';
+            el.style.color = '#0f172a';
+            // Insertar cerca de los totales si existen
+            const anchor = document.getElementById('modal-tiempo-efectivo')?.parentElement || modal;
+            anchor.appendChild(el);
+        }
+
+        if (!descuentoTotalMs || descuentoTotalMs <= 0) {
+            el.innerHTML = '';
+            return;
+        }
+
+        const detalle = this.generarDetalleDescuentoProgramado(this.startTime, new Date());
+        const breakdown = detalle.length
+            ? `<div class="text-muted" style="font-size:0.8rem;">${detalle.map(d => `${d.tipo} ${d.inicio}-${d.fin} (${d.minutos}m)`).join(' · ')}</div>`
+            : '';
+        el.innerHTML = `
+            <div><strong>Descuento automático:</strong> ${descuentoMin} min ${(descuentoSec % 60)}s (pausas programadas)</div>
+            ${breakdown}
+        `;
     },
 
     limpiarFormulario: function() {

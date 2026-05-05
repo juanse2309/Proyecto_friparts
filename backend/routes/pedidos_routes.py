@@ -304,7 +304,7 @@ def obtener_pedidos_pendientes():
                 filtrados.append(p)
             else:
                 # Si no es admin y es Friparts, solo ve lo que tiene asignado
-                if str(p.get("Delegado_a", "")).strip().upper() == user_session:
+                if str(p.get("delegado_a", "")).strip().upper() == user_session:
                     filtrados.append(p)
 
         # 4. DEBUG EN TERMINAL (Solicitado por el usuario)
@@ -370,10 +370,12 @@ def actualizar_alistamiento():
     from backend.core.sql_database import db
     
     try:
-        data = request.json
+        data = request.json or {}
         id_pedido = data.get("id_pedido")
-        estado_general = data.get("estado") # ej: "EN ALISTAMIENTO"
-        detalles = data.get("detalles", []) # [{codigo, cant_lista}, ...]
+        estado_general = data.get("estado")  # ej: "EN ALISTAMIENTO"
+        progreso_pedido = data.get("progreso")  # ej: "40%"
+        progreso_despacho_pedido = data.get("progreso_despacho")  # ej: "10%"
+        detalles = data.get("detalles", [])  # [{codigo, cant_lista, despachado, no_disponible}, ...]
         
         if not id_pedido:
             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
@@ -387,11 +389,35 @@ def actualizar_alistamiento():
             return jsonify({"success": False, "error": f"Pedido {id_pedido} no encontrado en SQL"}), 404
 
         items_actualizados = 0
+
         def _clean_num(val):
-            if not val or str(val).strip() in ['', 'None']: return 0
-            s = str(val).replace('$', '').replace('.', '').replace(',', '').strip()
-            try: return float(s)
-            except: return 0
+            """
+            Convierte entradas como '10', '10.0', '10%', '$1,200' a float.
+            Mantiene el punto decimal; remueve símbolos y separadores de miles.
+            """
+            if val is None:
+                return 0.0
+            s = str(val).strip()
+            if s in ['', 'None', 'null', 'undefined']:
+                return 0.0
+            s = s.replace('%', '').replace('$', '').replace(' ', '')
+            # Quitar separadores de miles (coma) sin tocar el punto decimal
+            s = s.replace(',', '')
+            try:
+                return float(s)
+            except Exception:
+                return 0.0
+
+        def _clean_pct_str(val, default="0%"):
+            if val is None:
+                return default
+            s = str(val).strip()
+            if not s:
+                return default
+            # normalizar "40" -> "40%"
+            if not s.endswith('%'):
+                s = f"{s}%"
+            return s
 
         for d in detalles:
             codigo_front = str(d.get("codigo", "")).strip().upper()
@@ -411,16 +437,29 @@ def actualizar_alistamiento():
                 # Lógica de progreso y estado por item
                 cantidad_total = _clean_num(item.cantidad)
                 if cantidad_total > 0:
-                    porcentaje = (cant_lista_front / cantidad_total) * 100
+                    porcentaje = (cant_segura / cantidad_total) * 100
                     item.progreso = f"{int(porcentaje)}%"
                     
-                    if cant_lista_front >= cantidad_total:
+                    if cant_segura >= cantidad_total:
                         item.estado = 'ALISTADO'
                         item.progreso = '100%'
                     else:
                         item.estado = estado_general or 'EN ALISTAMIENTO'
                 
                 items_actualizados += 1
+
+        # Persistir estado/progresos a nivel pedido (en TODAS las filas),
+        # porque el listado agrupa tomando el primer item del pedido.
+        if estado_general or progreso_pedido or progreso_despacho_pedido:
+            update_data = {}
+            if estado_general:
+                update_data["estado"] = estado_general
+            if progreso_pedido is not None:
+                update_data["progreso"] = _clean_pct_str(progreso_pedido)
+            if progreso_despacho_pedido is not None:
+                update_data["progreso_despacho"] = _clean_pct_str(progreso_despacho_pedido)
+            if update_data:
+                Pedido.query.filter_by(id_pedido=id_pedido).update(update_data)
 
         db.session.commit()
         logger.info(f"✅ [SQL-ALISTAMIENTO] {items_actualizados} items actualizados para {id_pedido}")

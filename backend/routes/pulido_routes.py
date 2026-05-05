@@ -5,6 +5,7 @@ from backend.utils.formatters import normalizar_codigo
 from datetime import datetime
 import pytz
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 pulido_bp = Blueprint('pulido_bp', __name__)
@@ -22,6 +23,19 @@ def registrar_pulido():
         # Lógica de Upsert (Evitar duplicados por id_pulido)
         id_pulido = data.get('id_pulido')
         registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first() if id_pulido else None
+
+        # Guard de ownership: evita que un operario sobrescriba el registro de otro
+        incoming_responsable = (data.get('responsable') or '').strip()
+        if registro and registro.responsable and incoming_responsable:
+            if str(registro.responsable).strip().upper() != incoming_responsable.upper():
+                return jsonify({
+                    "success": False,
+                    "error": "La sesión pertenece a otro operario. Cierra sesión y vuelve a ingresar.",
+                    "code": "PULIDO_SESSION_OWNERSHIP_MISMATCH",
+                    "id_pulido": id_pulido,
+                    "responsable_db": registro.responsable,
+                    "responsable_in": incoming_responsable
+                }), 409
 
         if not registro:
             # Si no existe (o fue borrado de la DB), crear uno nuevo para evitar Error 500
@@ -77,6 +91,11 @@ def registrar_pulido():
             # Sumar tiempo acumulado de sesiones previas (enviado desde el frontend en ms)
             tiempo_acumulado_ms = float(data.get('tiempo_acumulado_ms') or 0)
             segundos_totales = segundos_segmento + int(tiempo_acumulado_ms / 1000)
+
+            # Descuento automático por pausas programadas (enviado por frontend, en ms)
+            descuento_programado_ms = float(data.get('descuento_programado_ms') or 0)
+            if descuento_programado_ms > 0:
+                segundos_totales = max(0, segundos_totales - int(descuento_programado_ms / 1000))
             
             registro.duracion_segundos = segundos_totales
             registro.tiempo_total_minutos = float(round(segundos_totales / 60.0, 2))
@@ -87,7 +106,29 @@ def registrar_pulido():
             else:
                 registro.segundos_por_unidad = 0.0
             
-            logger.info(f" [TIME-DEBUG] {id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, Total: {segundos_totales}s")
+            # Persistir evidencia del descuento en observaciones (sin migración de DB)
+            try:
+                detalle = data.get('detalle_descuento_programado')
+                if isinstance(detalle, str):
+                    detalle = json.loads(detalle)
+                if isinstance(detalle, list) and descuento_programado_ms > 0:
+                    payload = {
+                        "descuento_programado_min": round(descuento_programado_ms / 60000.0, 2),
+                        "detalle": detalle
+                    }
+                    tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
+                    obs = (registro.observaciones or "")
+                    # Reemplazar tag si ya existía
+                    if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
+                        pre = obs.split("[AUTO_BREAK]")[0]
+                        post = obs.split("[/AUTO_BREAK]")[-1]
+                        registro.observaciones = (pre + tag + post).strip()
+                    else:
+                        registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
+            except Exception as e:
+                logger.warning(f"[AUTO_BREAK] No se pudo persistir detalle: {e}")
+
+            logger.info(f" [TIME-DEBUG] {id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, DescProg: {descuento_programado_ms}ms, Total: {segundos_totales}s")
         else:
             registro.duracion_segundos = 0
             registro.tiempo_total_minutos = 0.0
