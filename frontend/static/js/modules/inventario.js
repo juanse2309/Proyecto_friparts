@@ -65,8 +65,14 @@ function obtenerHtmlImagen(p, esMovil = false) {
  * Cargar productos para inventario
  */
 async function cargarProductos(forceRefresh = false) {
+    if (!forceRefresh && window.AppState.productosRaw && window.AppState.productosRaw.length > 0) {
+        console.log('📦 Reutilizando productos de cache global (Instantáneo)...');
+        procesarYRenderizarProductos(window.AppState.productosRaw);
+        return;
+    }
+
     try {
-        console.log('📦 Cargando productos...');
+        console.log('📦 Cargando productos desde el servidor...');
         mostrarLoading(true);
 
         const isMetals = window.AppState.user?.division === 'FRIMETALS';
@@ -93,58 +99,9 @@ async function cargarProductos(forceRefresh = false) {
         }
 
         if (listaFinal.length > 0) {
-            // Normalizar claves SQL → Frontend (Mapeo SQL-First v2.0)
-            window.AppState.productosData = listaFinal.map(p => {
-                // Campos exactos de la respuesta del JSON SQL
-                const codigoSistema = p.codigo_sistema || p.id_codigo || p.codigo || '';
-                const nombreProducto = p.nombre_producto || p.descripcion || '';
-                const pTerminado = parseFloat(p.p_terminado) || parseFloat(p.stock_terminado) || 0;
-                const stockBodega = parseFloat(p.stock_bodega) || 0;
-                
-                const comp = parseFloat(p.comprometido) || parseFloat(p.stock_comprometido) || 0;
-                const porPulir = parseFloat(p.por_pulir) || 0;
-                const min = parseFloat(p.stock_minimo) || 10;
-                const disp = pTerminado - comp;
-
-                // Lógica de 'Agotados' corregida (SQL-First)
-                let semaforo = { color: 'green', estado: 'STOCK OK' };
-                
-                // Si no hay terminado ni hay en bodega (MP), está AGOTADO
-                if (pTerminado <= 0 && stockBodega <= 0) {
-                    semaforo = { color: 'red', estado: 'AGOTADO' };
-                } else if (pTerminado <= 0 && stockBodega > 0) {
-                    semaforo = { color: 'yellow', estado: 'POR ENSAMBLAR' };
-                } else if (disp < min) {
-                    semaforo = { color: 'yellow', estado: 'POR PEDIR' };
-                } else {
-                    semaforo = { color: 'green', estado: 'DISPONIBLE' }; 
-                }
-
-                // Imagen: usar campo SQL directo, no construir rutas a ciegas
-                const imagenSQL = (p.imagen && typeof p.imagen === 'string' && p.imagen.trim() !== '') ? p.imagen : '';
-
-                return {
-                    codigo: codigoSistema,
-                    id_codigo: p.id_codigo || '',
-                    descripcion: nombreProducto,
-                    precio: parseFloat(p.precio) || 0,
-                    stock_disponible: disp,
-                    stock_terminado: pTerminado,
-                    stock_comprometido: comp,
-                    stock_bodega: stockBodega,
-                    por_pulir: porPulir,
-                    en_zincado: parseFloat(p.en_zincado) || 0,
-                    en_granallado: parseFloat(p.en_granallado) || 0,
-                    stock_minimo: min,
-                    semaforo: semaforo,
-                    imagen: imagenSQL,
-                    imagen_valida: imagenSQL || null
-                };
-            });
-            paginaActual = 1; // Resetear a página 1
-            renderizarTablaProductos(window.AppState.productosData);
-            actualizarEstadisticasInventario(window.AppState.productosData);
-            console.log('✅ Productos SQL cargados y normalizados:', window.AppState.productosData.length);
+            // Guardar en cache para futuros usos
+            window.AppState.productosRaw = listaFinal;
+            procesarYRenderizarProductos(listaFinal);
         } else {
             mostrarNotificacion('No hay productos para mostrar', 'warning');
         }
@@ -156,6 +113,65 @@ async function cargarProductos(forceRefresh = false) {
         mostrarLoading(false);
     }
 }
+
+/**
+ * Procesa la lista raw de productos y actualiza la UI
+ */
+function procesarYRenderizarProductos(listaFinal) {
+    // Normalizar claves SQL → Frontend (Mapeo SQL-First v2.0)
+    window.AppState.productosData = listaFinal.map(p => {
+        // Campos exactos de la respuesta del JSON SQL
+        const codigoSistema = p.codigo_sistema || p.id_codigo || p.codigo || '';
+        const nombreProducto = p.nombre_producto || p.descripcion || '';
+        const pTerminado = parseFloat(p.p_terminado) || parseFloat(p.stock_terminado) || 0;
+        const stockBodega = parseFloat(p.stock_bodega) || 0;
+
+        const comp = parseFloat(p.comprometido) || parseFloat(p.stock_comprometido) || 0;
+        const porPulir = parseFloat(p.por_pulir) || 0;
+        const min = parseFloat(p.stock_minimo) || 10;
+        const disp = pTerminado - comp;
+
+        // Lógica de 'Agotados' corregida (SQL-First)
+        let semaforo = { color: 'green', estado: 'STOCK OK' };
+
+        // Si no hay terminado ni hay en bodega (MP), está AGOTADO
+        if (pTerminado <= 0 && stockBodega <= 0) {
+            semaforo = { color: 'red', estado: 'AGOTADO' };
+        } else if (pTerminado <= 0 && stockBodega > 0) {
+            semaforo = { color: 'yellow', estado: 'POR ENSAMBLAR' };
+        } else if (disp < min) {
+            semaforo = { color: 'yellow', estado: 'POR PEDIR' };
+        } else {
+            semaforo = { color: 'green', estado: 'DISPONIBLE' };
+        }
+
+        // Imagen: usar campo SQL directo, no construir rutas a ciegas
+        const imagenSQL = (p.imagen && typeof p.imagen === 'string' && p.imagen.trim() !== '') ? p.imagen : '';
+
+        return {
+            codigo: codigoSistema,
+            id_codigo: p.id_codigo || '',
+            descripcion: nombreProducto,
+            precio: parseFloat(p.precio) || 0,
+            stock_disponible: disp,
+            stock_terminado: pTerminado,
+            stock_comprometido: comp,
+            stock_bodega: stockBodega,
+            por_pulir: porPulir,
+            en_zincado: parseFloat(p.en_zincado) || 0,
+            en_granallado: parseFloat(p.en_granallado) || 0,
+            stock_minimo: min,
+            semaforo: semaforo,
+            imagen: imagenSQL,
+            imagen_valida: imagenSQL || null
+        };
+    });
+    paginaActual = 1; // Resetear a página 1
+    renderizarTablaProductos(window.AppState.productosData);
+    actualizarEstadisticasInventario(window.AppState.productosData);
+    console.log('✅ Productos SQL cargados y normalizados:', window.AppState.productosData.length);
+}
+
 
 /**
  * Renderizar tabla de productos con paginaciÃ³n

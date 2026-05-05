@@ -17,6 +17,13 @@ const ModuloPulido = {
     // Descuentos automáticos por pausas programadas (ms)
     descuentoProgramadoMs: 0,
 
+    // PNC Dynamic State
+    pncRows: [],
+    catalogosPnc: {
+        'INYECCION': ['RECHUPE', 'FALTA DE MATERIAL', 'QUEMADO', 'REBABA', 'MANCHA', 'BURBUJA'],
+        'PULIDO': ['MAL CORTE', 'EXCESO DE PULIDO', 'RAYADO', 'MAL ACABADO', 'GOLPEADO', 'FISURA']
+    },
+
     // Helper de Normalización
     normalizarCodigo: function(c) {
         if (!c) return "";
@@ -663,11 +670,100 @@ const ModuloPulido = {
         
         // Reset inputs modal
         document.getElementById('cantidad-recibida-pro').value = 0;
-        document.getElementById('pro-pnc-iny').value = 0;
-        document.getElementById('pro-pnc-pul').value = 0;
+        this.pncRows = []; // Reiniciar PNC dinámico
+        this.renderPncRows();
         document.getElementById('resultado-buenas-pro').innerText = '0';
         
         document.getElementById('modal-reporte-final').style.display = 'flex';
+    },
+
+    // ==========================================
+    // GESTIÓN DE PNC DINÁMICO
+    // ==========================================
+
+    agregarFilaPnc: function() {
+        // Validar que la última fila tenga datos antes de añadir otra (opcional, pero ayuda a la limpieza)
+        if (this.pncRows.length > 0) {
+            const lastRow = this.pncRows[this.pncRows.length - 1];
+            if (!lastRow.cantidad || lastRow.cantidad <= 0 || !lastRow.criterio) {
+                Swal.fire({
+                    title: 'Fila incompleta',
+                    text: 'Por favor complete la información de la fila de PNC actual antes de añadir una nueva.',
+                    icon: 'warning',
+                    toast: true,
+                    position: 'top-end',
+                    timer: 3000,
+                    showConfirmButton: false
+                });
+                return;
+            }
+        }
+
+        this.pncRows.push({
+            proceso: 'PULIDO',
+            cantidad: 0,
+            criterio: ''
+        });
+        this.renderPncRows();
+    },
+
+    eliminarFilaPnc: function(index) {
+        this.pncRows.splice(index, 1);
+        this.renderPncRows();
+        this.actualizarCalculoPro();
+    },
+
+    renderPncRows: function() {
+        const container = document.getElementById('pnc-dynamic-container');
+        if (!container) return;
+
+        if (this.pncRows.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-2 small" id="pnc-empty-msg">No hay PNC reportado</div>';
+            return;
+        }
+
+        container.innerHTML = this.pncRows.map((row, index) => `
+            <div class="d-flex gap-1 align-items-center p-2 border-bottom bg-white rounded shadow-sm animate__animated animate__fadeInIn">
+                <select class="form-select form-select-sm" style="width: 30%;" onchange="ModuloPulido.updateRow(${index}, 'proceso', this.value)">
+                    <option value="PULIDO" ${row.proceso === 'PULIDO' ? 'selected' : ''}>Pulido</option>
+                    <option value="INYECCION" ${row.proceso === 'INYECCION' ? 'selected' : ''}>Inyección</option>
+                </select>
+                <input type="number" class="form-control form-control-sm text-center fw-bold" style="width: 20%;" 
+                    value="${row.cantidad}" min="1" placeholder="Cant"
+                    oninput="ModuloPulido.updateRow(${index}, 'cantidad', this.value)">
+                <select class="form-select form-select-sm" style="width: 40%;" onchange="ModuloPulido.updateRow(${index}, 'criterio', this.value)">
+                    <option value="">- Motivo -</option>
+                    ${(this.catalogosPnc[row.proceso] || []).map(c => `
+                        <option value="${c}" ${row.criterio === c ? 'selected' : ''}>${c}</option>
+                    `).join('')}
+                </select>
+                <button type="button" class="btn btn-sm btn-link text-danger p-0" style="width: 10%;" onclick="ModuloPulido.eliminarFilaPnc(${index})">
+                    <i class="fas fa-times-circle"></i>
+                </button>
+            </div>
+        `).join('');
+    },
+
+    updateRow: function(index, field, value) {
+        if (field === 'cantidad') {
+            const val = parseInt(value, 10);
+            if (val < 0) {
+                Swal.fire('Cantidad inválida', 'No se permiten cantidades negativas en PNC', 'error');
+                this.pncRows[index].cantidad = 0;
+            } else {
+                this.pncRows[index].cantidad = val || 0;
+            }
+        } else {
+            this.pncRows[index][field] = value;
+        }
+        
+        // Si cambió el proceso, resetear el criterio para que coincida con el nuevo catálogo
+        if (field === 'proceso') {
+            this.pncRows[index].criterio = '';
+            this.renderPncRows();
+        }
+        
+        this.actualizarCalculoPro();
     },
 
     // ==========================================
@@ -694,22 +790,21 @@ const ModuloPulido = {
     },
 
     actualizarCalculoPro: function() {
-        const brutoInput = document.getElementById('cantidad-recibida-pro');
-        const pncInyInput = document.getElementById('pro-pnc-iny');
-        const pncPulInput = document.getElementById('pro-pnc-pul');
+        const buenosInput = document.getElementById('cantidad-recibida-pro');
         const display = document.getElementById('resultado-buenas-pro');
         
-        if (!brutoInput) return;
+        if (!buenosInput) return;
         
-        const recibida = parseInt(brutoInput.value, 10) || 0;
-        const pncIny = parseInt(pncInyInput?.value, 10) || 0;
-        const pncPul = parseInt(pncPulInput?.value, 10) || 0;
+        const buenos = parseInt(buenosInput.value, 10) || 0;
         
-        const buenas = Math.max(0, recibida - pncIny - pncPul);
+        // Sumar todos los PNC dinámicos
+        const totalPnc = this.pncRows.reduce((sum, row) => sum + (parseInt(row.cantidad, 10) || 0), 0);
         
-        console.log(`[Pulido PRO] Bruto: ${recibida}, PNC_Iny: ${pncIny}, PNC_Pul: ${pncPul} -> Total Buenos: ${buenas}`);
+        const totalBruto = buenos + totalPnc;
         
-        if (display) display.innerText = buenas;
+        console.log(`[Pulido PRO] Buenos: ${buenos}, Total PNC: ${totalPnc} -> Total Bruto: ${totalBruto}`);
+        
+        if (display) display.innerText = totalBruto;
     },
 
     // ==========================================
@@ -722,6 +817,14 @@ const ModuloPulido = {
         const descuentoTotal = (this.descuentoProgramadoMs || 0) + descuentoSegmento;
         const detalleDescuento = this.generarDetalleDescuentoProgramado(this.startTime, now);
 
+        // Agrupar PNC por proceso para compatibilidad con DB
+        const pncIny = this.pncRows.filter(r => r.proceso === 'INYECCION').reduce((s, r) => s + (r.cantidad || 0), 0);
+        const pncPul = this.pncRows.filter(r => r.proceso === 'PULIDO').reduce((s, r) => s + (r.cantidad || 0), 0);
+        
+        // Concatenar criterios
+        const critIny = this.pncRows.filter(r => r.proceso === 'INYECCION' && r.criterio).map(r => `${r.criterio}(${r.cantidad})`).join(', ');
+        const critPul = this.pncRows.filter(r => r.proceso === 'PULIDO' && r.criterio).map(r => `${r.criterio}(${r.cantidad})`).join(', ');
+
         const data = {
             id_pulido: this.sessionId,
             fecha_inicio: document.getElementById('fecha-pulido')?.value || new Date().toISOString().split('T')[0],
@@ -729,25 +832,47 @@ const ModuloPulido = {
             hora_fin: new Date().getHours() + ':' + String(new Date().getMinutes()).padStart(2, '0'),
             responsable: document.getElementById('responsable-pulido-input').value,
             codigo_producto: this.normalizarCodigo(document.getElementById('buscador-productos').value),
-            cantidad_recibida: parseInt(document.getElementById('cantidad-recibida-pro').value, 10) || 0,
-            pnc_inyeccion: parseInt(document.getElementById('pro-pnc-iny').value, 10) || 0,
-            pnc_pulido: parseInt(document.getElementById('pro-pnc-pul').value, 10) || 0,
-            criterio_pnc_inyeccion: document.getElementById('pro-criterio-iny').value,
-            criterio_pnc_pulido: document.getElementById('pro-criterio-pul').value,
-            cantidad_real: parseInt(document.getElementById('resultado-buenas-pro').innerText, 10) || 0,
-            observaciones: document.getElementById('observaciones-pro')?.value || '',
+            
+            // NUEVA LÓGICA: cantidad_real son las buenas, cantidad_recibida es el total (bruto)
+            cantidad_real: parseInt(document.getElementById('cantidad-recibida-pro').value, 10) || 0,
+            cantidad_recibida: parseInt(document.getElementById('resultado-buenas-pro').innerText, 10) || 0,
+            
+            pnc_inyeccion: pncIny,
+            pnc_pulido: pncPul,
+            criterio_pnc_inyeccion: critIny || 'N/A',
+            criterio_pnc_pulido: critPul || 'N/A',
+            
+            observaciones: (document.getElementById('observaciones-pro')?.value || '') + 
+                           (this.pncRows.length > 0 ? `\n[PNC_DETAIL]: ${JSON.stringify(this.pncRows)}` : ''),
+            
             orden_produccion: document.getElementById('orden-produccion-pulido')?.value || '',
             lote: document.getElementById('lote-pulido')?.value || '',
             departamento: 'PULIDO',
             almacen_destino: 'P. TERMINADO',
             modo: 'PRO',
-            tiempo_acumulado_ms: this.tiempoAcumuladoMs, // Enviar el tiempo de segmentos previos
+            tiempo_acumulado_ms: this.tiempoAcumuladoMs,
             descuento_programado_ms: descuentoTotal,
-            detalle_descuento_programado: detalleDescuento
+            detalle_descuento_programado: detalleDescuento,
+            pnc_detail: this.pncRows // Enviar como objeto para procesamiento en backend
         };
 
-        if (!data.responsable || !data.codigo_producto || !data.cantidad_recibida || data.cantidad_recibida <= 0) {
-            Swal.fire('Atención', 'Faltan campos (Responsable, Producto o Cantidad bruta)', 'warning');
+        // Validación de filas completas
+        if (this.pncRows.some(r => !r.cantidad || r.cantidad <= 0 || !r.criterio)) {
+            Swal.fire('PNC Incompleto', 'Todas las filas de PNC deben tener cantidad y motivo seleccionado.', 'warning');
+            return;
+        }
+
+        // Validación de consistencia solicitada por el usuario
+        const totalCalculado = data.cantidad_real + data.pnc_inyeccion + data.pnc_pulido + 
+                               this.pncRows.filter(r => r.proceso === 'ENSAMBLE').reduce((s, r) => s + (r.cantidad || 0), 0);
+        
+        if (totalCalculado !== data.cantidad_recibida) {
+            Swal.fire('Error de Consistencia', 'La suma de piezas buenas y PNC no coincide con el total. Por favor revise los datos.', 'error');
+            return;
+        }
+
+        if (!data.responsable || !data.codigo_producto || data.cantidad_real < 0) {
+            Swal.fire('Atención', 'Faltan campos obligatorios o hay valores negativos', 'warning');
             return;
         }
 

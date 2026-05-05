@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify, request
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
-from backend.models.sql_models import db, ProduccionPulido
+from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble
 from backend.utils.formatters import normalizar_codigo
+import uuid
 from datetime import datetime
 import pytz
 import logging
@@ -60,6 +61,15 @@ def registrar_pulido():
         registro.lote = data.get('lote') or 'SIN LOTE'
         registro.cantidad_recibida = float(data.get('cantidad_recibida') or 0)
         registro.almacen_destino = data.get('almacen_destino', 'P. TERMINADO')
+
+        # Validación de consistencia (Bujes Buenos + PNC <= Total)
+        # Se usa <= porque puede haber otros tipos de PNC no mapeados a columnas fijas
+        total_reportado = registro.cantidad_real + registro.pnc_inyeccion + registro.pnc_pulido
+        if registro.cantidad_recibida < total_reportado:
+            logger.warning(f" [VALIDATION] Inconsistencia en {id_pulido}: Total {registro.cantidad_recibida} < Suma {total_reportado}")
+            # No bloqueamos el guardado para evitar pérdida de datos en planta, pero registramos el evento.
+            # Opcional: podrías retornar error 400 aquí si prefieres rigidez total.
+
 
         # Manejo de Horas y Cálculos de Tiempo
         colombia_tz = pytz.timezone('America/Bogota')
@@ -133,6 +143,45 @@ def registrar_pulido():
             registro.duracion_segundos = 0
             registro.tiempo_total_minutos = 0.0
             registro.segundos_por_unidad = 0.0
+
+        # Sincronización de PNC Detallado (vaya esa info donde debe)
+        pnc_detail = data.get('pnc_detail', [])
+        if pnc_detail:
+            # Limpiar registros previos de PNC vinculados a este id_pulido
+            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_pulido).delete()
+            db.session.query(PncPulido).filter_by(id_pulido=id_pulido).delete()
+            db.session.query(PncEnsamble).filter_by(id_ensamble=id_pulido).delete()
+
+            for pnc_item in pnc_detail:
+                proc = pnc_item.get('proceso', '').upper()
+                cant = float(pnc_item.get('cantidad') or 0)
+                crit = pnc_item.get('criterio', '')
+                if cant <= 0: continue
+
+                if proc == 'INYECCION':
+                    db.session.add(PncInyeccion(
+                        id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                        id_inyeccion=id_pulido,
+                        id_codigo=registro.codigo,
+                        cantidad=cant,
+                        criterio=crit
+                    ))
+                elif proc == 'PULIDO':
+                    db.session.add(PncPulido(
+                        id_pnc_pulido=uuid.uuid4().hex[:8],
+                        id_pulido=id_pulido,
+                        codigo=registro.codigo,
+                        cantidad=cant,
+                        criterio=crit
+                    ))
+                elif proc == 'ENSAMBLE':
+                    db.session.add(PncEnsamble(
+                        id_pnc_ensamble=uuid.uuid4().hex[:8],
+                        id_ensamble=id_pulido,
+                        id_codigo=registro.codigo,
+                        cantidad=cant,
+                        criterio=crit
+                    ))
 
         db.session.commit()
 

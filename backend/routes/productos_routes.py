@@ -98,6 +98,8 @@ def buscar_productos(query):
         
         # JOIN optimizado con CTE para pre-normalización
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
+        # JOIN optimizado: Usamos dos joins directos (exacto y normalizado) para evitar REGEXP en la cláusula JOIN
+        PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
             WITH precios_norm AS (
                 SELECT 
@@ -105,6 +107,17 @@ def buscar_productos(query):
                     precio,
                     REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
                 FROM db_precio_venta
+            ),
+            productos_base AS (
+                SELECT 
+                    *,
+                    REGEXP_REPLACE(id_codigo, {PREFIX_PATTERN}, '', 'i') as id_norm
+                FROM db_productos
+                WHERE 
+                    id_codigo ILIKE :t OR 
+                    codigo_sistema ILIKE :t OR 
+                    descripcion ILIKE :t OR
+                    oem ILIKE :t
             )
             SELECT 
                 p.id_codigo, 
@@ -116,17 +129,10 @@ def buscar_productos(query):
                 p.codigo_sistema, 
                 p.imagen,
                 p.oem,
-                COALESCE(pv.precio, p.precio, 0) as precio_raw
-            FROM db_productos p
-            LEFT JOIN precios_norm pv ON (
-                pv.codigo = p.id_codigo OR
-                pv.cod_norm = REGEXP_REPLACE(p.id_codigo, {PREFIX_PATTERN}, '', 'i')
-            )
-            WHERE 
-                p.id_codigo ILIKE :t OR 
-                p.codigo_sistema ILIKE :t OR 
-                p.descripcion ILIKE :t OR
-                p.oem ILIKE :t
+                COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw
+            FROM productos_base p
+            LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
+            LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
             ORDER BY p.codigo_sistema
             LIMIT :l
         """
@@ -186,6 +192,8 @@ def listar_productos():
 
         # JOIN optimizado con CTE para pre-normalización
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
+        # JOIN optimizado: Usamos dos joins directos (exacto y normalizado) para evitar REGEXP en la cláusula JOIN
+        PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
             WITH precios_norm AS (
                 SELECT 
@@ -193,6 +201,12 @@ def listar_productos():
                     precio,
                     REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
                 FROM db_precio_venta
+            ),
+            productos_base AS (
+                SELECT 
+                    *,
+                    REGEXP_REPLACE(id_codigo, {PREFIX_PATTERN}, '', 'i') as id_norm
+                FROM db_productos
             )
             SELECT 
                 p.id_codigo, 
@@ -203,12 +217,10 @@ def listar_productos():
                 p.por_pulir, 
                 p.codigo_sistema, 
                 p.imagen,
-                COALESCE(pv.precio, p.precio, 0) as precio_raw
-            FROM db_productos p
-            LEFT JOIN precios_norm pv ON (
-                pv.codigo = p.id_codigo OR
-                pv.cod_norm = REGEXP_REPLACE(p.id_codigo, {PREFIX_PATTERN}, '', 'i')
-            )
+                COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw
+            FROM productos_base p
+            LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
+            LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
             ORDER BY p.codigo_sistema
         """
         

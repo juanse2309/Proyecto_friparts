@@ -74,7 +74,7 @@ class PncPulido(db.Model):
     id_row           = db.Column(db.Integer, primary_key=True, default=lambda: int(time.time() % 100000000) + random.randint(100000000, 900000000))
     id_pnc_pulido    = db.Column(db.String(80), index=True, default=lambda: uuid.uuid4().hex[:8])
     id_pulido        = db.Column(db.String(80), index=True)
-    id_codigo        = db.Column(db.String(50), index=True) 
+    codigo           = db.Column(db.String(50), index=True) 
     cantidad         = db.Column(db.Numeric(18, 2), default=0)
     criterio         = db.Column(db.String(200), nullable=True)
     codigo_ensamble  = db.Column(db.String(50), nullable=True)

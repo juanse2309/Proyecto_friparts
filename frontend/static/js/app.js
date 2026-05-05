@@ -126,6 +126,7 @@ async function cargarDatosCompartidos() {
             console.log('  - Sample producto:', JSON.stringify(productosRaw[0]).substring(0, 200));
         }
 
+        window.AppState.productosRaw = productosRaw;
         window.AppState.sharedData.productos = productosRaw.map(p => ({
             id_codigo: p.id_codigo || p.ID_CODIGO || 0,
             codigo_sistema: p.codigo_sistema || p.codigo || p.CODIGO || '',
