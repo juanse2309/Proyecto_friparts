@@ -1,10 +1,5 @@
 flask
 flask-cors
-gspread
-google-api-python-client
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
 python-dotenv
 gunicorn
 pandas

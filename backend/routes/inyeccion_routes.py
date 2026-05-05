@@ -19,7 +19,7 @@ def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=Fal
     """
     try:
         from backend.utils.report_service import PDFGenerator
-        from backend.utils.drive_service import drive_service
+        from backend.utils.report_service import PDFGenerator
         
         # 1. Determinar Metadatos y Nombre de Archivo
         maquina = str(data.get('maquina') or 'S-M').replace(" ", "-")
@@ -45,18 +45,9 @@ def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=Fal
         if not success:
             return False, "Error al generar el archivo PDF localmente."
 
-        # 3. Subir a Drive (Encapsulado para Quota / Permisos)
-        try:
-            folder_id = Settings.DRIVE_REPORTS_FOLDER_ID
-            drive_id = drive_service.subir_archivo(local_file, tmp_filename, folder_id=folder_id)
-            if drive_id:
-                logger.info(f" ✅ PDF subido exitosamente: {tmp_filename} (ID: {drive_id})")
-                return True, None
-            else:
-                return False, "Error: El PDF se generó pero la subida a Drive falló (posible problema de cuota)."
-        except Exception as drive_err:
-            logger.error(f" ⚠️ Error subiendo a Drive: {drive_err}")
-            return False, f"Error en Drive: {str(drive_err)}"
+        # 3. [DISABLED] Subir a Drive (Eliminado por decommissoning Google)
+        logger.info(f" ✅ PDF generado localmente: {tmp_filename}. (Subida a Drive deshabilitada)")
+        return True, None
 
     except Exception as e:
         logger.error(f" ❌ ERROR CRÍTICO en proceso PDF/Drive: {str(e)}")

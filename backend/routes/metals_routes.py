@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from backend.core.database import sheets_client
+from backend.models.sql_models import db, MetalsProduccion, MetalsPersonal
 from backend.repositories.producto_repository import ProductoRepository
 import logging
 import datetime
@@ -54,17 +54,14 @@ def registrar_produccion_metals():
         if not codigo_producto or not proceso or not maquina:
             return jsonify({"success": False, "message": "Faltan datos: Producto, Proceso o Máquina"}), 400
 
-        # Obtener departamento del responsable
+        # Obtener departamento del responsable desde SQL
         departamento = ''
         try:
-            ws_personal = sheets_client.get_worksheet("METALS_PERSONAL")
-            if ws_personal:
-                personal = sheets_client.get_all_records_seguro(ws_personal)
-                operario = next((p for p in personal if p.get('RESPONSABLE') == responsable), None)
-                if operario:
-                    departamento = operario.get('DEPARTAMENTO', '')
+            operario = MetalsPersonal.query.filter_by(responsable=responsable).first()
+            if operario:
+                departamento = operario.departamento or ''
         except Exception as pe:
-            logger.warning(f"No se pudo obtener departamento: {pe}")
+            logger.warning(f"No se pudo obtener departamento SQL: {pe}")
 
         # Formatear fecha DD/MM/YYYY
         fecha_sheet = fecha_js
@@ -87,32 +84,31 @@ def registrar_produccion_metals():
 
         id_reg = f"MET-{str(uuid.uuid4())[:8].upper()}"
 
-        ws_prod = sheets_client.get_worksheet("METALS_PRODUCCION")
-        if not ws_prod:
-            return jsonify({"success": False, "message": "Hoja METALS_PRODUCCION no encontrada"}), 500
-
-        fila = [
-            id_reg,
-            fecha_sheet,
-            responsable,
-            departamento,
-            proceso_label,
-            maquina,
-            codigo_producto,
-            descripcion,
-            str(cantidad_ok),
-            str(pnc),
-            hora_inicio,
-            hora_fin,
-            tiempo_str,
-            observaciones,
-            campos_extra_str
-        ]
-
-        ws_prod.append_row(fila)
-        logger.info(f"✅ [Metals] Registro guardado: {id_reg} — {proceso_label} / {maquina}")
-
-        return jsonify({"success": True, "id": id_reg})
+        try:
+            nuevo_registro = MetalsProduccion(
+                id=id_reg,
+                fecha=fecha_sheet,
+                responsable=responsable,
+                departamento=departamento,
+                proceso=proceso_label,
+                maquina=maquina,
+                codigo=codigo_producto,
+                descripcion=descripcion,
+                cantidad_ok=float(cantidad_ok),
+                pnc=float(pnc),
+                hora_inicio=hora_inicio,
+                hora_fin=hora_fin,
+                tiempo=tiempo_str,
+                observaciones=observaciones,
+                campos_extra=campos_extra_str
+            )
+            db.session.add(nuevo_registro)
+            db.session.commit()
+            logger.info(f"✅ [Metals SQL] Registro guardado: {id_reg} — {proceso_label}")
+            return jsonify({"success": True, "id": id_reg})
+        except Exception as e_sql:
+            db.session.rollback()
+            raise e_sql
 
     except Exception as e:
         logger.error(f"Error registrando producción metals: {e}")
@@ -125,49 +121,47 @@ def registrar_produccion_metals():
 
 @metals_bp.route('/api/metals/produccion/historial', methods=['GET'])
 def get_metals_historial():
+    """Retorna el historial de producción de Metales desde SQL."""
     try:
-        ws = sheets_client.get_worksheet("METALS_PRODUCCION")
-        if not ws:
-            return jsonify({"success": False, "message": "Hoja no encontrada"}), 500
+        registros_db = MetalsProduccion.query.order_by(MetalsProduccion.id.desc()).limit(100).all()
         
-        records = sheets_client.get_all_records_seguro(ws)
+        records = []
+        for r in registros_db:
+            records.append({
+                'ID': r.id,
+                'FECHA': r.fecha,
+                'RESPONSABLE': r.responsable,
+                'DEPARTAMENTO': r.departamento,
+                'PROCESO': r.proceso,
+                'MAQUINA': r.maquina,
+                'CÓDIGO': r.codigo,
+                'DESCRIPCIÓN': r.descripcion,
+                'CANTIDAD_OK': float(r.cantidad_ok or 0),
+                'PNC': float(r.pnc or 0),
+                'HORA_INICIO': r.hora_inicio,
+                'HORA_FIN': r.hora_fin,
+                'TIEMPO': r.tiempo,
+                'OBSERVACIONES': r.observaciones,
+                'CAMPOS_EXTRA': r.campos_extra
+            })
 
-        # Calcular Estadísticas (Juan Sebastian)
+        # Estadísticas (Juan Sebastian)
         hoy_str = datetime.date.today().strftime("%d/%m/%Y")
         mes_str = datetime.date.today().strftime("/%m/%Y")
         
-        stats = {
-            "hoy": 0,
-            "mes": 0,
-            "pnc": 0,
-            "procesos": 0
-        }
-
+        stats = {"hoy": 0, "mes": 0, "pnc": 0, "procesos": 0}
         procesos_hoy = set()
 
         for r in records:
-            fecha = r.get('FECHA', '')
-            try:
-                ok = int(r.get('CANTIDAD_OK', 0) or 0)
-                pnc = int(r.get('PNC', 0) or 0)
-            except:
-                ok, pnc = 0, 0
-
-            if fecha == hoy_str:
-                stats["hoy"] += ok
-                procesos_hoy.add(r.get('PROCESO', ''))
-            
-            if mes_str in fecha:
+            if r['FECHA'] == hoy_str:
+                stats["hoy"] += int(r['CANTIDAD_OK'])
+                procesos_hoy.add(r['PROCESO'])
+            if mes_str in r['FECHA']:
                 stats["mes"] += 1
-                stats["pnc"] += pnc
+                stats["pnc"] += int(r['PNC'])
 
         stats["procesos"] = len(procesos_hoy)
-
-        return jsonify({
-            "success": True, 
-            "registros": records[::-1],
-            "stats": stats
-        })
+        return jsonify({"success": True, "registros": records, "stats": stats})
     except Exception as e:
         logger.error(f"Error en historial metals: {e}")
         return jsonify({"success": False, "message": str(e)}), 500

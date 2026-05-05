@@ -6,7 +6,6 @@ from flask import Blueprint, jsonify, request
 from backend.services.inventario_service import inventario_service
 from backend.repositories.producto_repository import producto_repo, ProductoRepository
 from backend.core.tenant import get_tenant_from_request
-from backend.core.database import sheets_client
 import logging
 import time # Juan Sebastian: Para manejo de caché
 import os
@@ -97,8 +96,16 @@ def buscar_productos(query):
         limite = request.args.get('limite', 30, type=int)
         termino = f"%{query.strip().upper()}%"
         
-        # SQL con JOIN y Normalización de Prefijos para el cruce
-        sql = """
+        # JOIN optimizado con CTE para pre-normalización
+        PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
+        sql = f"""
+            WITH precios_norm AS (
+                SELECT 
+                    codigo,
+                    precio,
+                    REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
+                FROM db_precio_venta
+            )
             SELECT 
                 p.id_codigo, 
                 p.descripcion as nombre_producto, 
@@ -109,11 +116,12 @@ def buscar_productos(query):
                 p.codigo_sistema, 
                 p.imagen,
                 p.oem,
-                c.precio_de_venta as precio_raw
+                COALESCE(pv.precio, p.precio, 0) as precio_raw
             FROM db_productos p
-            LEFT JOIN db_costos c ON 
-                REGEXP_REPLACE(p.id_codigo, '^(FR-|CAR-|INT-|ENS-|CB-)', '') = 
-                REGEXP_REPLACE(c.referencia, '^(FR-|CAR-|INT-|ENS-|CB-)', '')
+            LEFT JOIN precios_norm pv ON (
+                pv.codigo = p.id_codigo OR
+                pv.cod_norm = REGEXP_REPLACE(p.id_codigo, {PREFIX_PATTERN}, '', 'i')
+            )
             WHERE 
                 p.id_codigo ILIKE :t OR 
                 p.codigo_sistema ILIKE :t OR 
@@ -176,9 +184,16 @@ def listar_productos():
         from sqlalchemy import text
         import re
 
-        # SQL avanzado con JOIN normalizado y limpieza de prefijos
-        # Usamos REGEXP_REPLACE para que 'FR-9304' coincida con '9304'
-        sql = """
+        # JOIN optimizado con CTE para pre-normalización
+        PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
+        sql = f"""
+            WITH precios_norm AS (
+                SELECT 
+                    codigo,
+                    precio,
+                    REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
+                FROM db_precio_venta
+            )
             SELECT 
                 p.id_codigo, 
                 p.descripcion as nombre_producto, 
@@ -188,21 +203,37 @@ def listar_productos():
                 p.por_pulir, 
                 p.codigo_sistema, 
                 p.imagen,
-                c.precio_de_venta as precio_raw
+                COALESCE(pv.precio, p.precio, 0) as precio_raw
             FROM db_productos p
-            LEFT JOIN db_costos c ON 
-                REGEXP_REPLACE(p.id_codigo, '^(FR-|CAR-|INT-|ENS-|CB-)', '') = 
-                REGEXP_REPLACE(c.referencia, '^(FR-|CAR-|INT-|ENS-|CB-)', '')
+            LEFT JOIN precios_norm pv ON (
+                pv.codigo = p.id_codigo OR
+                pv.cod_norm = REGEXP_REPLACE(p.id_codigo, {PREFIX_PATTERN}, '', 'i')
+            )
             ORDER BY p.codigo_sistema
         """
         
         result_query = db.session.execute(text(sql)).mappings().all()
         
-        def limpiar_precio(p_str):
-            if not p_str or str(p_str).strip() in ['', 'None']: return 0
-            # Quitar '$', '.' y espacios para convertir a número puro
-            l = str(p_str).replace('$', '').replace('.', '').replace(',', '').strip()
-            try: return float(l)
+        def limpiar_precio(val):
+            if val is None or str(val).strip() in ['', 'None']: return 0
+            # Si ya es un número, no lo toques (evita multiplicar por 10 si hay punto decimal)
+            if isinstance(val, (int, float)): return float(val)
+            from decimal import Decimal
+            if isinstance(val, Decimal): return float(val)
+            
+            # Solo limpiar si es string
+            s = str(val).replace('$', '').replace(' ', '')
+            # Si tiene coma y punto, es formato 1.234,56 -> 1234.56
+            if ',' in s and '.' in s:
+                s = s.replace('.', '').replace(',', '.')
+            # Si solo tiene punto y parece ser separador de miles (ej: 116.400)
+            elif '.' in s and len(s.split('.')[-1]) == 3:
+                s = s.replace('.', '')
+            # Si solo tiene coma, es decimal (ej: 116400,00)
+            elif ',' in s:
+                s = s.replace(',', '.')
+                
+            try: return float(s)
             except: return 0
 
         resultado = []
@@ -225,7 +256,7 @@ def listar_productos():
                 "precio": limpiar_precio(r['precio_raw'])
             })
             
-        logger.info(f"📊 [SQL-JOIN] Listando {len(resultado)} productos con Precios de db_costos")
+        logger.info(f"📊 [SQL-NATIVE] Listando {len(resultado)} productos con Precios de db_precio_venta")
         return jsonify({"items": resultado}), 200
 
     except Exception as e:

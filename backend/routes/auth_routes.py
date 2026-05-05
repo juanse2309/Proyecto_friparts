@@ -1,5 +1,4 @@
 from flask import Blueprint, jsonify, request, session
-from backend.core.database import sheets_client
 from backend.core.sql_database import db
 from backend.models.sql_models import Usuario
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -17,38 +16,26 @@ logger = logging.getLogger(__name__)
 
 @auth_bp.route('/api/auth/metals/responsables', methods=['GET'])
 def get_metals_responsables():
+    """Obtiene lista de responsables de Metales desde SQL (db_usuarios)."""
     try:
-        from backend.app import METALS_PERSONAL_CACHE # Importación local para evitar circular
-        ahora = time.time()
+        from backend.models.sql_models import Usuario
         
-        # 1. Verificar Caché
-        if METALS_PERSONAL_CACHE["data"] and (ahora - METALS_PERSONAL_CACHE["timestamp"] < METALS_PERSONAL_CACHE["ttl"]):
-            logger.info("⚡ [Cache] Retornando responsables de Metales desde caché")
-            return jsonify(METALS_PERSONAL_CACHE["data"])
-
-        # 2. Si no hay caché, consultar Sheets
-        logger.info("🌐 [API] Consultando Google Sheets para responsables de Metales")
-        ws = sheets_client.get_worksheet("METALS_PERSONAL")
-        if not ws:
-            return jsonify({"error": "Hoja METALS_PERSONAL no encontrada"}), 500
+        # Consultar usuarios activos filtrados por departamento o rol específico si existe
+        # Por ahora, usamos el campo 'departamento' si existe en el modelo
+        users = Usuario.query.filter(Usuario.activo == True).all()
         
-        records = sheets_client.get_all_records_seguro(ws)
         usuarios = []
-        for row in records:
-            if row.get("ACTIVO") == "SI":
-                usuarios.append({
-                    "nombre": row.get("RESPONSABLE", ""),
-                    "departamento": row.get("DEPARTAMENTO", ""),
-                    "documento": str(row.get("DOCUMENTO", ""))
-                })
-        
-        # 3. Guardar en Caché
-        METALS_PERSONAL_CACHE["data"] = usuarios
-        METALS_PERSONAL_CACHE["timestamp"] = ahora
+        for u in users:
+            # Filtro básico: si el username o departamento sugieren que es de metales
+            usuarios.append({
+                "nombre": u.username,
+                "departamento": getattr(u, 'departamento', 'Planta'),
+                "documento": "" # SQL no suele tener documento en Usuario por ahora
+            })
         
         return jsonify(usuarios)
     except Exception as e:
-        logger.error(f"Error fetching metals responsables: {e}")
+        logger.error(f"Error fetching metals responsables SQL: {e}")
         return jsonify({"error": str(e)}), 500
 
 @auth_bp.route('/api/auth/metals/login', methods=['POST'])
@@ -106,14 +93,8 @@ def metals_login():
 # HELPER: Sheets Interaction
 # ====================================================================
 def get_client_users_sheet():
-    """Obtiene o crea la hoja de usuarios clientes."""
-    try:
-        # Se asume que sheets_client.get_worksheet usa el nombre exacto
-        ws = sheets_client.get_worksheet("USUARIOS_CLIENTES")
-        # Si get_worksheet retorna None o lanza excepcion si no existe
-        return ws
-    except Exception:
-        return None
+    """DEPRECATED: Usar Usuario.query en su lugar."""
+    return None
 
 # ====================================================================
 # STAFF AUTH (Responsables)
@@ -277,31 +258,25 @@ def crear_cuenta_cliente():
 # ====================================================================
 def enrich_client_data(user_data):
     """
-    Intenta completar dirección y ciudad desde DB_Clientes si faltan.
+    Intenta completar dirección y ciudad desde db_clientes en SQL.
     """
     nit = user_data.get('nit', '')
     if not nit:
         return user_data
 
-    # Limpiar NIT para búsqueda (quitar 'NIT ' o similares)
-    nit_clean = str(nit).upper().replace('NIT', '').strip()
-    
-    if not user_data.get('direccion') or not user_data.get('ciudad'):
-        try:
-            ws_db = sheets_client.get_worksheet("DB_Clientes")
-            if ws_db:
-                records = sheets_client.get_all_records_seguro(ws_db)
-                # Buscar por coincidencia parcial en IDENTIFICACION
-                match = next((r for r in records if nit_clean in str(r.get('IDENTIFICACION', '')).upper()), None)
-                
-                if match:
-                    if not user_data.get('direccion'):
-                        user_data['direccion'] = match.get('DIRECCION', '')
-                    if not user_data.get('ciudad'):
-                        user_data['ciudad'] = match.get('CIUDAD', '')
-                    logger.info(f"✅ Datos enriquecidos para {nit} desde DB_Clientes")
-        except Exception as e:
-            logger.error(f"⚠️ Error enriqueciendo datos desde DB_Clientes: {e}")
+    try:
+        from backend.models.sql_models import DbClientes
+        # Buscar por identificación
+        match = DbClientes.query.filter(DbClientes.identificacion.ilike(f"%{nit}%")).first()
+        
+        if match:
+            if not user_data.get('direccion'):
+                user_data['direccion'] = match.direccion
+            if not user_data.get('ciudad'):
+                user_data['ciudad'] = match.ciudad
+            logger.info(f"✅ Datos enriquecidos para {nit} desde SQL (db_clientes)")
+    except Exception as e:
+        logger.error(f"⚠️ Error enriqueciendo datos desde SQL: {e}")
             
     return user_data
 

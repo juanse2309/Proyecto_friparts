@@ -1,7 +1,6 @@
 from flask import Blueprint, jsonify, render_template, Response, request
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
-from backend.core.database import sheets_client
-from backend.config.settings import Hojas
+
 import difflib
 import csv
 import io
@@ -131,65 +130,35 @@ def get_backorder_detalle():
 def auditoria_fichas_fuzzy():
     """
     Realiza una auditoría de nombres (Fuzzy Matching) entre la nueva ficha maestra
-    y las hojas de producción existentes, exportando los resultados en un archivo CSV.
+    y las tablas de producción en PostgreSQL.
     """
     try:
-        # 1. Obtener datos de la NUEVA_FICHA_MAESTRA
-        ws_nueva = sheets_client.get_worksheet(Hojas.NUEVA_FICHA_MAESTRA)
-        if not ws_nueva:
-            return jsonify({"success": False, "error": "No se encontró la hoja NUEVA_FICHA_MAESTRA"}), 404
+        from backend.models.sql_models import FichaMaestra, ProduccionInyeccion, ProduccionPulido
+        from backend.core.sql_database import db
         
-        datos_nuevos = sheets_client.get_all_records_seguro(ws_nueva)
-        
-        # Filtrar filas de "Total" y extraer nombres únicos
+        # 1. Obtener datos de FichaMaestra
+        fichas = FichaMaestra.query.all()
         nuevos_nombres = set()
-        for r in datos_nuevos:
-            prod = str(r.get("Producto", "")).strip()
-            subprod = str(r.get("SubProducto", "")).strip()
-            
-            if not prod or "total" in prod.lower():
-                continue
-                
-            nuevos_nombres.add(prod)
-            if subprod and "total" not in subprod.lower():
-                nuevos_nombres.add(subprod)
+        for f in fichas:
+            if f.producto: nuevos_nombres.add(f.producto.strip())
+            if f.subproducto: nuevos_nombres.add(f.subproducto.strip())
 
-        # 2. Obtener nombres existentes de las hojas de origen
-        def extraer_nombres_unicos(nombre_hoja, columnas):
-            ws = sheets_client.get_worksheet(nombre_hoja)
-            if not ws: return set()
-            records = sheets_client.get_all_records_seguro(ws)
-            nombres = set()
-            for r in records:
-                for col in columnas:
-                    val = str(r.get(col, "")).strip()
-                    if val and "total" not in val.lower():
-                        nombres.add(val)
-            return nombres
+        # 2. Obtener nombres de producción
+        nombres_iny = {r[0] for r in db.session.query(ProduccionInyeccion.id_codigo).distinct().all() if r[0]}
+        nombres_pul = {r[0] for r in db.session.query(ProduccionPulido.codigo).distinct().all() if r[0]}
 
-        nombres_iny = extraer_nombres_unicos(Hojas.INYECCION, ["PRODUCTO", "ID CODIGO", "CODIGO"])
-        nombres_pul = extraer_nombres_unicos(Hojas.PULIDO, ["PRODUCTO", "ID CODIGO", "CODIGO"])
-
-        # Mapeo de búsqueda: nombre -> hoja_origen
         existentes_map = {}
         for n in nombres_iny: existentes_map[n] = "INYECCION"
         for n in nombres_pul: existentes_map[n] = "PULIDO"
-
         existentes_lista = list(existentes_map.keys())
 
-        # 3. Realizar Fuzzy Matching
+        # 3. Fuzzy Matching
         mapeo_propuesto = []
         for nombre_nuevo in sorted(list(nuevos_nombres)):
             coincidencias = difflib.get_close_matches(nombre_nuevo, existentes_lista, n=1, cutoff=0.3)
-            
-            if coincidencias:
-                mejor_match = coincidencias[0]
-                confianza = difflib.SequenceMatcher(None, nombre_nuevo, mejor_match).ratio()
-                origen = existentes_map[mejor_match]
-            else:
-                mejor_match = "SIN COINCIDENCIA"
-                confianza = 0.0
-                origen = "N/A"
+            mejor_match = coincidencias[0] if coincidencias else "SIN COINCIDENCIA"
+            confianza = difflib.SequenceMatcher(None, nombre_nuevo, mejor_match).ratio() if coincidencias else 0.0
+            origen = existentes_map.get(mejor_match, "N/A")
 
             mapeo_propuesto.append({
                 "Nombre_Nuevo_Maestra": nombre_nuevo,
@@ -198,20 +167,20 @@ def auditoria_fichas_fuzzy():
                 "Hoja_Origen_Actual": origen
             })
 
-        # 4. Generar CSV en memoria (StringIO)
         output = io.StringIO()
         fieldnames = ["Nombre_Nuevo_Maestra", "Mejor_Coincidencia_Actual", "Porcentaje_Confianza", "Hoja_Origen_Actual"]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
-        
         writer.writeheader()
         writer.writerows(mapeo_propuesto)
         
-        # 5. Retornar el archivo como descarga
         return Response(
             output.getvalue(),
             mimetype="text/csv",
-            headers={"Content-disposition": "attachment; filename=auditoria_fichas_mapping.csv"}
+            headers={"Content-disposition": "attachment; filename=auditoria_fichas_mapping_sql.csv"}
         )
+    except Exception as e:
+        logger.error(f"Error auditoria SQL: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
     except Exception as e:
         import traceback

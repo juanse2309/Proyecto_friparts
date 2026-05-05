@@ -1012,7 +1012,7 @@ class RepositoryService:
     def get_backorder_detalle_por_cliente_sql(self, cliente_nombre, start_date=None, end_date=None):
         """Retorna el detalle de productos pendientes para un cliente específico con impacto financiero."""
         from sqlalchemy import text
-        from backend.core.database import db
+        from backend.core.sql_database import db
         
         def _sql_cast_num(col):
             return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"

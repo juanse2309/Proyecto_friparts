@@ -1,9 +1,7 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
 from flask import Blueprint, jsonify, request, session
-from backend.core.database import sheets_client
-from backend.config.settings import Hojas, TenantConfig
+from backend.models.sql_models import db, Pedido
 from backend.core.tenant import get_tenant_from_request
-import gspread
 from datetime import datetime
 import logging
 import json
@@ -15,12 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_tenant():
-    """Resuelve el tenant desde la sesión y retorna (tenant, hoja_pedidos, hoja_productos)."""
+    """Resuelve el tenant desde la sesión."""
     tenant = get_tenant_from_request()
-    hoja_pedidos = TenantConfig.get(tenant, 'PEDIDOS')
-    hoja_productos = TenantConfig.get(tenant, 'PRODUCTOS')
-    logger.info(f"🏢 [Tenant] Resuelto: {tenant} → PEDIDOS={hoja_pedidos}, PRODUCTOS={hoja_productos}")
-    return tenant, hoja_pedidos, hoja_productos
+    logger.info(f"🏢 [Tenant] Resuelto: {tenant}")
+    return tenant
 
 def _buscar_producto_inteligente(codigo_buscado, registros):
     """
@@ -52,35 +48,8 @@ def _buscar_producto_inteligente(codigo_buscado, registros):
     return None, None
 
 def obtener_siguiente_id_pedido(hoja_pedidos=None):
-    """Genera el siguiente ID secuencial con formato PED9643 (o MPED para Frimetals)."""
-    try:
-        nombre_hoja = hoja_pedidos or Hojas.PEDIDOS
-        ws = sheets_client.get_worksheet(nombre_hoja)
-        if not ws:
-            raise ValueError(f"Hoja {nombre_hoja} no encontrada")
-        col_values = ws.col_values(1)  # columna A = ID PEDIDO
-        
-        import re
-        max_num = 0
-        base_inicial = 9644
-        
-        for val in col_values[1:]:
-            val_str = str(val).strip().upper()
-            # Buscamos estrictamente formato PED seguido de SOLAMENTE DIGITOS (no PED-UUID)
-            match = re.match(r'^PED(\d+)$', val_str)
-            if match:
-                num = int(match.group(1))
-                if num > max_num:
-                    max_num = num
-        
-        # Si no encontramos ningún PEDxxxx, iniciamos en la base solicitada
-        if max_num == 0:
-            return f"PED{base_inicial}"
-            
-        return f"PED{max_num + 1}"
-    except Exception as e:
-        logger.error(f"Error generando siguiente ID pedido: {e}")
-        return f"PED{datetime.now().strftime('%M%S')}" # Fallback seguro
+    """DEPRECATED: Usar _generar_siguiente_id_pedido_sql."""
+    return _generar_siguiente_id_pedido_sql()
 
 def _generar_siguiente_id_pedido_sql():
     """Genera el siguiente consecutivo PED-XXXX consultando la base de datos SQL."""
@@ -353,160 +322,43 @@ def obtener_pedidos_pendientes():
 @pedidos_bp.route('/api/pedidos/delegar', methods=['POST'])
 @require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN'])
 def delegar_pedido():
-    """
-    Asigna un pedido a una colaboradora específica.
-    """
+    """Asigna un pedido a una colaboradora en SQL."""
     try:
         data = request.json
-        id_pedido = data.get("id_pedido")
-        colaboradora = data.get("colaboradora")
+        id_p = data.get("id_pedido")
+        colab = data.get("colaboradora")
         
-        if not id_pedido or colaboradora is None:
-            return jsonify({"success": False, "error": "ID Pedido y Colaboradora requeridos"}), 400
-            
-        _, hoja_pedidos, _ = _resolve_tenant()
-        ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = sheets_client.get_all_records_seguro(ws)
-        headers = ws.row_values(1)
+        if not id_p: return jsonify({"error": "ID requerido"}), 400
         
-        if "DELEGADO_A" not in headers:
-            # Crear columna si no existe
-            col_idx = len(headers) + 1
-            ws.update_cell(1, col_idx, "DELEGADO_A")
-            headers.append("DELEGADO_A")
-            
-        col_id = headers.index("ID PEDIDO") + 1
-        col_delegado = headers.index("DELEGADO_A") + 1
-        
-        updates = []
-        for idx, r in enumerate(registros):
-            if str(r.get("ID PEDIDO")) == str(id_pedido):
-                fila = idx + 2
-                updates.append({
-                    'range': gspread.utils.rowcol_to_a1(fila, col_delegado),
-                    'values': [[colaboradora]]
-                })
-        
-        if updates:
-            ws.batch_update(updates)
-            from backend.app import invalidar_cache_pedidos
-            invalidar_cache_pedidos()
-            return jsonify({"success": True, "message": f"Pedido {id_pedido} delegado a {colaboradora}"})
-        else:
-            return jsonify({"success": False, "error": "Pedido no encontrado"}), 404
-            
+        Pedido.query.filter_by(id_pedido=id_p).update({"delegado_a": colab})
+        db.session.commit()
+        return jsonify({"success": True, "message": f"Pedido {id_p} delegado a {colab}"})
     except Exception as e:
-        logger.error(f"Error delegando pedido: {e}")
+        db.session.rollback()
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/eliminar-producto', methods=['POST'])
 @require_role(ROL_ADMINS + ['JEFE ALMACEN'])
 def eliminar_producto_pedido():
-    """
-    Elimina un producto específico de un pedido y restaura el inventario.
-    Solo permitido para Andrés y Administradores.
-    No se puede eliminar si el producto ya fue despachado.
-    """
+    """Elimina un producto de un pedido en SQL y restaura stock."""
     try:
         data = request.json
-        id_pedido = data.get("id_pedido")
-        codigo = data.get("codigo")
+        id_p = data.get("id_pedido")
+        cod = data.get("codigo")
         
-        if not id_pedido or not codigo:
-            return jsonify({"success": False, "error": "ID Pedido y Código requeridos"}), 400
+        item = Pedido.query.filter_by(id_pedido=id_p, id_codigo=cod).first()
+        if not item: return jsonify({"error": "No hallado"}), 404
         
-        logger.info(f"🗑️ Solicitud de eliminación: Pedido={id_pedido}, Código={codigo}")
+        # Restaurar stock
+        from backend.app import actualizar_stock
+        actualizar_stock(cod, float(item.cantidad or 0), "STOCK_BODEGA", "ENTRADA", f"ELIMINACION {id_p}")
         
-        # Obtener hojas
-        _, hoja_pedidos, hoja_productos = _resolve_tenant()
-        ws_pedidos = sheets_client.get_worksheet(hoja_pedidos)
-        ws_productos = sheets_client.get_worksheet(hoja_productos)
-        
-        registros = sheets_client.get_all_records_seguro(ws_pedidos)
-        headers = ws_pedidos.row_values(1)
-        
-        # Buscar el producto en el pedido
-        fila_a_eliminar = None
-        cantidad_a_restaurar = 0
-        estado_despacho = False
-        
-        for idx, r in enumerate(registros):
-            if str(r.get("ID PEDIDO")) == str(id_pedido) and str(r.get("ID CODIGO")).strip().upper() == str(codigo).strip().upper():
-                fila_a_eliminar = idx + 2  # +1 header, +1 0-index
-                cantidad_a_restaurar = float(r.get("CANTIDAD", 0))
-                
-                # Verificar si ya fue despachado
-                estado_despacho_str = str(r.get("ESTADO_DESPACHO", "FALSE")).strip().upper()
-                estado_despacho = estado_despacho_str == "TRUE"
-                
-                logger.info(f"   Producto encontrado en fila {fila_a_eliminar}")
-                logger.info(f"   Cantidad: {cantidad_a_restaurar}")
-                logger.info(f"   Estado despacho: {estado_despacho}")
-                break
-        
-        if not fila_a_eliminar:
-            return jsonify({"success": False, "error": "Producto no encontrado en el pedido"}), 404
-        
-        # Validar que no esté despachado
-        if estado_despacho:
-            return jsonify({
-                "success": False, 
-                "error": "No se puede eliminar un producto que ya fue despachado"
-            }), 400
-        
-        # Restaurar inventario
-        try:
-            registros_productos = sheets_client.get_all_records_seguro(ws_productos)
-            headers_productos = ws_productos.row_values(1)
-            
-            col_terminado = headers_productos.index("P. TERMINADO") + 1
-            
-            # Buscar el producto en inventario
-            for idx, p in enumerate(registros_productos):
-                codigo_prod = str(p.get("ID CODIGO", "")).strip().upper()
-                codigo_buscar = str(codigo).strip().upper()
-                
-                if codigo_prod == codigo_buscar:
-                    fila_producto = idx + 2
-                    stock_actual = float(p.get("P. TERMINADO", 0) or 0)
-                    nuevo_stock = stock_actual + cantidad_a_restaurar
-                    
-                    # Actualizar stock
-                    ws_productos.update_cell(fila_producto, col_terminado, nuevo_stock)
-                    logger.info(f"   ✅ Inventario restaurado: {stock_actual} + {cantidad_a_restaurar} = {nuevo_stock}")
-                    break
-        except Exception as e_inv:
-            logger.warning(f"   ⚠️ No se pudo restaurar inventario: {e_inv}")
-            # Continuamos con la eliminación aunque falle la restauración
-        
-        # Eliminar la fila del pedido
-        ws_pedidos.delete_rows(fila_a_eliminar)
-        logger.info(f"   🗑️ Fila {fila_a_eliminar} eliminada de PEDIDOS")
-        
-        # Verificar si quedan productos en el pedido
-        registros_actualizados = sheets_client.get_all_records_seguro(ws_pedidos)
-        productos_restantes = [r for r in registros_actualizados if str(r.get("ID PEDIDO")) == str(id_pedido)]
-        
-        if len(productos_restantes) == 0:
-            logger.info(f"   ⚠️ No quedan productos en el pedido {id_pedido}")
-            return jsonify({
-                "success": True, 
-                "message": "Producto eliminado. El pedido no tiene más productos.",
-                "pedido_vacio": True
-            })
-        else:
-            logger.info(f"   ✅ Quedan {len(productos_restantes)} productos en el pedido")
-            return jsonify({
-                "success": True, 
-                "message": f"Producto {codigo} eliminado del pedido",
-                "pedido_vacio": False
-            })
-        
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"success": True})
     except Exception as e:
-        logger.error(f"❌ Error eliminando producto: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/actualizar-alistamiento', methods=['POST'])
 def actualizar_alistamiento():
@@ -592,83 +444,28 @@ def actualizar_alistamiento():
 
 @pedidos_bp.route('/api/pedidos/cliente', methods=['GET'])
 def obtener_pedidos_cliente():
-    """
-    Retorna el historial de pedidos de un cliente basado en su NIT.
-    """
+    """Historial de pedidos por NIT desde SQL (db_pedidos)."""
     try:
         nit = request.args.get('nit')
-        # También podrías aceptar 'cliente' (nombre) como fallback si el NIT no está presente en todos los registros
+        if not nit: return jsonify({"error": "NIT requerido"}), 400
         
-        if not nit:
-             return jsonify({"success": False, "error": "NIT requerido"}), 400
-
-        _, hoja_pedidos, _ = _resolve_tenant()
-        ws = sheets_client.get_worksheet(hoja_pedidos)
-        registros = sheets_client.get_all_records_seguro(ws)
-        
-        # Filtrar por NIT
-        # Normalizar NIT input
-        nit_str = str(nit).strip().upper()
-
-        # Re-dict para sumar bien
-        calc_dict = {}
-        
-        for r in registros:
-            # Normalizar NIT en registro
-            r_nit = str(r.get("NIT", "")).strip().upper()
+        items = Pedido.query.filter_by(nit=str(nit)).all()
+        # Agrupar por id_pedido
+        ped_map = {}
+        for r in items:
+            id_p = r.id_pedido
+            if id_p not in ped_map:
+                ped_map[id_p] = {
+                    "id": id_p,
+                    "fecha": r.fecha.strftime('%Y-%m-%d') if r.fecha else "",
+                    "estado": r.estado,
+                    "items": 0,
+                    "total": 0.0
+                }
+            ped_map[id_p]["items"] += float(r.cantidad or 0)
+            ped_map[id_p]["total"] += float(r.total or 0)
             
-            # Comparación robusta
-            if r_nit == nit_str:
-                id_p = r.get("ID PEDIDO")
-                # Si el NIT coincide, procesamos
-                if id_p not in calc_dict:
-                    calc_dict[id_p] = {
-                        "id": id_p,
-                        "fecha": r.get("FECHA"),
-                        "estado": r.get("ESTADO"),
-                        "progreso": str(r.get("PROGRESO", "0%")).replace('%', ''),
-                        "progreso_despacho": str(r.get("PROGRESO_DESPACHO", "0%")).replace('%', ''),
-                        "total_dinero": 0.0,
-                        "items_count": 0
-                    }
-                
-                # Sumar Dinero (TOTAL es por item en la hoja)
-                try:
-                    raw_total = str(r.get("TOTAL", 0)).replace(',','').replace('$','')
-                    val_total = float(raw_total) if raw_total else 0
-                except:
-                    val_total = 0
-                
-                # Sumar items
-                try:
-                    val_cant = float(r.get("CANTIDAD", 0))
-                except:
-                    val_cant = 0
-                    
-                calc_dict[id_p]["total_dinero"] += val_total
-                calc_dict[id_p]["items_count"] += val_cant
-
-        # Convertir a lista y formatear
-        final_list = []
-        for pid, data in calc_dict.items():
-            final_list.append({
-                "id": data["id"],
-                "fecha": data["fecha"],
-                "estado": data["estado"],
-                "progreso": float(data["progreso"]) if data["progreso"] else 0,
-                "progreso_despacho": float(data["progreso_despacho"]) if data.get("progreso_despacho") else 0,
-                "items": int(data["items_count"]),
-                "total": data["total_dinero"] # Frontend format currency
-            })
-            
-        # Ordenar por fecha desc (o ID desc)
-        final_list.sort(key=lambda x: x["id"], reverse=True)
-
-        return jsonify({
-            "success": True, 
-            "pedidos": final_list
-        })
-
+        final = sorted(list(ped_map.values()), key=lambda x: x['id'], reverse=True)
+        return jsonify({"success": True, "pedidos": final})
     except Exception as e:
-        logger.error(f"Error cargando pedidos cliente: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500

@@ -45,7 +45,6 @@ import time
 import collections
 import datetime
 from flask import request
-from backend.config.settings import Hojas
 
 # Cache con llave por filtro (Timeout: 10 mins)
 # Estructura: {(desde, hasta): {"data": ..., "timestamp": ...}}
@@ -70,7 +69,6 @@ def clean_currency(val):
     except ValueError:
         return 0
 
-
 def parsear_fecha_dashboard(fecha_str):
     """Parsea DD/MM/YYYY o YYYY-MM-DD o objeto date/datetime"""
     if not fecha_str: return None
@@ -83,45 +81,6 @@ def parsear_fecha_dashboard(fecha_str):
         return datetime.datetime.strptime(fecha_str.split(' ')[0], '%d/%m/%Y').date()
     except:
         return None
-
-def get_all_records_seguro(ws):
-    """Obtiene registros de una hoja de forma robusta, manejando headers duplicados o vacíos."""
-    if not ws: return []
-    try:
-        datos = ws.get_all_values()
-        if not datos: return []
-        
-        headers = [h.strip() for h in datos[0]]
-        # Manejar headers vacíos o duplicados para gspread.get_all_records() no falle
-        # Pero aquí lo hacemos manual:
-        last_valid_idx = -1
-        for i, h in enumerate(headers):
-            if h: last_valid_idx = i
-            
-        header_keys = []
-        seen = {}
-        for i in range(last_valid_idx + 1):
-            h = headers[i]
-            if not h:
-                h = f"COL_{i}"
-            if h in seen:
-                seen[h] += 1
-                h = f"{h}_{seen[h]}"
-            else:
-                seen[h] = 0
-            header_keys.append(h)
-            
-        records = []
-        for row in datos[1:]:
-            record = {}
-            for i, key in enumerate(header_keys):
-                val = row[i] if i < len(row) else ""
-                record[key] = val
-            records.append(record)
-        return records
-    except Exception as e:
-        logger.error(f"Error en get_all_records_seguro: {e}")
-        return []
 
 
 @dashboard_bp.route('/stats', methods=['GET'])

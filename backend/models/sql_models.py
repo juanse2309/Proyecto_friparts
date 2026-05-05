@@ -363,3 +363,97 @@ class Molde(db.Model):
     cavidades_max   = db.Column(db.Integer, default=1)
     activo          = db.Column(db.Boolean, default=True)
     descripcion     = db.Column(db.String(255), nullable=True)
+
+
+class OperacionLog(db.Model):
+    """Modelo para registro de auditoría de operaciones en el sistema."""
+    __tablename__ = 'db_logs'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    fecha           = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    modulo          = db.Column(db.String(50), index=True)
+    operario        = db.Column(db.String(150))
+    accion          = db.Column(db.String(255))
+    detalles        = db.Column(db.Text, nullable=True)
+
+
+class MetalsProduccion(db.Model):
+    __tablename__ = 'metals_produccion'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.String(80), primary_key=True)
+    fecha           = db.Column(db.String(50))
+    responsable     = db.Column(db.String(150), index=True)
+    departamento    = db.Column(db.String(100))
+    proceso         = db.Column(db.String(150))
+    maquina         = db.Column(db.String(100))
+    codigo          = db.Column(db.String(50), index=True)
+    descripcion     = db.Column(db.String(500))
+    cantidad_ok     = db.Column(db.Numeric(18, 2), default=0)
+    pnc             = db.Column(db.Numeric(18, 2), default=0)
+    hora_inicio     = db.Column(db.String(50))
+    hora_fin        = db.Column(db.String(50))
+    tiempo          = db.Column(db.String(50))
+    observaciones   = db.Column(db.Text)
+    campos_extra    = db.Column(db.Text)
+
+
+class MetalsPersonal(db.Model):
+    __tablename__ = 'metals_personal'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    responsable     = db.Column(db.String(150), unique=True)
+    departamento    = db.Column(db.String(100))
+    documento       = db.Column(db.String(50))
+    activo          = db.Column(db.String(10), default='SI')
+
+
+class DbProveedor(db.Model):
+    __tablename__ = 'db_proveedores'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    nombre          = db.Column(db.String(200), index=True)
+    nit             = db.Column(db.String(50))
+    direccion       = db.Column(db.String(300))
+    contacto        = db.Column(db.String(150))
+    telefono        = db.Column(db.String(100))
+    correo          = db.Column(db.String(150))
+    proceso         = db.Column(db.String(100))
+    forma_pago      = db.Column(db.String(100))
+    evaluacion      = db.Column(db.String(50))
+
+
+class OrdenCompra(db.Model):
+    __tablename__ = 'ordenes_de_compra'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    fecha_solicitud = db.Column(db.String(50))
+    n_oc            = db.Column(db.String(50), index=True)
+    proveedor       = db.Column(db.String(200))
+    producto        = db.Column(db.String(50), index=True)
+    cantidad        = db.Column(db.Numeric(18, 2), default=0)
+    fecha_factura   = db.Column(db.String(50))
+    n_factura       = db.Column(db.String(80))
+    cantidad_fact   = db.Column(db.Numeric(18, 2), default=0)
+    fecha_llegada   = db.Column(db.String(50))
+    cantidad_recibida = db.Column(db.Numeric(18, 2), default=0)
+    diferencia      = db.Column(db.Numeric(18, 2), default=0)
+    observaciones   = db.Column(db.Text)
+    cantidad_enviada = db.Column(db.Numeric(18, 2), default=0)
+    estado_proceso  = db.Column(db.String(100))
+
+
+class MetalsCliente(db.Model):
+    __tablename__ = 'metals_clientes'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    nombre          = db.Column(db.String(200), index=True)
+    nit             = db.Column(db.String(50))
+    direccion       = db.Column(db.String(300))
+    ciudad          = db.Column(db.String(100))
+    telefono        = db.Column(db.String(100))
