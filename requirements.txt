@@ -9,3 +9,4 @@ reportlab
 flask-sqlalchemy
 sqlalchemy
 psycopg2-binary
+requests
