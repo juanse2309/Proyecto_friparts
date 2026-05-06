@@ -125,15 +125,26 @@ def obtener_responsables():
     try:
         from backend.models.sql_models import Usuario
         usuarios = Usuario.query.filter_by(activo=True).order_by(Usuario.nombre_completo).all()
-        nombres = [u.nombre_completo for u in usuarios if u.nombre_completo]
-        if not nombres:
+        # Retornamos objeto completo para que el frontend pueda filtrar por departamento
+        # Usamos nombre_completo si existe, sino el username
+        datos = []
+        for u in usuarios:
+            nombre_final = u.nombre_completo if u.nombre_completo else u.username
+            datos.append({
+                "nombre": nombre_final,
+                "departamento": u.departamento or "",
+                "username": u.username
+            })
+        
+        if not datos:
             from backend.core.sql_database import db
             from sqlalchemy import text
             rows = db.session.execute(text(
                 "SELECT DISTINCT colaborador FROM db_asistencia WHERE colaborador IS NOT NULL ORDER BY colaborador"
             )).fetchall()
-            nombres = [r[0] for r in rows if r[0]]
-        return jsonify([{"nombre": n} for n in nombres]), 200
+            datos = [{"nombre": r[0], "departamento": "", "username": r[0]} for r in rows if r[0]]
+            
+        return jsonify(datos), 200
     except Exception as e:
         logger.error(f"❌ Error obteniendo responsables SQL: {e}")
         return jsonify([]), 200

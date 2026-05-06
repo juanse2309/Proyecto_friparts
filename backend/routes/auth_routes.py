@@ -24,13 +24,13 @@ def get_metals_responsables():
         # Por ahora, usamos el campo 'departamento' si existe en el modelo
         users = Usuario.query.filter(Usuario.activo == True).all()
         
-        usuarios = []
         for u in users:
-            # Filtro básico: si el username o departamento sugieren que es de metales
+            # Priorizar nombre_completo, luego username
+            nombre_final = u.nombre_completo if u.nombre_completo else u.username
             usuarios.append({
-                "nombre": u.username,
-                "departamento": getattr(u, 'departamento', 'Planta'),
-                "documento": "" # SQL no suele tener documento en Usuario por ahora
+                "nombre": nombre_final,
+                "departamento": u.departamento or 'Planta',
+                "username": u.username
             })
         
         return jsonify(usuarios)
@@ -109,10 +109,12 @@ def get_responsables():
         
         responsables = []
         for u in users:
+            nombre_final = u.nombre_completo if u.nombre_completo else u.username
             responsables.append({
-                "nombre": u.username,
-                "departamento": u.rol.capitalize(),
-                "rol": u.rol
+                "nombre": nombre_final,
+                "departamento": u.departamento or u.rol.capitalize(),
+                "rol": u.rol,
+                "username": u.username
             })
             
         return jsonify(responsables)
@@ -183,9 +185,11 @@ def login():
              return jsonify({
                  "success": True, 
                  "user": {
-                     "nombre": user.username,
+                     "nombre": user.nombre_completo if user.nombre_completo else user.username,
+                     "username": user.username,
                      "rol": rol_display,
-                     "tipo": "STAFF"
+                     "tipo": "STAFF",
+                     "departamento": user.departamento
                  }
              })
         else:

@@ -410,13 +410,14 @@ const AlmacenModule = {
                                             <option value="">Sin asignar</option>
                                             ${(window.AppState.sharedData.responsables || [])
                             .filter(r => {
-                                const nome = typeof r === 'object' ? r.nombre : r;
-                                const depto = (typeof r === 'object' ? r.departamento : '').toUpperCase();
+                                if (!r) return false;
+                                const nome = typeof r === 'object' ? (r.nombre || '') : r;
+                                const depto = (typeof r === 'object' ? (r.departamento || '') : '').toUpperCase();
                                 const esUsuarioActual = nome === (currentUser?.nombre || currentUser?.name);
                                 return depto.includes('ALISTAMIENTO') || esUsuarioActual;
                             })
                             .map(r => {
-                                const nome = typeof r === 'object' ? r.nombre : r;
+                                const nome = typeof r === 'object' ? (r.nombre || '') : r;
                                 return `<option value="${nome}" ${pedido.delegado_a === nome ? 'selected' : ''}>${nome}</option>`;
                             }).join('')}
                                         </select>
@@ -470,6 +471,7 @@ const AlmacenModule = {
      * Determina el color del badge según el estado
      */
     getColorEstado: function (estado) {
+        if (!estado) return '#94a3b8';
         switch (estado.toUpperCase()) {
             case 'PENDIENTE': return '#64748b';
             case 'EN ALISTAMIENTO': return '#6366f1';
