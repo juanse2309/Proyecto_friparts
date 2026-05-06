@@ -408,7 +408,7 @@ class RepositoryService:
                 LEFT JOIN db_clientes c ON p.nit = c.identificacion
                 WHERE p.estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
                   AND p.estado IS NOT NULL
-                ORDER BY p.fecha DESC, p.id_pedido DESC
+                ORDER BY p.fecha ASC, p.id_pedido ASC
             """
             rows = db.session.execute(text(sql)).mappings().all()
             
@@ -438,7 +438,7 @@ class RepositoryService:
                         "id_pedido": nro_pedido,
                         "nro_pedido": nro_pedido,
                         "fecha": str(r['fecha'])[:10] if r['fecha'] else '',
-                        "hora": r['hora'] or '',
+                        "hora": str(r['hora'] or '').strip(),
                         "cliente": r['nombre_cliente'],
                         "direccion": dir_completa,
                         "vendedor": r['vendedor'] or '',
@@ -449,6 +449,10 @@ class RepositoryService:
                         "progreso_despacho": r['progreso_despacho'] or '0',
                         "productos": []
                     }
+                else:
+                    # Robustez: Si la primera fila no tenía hora pero esta sí, capturarla
+                    if not agrupados[nro_pedido]["hora"] and r['hora']:
+                        agrupados[nro_pedido]["hora"] = str(r['hora']).strip()
                 
                 # Función segura de limpieza para el dashboard
                 def _safe_float(val):

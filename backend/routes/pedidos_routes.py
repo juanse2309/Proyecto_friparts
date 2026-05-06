@@ -497,10 +497,15 @@ def obtener_pedidos_cliente():
                 ped_map[id_p] = {
                     "id": id_p,
                     "fecha": r.fecha.strftime('%Y-%m-%d') if r.fecha else "",
+                    "hora": str(r.hora or "").strip(),
                     "estado": r.estado,
                     "items": 0,
                     "total": 0.0
                 }
+            else:
+                if not ped_map[id_p]["hora"] and r.hora:
+                    ped_map[id_p]["hora"] = str(r.hora).strip()
+            
             ped_map[id_p]["items"] += float(r.cantidad or 0)
             ped_map[id_p]["total"] += float(r.total or 0)
             
