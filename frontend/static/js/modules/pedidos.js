@@ -498,6 +498,7 @@ const ModuloPedidos = {
 
         // 3. Cargar productos (conviertiendo de la estructura del backend)
         this.listaProductos = pedido.productos.map(p => ({
+            id_sql: p.id_sql, // Persistir ID único de BD
             codigo: p.codigo,
             descripcion: p.descripcion,
             cantidad: p.cantidad,
@@ -891,6 +892,7 @@ const ModuloPedidos = {
                 descuento_global: descuentoGlobal,
                 observaciones: document.getElementById('ped-observaciones').value || '',
                 productos: this.listaProductos.map(item => ({
+                    id_sql: item.id_sql || null, // Enviar si existe para UPSERT
                     codigo: item.codigo,
                     descripcion: item.descripcion,
                     cantidad: item.cantidad,

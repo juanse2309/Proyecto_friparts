@@ -209,7 +209,7 @@ class Pedido(db.Model):
     __tablename__ = 'db_pedidos'
     __table_args__ = {'extend_existing': True}
 
-    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    id_sql          = db.Column("id", db.Integer, primary_key=True, autoincrement=True)
     fecha           = db.Column(db.Date,        index=True, nullable=True)
     hora            = db.Column(db.String(20),  nullable=True)
     id_pedido       = db.Column(db.String(80),  index=True, nullable=True) # ID PEDIDO

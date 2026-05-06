@@ -1,6 +1,7 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
 from flask import Blueprint, jsonify, request, session
 from backend.models.sql_models import db, Pedido
+from sqlalchemy import text
 from backend.core.tenant import get_tenant_from_request
 from datetime import datetime
 import logging
@@ -79,17 +80,17 @@ def _generar_siguiente_id_pedido_sql():
 @require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN'])
 def registrar_pedido():
     """
-    Registra un pedido en PostgreSQL (SQL-Native).
-    Elimina dependencia total de Google Sheets para el guardado.
+    Registra o actualiza un pedido en PostgreSQL (SQL-Native).
+    Implementa lógica de UPSERT basada en id_sql e id_pedido.
     """
     from backend.models.sql_models import Pedido
     from backend.core.sql_database import db
     
     try:
-        # Asegurar transacción limpia (Evitar InFailedSqlTransaction persistente)
+        # Asegurar transacción limpia
         db.session.rollback()
         
-        logger.info("🛒 ===== INICIO REGISTRO DE PEDIDO (SQL-NATIVE) =====")
+        logger.info("🛒 ===== INICIO REGISTRO DE PEDIDO (UPSERT-MODE) =====")
         data = request.json
         if not data:
             return jsonify({"success": False, "error": "No data provided"}), 400
@@ -106,15 +107,19 @@ def registrar_pedido():
         observaciones = data.get('observaciones', '')
         productos = data.get('productos', [])
         
-        print(f"DEBUG: [REGISTRO] Cliente: {cliente} | Dir: {direccion} | Ciudad: {ciudad} | Pago: {forma_pago} | Desc: {descuento_global}%")
-        print(f"DEBUG: [REGISTRO] Productos recibidos: {len(productos)}")
-        
         if not all([fecha_str, vendedor, cliente]):
             return jsonify({"success": False, "error": "Faltan campos obligatorios: fecha, vendedor, cliente"}), 400
             
-        # 2. Generar ID Único Secuencial (PED-XXXX)
-        id_pedido = _generar_siguiente_id_pedido_sql()
-        logger.info(f"🆔 ID Generado para SQL: {id_pedido}")
+        # 2. Determinar ID de Pedido (Nuevo o Existente)
+        id_pedido_final = data.get('id_pedido')
+        es_edicion = False
+        if not id_pedido_final:
+            id_pedido_final = _generar_siguiente_id_pedido_sql()
+            logger.info(f"🆔 Nuevo ID Pedido Generado: {id_pedido_final}")
+        else:
+            id_pedido_final = str(id_pedido_final).strip().upper()
+            es_edicion = True
+            logger.info(f"🔄 Actualizando Pedido Existente: {id_pedido_final}")
 
         # Convertir fecha
         try:
@@ -124,18 +129,30 @@ def registrar_pedido():
 
         # Capturar hora actual
         try:
-            import pytz
             tz_colombia = pytz.timezone('America/Bogota')
             hora_actual = datetime.now(tz_colombia).strftime('%I:%M %p')
         except:
             hora_actual = datetime.now().strftime('%I:%M %p')
 
-        # 3. Guardar cada ítem del pedido en la tabla db_pedidos
+        # 3. Guardar cada ítem con Lógica UPSERT
         if not productos:
              return jsonify({"success": False, "error": "Debe incluir al menos un producto"}), 400
 
-        items_agregados = 0
+        # Sincronización de eliminaciones: Si es edición, borrar lo que ya no viene en el payload
+        if es_edicion:
+            ids_enviados = [p.get('id_sql') for p in productos if p.get('id_sql')]
+            if ids_enviados:
+                try:
+                    db.session.execute(
+                        text("DELETE FROM db_pedidos WHERE id_pedido = :id_p AND id NOT IN :ids"),
+                        {"id_p": id_pedido_final, "ids": tuple(ids_enviados)}
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Error limpiando items eliminados: {e}")
+
+        items_procesados = 0
         for prod in productos:
+            id_sql = prod.get('id_sql')
             codigo = str(prod.get('codigo', '')).strip().upper()
             cantidad = float(prod.get('cantidad', 0))
             precio = float(prod.get('precio_unitario', 0))
@@ -145,31 +162,81 @@ def registrar_pedido():
             if not codigo or cantidad <= 0:
                 continue
 
-            nuevo_registro = Pedido(
-                id_pedido=id_pedido,
-                fecha=fecha_dt,
-                hora=hora_actual,
-                cliente=cliente,
-                nit=nit,
-                direccion=direccion,
-                ciudad=ciudad,
-                vendedor=vendedor,
-                id_codigo=codigo,
-                descripcion=descripcion,
-                cantidad=cantidad,
-                precio_unitario=precio,
-                total=total_item,
-                estado='PENDIENTE',
-                observaciones=observaciones,
-                forma_de_pago=forma_pago,
-                descuento=descuento_global
-            )
-            db.session.add(nuevo_registro)
-            items_agregados += 1
+            # Buscar registro existente para UPSERT
+            registro_existente = None
+            if id_sql:
+                registro_existente = Pedido.query.get(id_sql)
+            else:
+                # Fallback: Buscar por id_pedido + id_codigo
+                registro_existente = Pedido.query.filter_by(id_pedido=id_pedido_final, id_codigo=codigo).first()
+
+            if registro_existente:
+                # SOBREESCRITURA TOTAL (No sumatoria)
+                registro_existente.fecha = fecha_dt
+                registro_existente.cliente = cliente
+                registro_existente.nit = nit
+                registro_existente.direccion = direccion
+                registro_existente.ciudad = ciudad
+                registro_existente.id_codigo = codigo
+                registro_existente.descripcion = descripcion
+                registro_existente.cantidad = cantidad 
+                registro_existente.precio_unitario = precio 
+                registro_existente.total = total_item
+                registro_existente.observaciones = observaciones
+                registro_existente.forma_de_pago = forma_pago
+                registro_existente.descuento = descuento_global
+            else:
+                # INSERT
+                nuevo_registro = Pedido(
+                    id_pedido=id_pedido_final,
+                    fecha=fecha_dt,
+                    hora=hora_actual,
+                    cliente=cliente,
+                    nit=nit,
+                    direccion=direccion,
+                    ciudad=ciudad,
+                    vendedor=vendedor,
+                    id_codigo=codigo,
+                    descripcion=descripcion,
+                    cantidad=cantidad,
+                    precio_unitario=precio,
+                    total=total_item,
+                    estado='PENDIENTE',
+                    observaciones=observaciones,
+                    forma_de_pago=forma_pago,
+                    descuento=descuento_global
+                )
+                db.session.add(nuevo_registro)
             
-        # 4. Transacción Atómica
-        db.session.commit()
-        logger.info(f"✅ Pedido {id_pedido} guardado físicamente en PostgreSQL. Items: {items_agregados}")
+            items_procesados += 1
+            
+        # 4. Transacción Final con Commit y Error Handling
+        try:
+            db.session.commit()
+            logger.info(f"✅ Pedido {id_pedido_final} procesado exitosamente. Items: {items_procesados}")
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"❌ Error en commit de Pedidos: {e}")
+            return jsonify({"success": False, "error": f"Error de persistencia: {str(e)}"}), 500
+
+        # Invalidad caché
+        try:
+            from backend.app import invalidar_cache_pedidos
+            invalidar_cache_pedidos()
+        except: pass
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Pedido {id_pedido_final} procesado correctamente",
+            "id_pedido": id_pedido_final
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"💥 Error crítico en registrar_pedido: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"Error interno: {str(e)}"}), 500
 
         # Invalidad caché de pedidos
         try:
@@ -248,36 +315,22 @@ def obtener_detalle_pedido(id_pedido):
                 return int(float(s))
             except: return 0
 
-        # 3. Mapear productos con colapso de duplicados (9319 vs FR-9319)
-        def _norm(c): return str(c or '').strip().upper().replace('FR-', '')
-
+        # 3. Mapear productos (Ya curados por el script)
         for item in items_sql:
-            codigo_raw = str(item.id_codigo or '').strip().upper()
-            codigo_norm = _norm(codigo_raw)
             cant_item = _clean_numeric(item.cantidad)
             ali_item = _clean_numeric(item.cant_alistada)
             precio_item = _clean_numeric(item.precio_unitario)
             
-            # Buscar si ya procesamos este producto en este pedido (por código normalizado)
-            existente = next((p for p in pedido["productos"] if _norm(p['codigo']) == codigo_norm), None)
-            
-            if existente:
-                existente["cantidad"] += cant_item
-                existente["cant_alistada"] += ali_item
-                existente["cant_lista"] = existente["cant_alistada"]
-                # Mantener el código con prefijo 'FR-' si aparece en alguna de las filas
-                if 'FR-' in codigo_raw and 'FR-' not in existente["codigo"]:
-                    existente["codigo"] = codigo_raw
-            else:
-                pedido["productos"].append({
-                    "codigo": codigo_raw,
-                    "descripcion": item.descripcion or "Sin descripción",
-                    "cantidad": cant_item,
-                    "precio_unitario": precio_item,
-                    "cant_alistada": ali_item,
-                    "cant_lista": ali_item,
-                    "progreso": item.progreso or "0%"
-                })
+            pedido["productos"].append({
+                "id_sql": item.id_sql, # CRÍTICO PARA UPSERT
+                "codigo": str(item.id_codigo or '').strip().upper(),
+                "descripcion": item.descripcion or "Sin descripción",
+                "cantidad": cant_item,
+                "precio_unitario": precio_item,
+                "cant_alistada": ali_item,
+                "cant_lista": ali_item,
+                "progreso": item.progreso or "0%"
+            })
         
         return jsonify({
             "success": True,

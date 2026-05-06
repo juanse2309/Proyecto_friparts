@@ -464,29 +464,21 @@ class RepositoryService:
                     try: return int(float(s))
                     except: return 0
 
-                # Lógica de colapso de productos duplicados (evitar 9319 vs FR-9319)
+                # Lógica de visualización única (Evitar duplicados incluso si hay error en DB)
                 def _norm_code(c):
                     return str(c or '').strip().upper().replace('FR-', '')
 
-                cant_ali = _safe_float(r['cant_alistada'])
                 codigo_actual = str(r['id_codigo'] or '').strip().upper()
                 codigo_norm = _norm_code(codigo_actual)
                 
-                # Buscar si este producto ya está en el pedido (por código normalizado)
-                producto_existente = next((p for p in agrupados[nro_pedido]["productos"] if _norm_code(p['codigo']) == codigo_norm), None)
+                # Buscar si este producto ya fue procesado para este pedido (Verdad Única)
+                ya_existe = any(_norm_code(p['codigo']) == codigo_norm for p in agrupados[nro_pedido]["productos"])
                 
-                if producto_existente:
-                    # Si ya existe, sumamos cantidades
-                    producto_existente["cantidad"] += _safe_float(r['cantidad'])
-                    producto_existente["total"] += _safe_float(r['total'])
-                    producto_existente["cant_alistada"] += cant_ali
-                    producto_existente["cant_lista"] = producto_existente["cant_alistada"]
-                    # Conservamos el código con prefijo si está disponible
-                    if 'FR-' in codigo_actual and 'FR-' not in producto_existente["codigo"]:
-                        producto_existente["codigo"] = codigo_actual
-                else:
-                    # Agregar producto nuevo
+                if not ya_existe:
+                    # Solo agregamos si es la primera vez que lo vemos en este pedido
+                    cant_ali = _safe_float(r['cant_alistada'])
                     agrupados[nro_pedido]["productos"].append({
+                        "id_sql": r.get('id_sql'), # Incluir para trazabilidad
                         "codigo": codigo_actual,
                         "descripcion": r['descripcion'] or '',
                         "cantidad": _safe_float(r['cantidad']),
@@ -494,6 +486,9 @@ class RepositoryService:
                         "cant_alistada": cant_ali,
                         "cant_lista": cant_ali
                     })
+                else:
+                    # Si ya existe, lo ignoramos para no duplicar cantidades en pantalla
+                    pass
             
             return list(agrupados.values())
         except Exception as e:
