@@ -521,11 +521,11 @@ const ModuloInyeccion = {
         }
 
         ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion', 'cantidad-real-inyeccion', 'inyeccion-entrada', 'inyeccion-salida'].forEach(id => {
-            document.getElementById(id)?.addEventListener('input', () => this.calculos());
+            document.getElementById(id)?.addEventListener('input', (e) => this.calculos(e.target.id));
         });
     },
 
-    calculos: function () {
+    calculos: function (triggerId) {
         const inputEntrada = document.getElementById('inyeccion-entrada');
         const inputSalida = document.getElementById('inyeccion-salida');
         const inputDisparos = document.getElementById('cantidad-inyeccion');
@@ -540,34 +540,23 @@ const ModuloInyeccion = {
         
         let disparos = parseInt(inputDisparos?.value);
         
-        // 1. Cálculo por Entrada/Salida (Si están definidos y el foco no está en disparos)
-        if (salida > 0 && entrada >= 0 && salida >= entrada) {
+        // 1. Sincronización de Disparos por Entrada/Salida
+        // SOLO ocurre si el trigger fue entrada o salida para garantizar independencia total
+        if ((triggerId === 'inyeccion-entrada' || triggerId === 'inyeccion-salida') && salida > 0 && salida >= entrada) {
             const calcDisparos = salida - entrada;
-            if (document.activeElement !== inputDisparos) {
-                disparos = calcDisparos;
-                if (inputDisparos) inputDisparos.value = disparos;
-            }
+            disparos = calcDisparos;
+            if (inputDisparos) inputDisparos.value = disparos;
         } 
-        // 2. Cálculo automático desde Cantidad Real (Si el usuario escribe allí)
-        else if (document.activeElement === inputReal && inputReal.value !== '') {
-            const manualReal = parseInt(inputReal.value) || 0;
-            const bruto = manualReal + pnc;
-            disparos = Math.ceil(bruto / (cavidades || 1));
-            if (inputDisparos) inputDisparos.value = isFinite(disparos) ? disparos : 1;
-        }
 
-        // Si disparos es NaN o <= 0, y no estamos editando la cantidad real, 
-        // asegurar que al menos sea un valor coherente para la visualización
-        if (isNaN(disparos) || disparos < 0) {
-            disparos = (inputDisparos?.value === '') ? 0 : (parseInt(inputDisparos?.value) || 0);
-        }
+        // Si disparos es NaN, lo tomamos como 0 para los cálculos pero NO sobrescribimos el input
+        const disparosCalculo = isNaN(disparos) ? 0 : disparos;
 
         // Sincronizar items si estamos en modo validación
-        if (this.esValidacionMode && this.items && this.items.length > 0 && disparos > 0) {
+        if (this.esValidacionMode && this.items && this.items.length > 0 && disparosCalculo > 0) {
             let reRender = false;
             this.items.forEach(item => {
-                if (item.disparos !== disparos) {
-                    item.disparos = disparos;
+                if (item.disparos !== disparosCalculo) {
+                    item.disparos = disparosCalculo;
                     const produccionTeorica = item.disparos * item.no_cavidades;
                     item.cantidad_real = produccionTeorica;
                     item.piezasBuenas = Math.max(0, produccionTeorica - item.pnc);
@@ -581,7 +570,7 @@ const ModuloInyeccion = {
         const manualBuenas = parseInt(inputReal?.value) || 0;
         const isManual = inputReal?.value !== '';
 
-        const produccionTeorica = disparos * cavidades;
+        const produccionTeorica = disparosCalculo * cavidades;
         const piezasBuenas = isManual ? manualBuenas : Math.max(0, produccionTeorica - pnc);
         const produccionBrutaReal = isManual ? (manualBuenas + pnc) : produccionTeorica;
 
@@ -620,7 +609,7 @@ const ModuloInyeccion = {
                 const color = diff >= 0 ? '#4ade80' : '#f87171';
                 displayFormula.innerHTML = `Teórica: <b>${produccionTeorica}</b> | Bruto (Buenas+PNC): <b>${produccionBrutaReal}</b> <span style="color: ${color}; font-weight: bold; margin-left:8px;">(${sign}${diff})</span>`;
             } else {
-                displayFormula.textContent = `Disparos: ${disparos} × Cavidades: ${cavidades} = ${produccionTeorica} (Teórica)`;
+                displayFormula.textContent = `Disparos: ${disparosCalculo} × Cavidades: ${cavidades} = ${produccionTeorica} (Teórica)`;
             }
         }
 
@@ -719,18 +708,8 @@ const ModuloInyeccion = {
 
         if (campo === 'manual_buenas') {
             item.manual_buenas = valor === '' ? null : val;
-            // Sincronizar disparos automáticamente si se edita la cantidad real
-            if (item.manual_buenas !== null) {
-                const bruto = item.manual_buenas + item.pnc;
-                item.disparos = Math.ceil(bruto / (item.no_cavidades || 1));
-            }
         } else if (campo === 'no_cavidades') {
             item.no_cavidades = val;
-            // Si hay cantidad real manual, ajustar disparos. Si no, disparos manda.
-            if (item.manual_buenas !== null) {
-                const bruto = item.manual_buenas + item.pnc;
-                item.disparos = Math.ceil(bruto / (item.no_cavidades || 1));
-            }
         } else {
             item[campo] = val;
         }
