@@ -43,14 +43,38 @@ class ProduccionInyeccion(db.Model):
     id_codigo       = db.Column(db.String(50),  index=True, nullable=True)
     responsable     = db.Column(db.String(150), nullable=True)
     maquina         = db.Column(db.String(80),  nullable=True)
-    cantidad_real   = db.Column(db.Numeric(18, 2), default=0)
+    cantidad_real   = db.Column(db.String,      default='0') # Ajustado a String
     estado          = db.Column(db.String(50),  nullable=True)
     molde           = db.Column(db.Integer,     nullable=True)
     cavidades       = db.Column(db.Integer,     default=1)
-    # Métricas Globales
+    
+    # --- NUEVAS COLUMNAS (Sincronización SQL-First) ---
+    hora_llegada         = db.Column(db.String(20),  nullable=True)
+    hora_inicio          = db.Column(db.String(20),  nullable=True)
+    hora_termina         = db.Column(db.String(20),  nullable=True)
+    contador_maq         = db.Column(db.String, default='0') # Ajustado a String
+    cant_contador        = db.Column(db.String, default='0') # Ajustado a String
+    tomados_en_proceso   = db.Column(db.String, default='0') # Ajustado a String
+    peso_tomadas_en_proceso = db.Column(db.String, default='0') # Ajustado a String
+    almacen_destino      = db.Column(db.String(100), default='POR PULIR')
+    codigo_ensamble      = db.Column(db.String(100), nullable=True)
+    orden_produccion     = db.Column(db.String(100), nullable=True)
+    observaciones        = db.Column(db.Text,        nullable=True)
+    peso_vela_maquina    = db.Column(db.String, default='0') # Ajustado a String
+    peso_bujes           = db.Column(db.String, default='0') # Ajustado a String
+    id_programacion      = db.Column(db.String(100), nullable=True)
+    produccion_teorica   = db.Column(db.String, default='0') # Ajustado a String
+    pnc_total            = db.Column(db.String, default='0') # Ajustado a String
+    pnc_detalle          = db.Column(db.Text,        nullable=True)
+    peso_lote            = db.Column(db.String, default='0') # Ajustado a String
+    calidad_responsable  = db.Column(db.String(150), nullable=True)
+    entrada              = db.Column(db.String, default='0') # Ajustado a String
+    salida               = db.Column(db.String, default='0') # Ajustado a String
+    
+    # --- Métricas Globales ---
     duracion_segundos    = db.Column(db.Integer, default=0)
-    tiempo_total_minutos = db.Column(db.Numeric(10, 2), default=0)
-    segundos_por_unidad  = db.Column(db.Numeric(10, 2), default=0)
+    tiempo_total_minutos = db.Column(db.String, default='0') # Ajustado a String
+    segundos_por_unidad  = db.Column(db.String, default='0') # Ajustado a String
     departamento         = db.Column(db.String(100), default='Inyeccion')
 
 

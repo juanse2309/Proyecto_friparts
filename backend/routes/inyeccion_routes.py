@@ -87,43 +87,70 @@ def registrar_inyeccion_lote():
         nuevo_estado = 'VALIDADO' if es_validacion else 'PENDIENTE'
 
         for item in items:
-            from backend.utils.formatters import normalizar_codigo
-            from backend.app import registrar_entrada, registrar_salida # Mantener por ahora
+            from backend.utils.formatters import normalizar_codigo, to_float, to_int
+            from backend.app import registrar_entrada, registrar_salida
             
+            # --- Identificación del Registro ---
+            id_sql = item.get('id_sql') or item.get('id')
+            id_iny = item.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
             codigo_raw = item.get('codigo_producto') or item.get('id_codigo')
             id_cod = normalizar_codigo(codigo_raw)
-            id_iny = item.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
-            cant_real = float(item.get('cantidad_real', 0) or 0)
-            pnc_val = float(item.get('pnc', 0) or 0)
             
-            # --- PASO 1: Registro PostgreSQL ---
-            existente = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_iny).first()
-            if existente:
-                registro = existente
-                registro.id_codigo = id_cod
-                registro.cantidad_real = float(cant_real)
-                registro.responsable = responsable
-                registro.maquina = maquina
-                registro.fecha_inicia = fecha_dt
-                registro.estado = nuevo_estado
-            else:
-                registro = ProduccionInyeccion(
-                    id_inyeccion=id_iny,
-                    fecha_inicia=fecha_dt,
-                    id_codigo=id_cod,
-                    responsable=responsable,
-                    maquina=maquina,
-                    cantidad_real=float(cant_real),
-                    estado=nuevo_estado
-                )
+            # Intentar buscar por ID primario (SQL) primero para evitar colisiones en lotes mixtos
+            registro = None
+            if id_sql:
+                registro = db.session.get(ProduccionInyeccion, id_sql)
+            
+            if not registro:
+                # Fallback: buscar por id_inyeccion + id_codigo si es validación
+                registro = db.session.query(ProduccionInyeccion).filter_by(
+                    id_inyeccion=id_iny, 
+                    id_codigo=id_cod
+                ).first()
+
+            if not registro:
+                registro = ProduccionInyeccion(id_inyeccion=id_iny, estado=nuevo_estado)
                 db.session.add(registro)
 
-            # Estandarización de Departamento
-            registro.departamento = 'Inyeccion'
+            # --- Sincronización de Campos (Mapping Completo) ---
+            registro.id_codigo      = id_cod
+            registro.responsable    = responsable
+            registro.maquina        = maquina
+            registro.fecha_inicia   = fecha_dt
+            registro.estado         = nuevo_estado
+            registro.departamento   = 'Inyeccion'
+            
+            # Datos de Producción
+            registro.cantidad_real  = to_float(item.get('cantidad_real'))
+            registro.cavidades      = to_int(item.get('no_cavidades') or item.get('cavidades'), default=1)
+            registro.molde          = to_int(item.get('molde') or item.get('observaciones')) # Molde suele venir en observaciones en el frontend
+            
+            # Nuevas Columnas Sincronizadas
+            registro.hora_llegada   = turno.get('hora_llegada')
+            registro.hora_inicio    = item.get('hora_inicio') or turno.get('hora_inicio')
+            registro.hora_termina   = item.get('hora_fin') or item.get('hora_termina') or turno.get('hora_fin') or turno.get('hora_termina')
+            registro.contador_maq   = to_float(item.get('contador_maq'))
+            registro.cant_contador  = to_float(item.get('cant_contador'))
+            registro.tomados_en_proceso = to_float(item.get('tomados_en_proceso'))
+            registro.peso_tomadas_en_proceso = to_float(item.get('peso_tomadas_en_proceso'))
+            registro.almacen_destino = item.get('almacen_destino') or turno.get('almacen_destino', 'POR PULIR')
+            registro.codigo_ensamble = item.get('codigo_ensamble')
+            registro.orden_produccion = item.get('orden_produccion') or turno.get('orden_produccion')
+            registro.observaciones   = item.get('observaciones')
+            registro.peso_vela_maquina = to_float(item.get('peso_vela_maquina') or turno.get('peso_vela_maquina'))
+            registro.peso_bujes      = to_float(item.get('peso_bujes'))
+            registro.id_programacion = str(item.get('id_programacion') or turno.get('id_programacion', ''))
+            registro.produccion_teorica = to_float(item.get('produccion_teorica'))
+            registro.pnc_total       = to_float(item.get('pnc') or item.get('pnc_total'))
+            registro.pnc_detalle     = item.get('criterio_pnc') or item.get('pnc_detalle')
+            registro.peso_lote       = to_float(item.get('peso_lote'))
+            registro.calidad_responsable = item.get('calidad_responsable')
+            registro.entrada         = to_float(item.get('entrada') or turno.get('entrada_manual'))
+            registro.salida          = to_float(item.get('salida') or turno.get('salida_manual'))
 
-            # Cálculo de Métricas (Si vienen horas en el item o en el turno)
-            h_inicio = item.get('hora_inicio') or turno.get('hora_inicio')
-            h_fin = item.get('hora_fin') or turno.get('hora_fin')
+            # --- Cálculo de Tiempos y Métricas ---
+            h_inicio = registro.hora_inicio
+            h_fin = registro.hora_termina
 
             if h_inicio and h_fin:
                 try:
@@ -148,38 +175,35 @@ def registrar_inyeccion_lote():
                     else:
                         registro.segundos_por_unidad = 0.0
                         
-                    # Guardar timestamps como naive Bogota para TIMESTAMP WITHOUT TIME ZONE
+                    # Sincronizar timestamps DateTime si es necesario
                     registro.fecha_inicia = dt_inicio.replace(tzinfo=None)
                     registro.fecha_fin = dt_fin.replace(tzinfo=None)
                 except Exception as e_time:
                     logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
 
-            # Registro de PNC (id_row autogenerado en modelo)
-            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny).delete()
+            # Registro de PNC
+            pnc_val = registro.pnc_total
+            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).delete()
             if pnc_val > 0:
-                logger.info(f" [SQL-PNC] Iniciando guardado de {pnc_val} piezas no conformes para el producto {id_cod}")
                 nuevo_pnc = PncInyeccion(
                     id_pnc_inyeccion=uuid.uuid4().hex[:8],
                     id_inyeccion=id_iny,
                     id_codigo=id_cod,
                     cantidad=float(pnc_val),
-                    criterio=item.get('criterio_pnc'),
-                    codigo_ensamble=item.get('codigo_ensamble')
+                    criterio=registro.pnc_detalle,
+                    codigo_ensamble=registro.codigo_ensamble
                 )
                 db.session.add(nuevo_pnc)
-                logger.info(f" ✅ [SQL-PNC] Registrados con éxito {pnc_val} registros de piezas no conformes para el producto {id_cod}")
 
             # --- PASO 2: Actualizar Stock (Sólo si es validación) ---
             if es_validacion:
                 try:
-                    # Descontar componentes (BOM)
                     from backend.services.bom_service import calcular_descuentos_ensamble
-                    bom_res = calcular_descuentos_ensamble(id_cod, int(cant_real))
+                    bom_res = calcular_descuentos_ensamble(id_cod, int(registro.cantidad_real))
                     if bom_res.get('success'):
                         for comp in bom_res.get('componentes', []):
                             registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
-                    # Sumar a 'POR PULIR'
-                    registrar_entrada(id_cod, cant_real - pnc_val, "POR PULIR")
+                    registrar_entrada(id_cod, registro.cantidad_real - pnc_val, "POR PULIR")
                 except Exception as e_stock:
                     logger.error(f"Error stock {id_cod}: {e_stock}")
 

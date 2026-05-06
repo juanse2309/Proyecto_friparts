@@ -1300,17 +1300,24 @@ def mes_pendientes_validacion():
         from sqlalchemy import text
         sql = """
             SELECT 
-                i.id_inyeccion, i.fecha_inicia as fecha, i.fecha_fin as fecha_fin, 
+                i.id, i.id_inyeccion, i.fecha_inicia as fecha, i.fecha_fin as fecha_fin, 
                 i.id_codigo, i.responsable, i.maquina, i.molde, i.cavidades, 
                 i.estado, i.cantidad_real,
-                COALESCE(pnc.total_pnc, 0) as total_pnc
+                i.hora_llegada, i.hora_inicio, i.hora_termina, i.contador_maq,
+                i.cant_contador, i.tomados_en_proceso, i.peso_tomadas_en_proceso,
+                i.almacen_destino, i.codigo_ensamble, i.orden_produccion,
+                i.observaciones, i.peso_vela_maquina, i.peso_bujes,
+                i.id_programacion, i.produccion_teorica, i.pnc_total,
+                i.pnc_detalle, i.peso_lote, i.calidad_responsable,
+                i.entrada, i.salida,
+                COALESCE(pnc.total_pnc, 0) as total_pnc_sql
             FROM db_inyeccion i
             LEFT JOIN (
-                SELECT id_inyeccion, 
+                SELECT id_inyeccion, id_codigo,
                        SUM(COALESCE(NULLIF(regexp_replace(cantidad::text, '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as total_pnc
                 FROM db_pnc_inyeccion
-                GROUP BY id_inyeccion
-            ) pnc ON i.id_inyeccion = pnc.id_inyeccion
+                GROUP BY id_inyeccion, id_codigo
+            ) pnc ON i.id_inyeccion = pnc.id_inyeccion AND i.id_codigo = pnc.id_codigo
             WHERE i.estado = 'PENDIENTE'
         """
         pendientes = db.session.execute(text(sql)).mappings().all()
@@ -1326,17 +1333,33 @@ def mes_pendientes_validacion():
 
         for p in pendientes:
             data.append({
+                'id_sql': p['id'],
                 'id_inyeccion': p['id_inyeccion'],
                 'fecha': p['fecha'].isoformat() if p['fecha'] else '',
-                'hora_inicio': p['fecha'].strftime('%H:%M') if p['fecha'] else '',
-                'hora_fin': p['fecha_fin'].strftime('%H:%M') if p.get('fecha_fin') else '',
+                'hora_inicio': p['hora_inicio'] or (p['fecha'].strftime('%H:%M') if p['fecha'] else ''),
+                'hora_fin': p['hora_termina'] or (p['fecha_fin'].strftime('%H:%M') if p.get('fecha_fin') else ''),
                 'id_codigo': p['id_codigo'], 
                 'responsable': p['responsable'],
                 'cantidad_real': _clean_num(p['cantidad_real']),
-                'pnc': _clean_num(p['total_pnc']),
+                'pnc': _clean_num(p['pnc_total'] or p['total_pnc_sql']),
                 'maquina': p['maquina'],
                 'molde': p['molde'],
-                'cavidades': p['cavidades']
+                'cavidades': p['cavidades'],
+                # Nuevos campos para el formulario
+                'cant_contador': _clean_num(p['cant_contador']),
+                'tomados_en_proceso': _clean_num(p['tomados_en_proceso']),
+                'peso_tomadas_en_proceso': _clean_num(p['peso_tomadas_en_proceso']),
+                'almacen_destino': p['almacen_destino'],
+                'codigo_ensamble': p['codigo_ensamble'],
+                'orden_produccion': p['orden_produccion'],
+                'observaciones': p['observaciones'],
+                'peso_vela_maquina': _clean_num(p['peso_vela_maquina']),
+                'peso_bujes': _clean_num(p['peso_bujes']),
+                'id_programacion': p['id_programacion'],
+                'pnc_detalle': p['pnc_detalle'],
+                'calidad_responsable': p['calidad_responsable'],
+                'entrada': _clean_num(p['entrada']),
+                'salida': _clean_num(p['salida'])
             })
 
         return jsonify({'success': True, 'data': data}), 200

@@ -278,7 +278,8 @@ const ModuloInyeccion = {
                 pnc: pncVal,
                 piezasBuenas: cantReal,
                 observaciones: reg.molde || '',
-                id_inyeccion: reg.id_inyeccion
+                id_inyeccion: reg.id_inyeccion,
+                id_sql: reg.id_sql // <--- CAPTURAR ID PARA EVITAR SOBRESCRITURA
             };
             
             this.items.push(nuevoItem);
