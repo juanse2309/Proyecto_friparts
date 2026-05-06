@@ -405,7 +405,10 @@ class RepositoryService:
                     p.progreso_despacho,
                     p.cant_alistada
                 FROM db_pedidos p
-                LEFT JOIN db_clientes c ON p.nit = c.identificacion
+                LEFT JOIN (
+                    SELECT DISTINCT ON (identificacion) identificacion, nombre, direccion, ciudad 
+                    FROM db_clientes
+                ) c ON p.nit = c.identificacion
                 WHERE p.estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
                   AND p.estado IS NOT NULL
                 ORDER BY p.fecha ASC, p.id_pedido ASC
@@ -461,16 +464,36 @@ class RepositoryService:
                     try: return int(float(s))
                     except: return 0
 
-                # Agregar producto al pedido agrupado
+                # Lógica de colapso de productos duplicados (evitar 9319 vs FR-9319)
+                def _norm_code(c):
+                    return str(c or '').strip().upper().replace('FR-', '')
+
                 cant_ali = _safe_float(r['cant_alistada'])
-                agrupados[nro_pedido]["productos"].append({
-                    "codigo": r['id_codigo'],
-                    "descripcion": r['descripcion'] or '',
-                    "cantidad": _safe_float(r['cantidad']),
-                    "total": _safe_float(r['total']),
-                    "cant_alistada": cant_ali,
-                    "cant_lista": cant_ali # Compatibilidad con modal Almacén
-                })
+                codigo_actual = str(r['id_codigo'] or '').strip().upper()
+                codigo_norm = _norm_code(codigo_actual)
+                
+                # Buscar si este producto ya está en el pedido (por código normalizado)
+                producto_existente = next((p for p in agrupados[nro_pedido]["productos"] if _norm_code(p['codigo']) == codigo_norm), None)
+                
+                if producto_existente:
+                    # Si ya existe, sumamos cantidades
+                    producto_existente["cantidad"] += _safe_float(r['cantidad'])
+                    producto_existente["total"] += _safe_float(r['total'])
+                    producto_existente["cant_alistada"] += cant_ali
+                    producto_existente["cant_lista"] = producto_existente["cant_alistada"]
+                    # Conservamos el código con prefijo si está disponible
+                    if 'FR-' in codigo_actual and 'FR-' not in producto_existente["codigo"]:
+                        producto_existente["codigo"] = codigo_actual
+                else:
+                    # Agregar producto nuevo
+                    agrupados[nro_pedido]["productos"].append({
+                        "codigo": codigo_actual,
+                        "descripcion": r['descripcion'] or '',
+                        "cantidad": _safe_float(r['cantidad']),
+                        "total": _safe_float(r['total']),
+                        "cant_alistada": cant_ali,
+                        "cant_lista": cant_ali
+                    })
             
             return list(agrupados.values())
         except Exception as e:

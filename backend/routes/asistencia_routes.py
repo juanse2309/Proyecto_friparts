@@ -514,14 +514,19 @@ def ejecutar_corte():
         )
         db.session.add(nuevo_corte)
         
-        # 3. UPDATE Masivo con COALESCE
-        sql_update = text("""
-            UPDATE db_asistencia 
-            SET estado_pago = 'PROCESADO' 
-            WHERE COALESCE(estado_pago, 'PENDIENTE') = 'PENDIENTE'
-        """)
-        db.session.execute(sql_update)
-        db.session.commit()
+        # 3. UPDATE Masivo con COALESCE (Blindaje total)
+        try:
+            sql_update = text("""
+                UPDATE db_asistencia 
+                SET estado_pago = 'PROCESADO' 
+                WHERE COALESCE(estado_pago, 'PENDIENTE') = 'PENDIENTE'
+            """)
+            db.session.execute(sql_update)
+            db.session.commit()
+            logger.info(f"✅ Corte {id_corte_uuid} finalizado: Registros marcados como PROCESADO.")
+        except Exception as e_sql:
+            db.session.rollback()
+            raise e_sql
 
         return jsonify({
             'status': 'success',

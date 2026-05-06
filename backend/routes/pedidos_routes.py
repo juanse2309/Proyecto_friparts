@@ -248,21 +248,36 @@ def obtener_detalle_pedido(id_pedido):
                 return int(float(s))
             except: return 0
 
-        # 3. Mapear productos con limpieza de tipos (PG OID 25 Fix)
+        # 3. Mapear productos con colapso de duplicados (9319 vs FR-9319)
+        def _norm(c): return str(c or '').strip().upper().replace('FR-', '')
+
         for item in items_sql:
-            # Asegurar que cantidad alistada sea un número limpio para el modal
-            cantidad_lista = _clean_numeric(item.cant_alistada)
+            codigo_raw = str(item.id_codigo or '').strip().upper()
+            codigo_norm = _norm(codigo_raw)
+            cant_item = _clean_numeric(item.cantidad)
+            ali_item = _clean_numeric(item.cant_alistada)
+            precio_item = _clean_numeric(item.precio_unitario)
             
-            pedido["productos"].append({
-                "codigo": item.id_codigo,
-                "descripcion": item.descripcion or "Sin descripción",
-                "cantidad": _clean_numeric(item.cantidad),
-                "precio_unitario": _clean_numeric(item.precio_unitario),
-                "total": _clean_numeric(item.total),
-                "cant_alistada": cantidad_lista,
-                "cant_lista": cantidad_lista, # Mapeo para el modal del almacén
-                "progreso": item.progreso or "0%"
-            })
+            # Buscar si ya procesamos este producto en este pedido (por código normalizado)
+            existente = next((p for p in pedido["productos"] if _norm(p['codigo']) == codigo_norm), None)
+            
+            if existente:
+                existente["cantidad"] += cant_item
+                existente["cant_alistada"] += ali_item
+                existente["cant_lista"] = existente["cant_alistada"]
+                # Mantener el código con prefijo 'FR-' si aparece en alguna de las filas
+                if 'FR-' in codigo_raw and 'FR-' not in existente["codigo"]:
+                    existente["codigo"] = codigo_raw
+            else:
+                pedido["productos"].append({
+                    "codigo": codigo_raw,
+                    "descripcion": item.descripcion or "Sin descripción",
+                    "cantidad": cant_item,
+                    "precio_unitario": precio_item,
+                    "cant_alistada": ali_item,
+                    "cant_lista": ali_item,
+                    "progreso": item.progreso or "0%"
+                })
         
         return jsonify({
             "success": True,

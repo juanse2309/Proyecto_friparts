@@ -280,7 +280,7 @@ class Usuario(db.Model):
     activo          = db.Column(db.Boolean,     default=True)
     ultimo_acceso   = db.Column(db.DateTime,    default=datetime.utcnow)
 class CorteNomina(db.Model):
-    __tablename__ = 'cortes_nomina'
+    __tablename__ = 'db_cortes_nomina'
     __table_args__ = {'extend_existing': True}
 
     id_corte          = db.Column(db.String(50),  primary_key=True)
