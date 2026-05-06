@@ -164,12 +164,18 @@ def obtener_colaboradores():
 
         colaboradores = []
         for r in rows:
-            reg = dict_hoy.get(r['username'], {})
+            # Lógica de nombre unificada: nombre_completo > username
+            nombre_final = r['nombre_completo'] if r['nombre_completo'] else r['username']
+            
+            # Buscar si ya tiene registro hoy usando el nombre final (Full Name)
+            reg = dict_hoy.get(nombre_final, {})
+            
             h_inc_oficial = formatear_a_24h(r['hora_entrada'])
             h_sal_oficial = formatear_a_24h(r['hora_salida'])
             
             colaboradores.append({
-                'nombre': r['username'],
+                'nombre': nombre_final,
+                'username': r['username'],
                 'departamento': r['departamento'] or r['rol'].upper(),
                 'area': r['departamento'] or r['rol'].upper(),
                 'hora_entrada_oficial': h_inc_oficial,
@@ -177,8 +183,11 @@ def obtener_colaboradores():
                 'hora_entrada': formatear_a_24h(reg.get('ingreso_real')) if reg.get('ingreso_real') else h_inc_oficial, 
                 'hora_salida': formatear_a_24h(reg.get('salida_real')) if reg.get('salida_real') else h_sal_oficial,
                 'registrado_hoy': bool(reg),
-                'ya_ingreso': bool(reg and reg.get('ingreso_real')),
-                'ya_salio': bool(reg and reg.get('salida_real'))
+                'ya_ingreso': bool(reg and reg.get('ingreso_real') and reg.get('ingreso_real') != 'AUSENTE'),
+                'ya_salio': bool(reg and reg.get('salida_real') and reg.get('salida_real') != ''),
+                'estado': reg.get('estado', 'PENDIENTE'),
+                'motivo': reg.get('motivo', ''),
+                'comentarios': reg.get('comentarios', '')
             })
 
         return jsonify({
@@ -209,7 +218,7 @@ def guardar_asistencia():
         conteo = 0
 
         for reg in registros_recibidos:
-            nombre = reg.get('nombre')
+            nombre = reg.get('colaborador') or reg.get('nombre')
             if not nombre: continue
 
             # Determinar fecha (ISO -> Date)
@@ -225,29 +234,31 @@ def guardar_asistencia():
                 colaborador=nombre
             ).first()
 
-            h_ord = float(reg.get('horas_normales', 0) or 0)
+            h_ord = float(reg.get('horas_ordinarias', 0) or reg.get('horas_normales', 0) or 0)
             h_ext = float(reg.get('horas_extras', 0) or 0)
 
             if existente:
                 # Actualización
-                existente.ingreso_real = reg.get('hora_entrada', '')
-                existente.salida_real = reg.get('hora_salida', '')
+                existente.ingreso_real = reg.get('ingreso_real') or reg.get('hora_entrada', '')
+                existente.salida_real = reg.get('salida_real') or reg.get('hora_salida', '')
                 existente.horas_ordinarias = h_ord
                 existente.horas_extras = h_ext
                 existente.jefe = usuario_registra
-                existente.estado = 'REGISTRADO'
+                existente.estado = reg.get('estado', 'REGISTRADO')
+                existente.comentarios = reg.get('comentarios', '')
             else:
                 # Inserción
                 nuevo = RegistroAsistencia(
                     fecha=fecha_dt,
                     colaborador=nombre,
-                    ingreso_real=reg.get('hora_entrada', ''),
-                    salida_real=reg.get('hora_salida', ''),
+                    ingreso_real=reg.get('ingreso_real') or reg.get('hora_entrada', ''),
+                    salida_real=reg.get('salida_real') or reg.get('hora_salida', ''),
                     horas_ordinarias=h_ord,
                     horas_extras=h_ext,
                     jefe=usuario_registra,
-                    estado='REGISTRADO',
-                    estado_pago='PENDIENTE'
+                    estado=reg.get('estado', 'REGISTRADO'),
+                    estado_pago='PENDIENTE',
+                    comentarios=reg.get('comentarios', '')
                 )
                 db.session.add(nuevo)
             
@@ -316,22 +327,30 @@ def obtener_mis_horas():
         if not colaborador:
             return jsonify({'status': 'error', 'message': 'Acceso denegado'}), 401
 
-        # 1. SQL flexible con filtro de estado_pago PENDIENTE
+        # Obtener nombre completo para búsqueda robusta
+        from backend.models.sql_models import Usuario
+        u = Usuario.query.filter_by(username=colaborador).first()
+        nombre_buscar = u.nombre_completo if u and u.nombre_completo else colaborador
+
+        # 1. SQL flexible (Muestra las últimas 50 independientemente del pago)
         sql = text("""
             SELECT 
                 id, fecha, colaborador, ingreso_real, salida_real, 
-                horas_ordinarias, horas_extras, jefe, estado, motivo, comentarios 
+                horas_ordinarias, horas_extras, jefe, estado, motivo, comentarios, estado_pago 
             FROM db_asistencia 
-            WHERE colaborador ILIKE :user_pattern
-            AND estado_pago = 'PENDIENTE'
+            WHERE (colaborador ILIKE :full_name OR colaborador ILIKE :username_pattern)
             ORDER BY fecha DESC, id DESC 
             LIMIT 50
         """)
 
-        # Patrón flexible para el nombre
-        user_pattern = f"{colaborador.split(' ')[0]}%" if ' ' in colaborador else f"{colaborador}%"
+        # Patrones flexibles
+        username_pattern = f"{colaborador.split(' ')[0]}%" if ' ' in colaborador else f"{colaborador}%"
+        full_name_pattern = f"%{nombre_buscar}%"
         
-        result = db.session.execute(sql, {"user_pattern": user_pattern})
+        result = db.session.execute(sql, {
+            "full_name": full_name_pattern,
+            "username_pattern": username_pattern
+        })
         rows = result.mappings().all()
         
         mis_registros = []
@@ -350,7 +369,8 @@ def obtener_mis_horas():
                 'horas_normales': round(float(row['horas_ordinarias'] or 0), 2),
                 'horas_extras': round(float(row['horas_extras'] or 0), 2),
                 'estado': row['estado'],
-                'motivo': row['motivo']
+                'motivo': row['motivo'],
+                'estado_pago': row['estado_pago'] or 'PENDIENTE'
             })
         
         return jsonify({
@@ -514,16 +534,17 @@ def ejecutar_corte():
         )
         db.session.add(nuevo_corte)
         
-        # 3. UPDATE Masivo con COALESCE (Blindaje total)
+        # 3. UPDATE Masivo restringido al periodo (Blindaje total)
         try:
             sql_update = text("""
                 UPDATE db_asistencia 
                 SET estado_pago = 'PROCESADO' 
                 WHERE COALESCE(estado_pago, 'PENDIENTE') = 'PENDIENTE'
+                AND fecha <= :fecha_limite
             """)
-            db.session.execute(sql_update)
+            db.session.execute(sql_update, {"fecha_limite": p_fin})
             db.session.commit()
-            logger.info(f"✅ Corte {id_corte_uuid} finalizado: Registros marcados como PROCESADO.")
+            logger.info(f"✅ Corte {id_corte_uuid} finalizado: Registros hasta {p_fin} marcados como PROCESADO.")
         except Exception as e_sql:
             db.session.rollback()
             raise e_sql

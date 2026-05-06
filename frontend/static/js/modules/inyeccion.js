@@ -526,34 +526,58 @@ const ModuloInyeccion = {
     },
 
     calculos: function () {
-        const entrada = parseInt(document.getElementById('inyeccion-entrada')?.value) || 0;
-        const salida = parseInt(document.getElementById('inyeccion-salida')?.value) || 0;
-        let disparos = parseInt(document.getElementById('cantidad-inyeccion')?.value) || 0;
+        const inputEntrada = document.getElementById('inyeccion-entrada');
+        const inputSalida = document.getElementById('inyeccion-salida');
+        const inputDisparos = document.getElementById('cantidad-inyeccion');
+        const inputReal = document.getElementById('cantidad-real-inyeccion');
+        const inputCavidades = document.getElementById('cavidades-inyeccion');
+        const inputPnc = document.getElementById('pnc-inyeccion');
+
+        const entrada = parseInt(inputEntrada?.value) || 0;
+        const salida = parseInt(inputSalida?.value) || 0;
+        const cavidades = parseInt(inputCavidades?.value) || 1;
+        const pnc = parseInt(inputPnc?.value) || 0;
         
+        let disparos = parseInt(inputDisparos?.value);
+        
+        // 1. Cálculo por Entrada/Salida (Si están definidos y el foco no está en disparos)
         if (salida > 0 && entrada >= 0 && salida >= entrada) {
-            disparos = salida - entrada;
-            const inputDisparos = document.getElementById('cantidad-inyeccion');
-            if (inputDisparos) inputDisparos.value = disparos;
-            
-            if (this.esValidacionMode && this.items && this.items.length > 0) {
-                let reRender = false;
-                this.items.forEach(item => {
-                    if (item.disparos !== disparos) {
-                        item.disparos = disparos;
-                        const produccionTeorica = item.disparos * item.no_cavidades;
-                        item.cantidad_real = produccionTeorica;
-                        item.piezasBuenas = Math.max(0, produccionTeorica - item.pnc);
-                        item.manual_buenas = null;
-                        reRender = true;
-                    }
-                });
-                if (reRender) this.renderTablaItems();
+            const calcDisparos = salida - entrada;
+            if (document.activeElement !== inputDisparos) {
+                disparos = calcDisparos;
+                if (inputDisparos) inputDisparos.value = disparos;
             }
+        } 
+        // 2. Cálculo automático desde Cantidad Real (Si el usuario escribe allí)
+        else if (document.activeElement === inputReal && inputReal.value !== '') {
+            const manualReal = parseInt(inputReal.value) || 0;
+            const bruto = manualReal + pnc;
+            disparos = Math.ceil(bruto / (cavidades || 1));
+            if (inputDisparos) inputDisparos.value = isFinite(disparos) ? disparos : 1;
         }
 
-        const cavidades = parseInt(document.getElementById('cavidades-inyeccion')?.value) || 1;
-        const pnc = parseInt(document.getElementById('pnc-inyeccion')?.value) || 0;
-        const inputReal = document.getElementById('cantidad-real-inyeccion');
+        // Si disparos es NaN o <= 0, y no estamos editando la cantidad real, 
+        // asegurar que al menos sea un valor coherente para la visualización
+        if (isNaN(disparos) || disparos < 0) {
+            disparos = (inputDisparos?.value === '') ? 0 : (parseInt(inputDisparos?.value) || 0);
+        }
+
+        // Sincronizar items si estamos en modo validación
+        if (this.esValidacionMode && this.items && this.items.length > 0 && disparos > 0) {
+            let reRender = false;
+            this.items.forEach(item => {
+                if (item.disparos !== disparos) {
+                    item.disparos = disparos;
+                    const produccionTeorica = item.disparos * item.no_cavidades;
+                    item.cantidad_real = produccionTeorica;
+                    item.piezasBuenas = Math.max(0, produccionTeorica - item.pnc);
+                    item.manual_buenas = null;
+                    reRender = true;
+                }
+            });
+            if (reRender) this.renderTablaItems();
+        }
+
         const manualBuenas = parseInt(inputReal?.value) || 0;
         const isManual = inputReal?.value !== '';
 
@@ -565,12 +589,12 @@ const ModuloInyeccion = {
         const displayFormula = document.getElementById('formula-calc');
         const displayBuenas = document.getElementById('piezas-buenas');
 
-        // NUEVO: Alerta visual de proyección Juan Sebastian feedback
+        // Alerta visual de proyección
         const projectionAlert = document.getElementById('inyeccion-proyeccion-alert');
         if (projectionAlert) {
             const diff = piezasBuenas - produccionTeorica;
             const sign = diff >= 0 ? '+' : '';
-            const color = diff >= 0 ? '#10b981' : '#ef4444'; // verde emerald / rojo
+            const color = diff >= 0 ? '#10b981' : '#ef4444';
             const bgColor = diff >= 0 ? '#f0fdf4' : '#fef2f2';
 
             projectionAlert.style.display = 'block';
@@ -587,9 +611,7 @@ const ModuloInyeccion = {
             `;
         }
 
-        if (displayProduccion) {
-            displayProduccion.textContent = piezasBuenas.toLocaleString();
-        }
+        if (displayProduccion) displayProduccion.textContent = piezasBuenas.toLocaleString();
 
         if (displayFormula) {
             if (isManual) {
@@ -602,9 +624,7 @@ const ModuloInyeccion = {
             }
         }
 
-        if (displayBuenas) {
-            displayBuenas.textContent = `Real: ${piezasBuenas} | PNC: ${pnc}`;
-        }
+        if (displayBuenas) displayBuenas.textContent = `Real: ${piezasBuenas} | PNC: ${pnc}`;
     },
 
     agregarItem: function () {
@@ -699,6 +719,18 @@ const ModuloInyeccion = {
 
         if (campo === 'manual_buenas') {
             item.manual_buenas = valor === '' ? null : val;
+            // Sincronizar disparos automáticamente si se edita la cantidad real
+            if (item.manual_buenas !== null) {
+                const bruto = item.manual_buenas + item.pnc;
+                item.disparos = Math.ceil(bruto / (item.no_cavidades || 1));
+            }
+        } else if (campo === 'no_cavidades') {
+            item.no_cavidades = val;
+            // Si hay cantidad real manual, ajustar disparos. Si no, disparos manda.
+            if (item.manual_buenas !== null) {
+                const bruto = item.manual_buenas + item.pnc;
+                item.disparos = Math.ceil(bruto / (item.no_cavidades || 1));
+            }
         } else {
             item[campo] = val;
         }

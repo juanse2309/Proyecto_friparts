@@ -440,10 +440,12 @@ window.ModuloAsistencia = (function () {
         }
 
         const totalMinutos = minSalida - minIngreso;
-        const totalHoras = totalMinutos / 60;
+        
+        // 2.1 Aplicar Descuento de Descanso (60 min obligatorios)
+        const minutosNetos = Math.max(0, totalMinutos - 60);
+        const horasNetas = minutosNetos / 60;
 
-        // 3. Regla de Negocio: Máximo 9h Ordinarias
-        // Determinamos el día para el tope (Viernes 8, Sáb/Dom 0)
+        // 3. Regla de Negocio: Máximo 9h Ordinarias (L-J) / 8h (V)
         const fecha = new Date(fechaStr + 'T00:00:00');
         const diaSemana = fecha.getDay(); 
         
@@ -451,8 +453,8 @@ window.ModuloAsistencia = (function () {
         if (diaSemana === 5) maxOrd = 8;
         if (diaSemana === 0 || diaSemana === 6) maxOrd = 0;
 
-        let ordinarias = Math.min(totalHoras, maxOrd);
-        let extras = Math.max(0, totalHoras - ordinarias);
+        let ordinarias = Math.min(horasNetas, maxOrd);
+        let extras = Math.max(0, horasNetas - ordinarias);
 
         // 4. Limpieza de decimales
         const ordFinal = Number(ordinarias.toFixed(1));
@@ -738,6 +740,11 @@ window.ModuloAsistencia = (function () {
                         totalOrd += hOrd;
                         totalExt += hExt;
 
+                        const isPendiente = (r.estado_pago === 'PENDIENTE');
+                        const statusBadge = isPendiente 
+                            ? `<span class="badge rounded-pill bg-info text-white"><i class="fas fa-clock me-1"></i>Pendiente</span>`
+                            : `<span class="badge rounded-pill bg-success text-white"><i class="fas fa-check-circle me-1"></i>Pagado</span>`;
+
                         return `
                         <tr>
                             <td class="fw-bold text-muted">
@@ -745,8 +752,9 @@ window.ModuloAsistencia = (function () {
                             </td>
                             <td><span class="badge bg-light text-dark">${r.llegada}</span></td>
                             <td><span class="badge bg-light text-dark">${r.salida}</span></td>
-                            <td class="text-primary fw-bold">${hOrd}</td>
-                            <td class="text-danger fw-bold">${hExt}</td>
+                            <td class="text-primary fw-bold">${hOrd.toFixed(1)}</td>
+                            <td class="text-danger fw-bold">${hExt.toFixed(1)}</td>
+                            <td>${statusBadge}</td>
                         </tr>
                         `;
                     }).join('');
