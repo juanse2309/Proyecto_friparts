@@ -569,7 +569,9 @@ class RepositoryService:
             pedidos_sum = _num(r_ped[0])
 
             # --- Pérdida en Dinero ---
-            perdida_dinero = self.get_perdida_economica_scrap(desde, hasta)
+            scrap_resumen = self.get_perdida_economica_scrap(desde, hasta)
+            perdida_dinero = scrap_resumen.get("total_perdida", 0)
+            scrap_ranking = scrap_resumen.get("ranking_productos", [])
 
             # --- Mezcla ---
             sql_mez = f"SELECT SUM({_user_cast('virgen_kg')} + {_user_cast('molido_kg')}) FROM db_mezcla {filt_gen}"
@@ -587,7 +589,14 @@ class RepositoryService:
                 'pedidos_solicitados': pedidos_sum,
                 'mezcla_total_kg': mezcla_total,
                 'scrap_total':   iny_pnc + pul_pnc + ens_pnc,
-                'perdida_calidad_dinero': perdida_dinero
+                'scrap_detalle': {
+                    'inyeccion': iny_pnc,
+                    'pulido':    pul_pnc,
+                    'ensamble':  ens_pnc,
+                    'almacen':   0
+                },
+                'perdida_calidad_dinero': perdida_dinero,
+                'scrap_almacen_desglose': scrap_ranking
             }
         except Exception as e:
             db.session.rollback()
@@ -612,7 +621,7 @@ class RepositoryService:
                 SELECT 
                     i.responsable, 
                     SUM(COALESCE(NULLIF(regexp_replace(i.cantidad_real::text, '[^0-9]', '', 'g'), ''), '0')::INTEGER) as total,
-                    COALESCE(pnc.total_pnc, 0) as scrap
+                    SUM(COALESCE(pnc.total_pnc, 0)) as scrap
                 FROM db_inyeccion i
                 LEFT JOIN (
                     SELECT id_inyeccion, 
@@ -627,7 +636,7 @@ class RepositoryService:
                 sql += ' AND i.fecha_inicia BETWEEN :desde AND :hasta'
                 params['desde'] = desde
                 params['hasta'] = hasta
-            sql += ' GROUP BY i.responsable, pnc.total_pnc ORDER BY total DESC LIMIT :lim'
+            sql += ' GROUP BY i.responsable ORDER BY total DESC LIMIT :lim'
 
             rows = db.session.execute(text(sql), params).fetchall()
             return [{'nombre': r[0] or '?', 'valor': _num(r[1]), 'pnc': _num(r[2])} for r in rows]
@@ -742,11 +751,13 @@ class RepositoryService:
             def _user_cast(col):
                 return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
 
-            sql = f"""
+            sql_ctes = f"""
                 WITH unique_costs AS (
-                    SELECT TRIM(referencia::TEXT) as ref_costo, MAX({_user_cast('costo_total')}) as cost
+                    SELECT 
+                        TRIM(UPPER(REPLACE(referencia::TEXT, 'FR-', ''))) as ref_costo, 
+                        MAX({_user_cast('costo_total')}) as cost
                     FROM db_costos
-                    GROUP BY TRIM(referencia::TEXT)
+                    GROUP BY 1
                 ),
                 scrap_unificado AS (
                     -- Bloque INYECCIÓN: Usa id_codigo
@@ -780,19 +791,42 @@ class RepositoryService:
                     {filt_ens}
                     GROUP BY TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', ''))
                 )
-                SELECT COALESCE(SUM(COALESCE(s.qty, 0) * COALESCE(c.cost, 0)), 0)
+            """
+
+            # 1. Obtener Total Pérdida
+            sql_total = f"{sql_ctes} SELECT COALESCE(SUM(COALESCE(s.qty, 0) * COALESCE(c.cost, 0)), 0) FROM scrap_unificado s JOIN unique_costs c ON s.ref = c.ref_costo WHERE s.qty > 0"
+            res_total = db.session.execute(text(sql_total), params).fetchone()
+            total_perdida = _num(res_total[0]) if res_total else 0
+
+            # 2. Obtener Ranking Productos
+            sql_ranking = f"""
+                {sql_ctes}
+                SELECT 
+                    s.ref as producto, 
+                    SUM(s.qty) as cantidad, 
+                    SUM(s.qty * c.cost) as perdida_dinero
                 FROM scrap_unificado s
                 JOIN unique_costs c ON s.ref = c.ref_costo
-                WHERE s.qty > 0
+                GROUP BY s.ref
+                ORDER BY perdida_dinero DESC
+                LIMIT 10
             """
-            logger.debug(f"[SQL_DEBUG] get_perdida_economica_scrap (FINAL FIXED): {sql}")
-            
-            res = db.session.execute(text(sql), params).fetchone()
-            total = _num(res[0]) if res and res[0] else 0
-            return total
+            res_ranking = db.session.execute(text(sql_ranking), params).fetchall()
+            ranking = []
+            for r in res_ranking:
+                ranking.append({
+                    "producto": r[0],
+                    "cantidad": _num(r[1]),
+                    "costo": _num(r[2]) # "costo" mapea a dinero perdido para el frontend
+                })
+
+            return {
+                "total_perdida": total_perdida,
+                "ranking_productos": ranking
+            }
         except Exception as e:
             logger.error(f"[get_perdida_economica_scrap] ERROR: {e}")
-            return 0
+            return {"total_perdida": 0, "ranking_productos": []}
 
     def get_rendimiento_mensual_sql(self, start_date=None, end_date=None):
         """
@@ -808,21 +842,24 @@ class RepositoryService:
             # Si el usuario pide nombres, lo incluimos en el WHERE o GROUP BY si fuera necesario, 
             # pero el gráfico de rendimiento usualmente es global por mes.
             # Aseguramos el uso de 'nombres' si hubiera filtros por cliente en el futuro.
+            params = {'start': start_date, 'end': end_date}
+            filt = " WHERE fecha BETWEEN :start AND :end" if start_date and end_date else " WHERE EXTRACT(YEAR FROM fecha) IN (2025, 2026)"
+            
             sql = f"""
                 SELECT 
                     EXTRACT(MONTH FROM fecha)::INTEGER as mes,
                     EXTRACT(YEAR FROM fecha)::INTEGER as ano,
-                    SUM(COALESCE(CASE WHEN clasificacion = 'Ventas' THEN {_sql_cast_num('total_ingresos')} ELSE 0 END, 0)) as ventas,
-                    SUM(COALESCE(CASE WHEN clasificacion = 'Pedidos' THEN {_sql_cast_num('total_ingresos')} ELSE 0 END, 0)) as pedidos,
-                    SUM(COALESCE(CASE WHEN clasificacion = 'Ventas' THEN {_sql_cast_num('cantidad')} ELSE 0 END, 0)) as v_unds,
-                    SUM(COALESCE(CASE WHEN clasificacion = 'Pedidos' THEN {_sql_cast_num('cantidad')} ELSE 0 END, 0)) as p_unds
+                    SUM(COALESCE(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('total_ingresos')} ELSE 0 END, 0)) as ventas,
+                    SUM(COALESCE(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('total_ingresos')} ELSE 0 END, 0)) as pedidos,
+                    SUM(COALESCE(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END, 0)) as v_unds,
+                    SUM(COALESCE(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END, 0)) as p_unds
                 FROM db_ventas
-                WHERE EXTRACT(YEAR FROM fecha) IN (2025, 2026)
+                {filt}
                 GROUP BY ano, mes
                 ORDER BY ano, mes
             """
-            rows = db.session.execute(text(sql)).fetchall()
-            logger.info(f"[get_rendimiento_mensual_sql] Filas obtenidas: {len(rows)}")
+            rows = db.session.execute(text(sql), params).fetchall()
+            logger.info(f"[get_rendimiento_mensual_sql] Filas obtenidas de db_ventas: {len(rows)}")
             
             # Organizar por mes (1-12)
             data_map = {m: {
@@ -866,53 +903,47 @@ class RepositoryService:
             def _sql_cast_num(col):
                 return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
 
-            # 1. Top Productos (Dinero)
             sql_top_d = f"""
-                SELECT productos, SUM({_sql_cast_num('total_ingresos')}) as total
-                FROM db_ventas {filt} AND clasificacion = 'Ventas'
-                GROUP BY productos ORDER BY total DESC LIMIT 10
+                SELECT productos, 
+                       SUM({_sql_cast_num('total_ingresos')}) as total_dinero,
+                       SUM({_sql_cast_num('cantidad')}) as total_unidades
+                FROM db_ventas {filt} AND clasificacion ILIKE '%venta%'
+                GROUP BY productos ORDER BY total_dinero DESC LIMIT 20
             """
             top_d = db.session.execute(text(sql_top_d), params).fetchall()
             
-            # 2. Peores Productos (Dinero)
             sql_peor_d = f"""
-                SELECT productos, SUM({_sql_cast_num('total_ingresos')}) as total
-                FROM db_ventas {filt} AND clasificacion = 'Ventas'
-                GROUP BY productos ORDER BY total ASC LIMIT 10
+                SELECT productos, 
+                       SUM({_sql_cast_num('total_ingresos')}) as total_dinero,
+                       SUM({_sql_cast_num('cantidad')}) as total_unidades
+                FROM db_ventas {filt} AND clasificacion ILIKE '%venta%'
+                GROUP BY productos ORDER BY total_dinero ASC LIMIT 20
             """
             peor_d = db.session.execute(text(sql_peor_d), params).fetchall()
 
             # 3. Incumplimiento (Backorder) - SQL Native con Impacto Financiero
             # Se elimina el filtro de fecha temporalmente para validar volumen
             sql_inc = f"""
-                WITH unique_costs AS (
-                    SELECT 
-                        TRIM(UPPER(referencia::TEXT)) as ref, 
-                        MAX(COALESCE(NULLIF(regexp_replace(REPLACE(costo_total::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as cost
-                    FROM db_costos
-                    WHERE referencia IS NOT NULL
-                    GROUP BY TRIM(UPPER(referencia::TEXT))
-                ),
-                totals AS (
+                WITH totals AS (
                     SELECT 
                         nombres,
                         productos as producto,
-                        TRIM(split_part(REPLACE(productos::TEXT, 'FR-', ''), ' ', 1)) as ref_final,
-                        SUM(CASE WHEN clasificacion = 'Pedidos' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
-                        SUM(CASE WHEN clasificacion = 'Ventas' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty
+                        SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
+                        SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty,
+                        MAX({_sql_cast_num('precio_promedio')}) as avg_price
                     FROM db_ventas
-                    GROUP BY nombres, productos, 3
+                    {filt}
+                    GROUP BY 1, 2
                 )
                 SELECT 
                     t.nombres,
                     t.producto, 
-                    t.ref_final,
+                    '' as ref_final, -- Placeholder para mantener compatibilidad con el desempaquetado de tuplas
                     COALESCE(t.p_qty, 0) as p_qty, 
                     COALESCE(t.v_qty, 0) as v_qty, 
                     (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) as diff_qty,
-                    COALESCE((COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) * COALESCE(c.cost, 0), 0) as diff_money
+                    COALESCE((COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) * COALESCE(t.avg_price, 0), 0) as diff_money
                 FROM totals t
-                LEFT JOIN unique_costs c ON t.ref_final = c.ref
                 WHERE (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) > 0
                 ORDER BY diff_money DESC 
                 LIMIT 50
@@ -948,12 +979,19 @@ class RepositoryService:
 
             return {
                 "mensual": self.get_rendimiento_mensual_sql(start_date, end_date),
-                "top_productos": [{"producto": r[0], "ventas_dinero": _num(r[1])} for r in top_d],
-                "peores_productos": [{"producto": r[0], "ventas_dinero": _num(r[1])} for r in peor_d],
+                "top_productos": [{"producto": r[0], "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in top_d],
+                "peores_productos": [{"producto": r[0], "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in peor_d],
                 "backorder": backorder_list,
+                "incumplimiento_consolidado": [
+                    {
+                        "cliente": cli, 
+                        "unidades_fallidas": sum(item["pendiente_qty"] for item in backorder_list if item["cliente"] == cli),
+                        "dinero_perdido": sum(item["pendiente_money"] for item in backorder_list if item["cliente"] == cli)
+                    } for cli in sorted(list(set(item["cliente"] for item in backorder_list)))
+                ],
                 "incumplimiento_dinero": inc_dinero,
                 "incumplimiento_unidades": inc_unidades,
-                "resumen_unidades": 0, # Unidades no calculadas aquí, se mantienen en 0 por ahora
+                "resumen_unidades": sum(item["pendiente_qty"] for item in backorder_list),
                 "resumen_dinero": scrap_money
             }
         except Exception as e:
@@ -1051,8 +1089,8 @@ class RepositoryService:
                 SELECT 
                     productos as full_desc,
                     TRIM(split_part(REPLACE(productos::TEXT, 'FR-', ''), ' ', 1)) as ref_final,
-                    SUM(CASE WHEN clasificacion = 'Pedidos' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
-                    SUM(CASE WHEN clasificacion = 'Ventas' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty
+                    SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
+                    SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty
                 FROM db_ventas
                 WHERE nombres ILIKE :cliente {filt}
                 GROUP BY productos
@@ -1092,6 +1130,41 @@ class RepositoryService:
             return detalle
         except Exception as e:
             logger.error(f"[get_backorder_detalle_por_cliente_sql] {e}")
+            return []
+
+
+    def get_tendencia_produccion_sql(self, desde=None, hasta=None):
+        """Retorna tendencia diaria de producción (Inyección y Pulido)."""
+        try:
+            params = {'desde': desde, 'hasta': hasta}
+            filt_iny = " WHERE fecha_inicia BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
+            filt_pul = " WHERE fecha BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
+            
+            def _cast(col):
+                return f"COALESCE(NULLIF(regexp_replace({col}::text, '[^0-9]', '', 'g'), ''), '0')::INTEGER"
+
+            sql = f"""
+                WITH iny AS (
+                    SELECT DATE(fecha_inicia) as d, SUM({_cast('cantidad_real')}) as qty
+                    FROM db_inyeccion {filt_iny} GROUP BY 1
+                ),
+                pul AS (
+                    SELECT DATE(fecha) as d, SUM({_cast('cantidad_real')}) as qty
+                    FROM db_pulido {filt_pul} GROUP BY 1
+                ),
+                fechas AS (
+                    SELECT d FROM iny UNION SELECT d FROM pul
+                )
+                SELECT f.d, COALESCE(iny.qty, 0), COALESCE(pul.qty, 0)
+                FROM fechas f
+                LEFT JOIN iny ON f.d = iny.d
+                LEFT JOIN pul ON f.d = pul.d
+                ORDER BY f.d ASC
+            """
+            rows = db.session.execute(text(sql), params).fetchall()
+            return [{"fecha": str(r[0]), "iny": int(r[1]), "pul": int(r[2])} for r in rows]
+        except Exception as e:
+            logger.error(f"[get_tendencia_produccion_sql] {e}")
             return []
 
 

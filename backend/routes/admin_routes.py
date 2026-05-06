@@ -80,14 +80,14 @@ def get_admin_dashboard_data():
             "status": "success",
             "data": {
                 "mensual": metrics["mensual"],
-                "top_productos_dinero": metrics["top_productos"],
-                "peores_productos_dinero": metrics["peores_productos"],
+                "top_productos": metrics["top_productos"],
+                "peores_productos": metrics["peores_productos"],
                 "backorder": metrics["backorder"],
                 "incumplimiento_unidades": metrics["incumplimiento_unidades"],
                 "incumplimiento_dinero": metrics["incumplimiento_dinero"],
                 "resumen_unidades": metrics.get("resumen_unidades", 0),
                 "resumen_dinero": metrics.get("resumen_dinero", 0),
-                "incumplimiento_consolidado": sorted(inc_consolidado, key=lambda x: x["unidades_fallidas"], reverse=True)
+                "incumplimiento_consolidado": metrics.get("incumplimiento_consolidado", [])
             }
         }
 

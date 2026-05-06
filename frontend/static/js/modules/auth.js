@@ -739,6 +739,8 @@ const AuthModule = {
         let targetPage = division === 'FRIMETALS' ? 'metals-produccion' : 'inyeccion';
 
         if (role === 'CLIENTE') targetPage = 'portal-cliente';
+        else if (role === 'ADMIN') targetPage = 'dashboard';
+        else if (role === 'PULIDO') targetPage = 'pulido';
         else if (role === 'COMERCIAL FRIMETALS') targetPage = 'pedidos';
         else if (role === 'COMERCIAL') targetPage = 'pedidos';
         else if (role === 'ALISTAMIENTO') targetPage = 'almacen';

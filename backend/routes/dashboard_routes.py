@@ -164,17 +164,22 @@ def obtener_metricas_bi():
             f"Alerta: {len(stock_critico)} productos con stock por debajo del mínimo."
         ]
         
+        # 3. Tendencia de Producción
+        tendencia = repository_service.get_tendencia_produccion_sql(desde, hasta)
+
+        # 4. Estructura de salida compatible con Dashboard.js (Safe Access)
         result_data = {
             "rango": {"desde": str(desde) if desde else "Inicio", "hasta": str(hasta) if hasta else "Fin"},
             "kpis": {
-                "inyeccion_ok": stats["inyeccion"]["total_ok"],
-                "pulido_ok": stats["pulido"]["total_ok"],
-                "ensamble_ok": stats["ensamble"]["total_ok"],
-                "pedidos_solicitado": stats["pedidos"]["total_solicitado"],
+                "inyeccion_ok": kpis.get('inyeccion_ok', 0),
+                "pulido_ok": kpis.get('pulido_ok', 0),
+                "ensamble_ok": kpis.get('ensambles_ok', 0),
+                "pedidos_solicitado": kpis.get('pedidos_solicitados', 0),
                 "cumplimiento_pct": fulfillment_rate,
-                "perdida_calidad_dinero": perdida_scrap,
+                "perdida_calidad_dinero": kpis.get('perdida_calidad_dinero', 0),
                 "scrap_total": kpis.get('scrap_total', 0),
-                "scrap_detalle": stats["pnc_total"],
+                "scrap_detalle": kpis.get('scrap_detalle', {}),
+                "scrap_almacen_desglose": kpis.get('scrap_almacen_desglose', []),
                 "stock_critico": stock_critico
             },
             "rankings": {
@@ -192,8 +197,8 @@ def obtener_metricas_bi():
                     } for op in ranking_pul_ops
                 }
             },
-            "maquinas": stats["inyeccion"]["maquinas"] or [],
-            "tendencia": [],
+            "maquinas": [{'maquina': m.get('maquina', '?'), 'valor': m.get('valor', 0)} for m in ranking_maquinas],
+            "tendencia": tendencia,
             "insights_ia": insights,
             "insight_ia": insights[0]
         }

@@ -216,7 +216,8 @@ window.ModuloDashboard = (function () {
             // 1. KPIs Principales
             safeSetText('total-iny-piezas', `${(data.kpis.inyeccion_ok || 0).toLocaleString()} Pz`);
 
-            const formatCOP_PNC = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(data.kpis.perdida_calidad_dinero || 0);
+            const valorPerdida = Number(data.kpis.perdida_calidad_dinero) || 0;
+            const formatCOP_PNC = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(valorPerdida);
             safeSetText('perdida-calidad-global', formatCOP_PNC);
 
             safeSetText('pnc-global-val', (data.kpis.scrap_total || 0).toLocaleString());
@@ -304,9 +305,23 @@ window.ModuloDashboard = (function () {
                 console.log("📈 Renderizando datos de Jefatura...");
                 lastJefaturaData = jefaturaData.data;
 
-                renderChartMensual(lastJefaturaData.mensual, 'money');
-                renderChartTopMejores(lastJefaturaData.top_productos_dinero, 'money');
-                renderChartTopPeores(lastJefaturaData.peores_productos_dinero, 'money');
+                console.log("[DEBUG] lastJefaturaData:", lastJefaturaData);
+
+                if (lastJefaturaData.mensual) {
+                    renderChartMensual(lastJefaturaData.mensual, 'money');
+                }
+                
+                if (lastJefaturaData.top_productos) {
+                    renderChartTopMejores(lastJefaturaData.top_productos, 'money');
+                } else {
+                    console.warn("⚠️ lastJefaturaData.top_productos es undefined");
+                }
+
+                if (lastJefaturaData.peores_productos) {
+                    renderChartTopPeores(lastJefaturaData.peores_productos, 'money');
+                } else {
+                    console.warn("⚠️ lastJefaturaData.peores_productos es undefined");
+                }
 
                 if (lastJefaturaData.incumplimiento_unidades) {
                     inc_unidades_original = lastJefaturaData.incumplimiento_unidades;
@@ -1489,11 +1504,15 @@ window.ModuloDashboard = (function () {
 
         try {
             const isMoney = mode === 'money';
+            console.log(`[DEBUG] renderChartTopMejores (mode: ${mode}):`, datos.slice(0, 5));
             const labels = datos.slice(0, 10).map(d => {
                 const name = d.producto || '';
                 return name.substring(0, 20) + (name.length > 20 ? '...' : '');
             });
-            const dataVals = datos.slice(0, 10).map(d => isMoney ? d.ventas_dinero : d.ventas_unidades);
+            const dataVals = datos.slice(0, 10).map(d => {
+                const val = isMoney ? d.ventas_dinero : d.ventas_unidades;
+                return val || 0;
+            });
 
             if (chartTopMejoresInst) chartTopMejoresInst.destroy();
 
@@ -1551,11 +1570,15 @@ window.ModuloDashboard = (function () {
 
         try {
             const isMoney = mode === 'money';
+            console.log(`[DEBUG] renderChartTopPeores (mode: ${mode}):`, datos.slice(0, 5));
             const labels = datos.slice(0, 10).map(d => {
                 const name = d.producto || '';
                 return name.substring(0, 20) + (name.length > 20 ? '...' : '');
             });
-            const dataVals = datos.slice(0, 10).map(d => isMoney ? d.ventas_dinero : d.ventas_unidades);
+            const dataVals = datos.slice(0, 10).map(d => {
+                const val = isMoney ? d.ventas_dinero : d.ventas_unidades;
+                return val || 0;
+            });
 
             if (chartTopPeoresInst) chartTopPeoresInst.destroy();
 
@@ -1625,11 +1648,11 @@ window.ModuloDashboard = (function () {
         if (chartType === 'mensual') {
             renderChartMensual(lastJefaturaData.mensual, mode);
         } else if (chartType === 'mejores') {
-            const arr = mode === 'money' ? lastJefaturaData.top_productos_dinero : lastJefaturaData.top_productos_unidades;
+            const arr = lastJefaturaData.top_productos || [];
             const sorted = [...arr].sort((a, b) => (mode === 'money' ? b.ventas_dinero - a.ventas_dinero : b.ventas_unidades - a.ventas_unidades));
             renderChartTopMejores(sorted, mode);
         } else if (chartType === 'peores') {
-            const arr = mode === 'money' ? lastJefaturaData.peores_productos_dinero : lastJefaturaData.peores_productos_unidades;
+            const arr = lastJefaturaData.peores_productos || [];
             const sorted = [...arr].sort((a, b) => (mode === 'money' ? a.ventas_dinero - b.ventas_dinero : a.ventas_unidades - b.ventas_unidades));
             renderChartTopPeores(sorted, mode);
         }
