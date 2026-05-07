@@ -23,8 +23,9 @@ window.ModuloDashboard = (function () {
     let chartTopPeoresInst = null;
     let lastJefaturaData = null;
     let inc_consolidado_original = [];
-    let currentIncSortMode = 'units'; // 'units' or 'money'
+    let currentIncSortMode = localStorage.getItem('db_toggle_mode') || 'units'; // 'units' or 'money'
     let cacheAnalyticsPulido = null; // Cache para Analiticas de Pulido 
+    window.ventasCache = {}; // Caché global de sesión para drill-down mensual (Juan Sebastian Request)
     
     // Cache de 1 minuto para KPIs de SQL
     let lastFetchTime = 0;
@@ -308,17 +309,28 @@ window.ModuloDashboard = (function () {
                 console.log("[DEBUG] lastJefaturaData:", lastJefaturaData);
 
                 if (lastJefaturaData.mensual) {
-                    renderChartMensual(lastJefaturaData.mensual, 'money');
+                    renderChartMensual(lastJefaturaData.mensual, currentIncSortMode);
                 }
                 
+                // Iniciar Pre-fetching Seguro (Sin bloquear UI)
+                try {
+                    setTimeout(() => {
+                        const yearAct = lastJefaturaData.year_actual || new Date().getFullYear();
+                        const yearPrv = lastJefaturaData.year_prev || (yearAct - 1);
+                        prefetchVentasDrilldown(lastJefaturaData.mensual, yearAct, yearPrv);
+                    }, 2000);
+                } catch (prefErr) {
+                    console.warn("⚠️ Fallo no crítico en Pre-fetching:", prefErr);
+                }
+
                 if (lastJefaturaData.top_productos) {
-                    renderChartTopMejores(lastJefaturaData.top_productos, 'money');
+                    renderChartTopMejores(lastJefaturaData.top_productos, currentIncSortMode);
                 } else {
                     console.warn("⚠️ lastJefaturaData.top_productos es undefined");
                 }
 
                 if (lastJefaturaData.peores_productos) {
-                    renderChartTopPeores(lastJefaturaData.peores_productos, 'money');
+                    renderChartTopPeores(lastJefaturaData.peores_productos, currentIncSortMode);
                 } else {
                     console.warn("⚠️ lastJefaturaData.peores_productos es undefined");
                 }
@@ -1491,6 +1503,23 @@ window.ModuloDashboard = (function () {
                             }
                         },
                         x: { grid: { display: false } }
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const label = chartMensualInst.data.labels[index];
+                            const datasetIndex = elements[0].datasetIndex;
+                            const dataset = chartMensualInst.data.datasets[datasetIndex];
+                            
+                            // Determinar el año basado en el dataset (Actual vs YoYs)
+                            let anioSeleccionado = yearActual;
+                            if (dataset.label.includes(yearPrev.toString())) {
+                                anioSeleccionado = yearPrev;
+                            }
+                            
+                            const mesNum = index + 1; // Enero=1, etc.
+                            mostrarDrillDownVentas(mesNum, anioSeleccionado, label);
+                        }
                     }
                 }
             });
@@ -1499,13 +1528,166 @@ window.ModuloDashboard = (function () {
         }
     }
 
-    function renderChartTopMejores(datos, mode = 'money') {
+    /**
+     * DRILL-DOWN: Carga y muestra el desglose de ventas de un mes específico en un modal.
+     * Refactorizado según requerimiento de Juan Sebastian (ventasCache y UI instantánea).
+     */
+    async function mostrarDrillDownVentas(mes, anio, mesNombre) {
+        const modalEl = document.getElementById('modalDesgloseVentas');
+        if (!modalEl) return;
+        
+        const modal = new bootstrap.Modal(modalEl);
+        const spinner = document.getElementById('modalDesgloseSpinner');
+        const contenido = document.getElementById('modalDesgloseContenido');
+        
+        // El modo actual ('money' o 'units') define el orden y la lógica del drill-down
+        const modo = currentIncSortMode || 'money';
+        const cacheKey = `${mes}-${anio}-${modo}`;
+
+        contenido.classList.add('d-none');
+        spinner.classList.remove('d-none');
+        modal.show();
+
+        // 1. Verificar Caché Global (Velocidad Instantánea)
+        if (window.ventasCache[cacheKey]) {
+            console.log(`⚡ [Instant Load] Cargando ${cacheKey} desde ventasCache`);
+            renderizarTablaDesglose(window.ventasCache[cacheKey], mes, anio, mesNombre);
+            spinner.classList.add('d-none');
+            contenido.classList.remove('d-none');
+            return;
+        }
+
+        // 2. Fetch al Backend si no está en caché
+        try {
+            const url = `/api/dashboard/ventas/desglose-mensual?mes=${mes}&anio=${anio}&tipo_vista=${modo}`;
+            const res = await fetch(url);
+            const json = await res.json();
+
+            if (json.success) {
+                window.ventasCache[cacheKey] = json.data;
+                renderizarTablaDesglose(json.data, mes, anio, mesNombre);
+            } else {
+                Swal.fire('Error', 'No se pudieron obtener los datos de ventas.', 'error');
+            }
+        } catch (error) {
+            console.error('Error en drill-down:', error);
+            Swal.fire('Error', 'Fallo de conexión con el servidor.', 'error');
+        } finally {
+            spinner.classList.add('d-none');
+            contenido.classList.remove('d-none');
+        }
+    }
+
+    /**
+     * Helper para renderizar la tabla con diseño profesional (Juan Sebastian vFinal)
+     * Optimizada para alto contraste (#000000) y legibilidad en pantallas pequeñas.
+     */
+    function renderizarTablaDesglose(data, mes, anio, mesNombre) {
+        const titulo = document.getElementById('modalDesgloseTitulo');
+        const subtitulo = document.getElementById('modalDesgloseSubtitulo');
+        const cuerpoTabla = document.getElementById('cuerpoTablaDesgloseVentas');
+        const totalFooter = document.getElementById('modalDesgloseTotal');
+        const btnExportar = document.getElementById('btnExportarExcelVentas');
+
+        if (titulo) titulo.innerText = `Análisis de Facturación: ${mesNombre} ${anio}`;
+        if (subtitulo) subtitulo.innerText = `Datos consolidados desde el núcleo ERP (Carga Instantánea).`;
+
+        let totalMes = 0;
+        let html = '';
+        
+        if (data.length === 0) {
+            html = `<tr><td colspan="4" class="text-center py-5 text-muted">No se encontraron registros de ventas para este periodo.</td></tr>`;
+        } else {
+            data.forEach(item => {
+                const subtotal = parseFloat(item.total_ventas || 0);
+                totalMes += subtotal;
+                
+                // Diseño de Máximo Contraste (#000000)
+                const ref = item.id_codigo || 'N/A';
+                const desc = item.descripcion || 'Descripción extraída del registro de venta';
+                
+                html += `
+                    <tr class="align-middle">
+                        <td class="ps-4 py-3">
+                            <span class="fw-bold text-dark font-monospace" style="font-size: 1rem; color: #000000 !important;">${ref}</span>
+                        </td>
+                        <td class="py-3">
+                            <div class="fw-bold text-dark" style="font-size: 0.9rem; line-height: 1.2; color: #000000 !important; max-width: 550px;">${desc}</div>
+                        </td>
+                        <td class="text-center py-3">
+                            <span class="fw-bold text-dark" style="font-size: 1rem; color: #000000 !important;">${formatNumber(item.unidades)}</span>
+                        </td>
+                        <td class="text-end pe-4 py-3">
+                            <span class="fw-bold text-dark" style="font-size: 1.05rem; color: #000000 !important;">${formatCOP(subtotal)}</span>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        if (cuerpoTabla) cuerpoTabla.innerHTML = html;
+        if (totalFooter) {
+            totalFooter.innerText = formatCOP(totalMes);
+            totalFooter.style.color = "#000000";
+        }
+
+        if (btnExportar) {
+            btnExportar.disabled = (data.length === 0);
+            btnExportar.onclick = (e) => {
+                e.preventDefault();
+                const modo = currentIncSortMode || 'money';
+                window.location.href = `/api/dashboard/ventas/exportar-desglose?mes=${mes}&anio=${anio}&tipo_vista=${modo}`;
+            };
+        }
+    }
+
+    /**
+     * PRE-FETCHING PROACTIVO: Carga los últimos 3 meses en silencio para UX <500ms.
+     * Ahora detecta el modo activo para cargar los datos ordenados correctamente.
+     */
+    async function prefetchVentasDrilldown(dataMensual, yearActual, yearPrev) {
+        try {
+            if (!Array.isArray(dataMensual) || dataMensual.length === 0) return;
+            
+            const modo = currentIncSortMode || 'money';
+            console.log(`⚡ [Proactive Cache] Precargando meses estratégicos (Modo: ${modo})...`);
+            
+            // Seleccionar los últimos 3 meses con actividad
+            const mesesEstrategicos = dataMensual
+                .map((val, idx) => ({ mes: idx + 1, val }))
+                .filter(o => o.val > 0)
+                .slice(-3);
+
+            for (const item of mesesEstrategicos) {
+                const key = `${item.mes}-${yearActual}-${modo}`;
+                if (!window.ventasCache[key]) {
+                    try {
+                        const res = await fetch(`/api/dashboard/ventas/desglose-mensual?mes=${item.mes}&anio=${yearActual}&tipo_vista=${modo}`);
+                        const json = await res.json();
+                        if (json.success) {
+                            window.ventasCache[key] = json.data;
+                            console.log(`✅ [Cache Ready] ${key}`);
+                        }
+                    } catch(e) {
+                        console.warn(`No se pudo precargar mes ${item.mes}`);
+                    }
+                    await new Promise(r => setTimeout(r, 400)); // Throttle más rápido
+                }
+            }
+        } catch (globalPrefetchErr) {
+            console.error("Error global en prefetch:", globalPrefetchErr);
+        }
+    }
+
+    function renderChartTopMejores(arr, mode = 'money') {
         const ctx = document.getElementById('chartTopMejores');
-        if (!ctx || !Array.isArray(datos) || datos.length === 0) return;
+        if (!ctx || !Array.isArray(arr) || arr.length === 0) return;
 
         try {
             const isMoney = mode === 'money';
-            console.log(`[DEBUG] renderChartTopMejores (mode: ${mode}):`, datos.slice(0, 5));
+            // Ordenar por el modo actual
+            const datos = [...arr].sort((a, b) => isMoney ? (b.ventas_dinero - a.ventas_dinero) : (b.ventas_unidades - a.ventas_unidades));
+            
             const labels = datos.slice(0, 10).map(d => {
                 const name = d.producto || '';
                 return name.substring(0, 20) + (name.length > 20 ? '...' : '');
@@ -1565,13 +1747,15 @@ window.ModuloDashboard = (function () {
             console.error("Error renderizando chartTopMejores:", e);
         }
     }
-    function renderChartTopPeores(datos, mode = 'money') {
+    function renderChartTopPeores(arr, mode = 'money') {
         const ctx = document.getElementById('chartTopPeores');
-        if (!ctx || !Array.isArray(datos) || datos.length === 0) return;
+        if (!ctx || !Array.isArray(arr) || arr.length === 0) return;
 
         try {
             const isMoney = mode === 'money';
-            console.log(`[DEBUG] renderChartTopPeores (mode: ${mode}):`, datos.slice(0, 5));
+            // Ordenar por el modo actual (Peores = Menos ventas)
+            const datos = [...arr].sort((a, b) => isMoney ? (a.ventas_dinero - b.ventas_dinero) : (a.ventas_unidades - b.ventas_unidades));
+            
             const labels = datos.slice(0, 10).map(d => {
                 const name = d.producto || '';
                 return name.substring(0, 20) + (name.length > 20 ? '...' : '');
@@ -1634,28 +1818,54 @@ window.ModuloDashboard = (function () {
     /**
      * Alterna la vista de las gráficas entre Dinero y Unidades
      */
-    function toggleChartView(chartType, mode) {
+    /**
+     * Alterna la vista de las gráficas entre Dinero y Unidades (Sincronización Global vFinal)
+     * Cuando se cambia el modo en una tarjeta, se sincroniza todo el Dashboard.
+     */
+    function toggleChartView(ignoreChartType, mode) {
         if (!lastJefaturaData) return;
 
-        // Persistir en localStorage
+        // 1. Evitar ejecuciones redundantes si ya estamos en ese modo
+        if (currentIncSortMode === mode && ignoreChartType !== 'force') return;
+
+        console.log(`🔄 Global Toggle: switching all charts to -> ${mode}`);
+
+        // 2. Actualizar Estado Global y Persistencia
+        currentIncSortMode = mode; 
         localStorage.setItem('db_toggle_mode', mode);
 
-        // Update Button UI
-        const btnMoney = document.getElementById(`toggle-${chartType}-money`);
-        const btnUnits = document.getElementById(`toggle-${chartType}-units`);
-        if (btnMoney) btnMoney.classList.toggle('active', mode === 'money');
-        if (btnUnits) btnUnits.classList.toggle('active', mode === 'units');
+        // 3. Sincronizar UI de todos los botones Toggle en el DOM
+        const allToggles = ['mensual', 'mejores', 'peores'];
+        allToggles.forEach(type => {
+            const btnMoney = document.getElementById(`toggle-${type}-money`);
+            const btnUnits = document.getElementById(`toggle-${type}-units`);
+            
+            if (btnMoney) btnMoney.classList.toggle('active', mode === 'money');
+            if (btnUnits) btnUnits.classList.toggle('active', mode === 'units');
+        });
 
-        if (chartType === 'mensual') {
-            renderChartMensual(lastJefaturaData.mensual, mode);
-        } else if (chartType === 'mejores') {
-            const arr = lastJefaturaData.top_productos || [];
-            const sorted = [...arr].sort((a, b) => (mode === 'money' ? b.ventas_dinero - a.ventas_dinero : b.ventas_unidades - a.ventas_unidades));
-            renderChartTopMejores(sorted, mode);
-        } else if (chartType === 'peores') {
-            const arr = lastJefaturaData.peores_productos || [];
-            const sorted = [...arr].sort((a, b) => (mode === 'money' ? a.ventas_dinero - b.ventas_dinero : a.ventas_unidades - b.ventas_unidades));
-            renderChartTopPeores(sorted, mode);
+        // 4. Redibujar Todo el Dashboard con el nuevo modo (Ejecución Atómica)
+        try {
+            // Gráfico Principal
+            const dataMensual = lastJefaturaData.mensual || lastJefaturaData.grafico_mensual || [];
+            renderChartMensual(dataMensual, mode);
+            
+            // Rankings
+            const arrMejores = lastJefaturaData.top_productos || lastJefaturaData.top_mejores || [];
+            renderChartTopMejores(arrMejores, mode);
+            
+            const arrPeores = lastJefaturaData.peores_productos || [];
+            renderChartTopPeores(arrPeores, mode);
+
+            // 5. Actualizar Pre-fetch proactivo para el nuevo modo (Background)
+            setTimeout(() => {
+                const yAct = lastJefaturaData.year_actual || new Date().getFullYear();
+                const yPrv = lastJefaturaData.year_prev || (yAct - 1);
+                prefetchVentasDrilldown(dataMensual, yAct, yPrv);
+            }, 500); // Pequeño delay para no competir con el renderizado principal
+
+        } catch (err) {
+            console.error("❌ Error en re-renderizado global:", err);
         }
     }
 

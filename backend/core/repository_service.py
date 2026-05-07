@@ -678,7 +678,7 @@ class RepositoryService:
 
             sql = f"""
                 SELECT 
-                    p.responsable,
+                    UPPER(TRIM(p.responsable)) as responsable,
                     COALESCE(SUM(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as buenas,
                     COALESCE(SUM(NULLIF(regexp_replace(p.pnc_pulido::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as pnc,
                     COALESCE(SUM(NULLIF(regexp_replace(p.tiempo_total_minutos::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as tiempo_real,
@@ -687,7 +687,7 @@ class RepositoryService:
                 FROM db_pulido p
                 LEFT JOIN db_costos c ON TRIM(p.codigo::TEXT) = TRIM(c.referencia::TEXT)
                 WHERE 1=1 {filt}
-                GROUP BY p.responsable
+                GROUP BY UPPER(TRIM(p.responsable))
                 ORDER BY puntos DESC
                 LIMIT :lim
             """
@@ -718,6 +718,70 @@ class RepositoryService:
             db.session.rollback()
             logger.error(f"[get_ranking_operarios_pulido] {e}")
             return []
+
+    def get_analytics_pulido(self, desde=None, hasta=None):
+        """Genera datos avanzados de pulido: evolución de puntos y detalle por referencia."""
+        try:
+            params = {}
+            filt = ""
+            if desde and hasta:
+                filt = " AND p.fecha BETWEEN :desde AND :hasta"
+                params['desde'] = desde
+                params['hasta'] = hasta
+
+            # 1. Evolución Mensual de Puntos
+            sql_evol = f"""
+                SELECT 
+                    TO_CHAR(p.fecha, 'YYYY-MM') as mes,
+                    UPPER(TRIM(p.responsable)) as responsable,
+                    SUM(COALESCE(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER, 0) * 
+                        COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as puntos
+                FROM db_pulido p
+                LEFT JOIN db_costos c ON TRIM(p.codigo::TEXT) = TRIM(c.referencia::TEXT)
+                WHERE 1=1 {filt}
+                GROUP BY 1, 2
+                ORDER BY 1 ASC, puntos DESC
+            """
+            rows_evol = db.session.execute(text(sql_evol), params).fetchall()
+            evolucion = {}
+            for r in rows_evol:
+                mes, res, pts = r[0], r[1], float(r[2])
+                if mes not in evolucion: evolucion[mes] = {}
+                evolucion[mes][res] = pts
+
+            # 2. Detalle por Referencia (para el modal)
+            sql_refs = f"""
+                SELECT 
+                    UPPER(TRIM(p.responsable)) as responsable,
+                    TRIM(p.codigo::TEXT) as referencia,
+                    SUM(COALESCE(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER, 0)) as qty,
+                    MAX(COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as pts_u,
+                    MAX(COALESCE(NULLIF(regexp_replace(REPLACE(c.costo_total::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as costo_u
+                FROM db_pulido p
+                LEFT JOIN db_costos c ON TRIM(p.codigo::TEXT) = TRIM(c.referencia::TEXT)
+                WHERE 1=1 {filt}
+                GROUP BY 1, 2
+                ORDER BY 1, qty DESC
+            """
+            rows_refs = db.session.execute(text(sql_refs), params).fetchall()
+            refs_map = {}
+            for r in rows_refs:
+                res, ref, qty, pts_u, costo_u = r[0], r[1], int(r[2]), float(r[3]), float(r[4])
+                if res not in refs_map: refs_map[res] = {}
+                refs_map[res][ref] = {
+                    "cantidad_total": qty,
+                    "puntos_unidad": pts_u,
+                    "costo_unidad": costo_u
+                }
+
+            return {
+                "evolucion_puntos_op": evolucion,
+                "operario_referencia": refs_map
+            }
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"[get_analytics_pulido] {e}")
+            return {"evolucion_puntos_op": {}, "operario_referencia": {}}
 
     # ── NUEVAS FUNCIONES SQL-NATIVE ──────────────────────────
 
@@ -1197,6 +1261,71 @@ class RepositoryService:
             return [{"fecha": str(r[0]), "iny": int(r[1]), "pul": int(r[2])} for r in rows]
         except Exception as e:
             logger.error(f"[get_tendencia_produccion_sql] {e}")
+            return []
+
+
+    def get_desglose_mensual_ventas_sql(self, mes, anio, tipo_vista='money'):
+        """Obtiene el desglose de ventas por producto para un mes y año, optimizado y agrupado."""
+        try:
+            params = {'mes': mes, 'anio': anio}
+            
+            def _sql_cast_num(col):
+                return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+
+            # Optimización de fechas para uso de índices
+            import calendar
+            last_day = calendar.monthrange(int(anio), int(mes))[1]
+            start_date = f"{anio}-{str(mes).zfill(2)}-01"
+            end_date = f"{anio}-{str(mes).zfill(2)}-{last_day}"
+            params['start_date'] = start_date
+            params['end_date'] = end_date
+            
+            # Determinar columna de ordenamiento
+            order_col = 'total_ventas' if tipo_vista == 'money' else 'unidades'
+
+            sql = f"""
+                WITH VentasPeriodo AS (
+                    SELECT 
+                        productos as raw_string,
+                        CASE 
+                            WHEN productos LIKE '%|%' THEN TRIM(SPLIT_PART(productos, '|', 1))
+                            WHEN productos LIKE '% %' THEN TRIM(SPLIT_PART(productos, ' ', 1))
+                            ELSE TRIM(productos)
+                        END as raw_codigo,
+                        
+                        CASE 
+                            WHEN productos LIKE '%|%' THEN TRIM(SPLIT_PART(productos, '|', 2))
+                            WHEN productos LIKE '% %' THEN TRIM(SUBSTRING(productos FROM POSITION(' ' IN productos) + 1))
+                            ELSE ''
+                        END as desc_raw,
+                        
+                        cantidad,
+                        total_ingresos
+                    FROM db_ventas
+                    WHERE fecha >= :start_date AND fecha <= :end_date
+                      AND (clasificacion ILIKE '%venta%' OR clasificacion IS NULL)
+                )
+                SELECT 
+                    v.raw_codigo as id_codigo, 
+                    COALESCE(
+                        p.descripcion, 
+                        NULLIF(v.desc_raw, ''), 
+                        v.raw_string
+                    ) as descripcion, 
+                    SUM({_sql_cast_num('v.cantidad')}) as unidades, 
+                    SUM({_sql_cast_num('v.total_ingresos')}) as total_ventas
+                FROM VentasPeriodo v
+                LEFT JOIN db_productos p ON v.raw_codigo = p.id_codigo 
+                                         OR v.raw_codigo = p.codigo_sistema
+                GROUP BY v.raw_codigo, p.descripcion, v.desc_raw, v.raw_string
+                HAVING SUM({_sql_cast_num('v.cantidad')}) > 0
+                ORDER BY {order_col} DESC
+            """
+            
+            rows = db.session.execute(text(sql), params).mappings().all()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"[get_desglose_mensual_ventas_sql] {e}")
             return []
 
 

@@ -8,6 +8,9 @@ import logging
 import collections
 import time
 import datetime
+import pandas as pd
+import io
+from flask import send_file
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +115,7 @@ def obtener_metricas_bi():
         ranking_iny_ops = repository_service.get_ranking_operarios_inyeccion(desde, hasta)
         ranking_pul_ops = repository_service.get_ranking_operarios_pulido(desde, hasta)
         ranking_maquinas = repository_service.get_ranking_maquinas(desde, hasta)
+        analytics_pulido = repository_service.get_analytics_pulido(desde, hasta)
         
         # 2. Nuevas métricas SQL-Native (Stock Crítico y Pérdida Financiera)
         stock_critico = repository_service.get_stock_critico_sql()
@@ -199,6 +203,7 @@ def obtener_metricas_bi():
             },
             "maquinas": [{'maquina': m.get('maquina', '?'), 'valor': m.get('valor', 0)} for m in ranking_maquinas],
             "tendencia": tendencia,
+            "analytics_pulido": analytics_pulido,
             "insights_ia": insights,
             "insight_ia": insights[0]
         }
@@ -234,3 +239,72 @@ def metricas_inyeccion_legacy():
 @dashboard_bp.route('/pulido', methods=['GET'])
 def metricas_pulido_legacy():
     return obtener_metricas_bi()
+
+@dashboard_bp.route('/ventas/desglose-mensual', methods=['GET'])
+def get_desglose_mensual():
+    """Endpoint para el Drill-down del gráfico mensual."""
+    try:
+        mes = request.args.get('mes')
+        anio = request.args.get('anio')
+        tipo_vista = request.args.get('tipo_vista', 'money')
+        if not mes or not anio:
+            return jsonify({"success": False, "error": "Faltan parámetros mes y anio"}), 400
+        
+        data = repository_service.get_desglose_mensual_ventas_sql(mes, anio, tipo_vista)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        logger.error(f"Error en get_desglose_mensual: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@dashboard_bp.route('/ventas/exportar-desglose', methods=['GET'])
+def exportar_desglose_mensual():
+    """Genera Excel del desglose mensual con formato profesional."""
+    try:
+        mes = request.args.get('mes')
+        anio = request.args.get('anio')
+        tipo_vista = request.args.get('tipo_vista', 'money')
+        if not mes or not anio:
+            return jsonify({"success": False, "error": "Faltan parámetros mes y anio"}), 400
+        
+        data = repository_service.get_desglose_mensual_ventas_sql(mes, anio, tipo_vista)
+        if not data:
+            return jsonify({"success": False, "error": "No hay datos para este periodo"}), 404
+        
+        # Inicializar DataFrame
+        df = pd.DataFrame(data)
+        
+        # Asegurar que las columnas existen y están en orden
+        columnas_esperadas = ['id_codigo', 'descripcion', 'unidades', 'total_ventas']
+        for col in columnas_esperadas:
+            if col not in df.columns:
+                df[col] = 0 if ('total' in col or 'unidades' in col) else ''
+        
+        df = df[columnas_esperadas]
+        df.columns = ['Referencia', 'Descripción', 'Cantidad', 'Total (COP)']
+        
+        # Tipado numérico para Excel
+        df['Cantidad'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0)
+        df['Total (COP)'] = pd.to_numeric(df['Total (COP)'], errors='coerce').fillna(0)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Reporte Ventas')
+            
+            # Autofit dinámico
+            worksheet = writer.sheets['Reporte Ventas']
+            for idx, col in enumerate(df.columns):
+                val_max_len = df[col].astype(str).map(len).max() if not df.empty else 0
+                max_len = max(val_max_len, len(col)) + 2
+                worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 60)
+
+        output.seek(0)
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'Reporte_Ventas_{mes}_{anio}.xlsx'
+        )
+    except Exception as e:
+        logger.error(f"❌ Error Crítico en Exportación Excel: {e}")
+        return jsonify({"success": False, "error": f"Fallo en la generación del reporte: {str(e)}"}), 500
+        return str(e), 500

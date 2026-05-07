@@ -836,15 +836,15 @@
                                                 title="Comparativa de facturación vs presupuesto mensual (Datos desde PostgreSQL - Histórico)."></i>
                                         </h5>
                                         <div class="d-flex gap-2">
-                                            <button class="chart-toggle-btn active" id="toggle-mensual-money"
-                                                onclick="window.ModuloDashboard.toggleChartView('mensual', 'money')"
-                                                title="Ver en Dinero">
-                                                <i class="fas fa-dollar-sign"></i>
-                                            </button>
-                                            <button class="chart-toggle-btn" id="toggle-mensual-units"
+                                            <button class="chart-toggle-btn active" id="toggle-mensual-units"
                                                 onclick="window.ModuloDashboard.toggleChartView('mensual', 'units')"
                                                 title="Ver en Unidades">
                                                 <i class="fas fa-box"></i>
+                                            </button>
+                                            <button class="chart-toggle-btn" id="toggle-mensual-money"
+                                                onclick="window.ModuloDashboard.toggleChartView('mensual', 'money')"
+                                                title="Ver en Dinero">
+                                                <i class="fas fa-dollar-sign"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -991,15 +991,15 @@
                                                 title="Ranking de referencias con mayor rotación y valor facturado (Dato Histórico General)."></i>
                                         </h5>
                                         <div class="d-flex gap-2">
-                                            <button class="chart-toggle-btn active" id="toggle-mejores-money"
-                                                onclick="window.ModuloDashboard.toggleChartView('mejores', 'money')"
-                                                title="Ver en Dinero">
-                                                <i class="fas fa-dollar-sign"></i>
-                                            </button>
-                                            <button class="chart-toggle-btn" id="toggle-mejores-units"
+                                            <button class="chart-toggle-btn active" id="toggle-mejores-units"
                                                 onclick="window.ModuloDashboard.toggleChartView('mejores', 'units')"
                                                 title="Ver en Unidades">
                                                 <i class="fas fa-box"></i>
+                                            </button>
+                                            <button class="chart-toggle-btn" id="toggle-mejores-money"
+                                                onclick="window.ModuloDashboard.toggleChartView('mejores', 'money')"
+                                                title="Ver en Dinero">
+                                                <i class="fas fa-dollar-sign"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -1022,15 +1022,15 @@
                                                 title="Productos con menor desempeño en ventas según facturación (Dato Histórico General)."></i>
                                         </h5>
                                         <div class="d-flex gap-2">
-                                            <button class="chart-toggle-btn active" id="toggle-peores-money"
-                                                onclick="window.ModuloDashboard.toggleChartView('peores', 'money')"
-                                                title="Ver en Dinero">
-                                                <i class="fas fa-dollar-sign"></i>
-                                            </button>
-                                            <button class="chart-toggle-btn" id="toggle-peores-units"
+                                            <button class="chart-toggle-btn active" id="toggle-peores-units"
                                                 onclick="window.ModuloDashboard.toggleChartView('peores', 'units')"
                                                 title="Ver en Unidades">
                                                 <i class="fas fa-box"></i>
+                                            </button>
+                                            <button class="chart-toggle-btn" id="toggle-peores-money"
+                                                onclick="window.ModuloDashboard.toggleChartView('peores', 'money')"
+                                                title="Ver en Dinero">
+                                                <i class="fas fa-dollar-sign"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -4867,6 +4867,65 @@
 
     <!-- Cargar CSS de Comparativa -->
     <link rel="stylesheet" href="static/css/dashboard_comparison.css">
+
+    <!-- Modal Desglose Ventas Mensual (Drill-down) -->
+    <div class="modal fade" id="modalDesgloseVentas" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered" style="max-width: 95%;">
+            <div class="modal-content border-0 shadow-2xl" style="border-radius: 12px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
+                <!-- Header Fijo -->
+                <div class="modal-header bg-dark text-white py-3 px-4 flex-shrink-0">
+                    <div>
+                        <h5 class="modal-title fw-bold" id="modalDesgloseTitulo">Análisis de Facturación</h5>
+                        <p class="text-white-50 small mb-0" id="modalDesgloseSubtitulo"></p>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                
+                <!-- Body con Scroll Independiente -->
+                <div class="modal-body p-0 bg-white" style="overflow-y: auto; flex-grow: 1;">
+                    <!-- Spinner -->
+                    <div id="modalDesgloseSpinner" class="text-center py-5 d-none">
+                        <div class="spinner-border text-primary" style="width: 3.5rem; height: 3.5rem;" role="status"></div>
+                        <h5 class="mt-3 fw-bold text-dark">Consultando Base de Datos...</h5>
+                    </div>
+
+                    <div id="modalDesgloseContenido">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-striped mb-0" style="table-layout: fixed; width: 100%; border-collapse: separate; border-spacing: 0;">
+                                <thead class="table-light sticky-top shadow-sm" style="z-index: 10;">
+                                    <tr class="text-dark fw-bold border-bottom border-dark" style="font-size: 0.85rem;">
+                                        <th style="width: 180px;" class="ps-4 py-3">REFERENCIA</th>
+                                        <th style="width: auto;" class="py-3">DESCRIPCIÓN DEL PRODUCTO</th>
+                                        <th style="width: 120px; text-align: center;" class="py-3">UNIDADES</th>
+                                        <th style="width: 180px; text-align: right;" class="pe-4 py-3">MONTO TOTAL</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cuerpoTablaDesgloseVentas" class="text-dark">
+                                    <!-- Datos inyectados con alto contraste (#000000) -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Fijo -->
+                <div class="modal-footer bg-light border-top border-2 p-3 flex-shrink-0" style="z-index: 11;">
+                    <div class="d-flex justify-content-between w-100 align-items-center">
+                        <div class="d-flex flex-column">
+                            <span class="text-dark small text-uppercase fw-800" style="font-size: 0.65rem; opacity: 0.8;">Total Consolidado del Periodo</span>
+                            <div class="fw-bold fs-3 text-dark" id="modalDesgloseTotal" style="font-family: 'Inter', sans-serif;">$ 0</div>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-outline-dark rounded-pill px-4" data-bs-dismiss="modal">Cerrar</button>
+                            <button type="button" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" id="btnExportarExcelVentas">
+                                <i class="fas fa-file-excel me-2"></i>Exportar Excel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
 </body>
 

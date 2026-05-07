@@ -4,6 +4,9 @@ from backend.utils.auth_middleware import require_role, ROL_ADMINS
 import difflib
 import csv
 import io
+import logging
+
+logger = logging.getLogger(__name__)
 
 admin_bp = Blueprint('admin_bp', __name__)
 
@@ -179,10 +182,7 @@ def auditoria_fichas_fuzzy():
             headers={"Content-disposition": "attachment; filename=auditoria_fichas_mapping_sql.csv"}
         )
     except Exception as e:
-        logger.error(f"Error auditoria SQL: {e}")
-        return jsonify({"success": False, "message": str(e)}), 500
-
-    except Exception as e:
         import traceback
         traceback.print_exc()
+        logger.error(f"Error auditoria SQL: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
