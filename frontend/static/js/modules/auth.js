@@ -586,18 +586,27 @@ const AuthModule = {
     },
 
     logout: function () {
+        console.log("🔐 Cerrando sesión y limpiando rastro de producción...");
         this.currentUser = null;
         sessionStorage.removeItem('friparts_user');
         
         // LIMPIEZA TOTAL DE ESTADOS DE PRODUCCIÓN (Juan Sebastian request)
-        localStorage.removeItem('pulido_state');
-        localStorage.removeItem('inyeccion_state');
-        localStorage.removeItem('ensamble_state');
-        localStorage.removeItem('mezcla_state');
+        // 1. Limpiar llaves estáticas conocidas
+        const legacyKeys = ['pulido_state', 'inyeccion_state', 'ensamble_state', 'mezcla_state', 'mes_maquina_ref'];
+        legacyKeys.forEach(k => localStorage.removeItem(k));
+
+        // 2. Limpiar llaves namespaced (ej: pulido_state::JUAN, pulido_last_responsable::JUAN)
+        const productionPrefixes = ['pulido_', 'inyeccion_', 'ensamble_', 'mezcla_', 'mes_'];
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+            if (productionPrefixes.some(pref => key.startsWith(pref))) {
+                localStorage.removeItem(key);
+            }
+        });
         
         // Mostrar Landing
         this.showLandingScreen();
-        // Recargar para limpiar estados
+        // Recargar para limpiar estados volátiles en memoria de módulos
         setTimeout(() => window.location.reload(), 200);
     },
 

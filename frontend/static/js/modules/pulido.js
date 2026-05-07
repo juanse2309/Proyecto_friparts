@@ -281,13 +281,16 @@ const ModuloPulido = {
         if (!resp) return;
 
         try {
+            console.log(`📡 [Pulido] Validando estado de sesión en servidor para: ${resp}...`);
             const res = await fetch(`/api/pulido/session_active?responsable=${encodeURIComponent(resp)}`);
             const data = await res.json();
+            
             if (data.success && data.session) {
                 // FIX Efecto Daniela: Solo cargar si el estado es genuinamente activo
                 const estado = (data.session.estado || '').toUpperCase();
                 if (!['EN_PROCESO', 'PAUSADO', 'PAUSADO_COLA', 'TRABAJANDO'].includes(estado)) {
                     console.log("🚫 [Pulido] Sesión encontrada pero estado='" + estado + "' — NO es activa, ignorando.");
+                    this.limpiarGhostState(resp);
                     return;
                 }
 
@@ -297,16 +300,15 @@ const ModuloPulido = {
                     return;
                 }
 
-                console.log("📡 [Pulido] Sesión activa encontrada en SQL:", data.session);
+                console.log("✅ [Pulido] Sesión activa confirmada en SQL:", data.session);
                 this.sesionActiva = true;
                 this.sessionId = data.session.id_pulido;
                 this.startTime = new Date(data.session.hora_inicio_dt);
                 this.tiempoAcumuladoMs = (data.session.duracion_segundos || 0) * 1000;
-                // Si el backend provee descuento programado en el futuro, se puede hidratar aquí.
                 
-                // Poblar UI con responsable verificado (mismo operario)
+                // Poblar UI
                 const rInput = document.getElementById('responsable-pulido-input');
-                if (rInput) rInput.value = resp; // Asegurar consistencia
+                if (rInput) rInput.value = resp;
                 const p = document.getElementById('buscador-productos');
                 const o = document.getElementById('orden-produccion-pulido');
                 const l = document.getElementById('lote-pulido');
@@ -315,9 +317,25 @@ const ModuloPulido = {
                 if(l) l.value = data.session.lote;
 
                 this.continuarUIActiva();
+            } else {
+                // SINCRONIZACIÓN ESTRICTA: El backend dice que no hay nada activo
+                console.log(`🧹 [Pulido] Sincronización: No hay trabajos activos para '${resp}' en DB. Limpiando caché local.`);
+                this.limpiarGhostState(resp);
             }
         } catch (e) {
             console.error("Error recuperando sesión SQL:", e);
+        }
+    },
+
+    limpiarGhostState: function(operario) {
+        const key = this.getStateKey();
+        if (localStorage.getItem(key)) {
+            console.warn(`[Pulido] Eliminando Ghost State detectado para: ${operario}`);
+            localStorage.removeItem(key);
+            // Si la UI estaba activa por un error de flujo previo, resetearla
+            if (this.sesionActiva) {
+                this.limpiarSesionLocal();
+            }
         }
     },
 
