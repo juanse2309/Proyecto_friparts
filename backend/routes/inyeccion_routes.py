@@ -262,6 +262,15 @@ def iniciar_turno_inyeccion():
             fecha_dt = ahora.date()
 
         id_inyeccion = data.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
+        id_codigo = data.get('id_codigo')
+
+        # [RESTRICCIÓN PAOLA] No permitir registros sin código para evitar huérfanos
+        if not id_codigo:
+            logger.warning(f"⚠️ [Inyeccion] Intento de iniciar_turno rechazado: falta id_codigo. Responsable: {responsable}")
+            return jsonify({
+                "success": False, 
+                "error": "El código de producto es obligatorio para iniciar el registro en SQL."
+            }), 400
 
         # Buscar si ya existe (evitar duplicados)
         existente = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_inyeccion).first()

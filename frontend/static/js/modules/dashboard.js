@@ -1219,19 +1219,19 @@ window.ModuloDashboard = (function () {
             const insightEscaped = (op.insight || "Sin insights disponibles para Inyección.").replace(/'/g, "\\'");
 
             return `
-                < tr style = "cursor: pointer" onclick = "ModuloDashboard.mostrarModalOperador('${nombreEscaped}', ${op.valor}, 'Inyección', '${insightEscaped}', '${detalleMixText}')" >
+                <tr style="cursor: pointer" onclick="ModuloDashboard.mostrarModalOperador('${nombreEscaped}', ${op.valor}, 'Inyección', '${insightEscaped}', '${detalleMixText}')">
                     <td class="ps-3"><span class="badge bg-light text-dark border">${idx + 1}</span></td>
                     <td class="text-start">
                         <div class="fw-bold">${op.nombre}</div>
                         <small class="text-muted">Expertiz: <span class="badge bg-info text-white">${topProd}</span></small>
                     </td>
                     <td class="text-center fw-bold text-success">${op.valor.toLocaleString()}</td>
-                </tr >
+                </tr>
                 `;
         }).join('');
 
         Swal.fire({
-            title: `< i class="fas fa-users text-primary mb-2" ></i > <br>Todos los Operadores (Inyección)`,
+            title: `<i class="fas fa-users text-primary mb-2"></i><br>Todos los Operadores (Inyección)`,
             html: `
                 <div class="table-responsive" style="max-height: 400px;">
                     <table class="table table-hover align-middle small mb-0">
@@ -1384,11 +1384,11 @@ window.ModuloDashboard = (function () {
 
             if (chartMensualInst) chartMensualInst.destroy();
 
-            // Colores base
-            const AZUL_BARRA = 'rgba(59, 130, 246, 0.88)';
-            const GRIS_BARRA = 'rgba(148, 163, 184, 0.65)';
-            const AZUL_META = '#f59e0b';   // ámbar — contraste con barra azul
-            const GRIS_META = '#a78bfa';   // púrpura suave — contraste con barra gris
+            // Colores Premium
+            const AZUL_BARRA = 'rgba(37, 99, 235, 0.9)';   // Azul Corporativo Fuerte
+            const GRIS_BARRA = '#CCCCCC';                  // Gris solicitado para YoY
+            const AZUL_META = '#f59e0b';                    // Ámbar para Pedidos Actual
+            const GRIS_META = '#94a3b8';                    // Gris pizarra para Pedidos Previos
 
             chartMensualInst = new Chart(ctx, {
                 type: 'bar',
@@ -1400,20 +1400,21 @@ window.ModuloDashboard = (function () {
                             label: isMoney ? `Ventas ${yearActual} ($)` : `Ventas ${yearActual} (Unds)`,
                             data: dataActualVentas,
                             backgroundColor: AZUL_BARRA,
-                            borderRadius: 3,
-                            barPercentage: 0.9,
-                            categoryPercentage: 0.8,
+                            borderRadius: 4,
+                            barPercentage: 0.8,
+                            categoryPercentage: 0.7,
                             order: 3
                         },
                         {
                             label: isMoney ? `Ventas ${yearPrev} ($)` : `Ventas ${yearPrev} (Unds)`,
                             data: dataPrevVentas,
                             backgroundColor: GRIS_BARRA,
-                            borderRadius: 3,
-                            barPercentage: 0.9,
-                            categoryPercentage: 0.8,
+                            borderRadius: 4,
+                            barPercentage: 0.8,
+                            categoryPercentage: 0.7,
                             order: 4
                         },
+
                         // ── Metas elegantes: línea punteada + diamante ─
                         {
                             label: isMoney ? `Pedidos ${yearActual} ($)` : `Pedidos ${yearActual} (Unds)`,

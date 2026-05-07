@@ -62,6 +62,11 @@ const ModuloInyeccion = {
 
         // Persistir inicio al definir hora (patrón Pulido - visible en PC inmediatamente)
         document.getElementById('hora-inicio-inyeccion')?.addEventListener('change', () => {
+            // Bloqueo crítico: Si estamos validando un lote existente, NO crear un registro nuevo
+            if (this.esValidacionMode) {
+                console.log('🚫 [Inyeccion] Persistencia bloqueada: Modo Validación activo.');
+                return;
+            }
             this.persistirInicioSQL();
         });
 
@@ -82,6 +87,11 @@ const ModuloInyeccion = {
 
         if (!responsable || !maquina) {
             console.log('⏳ [Inyeccion] Persistencia diferida — faltan responsable o máquina');
+            return;
+        }
+
+        if (this.esValidacionMode) {
+            console.log('🚫 [Inyeccion] persistirInicioSQL cancelado por modo Validación.');
             return;
         }
 
@@ -237,6 +247,8 @@ const ModuloInyeccion = {
         if (container) container.classList.add('d-none');
 
         this.limpiarFormularioValidacion(false);
+        this.esValidacionMode = true; // Activar modo validación inmediatamente
+        this._idTurnoActivo = null;   // Limpiar ID temporal generado por persist-on-start previo
 
         if (document.getElementById('fecha-inyeccion')) {
             document.getElementById('fecha-inyeccion').value = (lotePrincipal.fecha || '').split('T')[0];

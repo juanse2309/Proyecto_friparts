@@ -830,20 +830,43 @@ class RepositoryService:
 
     def get_rendimiento_mensual_sql(self, start_date=None, end_date=None):
         """
-        Calcula el rendimiento mensual (comparativo 2025 vs 2026) 100% SQL-Native.
-        Resistente a strings de moneda sucios.
+        Calcula el rendimiento mensual (comparativo Año Actual vs Año Anterior) 100% SQL-Native.
+        Si se proveen fechas, calcula automáticamente el periodo espejo del año anterior.
         """
         try:
+            from datetime import datetime
             meses_map = {1:'ene',2:'feb',3:'mar',4:'abr',5:'may',6:'jun',7:'jul',8:'ago',9:'sep',10:'oct',11:'nov',12:'dic'}
             
             def _sql_cast_num(col):
                 return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
 
-            # Si el usuario pide nombres, lo incluimos en el WHERE o GROUP BY si fuera necesario, 
-            # pero el gráfico de rendimiento usualmente es global por mes.
-            # Aseguramos el uso de 'nombres' si hubiera filtros por cliente en el futuro.
-            params = {'start': start_date, 'end': end_date}
-            filt = " WHERE fecha BETWEEN :start AND :end" if start_date and end_date else " WHERE EXTRACT(YEAR FROM fecha) IN (2025, 2026)"
+            params = {}
+            year_actual = 2026
+            year_prev = 2025
+
+            if start_date and end_date:
+                try:
+                    sd = datetime.strptime(start_date, '%Y-%m-%d')
+                    ed = datetime.strptime(end_date, '%Y-%m-%d')
+                    
+                    # Periodo espejo año anterior
+                    sd_prev = sd.replace(year=sd.year - 1)
+                    ed_prev = ed.replace(year=ed.year - 1)
+                    
+                    filt = " WHERE (fecha BETWEEN :start AND :end) OR (fecha BETWEEN :start_prev AND :end_prev)"
+                    params = {
+                        "start": start_date, 
+                        "end": end_date, 
+                        "start_prev": sd_prev.strftime('%Y-%m-%d'), 
+                        "end_prev": ed_prev.strftime('%Y-%m-%d')
+                    }
+                    year_actual = sd.year
+                    year_prev = year_actual - 1
+                except Exception as e:
+                    logger.warning(f"Error parsing dates for YoY: {e}. Falling back to default years.")
+                    filt = " WHERE EXTRACT(YEAR FROM fecha) IN (2025, 2026)"
+            else:
+                filt = " WHERE EXTRACT(YEAR FROM fecha) IN (2025, 2026)"
             
             sql = f"""
                 SELECT 
@@ -859,7 +882,6 @@ class RepositoryService:
                 ORDER BY ano, mes
             """
             rows = db.session.execute(text(sql), params).fetchall()
-            logger.info(f"[get_rendimiento_mensual_sql] Filas obtenidas de db_ventas: {len(rows)}")
             
             # Organizar por mes (1-12)
             data_map = {m: {
@@ -876,20 +898,30 @@ class RepositoryService:
                 m, y = r[0], r[1]
                 if not m or m not in data_map: continue
                 v, p, v_u, p_u = _num(r[2]), _num(r[3]), _num(r[4]), _num(r[5])
-                if y == 2026:
+                
+                if y == year_actual:
                     data_map[m].update({
                         "actual_dinero": v, "actual_pedidos": p,
                         "actual_unidades": v_u, "actual_pedidos_unidades": p_u,
                         "ventas_dinero": v, "pedidos_dinero": p,
                         "ventas_qty": v_u, "pedidos_qty": p_u
                     })
-                else:
+                elif y == year_prev:
                     data_map[m].update({
                         "prev_dinero": v, "prev_pedidos": p,
                         "prev_unidades": v_u, "prev_pedidos_unidades": p_u
                     })
             
+            # Si hay filtro, solo devolver los meses que tienen data en el rango actual o previo
+            if start_date and end_date:
+                # Opcional: Podríamos filtrar data_map para que solo contenga meses dentro del rango
+                # Pero el frontend Chart.js maneja bien los 12 meses. 
+                # Si el usuario quiere ver "Progresión", tal vez quiera ver solo el rango.
+                # Por ahora devolvemos todos para no romper el layout de 12 meses si es lo esperado.
+                return list(data_map.values())
+            
             return list(data_map.values())
+
         except Exception as e:
             logger.error(f"[get_rendimiento_mensual_sql] {e}")
             return []
