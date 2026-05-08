@@ -21,6 +21,64 @@
     }
 
     /**
+     * Formatear la columna Detalle (Parsea JSON y tags especiales)
+     */
+    function formatearDetalle(detalle) {
+        if (!detalle || detalle === '-' || detalle === 'None') return '<span class="text-muted">-</span>';
+        
+        let html = detalle;
+        
+        // 1. Procesar [PNC_DETAIL] con JSON
+        const pncRegex = /\[PNC_DETAIL\]\s*(\{.*?\})/g;
+        html = html.replace(pncRegex, (match, jsonStr) => {
+            try {
+                const data = JSON.parse(jsonStr);
+                let badges = '';
+                for (const [motivo, cant] of Object.entries(data)) {
+                    const label = motivo.charAt(0).toUpperCase() + motivo.slice(1);
+                    badges += `<span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle me-1" style="font-size: 0.7rem; font-weight: 600;">
+                                <i class="fas fa-exclamation-triangle me-1"></i>${label}: ${cant}
+                               </span>`;
+                }
+                return badges;
+            } catch (e) {
+                return `<span class="badge bg-warning text-dark me-1" style="font-size: 0.7rem;">PNC: ${jsonStr}</span>`;
+            }
+        });
+
+        // 2. Procesar [AUTO_BREAK] (Recesos automáticos)
+        html = html.replace(/\[AUTO_BREAK\]/g, '<span class="badge bg-info bg-opacity-10 text-info border border-info-subtle me-1" style="font-size: 0.7rem; font-weight: 600;"><i class="fas fa-clock me-1"></i>RECESO</span>');
+
+        // 3. Limpieza de separadores feos
+        html = html.replace(/ \| /g, ' <span class="text-muted mx-1">|</span> ');
+
+        return `<div class="detalle-formateado">${html}</div>`;
+    }
+
+    /**
+     * Limpiar texto para exportación (Sin HTML y con JSON a texto plano)
+     */
+    function limpiarTextoParaExcel(detalle) {
+        if (!detalle || detalle === '-' || detalle === 'None') return '';
+        
+        let text = detalle;
+        
+        // Parsea JSON de PNC
+        const pncRegex = /\[PNC_DETAIL\]\s*(\{.*?\})/g;
+        text = text.replace(pncRegex, (match, jsonStr) => {
+            try {
+                const data = JSON.parse(jsonStr);
+                return "PNC: " + Object.entries(data).map(([k, v]) => `${k}=${v}`).join(', ');
+            } catch (e) { return "PNC: " + jsonStr; }
+        });
+
+        // Reemplaza tags
+        text = text.replace(/\[AUTO_BREAK\]/g, 'RECESO: ');
+        return text.trim();
+    }
+
+
+    /**
      * Cargar datos desde la API
      */
     async function cargarHistorial() {
@@ -149,7 +207,11 @@
                             <div class="text-muted small mb-1">
                                 <i class="fas fa-user me-1"></i> ${responsable}
                             </div>
+                            <div class="mb-2">
+                                ${formatearDetalle(r.Detalle)}
+                            </div>
                             ${r.Tipo === 'PULIDO' && (r.HORA_INICIO || r.HORA_FIN) && formatHorario(r.HORA_INICIO) ? `<div class="horario-movimiento mb-2"><i class="far fa-clock me-1"></i>${formatHorario(r.HORA_INICIO)} - ${formatHorario(r.HORA_FIN) || '?'}</div>` : ''}
+
                             
                             <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
                                 <div class="text-center px-2">
@@ -234,9 +296,10 @@
                         <td><span class="text-primary fw-medium">${orden || '-'}</span></td>
                         <td><small>${maquina || '-'}</small></td>
                         <td>
-                            <small class="text-muted">${r.Detalle || '-'}</small>
-                            ${r.Tipo === 'PULIDO' && (r.HORA_INICIO || r.HORA_FIN) && formatHorario(r.HORA_INICIO) ? `<br><span class="horario-movimiento"><i class="far fa-clock me-1"></i>${formatHorario(r.HORA_INICIO)} - ${formatHorario(r.HORA_FIN) || '?'}</span>` : ''}
+                            ${formatearDetalle(r.Detalle)}
+                            ${r.Tipo === 'PULIDO' && (r.HORA_INICIO || r.HORA_FIN) && formatHorario(r.HORA_INICIO) ? `<div class="mt-1"><span class="horario-movimiento"><i class="far fa-clock me-1"></i>${formatHorario(r.HORA_INICIO)} - ${formatHorario(r.HORA_FIN) || '?'}</span></div>` : ''}
                         </td>
+
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
                         ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.nombre?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.rol === 'Administración') ?
                         `<td class="text-center">
@@ -327,6 +390,21 @@
                 const d = new Date(); d.setDate(d.getDate() - 7);
                 dInput.value = d.toISOString().split('T')[0];
             }
+            
+            // Vincular botón de exportación
+            const btnExport = document.getElementById('btn-exportar-historial');
+            if (btnExport) {
+                btnExport.onclick = exportarHistorialExcel;
+            }
+
+            // Filtros dinámicos (Auto-filtrar al cambiar)
+            ['fechaDesde', 'fechaHasta', 'tipoProceso'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.addEventListener('change', () => cargarHistorial());
+                }
+            });
+
             cargarHistorial();
 
             // Re-renderizar al cambiar tamaño de ventana (Debounce simple)
@@ -540,6 +618,86 @@
 
     function cerrarModalEdicion() {
         document.getElementById('modalEditarHistorial').style.display = 'none';
+    }
+
+    /**
+     * Exportar los datos actuales a Excel
+     */
+    function exportarHistorialExcel() {
+        if (!h_datos || h_datos.length === 0) {
+            mostrarNotificacion('No hay datos para exportar', 'warning');
+            return;
+        }
+
+        try {
+            console.log('📊 Generando Excel del historial...');
+            mostrarLoading(true);
+
+            // Preparar datos para Excel
+            const rows = h_datos.map(r => {
+                // Normalización similar a la de la tabla
+                let responsable = r.Responsable;
+                let cantidad = r.Cant;
+                let orden = r.Orden;
+                let maquina = r.Extra || '-';
+
+                if (r.Tipo === 'INYECCION') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    orden = r['ORDEN PRODUCCION'] || r.Orden;
+                    maquina = r.MAQUINA || r.Extra;
+                } else if (r.Tipo === 'PULIDO') {
+                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
+                    cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
+                    orden = r['ORDEN PRODUCCION'] || r.Orden;
+                    maquina = 'N/A';
+                }
+
+                return {
+                    'Fecha': r.Fecha,
+                    'Tipo de Registro': r.Tipo,
+                    'Responsable': responsable,
+                    'Producto': r.Producto || 'Sin Producto',
+                    'Orden de Producción': orden,
+                    'Máquina/Extra': maquina,
+                    'Detalle': limpiarTextoParaExcel(r.Detalle),
+                    'Cantidad': cantidad
+                };
+            });
+
+            // Crear libro de trabajo
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(rows);
+
+            // Estilos básicos (ancho de columnas)
+            const wscols = [
+                { wch: 12 }, // Fecha
+                { wch: 12 }, // Tipo
+                { wch: 25 }, // Responsable
+                { wch: 20 }, // Producto
+                { wch: 15 }, // Orden
+                { wch: 15 }, // Máquina
+                { wch: 50 }, // Detalle
+                { wch: 10 }  // Cantidad
+            ];
+            ws['!cols'] = wscols;
+
+            XLSX.utils.book_append_sheet(wb, ws, "Historial");
+
+            // Generar nombre de archivo con fecha
+            const fechaStr = new Date().toISOString().slice(0, 10);
+            const fileName = `Historial_Global_${fechaStr}.xlsx`;
+
+            // Descargar
+            XLSX.writeFile(wb, fileName);
+            mostrarNotificacion('Excel generado correctamente', 'success');
+
+        } catch (error) {
+            console.error('❌ Error exportando Excel:', error);
+            mostrarNotificacion('Error al generar el Excel', 'error');
+        } finally {
+            mostrarLoading(false);
+        }
     }
 
     let swalTimelineState = {

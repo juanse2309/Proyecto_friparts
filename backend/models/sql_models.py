@@ -276,6 +276,18 @@ class Pnc(db.Model):
     codigo_ensamble = db.Column(db.String(50),  nullable=True)
 
 
+class BujeRevuelto(db.Model):
+    __tablename__ = 'db_bujes_revueltos'
+    __table_args__ = {'extend_existing': True}
+
+    id_bujes_revueltos = db.Column(db.String(80), primary_key=True, default=lambda: uuid.uuid4().hex[:8])
+    id_pulido        = db.Column(db.String(80), index=True)
+    id_codigo        = db.Column(db.String(50), index=True) 
+    cantidad         = db.Column(db.Numeric(18, 2), default=0)
+    codigo_ensamble  = db.Column(db.String(50), nullable=True)
+    responsable      = db.Column(db.String(150), nullable=True)
+
+
 class DbCostos(db.Model):
     __tablename__ = 'db_costos'
     __table_args__ = {'extend_existing': True}

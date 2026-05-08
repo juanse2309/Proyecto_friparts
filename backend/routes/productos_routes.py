@@ -9,19 +9,35 @@ from backend.core.tenant import get_tenant_from_request
 import logging
 import time # Juan Sebastian: Para manejo de caché
 import os
+from backend.utils.formatters import normalizar_codigo
+from backend.models.sql_models import Producto
 
 logger = logging.getLogger(__name__)
 
 productos_bp = Blueprint('productos', __name__)
 
+# Configuración de rutas de imágenes
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PRODUCTOS_IMG_DIR = os.path.join(BASE_DIR, 'frontend', 'static', 'img', 'productos')
+
+def resolver_ruta_imagen(imagen_db, codigo_sistema):
+    """Resuelve la ruta de la imagen para un producto."""
+    if imagen_db and imagen_db.strip():
+        return imagen_db.strip()
+    
+    # Buscar localmente
+    codigo_norm = normalizar_codigo(codigo_sistema)
+    posibles = [f"{codigo_norm}.jpg", f"{codigo_norm}.png", f"{codigo_norm}.JPG", f"{codigo_norm}.PNG"]
+    for filename in posibles:
+        if os.path.exists(os.path.join(PRODUCTOS_IMG_DIR, filename)):
+            return f"/static/img/productos/{filename}"
+            
+    return "/static/img/no-image.svg"
 
 @productos_bp.route('/detalle/<codigo_sistema>', methods=['GET'])
 def detalle_producto(codigo_sistema):
     """Obtiene el detalle completo de un producto con auditoría de stock detallada."""
     try:
-        from backend.utils.formatters import normalizar_codigo
-        from backend.models.sql_models import Producto
-        
         codigo_norm = normalizar_codigo(codigo_sistema).strip().upper()
         # Intentar búsqueda con código limpio (fallback) por si el catálogo usa el corto
         codigo_limpio = codigo_norm.replace('FR-', '').replace('CB-', '').replace('ENS-', '').strip()
@@ -43,45 +59,27 @@ def detalle_producto(codigo_sistema):
             stock_total_calculado = v_por_pulir + v_p_terminado
             comp = float(p_sql.comprometido or 0)
             
-            # Auditoría Crítica en Consola
-            print(f'🔍 [CHECK-STOCK] Buscando: {codigo_sistema} | Encontrado ID: {p_sql.id_codigo} | Por Pulir: {v_por_pulir} | Terminado: {v_p_terminado} | Total: {stock_total_calculado}')
-
-            # CONSTRUCCIÓN DE RESPUESTA SIMPLIFICADA (PEDIDO USUARIO)
             res_data = {
                 "id_codigo": p_sql.id_codigo,
                 "codigo_sistema": p_sql.codigo_sistema,
                 "descripcion": p_sql.descripcion,
-                "p_terminado": float(v_p_terminado),
-                "por_pulir": float(v_por_pulir),
-                "comprometido": float(comp),
-                "stock_disponible": float(v_p_terminado), # Mapeado a p_terminado según pedido
-                "disponible": float(v_p_terminado),
-                "stock_bodega": float(v_bodega),
+                "p_terminado": v_p_terminado,
+                "por_pulir": v_por_pulir,
+                "comprometido": comp,
+                "stock_disponible": v_p_terminado,
+                "disponible": v_p_terminado,
+                "stock_bodega": v_bodega,
                 "imagen": p_sql.imagen or "",
-                "imagen_valida": "" 
+                "imagen_valida": resolver_ruta_imagen(p_sql.imagen, p_sql.codigo_sistema)
             }
-            
-            # Gestión de Imágenes
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            image_dir = os.path.join(base_dir, 'frontend', 'static', 'img', 'productos')
-            codigo_img = normalizar_codigo(str(res_data.get('codigo_sistema', codigo_norm)))
-            
-            if res_data['imagen'] and ('drive.google.com' in res_data['imagen'] or len(res_data['imagen']) > 20):
-                res_data['imagen_valida'] = res_data['imagen']
-            else:
-                img_path = os.path.join(image_dir, f"{codigo_img}.jpg")
-                res_data['imagen_valida'] = f"/static/img/productos/{codigo_img}.jpg" if os.path.exists(img_path) else '/static/img/no-image.svg'
 
             return jsonify({"status": "success", "producto": res_data}), 200
         else:
-            print(f'⚠️ [CHECK-STOCK] No se encontró el producto: {codigo_norm}')
             return jsonify({"status": "error", "message": f"Producto [{codigo_norm}] no encontrado"}), 200
             
     except Exception as e:
         logger.error(f"Error crítico en detalle producto SQL: {e}")
         return jsonify({"status": "error", "message": str(e)}), 200
-
-
 
 @productos_bp.route('/buscar/<query>', methods=['GET'])
 def buscar_productos(query):
@@ -96,9 +94,6 @@ def buscar_productos(query):
         limite = request.args.get('limite', 30, type=int)
         termino = f"%{query.strip().upper()}%"
         
-        # JOIN optimizado con CTE para pre-normalización
-        PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
-        # JOIN optimizado: Usamos dos joins directos (exacto y normalizado) para evitar REGEXP en la cláusula JOIN
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
             WITH precios_norm AS (
@@ -161,7 +156,7 @@ def buscar_productos(query):
                 "stock_bodega": float(r['stock_bodega'] or 0),
                 "por_pulir": float(r['por_pulir'] or 0),
                 "codigo_sistema": r['codigo_sistema'],
-                "imagen": r['imagen'] or "",
+                "imagen": resolver_ruta_imagen(r['imagen'], r['codigo_sistema']),
                 "oem": r['oem'] or "",
                 "precio": limpiar_precio(r['precio_raw'])
             })
@@ -178,7 +173,6 @@ def buscar_productos(query):
             'message': str(e)
         }), 500
 
-
 @productos_bp.route('/listar', methods=['GET'])
 def listar_productos():
     """
@@ -188,11 +182,8 @@ def listar_productos():
     try:
         from backend.core.sql_database import db
         from sqlalchemy import text
-        import re
-
+        
         # JOIN optimizado con CTE para pre-normalización
-        PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
-        # JOIN optimizado: Usamos dos joins directos (exacto y normalizado) para evitar REGEXP en la cláusula JOIN
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
             WITH precios_norm AS (
@@ -228,20 +219,15 @@ def listar_productos():
         
         def limpiar_precio(val):
             if val is None or str(val).strip() in ['', 'None']: return 0
-            # Si ya es un número, no lo toques (evita multiplicar por 10 si hay punto decimal)
             if isinstance(val, (int, float)): return float(val)
             from decimal import Decimal
             if isinstance(val, Decimal): return float(val)
             
-            # Solo limpiar si es string
             s = str(val).replace('$', '').replace(' ', '')
-            # Si tiene coma y punto, es formato 1.234,56 -> 1234.56
             if ',' in s and '.' in s:
                 s = s.replace('.', '').replace(',', '.')
-            # Si solo tiene punto y parece ser separador de miles (ej: 116.400)
             elif '.' in s and len(s.split('.')[-1]) == 3:
                 s = s.replace('.', '')
-            # Si solo tiene coma, es decimal (ej: 116400,00)
             elif ',' in s:
                 s = s.replace(',', '.')
                 
@@ -264,25 +250,20 @@ def listar_productos():
                 "stock_bodega": float(r['stock_bodega'] or 0),
                 "por_pulir": float(r['por_pulir'] or 0),
                 "codigo_sistema": r['codigo_sistema'],
-                "imagen": r['imagen'] or "",
+                "imagen": resolver_ruta_imagen(r['imagen'], r['codigo_sistema']),
                 "precio": limpiar_precio(r['precio_raw'])
             })
             
-        logger.info(f"📊 [SQL-NATIVE] Listando {len(resultado)} productos con Precios de db_precio_venta")
         return jsonify({"items": resultado}), 200
 
     except Exception as e:
         logger.error(f"❌ Error en /api/productos/listar (JOIN Costos): {e}")
-        import traceback
-        logger.error(traceback.format_exc())
         return jsonify([]), 200
-
 
 @productos_bp.route('/historial/<codigo>', methods=['GET'])
 def historial_producto(codigo):
     """
     Obtiene la trazabilidad 360 de un producto 100% SQL-Native.
-    Soporta fallback para códigos sin prefijo (ej: FR-9304 -> 9304).
     """
     try:
         from sqlalchemy import text, or_
@@ -291,11 +272,9 @@ def historial_producto(codigo):
             ProduccionInyeccion, ProduccionPulido, Ensamble, 
             Pedido, Pnc
         )
-        from backend.utils.formatters import normalizar_codigo
         from datetime import datetime
 
         codigo_norm = normalizar_codigo(codigo).strip().upper()
-        # Fallback inteligente: Quitar el prefijo para buscar en tablas de producción
         codigo_limpio = codigo_norm.replace('FR-', '').replace('CB-', '').replace('ENS-', '').strip()
         
         page = int(request.args.get('page', 1))
@@ -324,7 +303,7 @@ def historial_producto(codigo):
                 })
         except Exception as e: logger.error(f"Falla bloque Inyección para {codigo}: {e}")
 
-        # 2. BARRIDO DE PULIDO (ESTRUCTURA REAL)
+        # 2. BARRIDO DE PULIDO
         try:
             res_pul = ProduccionPulido.query.filter(
                 or_(
@@ -334,19 +313,17 @@ def historial_producto(codigo):
             ).all()
             radar['PULIDO'] = len(res_pul)
             for r in res_pul:
-                evento_dict = {
+                eventos.append({
                     'tipo': 'PULIDO',
                     'fecha': r.fecha.strftime('%d/%m/%Y') if hasattr(r.fecha, 'strftime') else str(r.fecha),
                     'cant': int(r.cantidad_real or 0),
                     'responsable': r.responsable,
                     'detalle': f"Hora: {r.hora_inicio} - {r.hora_fin} | OP: {r.orden_produccion or 'N/A'}",
                     'fecha_dt': r.fecha if hasattr(r.fecha, 'year') else datetime.now()
-                }
-                print(f'[DB-PULIDO] Usando cantidad_real: {evento_dict["cant"]}')
-                eventos.append(evento_dict)
+                })
         except Exception as e: logger.error(f"Falla bloque Pulido para {codigo}: {e}")
 
-        # 🔥 3. BARRIDO DE ENSAMBLE
+        # 3. BARRIDO DE ENSAMBLE
         try:
             sql_ens = text("""
                 SELECT id, fecha, responsable, cantidad, op_numero, buje_ensamble 
@@ -393,14 +370,11 @@ def historial_producto(codigo):
                     'fecha': r.fecha.strftime('%d/%m/%Y') if hasattr(r.fecha, 'strftime') else str(r.fecha or ''),
                     'responsable': 'CONTROL CALIDAD',
                     'cant': int(float(r.cantidad or 0)),
-                    'detalle': f"Criterio: {r.criterio or ''} | {r.observacion or ''}"
+                    'detalle': f"Criterio: {r.criterio or ''} | Ref: {r.codigo_ensamble or ''}"
                 })
-        except Exception as e: logger.error(f"Falla bloque PNC para {codigo}: {e}")
+        except Exception as e: 
+            logger.error(f"Falla bloque PNC para {codigo}: {e}")
 
-        # --- LOG DE AUDITORÍA FINAL ---
-        print(f"📊 [RADAR 360] Auditando {codigo_norm} y fallback {codigo_limpio}: {radar}")
-
-        # --- UNIFICACIÓN Y ORDENAMIENTO ---
         eventos.sort(key=lambda x: x['fecha_dt'] if x['fecha_dt'] else datetime.min, reverse=True)
 
         kpis = { 'INYECCION': 0, 'PULIDO': 0, 'ENSAMBLE': 0, 'COMERCIAL': 0 }
@@ -427,10 +401,5 @@ def historial_producto(codigo):
         }), 200
 
     except Exception as e:
-        logger.error(f"Error crítico en Timeline 360 (SQL Final): {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-    except Exception as e:
-        logger.error(f"Error historial_producto: {e}")
-        code = 429 if "saturado" in str(e) else 500
-        return jsonify({'status': 'error', 'message': str(e)}), code
+        logger.error(f"❌ Error crítico en Timeline 360 (SQL Final): {str(e)}")
+        return jsonify({'status': 'error', 'message': f"Error interno: {str(e)}"}), 500

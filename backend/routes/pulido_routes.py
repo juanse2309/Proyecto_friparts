@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
-from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble
+from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto
 from backend.utils.formatters import normalizar_codigo
 import uuid
 from datetime import datetime
@@ -182,6 +182,37 @@ def registrar_pulido():
                         cantidad=cant,
                         criterio=crit
                     ))
+
+        db.session.flush() # Asegurar que el registro principal tenga ID en la sesión
+ 
+        # ---------------------------------------------------------
+        # Manejo de Bujes Revueltos (NUEVO)
+        # ---------------------------------------------------------
+        revueltos_list = data.get('revueltos', [])
+        logger.info(f" [REVUELTOS-DEBUG] Payload recibido: {revueltos_list}")
+        logger.info(f" [REVUELTOS] Procesando {len(revueltos_list)} items para {registro.id_pulido}")
+        
+        # Limpiar registros previos de revueltos vinculados a este id_pulido
+        db.session.query(BujeRevuelto).filter_by(id_pulido=registro.id_pulido).delete()
+
+        for rev_item in revueltos_list:
+            cod_rev = normalizar_codigo(rev_item.get('id_codigo'))
+            cant_rev = float(rev_item.get('cantidad') or 0)
+            logger.info(f" [REVUELTOS] Intentando agregar: {cod_rev} | Cant: {cant_rev}")
+            
+            if cant_rev <= 0 or not cod_rev: 
+                logger.warning(f" [REVUELTOS] Item omitido por validación: {rev_item}")
+                continue
+
+            db.session.add(BujeRevuelto(
+                id_bujes_revueltos=uuid.uuid4().hex[:8],
+                id_pulido=registro.id_pulido,
+                id_codigo=cod_rev,
+                cantidad=cant_rev,
+                codigo_ensamble=cod_rev,
+                responsable=registro.responsable
+            ))
+            logger.info(f" [REVUELTOS] Registro agregado a sesión: {cod_rev}")
 
         db.session.commit()
 

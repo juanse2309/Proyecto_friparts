@@ -5,6 +5,7 @@
 const ModuloPulido = {
     productosData: [],
     responsablesData: [],
+    selectedProduct: null,
     
     // Pro Mode State
     sesionActiva: false,
@@ -19,6 +20,7 @@ const ModuloPulido = {
 
     // PNC Dynamic State
     pncRows: [],
+    revueltosRows: [],
     catalogosPnc: {
         'INYECCION': ['RECHUPE', 'FALTA DE MATERIAL', 'QUEMADO', 'REBABA', 'MANCHA', 'BURBUJA'],
         'PULIDO': ['MAL CORTE', 'EXCESO DE PULIDO', 'RAYADO', 'MAL ACABADO', 'GOLPEADO', 'FISURA']
@@ -357,6 +359,7 @@ const ModuloPulido = {
         if (this.timerInterval) clearInterval(this.timerInterval);
         this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
         this.guardarEstadoLocal();
+        this.mostrarFotoProducto();
     },
 
     // ==========================================
@@ -398,6 +401,9 @@ const ModuloPulido = {
             this.totalPausaMs = 0;
             this.tiempoAcumuladoMs = 0;
         }
+
+        // Mostrar Foto (NUEVO)
+        this.mostrarFotoProducto();
         
         if (!this.sessionId) this.sessionId = 'PUL-' + Math.random().toString(36).substr(2, 9).toUpperCase();
         
@@ -808,19 +814,23 @@ const ModuloPulido = {
     },
 
     actualizarCalculoPro: function() {
-        const buenosInput = document.getElementById('cantidad-recibida-pro');
         const display = document.getElementById('resultado-buenas-pro');
-        
+        const buenosInput = document.getElementById('cantidad-recibida-pro');
         if (!buenosInput) return;
         
-        const buenos = parseInt(buenosInput.value, 10) || 0;
+        const buenos = parseFloat(buenosInput.value) || 0;
         
-        // Sumar todos los PNC dinámicos
-        const totalPnc = this.pncRows.reduce((sum, row) => sum + (parseInt(row.cantidad, 10) || 0), 0);
+        // Sincronizar pncRows desde el DOM y calcular total
+        let totalPnc = 0;
+        this.pncRows.forEach(row => {
+            const input = document.getElementById(`pnc-cant-${row.id}`);
+            if (input) {
+                row.cantidad = parseFloat(input.value) || 0;
+                totalPnc += row.cantidad;
+            }
+        });
         
         const totalBruto = buenos + totalPnc;
-        
-        console.log(`[Pulido PRO] Buenos: ${buenos}, Total PNC: ${totalPnc} -> Total Bruto: ${totalBruto}`);
         
         if (display) display.innerText = totalBruto;
     },
@@ -836,12 +846,17 @@ const ModuloPulido = {
         const detalleDescuento = this.generarDetalleDescuentoProgramado(this.startTime, now);
 
         // Agrupar PNC por proceso para compatibilidad con DB
-        const pncIny = this.pncRows.filter(r => r.proceso === 'INYECCION').reduce((s, r) => s + (r.cantidad || 0), 0);
-        const pncPul = this.pncRows.filter(r => r.proceso === 'PULIDO').reduce((s, r) => s + (r.cantidad || 0), 0);
-        
-        // Concatenar criterios
-        const critIny = this.pncRows.filter(r => r.proceso === 'INYECCION' && r.criterio).map(r => `${r.criterio}(${r.cantidad})`).join(', ');
-        const critPul = this.pncRows.filter(r => r.proceso === 'PULIDO' && r.criterio).map(r => `${r.criterio}(${r.cantidad})`).join(', ');
+        const pncData = this.pncRows.map(row => ({
+            proceso: document.getElementById(`pnc-proc-${row.id}`)?.value,
+            cantidad: parseFloat(document.getElementById(`pnc-cant-${row.id}`)?.value || 0),
+            criterio: document.getElementById(`pnc-crit-${row.id}`)?.value
+        })).filter(p => p.cantidad > 0);
+
+        // Bujes Revueltos (NUEVO)
+        const revueltosData = this.revueltosRows.map(row => ({
+            id_codigo: document.getElementById(`rev-cod-${row.id}`)?.value,
+            cantidad: parseFloat(document.getElementById(`rev-cant-${row.id}`)?.value || 0)
+        })).filter(r => r.cantidad > 0 && r.id_codigo);
 
         const data = {
             id_pulido: this.sessionId,
@@ -852,16 +867,15 @@ const ModuloPulido = {
             codigo_producto: this.normalizarCodigo(document.getElementById('buscador-productos').value),
             
             // NUEVA LÓGICA: cantidad_real son las buenas, cantidad_recibida es el total (bruto)
-            cantidad_real: parseInt(document.getElementById('cantidad-recibida-pro').value, 10) || 0,
-            cantidad_recibida: parseInt(document.getElementById('resultado-buenas-pro').innerText, 10) || 0,
+            cantidad_real: parseFloat(document.getElementById('cantidad-recibida-pro')?.value || 0),
+            cantidad_recibida: parseFloat(document.getElementById('resultado-buenas-pro')?.innerText || 0),
             
-            pnc_inyeccion: pncIny,
-            pnc_pulido: pncPul,
-            criterio_pnc_inyeccion: critIny || 'N/A',
-            criterio_pnc_pulido: critPul || 'N/A',
+            pnc_inyeccion: pncData.filter(p => p.proceso === 'INYECCION').reduce((a, b) => a + b.cantidad, 0),
+            pnc_pulido: pncData.filter(p => p.proceso === 'PULIDO').reduce((a, b) => a + b.cantidad, 0),
+            criterio_pnc_inyeccion: pncData.filter(p => p.proceso === 'INYECCION').map(p => `${p.criterio} (${p.cantidad})`).join(', '),
+            criterio_pnc_pulido: pncData.filter(p => p.proceso === 'PULIDO').map(p => `${p.criterio} (${p.cantidad})`).join(', '),
             
-            observaciones: (document.getElementById('observaciones-pro')?.value || '') + 
-                           (this.pncRows.length > 0 ? `\n[PNC_DETAIL]: ${JSON.stringify(this.pncRows)}` : ''),
+            observaciones: (document.getElementById('observaciones-pro')?.value || ''),
             
             orden_produccion: document.getElementById('orden-produccion-pulido')?.value || '',
             lote: document.getElementById('lote-pulido')?.value || '',
@@ -871,18 +885,18 @@ const ModuloPulido = {
             tiempo_acumulado_ms: this.tiempoAcumuladoMs,
             descuento_programado_ms: descuentoTotal,
             detalle_descuento_programado: detalleDescuento,
-            pnc_detail: this.pncRows // Enviar como objeto para procesamiento en backend
+            pnc_detail: pncData,
+            revueltos: revueltosData
         };
 
         // Validación de filas completas
-        if (this.pncRows.some(r => !r.cantidad || r.cantidad <= 0 || !r.criterio)) {
+        if (pncData.some(r => !r.cantidad || r.cantidad <= 0 || !r.criterio)) {
             Swal.fire('PNC Incompleto', 'Todas las filas de PNC deben tener cantidad y motivo seleccionado.', 'warning');
             return;
         }
 
-        // Validación de consistencia solicitada por el usuario
-        const totalCalculado = data.cantidad_real + data.pnc_inyeccion + data.pnc_pulido + 
-                               this.pncRows.filter(r => r.proceso === 'ENSAMBLE').reduce((s, r) => s + (r.cantidad || 0), 0);
+        // Validación de consistencia
+        const totalCalculado = data.cantidad_real + pncData.reduce((s, r) => s + r.cantidad, 0);
         
         if (totalCalculado !== data.cantidad_recibida) {
             Swal.fire('Error de Consistencia', 'La suma de piezas buenas y PNC no coincide con el total. Por favor revise los datos.', 'error');
@@ -958,8 +972,6 @@ const ModuloPulido = {
                 document.getElementById('modal-reporte-final').style.display = 'none';
                 this.limpiarFormulario();
             } else {
-                // Si el servidor rechaza la sesión (ej. ID no existe y falla recuperación)
-                // Limpiamos localmente de todas formas para no bloquear al operario
                 console.warn("Servidor rechazó el reporte:", result.error);
                 Swal.fire({
                     title: 'Error de Sincronización',
@@ -1013,6 +1025,10 @@ const ModuloPulido = {
         this.validarBotonInicioPro();
         this.guardarEstadoLocal();
 
+        // Ocultar Foto (NUEVO)
+        const photoContainer = document.getElementById('pulido-product-photo-container');
+        if (photoContainer) photoContainer.style.display = 'none';
+
         // Preguntar por trabajos en cola
         if (this.sesionesEnPausa.length > 0) {
             const proxima = this.sesionesEnPausa[0];
@@ -1046,7 +1062,7 @@ const ModuloPulido = {
                 this.productosData = window.AppState.sharedData.productos;
             } else {
                 const prods = await fetch('/api/productos/listar').then(r => r.json());
-                this.productosData = prods?.productos || [];
+                this.productosData = prods?.items || prods?.productos || [];
             }
         } catch (e) { console.error("Error maestros:", e); }
     },
@@ -1084,8 +1100,12 @@ const ModuloPulido = {
                 ).slice(0, 10);
                 this.renderSuggestions(suggestionsProd, resultados, (p) => {
                     inputProd.value = p.codigo_sistema;
+                    this.selectedProduct = p; // Guardar para el cronómetro
                     suggestionsProd.classList.remove('active');
                     inputProd.dispatchEvent(new Event('input'));
+                    
+                    // Si ya está en modo PRO y la sesión no ha iniciado, 
+                    // tal vez quiera ver la foto antes de empezar (opcional)
                 });
             });
         }
@@ -1101,8 +1121,22 @@ const ModuloPulido = {
     renderSuggestions: function (container, items, onSelect) {
         if (items.length === 0) { container.classList.remove('active'); return; }
         container.innerHTML = items.map(item => {
-            const val = typeof item === 'object' ? (item.nombre || item.codigo_sistema) : item;
-            const desc = item.descripcion ? `<br><small class="text-muted">${item.descripcion}</small>` : '';
+            const isProd = typeof item === 'object' && item.codigo_sistema;
+            const val = isProd ? item.codigo_sistema : (item.nombre || item);
+            const desc = item.descripcion ? `<br><small class="text-muted" style="font-size: 0.75rem;">${item.descripcion}</small>` : '';
+            
+            if (isProd) {
+                const img = item.imagen ? `<img src="${item.imagen}" style="width: 45px; height: 45px; object-fit: contain; margin-right: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">` : '';
+                return `
+                    <div class="suggestion-item p-2 border-bottom d-flex align-items-center" style="cursor:pointer; transition: background 0.2s;">
+                        ${img}
+                        <div style="line-height: 1.2;">
+                            <span class="fw-bold text-dark">${val}</span>
+                            ${desc}
+                        </div>
+                    </div>`;
+            }
+            
             return `<div class="suggestion-item p-2 border-bottom" style="cursor:pointer;">${val}${desc}</div>`;
         }).join('');
         
@@ -1223,8 +1257,174 @@ const ModuloPulido = {
 
     limpiarFormulario: function() {
         document.getElementById('form-pulido')?.reset();
+        this.selectedProduct = null;
+        this.pncRows = [];
+        this.revueltosRows = [];
+        this.renderFilasPnc();
+        this.renderFilasRevuelto();
         this.actualizarCalculoManual();
         this.actualizarCalculoPro();
+    },
+
+    // ==========================================
+    // GESTIÓN DE FILAS DINÁMICAS (PNC Y REVUELTOS)
+    // ==========================================
+    
+    agregarFilaPnc: function() {
+        const id = Date.now();
+        this.pncRows.push({ id, proceso: 'PULIDO', cantidad: 0, criterio: '' });
+        this.renderFilasPnc();
+    },
+
+    eliminarFilaPnc: function(id) {
+        this.pncRows = this.pncRows.filter(r => r.id !== id);
+        this.renderFilasPnc();
+        this.actualizarCalculoPro();
+    },
+
+    renderFilasPnc: function() {
+        const container = document.getElementById('pnc-dynamic-container');
+        const emptyMsg = document.getElementById('pnc-empty-msg');
+        if (!container) return;
+
+        if (this.pncRows.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-2 small" id="pnc-empty-msg">No hay PNC reportado</div>';
+            return;
+        }
+
+        container.innerHTML = this.pncRows.map(row => `
+            <div class="pnc-row d-flex gap-2 align-items-center bg-white p-2 rounded border shadow-sm">
+                <select id="pnc-proc-${row.id}" class="form-select form-select-sm" style="width: 110px;">
+                    <option value="PULIDO" ${row.proceso === 'PULIDO' ? 'selected' : ''}>PULIDO</option>
+                    <option value="INYECCION" ${row.proceso === 'INYECCION' ? 'selected' : ''}>INYECCIÓN</option>
+                    <option value="ENSAMBLE" ${row.proceso === 'ENSAMBLE' ? 'selected' : ''}>ENSAMBLE</option>
+                </select>
+                <input type="number" id="pnc-cant-${row.id}" class="form-control form-control-sm" placeholder="Cant" style="width: 70px;" value="${row.cantidad}" oninput="ModuloPulido.actualizarCalculoPro()">
+                <select id="pnc-crit-${row.id}" class="form-select form-select-sm flex-grow-1">
+                    <option value="">Seleccionar motivo...</option>
+                    ${(this.catalogosPnc[row.proceso] || []).map(c => `<option value="${c}" ${row.criterio === c ? 'selected' : ''}>${c}</option>`).join('')}
+                    <option value="OTRO">OTRO</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="ModuloPulido.eliminarFilaPnc(${row.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        `).join('');
+
+        // Re-vincular eventos de cambio de proceso para actualizar criterios
+        this.pncRows.forEach(row => {
+            const selectProc = document.getElementById(`pnc-proc-${row.id}`);
+            if (selectProc) {
+                selectProc.addEventListener('change', (e) => {
+                    const newProc = e.target.value;
+                    const rowIdx = this.pncRows.findIndex(r => r.id === row.id);
+                    if (rowIdx !== -1) {
+                        this.pncRows[rowIdx].proceso = newProc;
+                        this.renderFilasPnc();
+                    }
+                });
+            }
+        });
+    },
+
+    // --- NUEVA SECCIÓN: BUJES REVUELTOS ---
+    
+    agregarFilaRevuelto: function() {
+        const id = Date.now();
+        this.revueltosRows.push({ id, id_codigo: '', cantidad: 0 });
+        this.renderFilasRevuelto();
+        this.initRevueltosAutocomplete(id);
+    },
+
+    eliminarFilaRevuelto: function(id) {
+        this.revueltosRows = this.revueltosRows.filter(r => r.id !== id);
+        this.renderFilasRevuelto();
+    },
+
+    renderFilasRevuelto: function() {
+        const container = document.getElementById('revueltos-dynamic-container');
+        if (!container) return;
+
+        if (this.revueltosRows.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-2 small" id="revueltos-empty-msg">No hay bujes revueltos</div>';
+            return;
+        }
+
+        container.innerHTML = this.revueltosRows.map(row => `
+            <div class="revueltos-row d-flex gap-2 align-items-center bg-white p-2 rounded border shadow-sm position-relative">
+                <div class="flex-grow-1 position-relative">
+                    <input type="text" id="rev-cod-${row.id}" class="form-control form-control-sm" placeholder="Referencia..." value="${row.id_codigo}" autocomplete="off" oninput="ModuloPulido.updateRevState(${row.id})">
+                    <div id="rev-sugg-${row.id}" class="autocomplete-suggestions" style="top: 100%; left: 0; width: 100%; z-index: 1000;"></div>
+                </div>
+                <input type="number" id="rev-cant-${row.id}" class="form-control form-control-sm" placeholder="Cant" style="width: 80px;" value="${row.cantidad}" oninput="ModuloPulido.updateRevState(${row.id})">
+                <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="ModuloPulido.eliminarFilaRevuelto(${row.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        `).join('');
+
+        this.revueltosRows.forEach(row => {
+            this.initRevueltosAutocomplete(row.id);
+        });
+    },
+
+    updateRevState: function(id) {
+        const row = this.revueltosRows.find(r => r.id === id);
+        if (row) {
+            row.id_codigo = document.getElementById(`rev-cod-${id}`)?.value || '';
+            row.cantidad = parseFloat(document.getElementById(`rev-cant-${id}`)?.value) || 0;
+        }
+    },
+
+    initRevueltosAutocomplete: function(rowId) {
+        const input = document.getElementById(`rev-cod-${rowId}`);
+        const suggestions = document.getElementById(`rev-sugg-${rowId}`);
+        if (!input || !suggestions) return;
+
+        input.addEventListener('input', (e) => {
+            const query = e.target.value.trim().toUpperCase();
+            if (query.length < 2) {
+                suggestions.classList.remove('active');
+                return;
+            }
+
+            const resultados = this.productosData.filter(p => 
+                (p.codigo_sistema || '').toUpperCase().includes(query) || 
+                (p.descripcion || '').toUpperCase().includes(query)
+            ).slice(0, 5);
+
+            this.renderSuggestions(suggestions, resultados, (p) => {
+                input.value = p.codigo_sistema;
+                const rowIdx = this.revueltosRows.findIndex(r => r.id === rowId);
+                if (rowIdx !== -1) this.revueltosRows[rowIdx].id_codigo = p.codigo_sistema;
+                suggestions.classList.remove('active');
+            });
+        });
+    },
+
+    mostrarFotoProducto: function() {
+        const container = document.getElementById('pulido-product-photo-container');
+        const img = document.getElementById('pulido-product-photo');
+        if (!container || !img) return;
+
+        let url = "";
+        if (this.selectedProduct && this.selectedProduct.imagen) {
+            url = this.selectedProduct.imagen;
+        } else {
+            // Si no tenemos selectedProduct (ej. tras recargar), buscamos en la data
+            const codigo = this.normalizarCodigo(document.getElementById('buscador-productos')?.value);
+            const prod = this.productosData.find(p => this.normalizarCodigo(p.codigo_sistema) === codigo);
+            if (prod) {
+                url = prod.imagen;
+            }
+        }
+
+        if (url) {
+            img.src = url;
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
     }
 };
 
