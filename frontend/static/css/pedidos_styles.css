@@ -81,7 +81,6 @@
     .pedidos-summary-row {
         padding: 10px 15px;
     }
-    
     .pedidos-total-card {
         padding: 15px;
         flex-direction: column;
@@ -97,5 +96,37 @@
 @media (max-width: 360px) {
     .total-amount {
         font-size: 1.5rem;
+    }
+}
+/* Historial de Pedidos Metales (Juan Sebastian) */
+.pedido-card-metals {
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s ease-in-out;
+    height: auto !important;
+    min-height: 180px;
+    padding-bottom: 1.25rem !important;
+}
+
+.pedido-card-metals .progress {
+    height: 12px !important;
+    margin: 12px 0;
+    border-radius: 10px;
+    background-color: #f1f5f9;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.metals-historial-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+    padding: 1rem;
+    visibility: visible !important;
+    opacity: 1 !important;
+    min-height: 200px;
+}
+
+@media (max-width: 768px) {
+    .metals-historial-grid {
+        grid-template-columns: 1fr;
     }
 }

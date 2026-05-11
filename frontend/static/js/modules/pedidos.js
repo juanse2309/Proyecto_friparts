@@ -148,20 +148,38 @@ const ModuloPedidos = {
                 console.log("🔄 Solicitando productos al servidor (tenant-aware)...");
                 this._productosLoading = true;
                 this._productosReady = false;
-                const respProd = await fetch('/api/productos/listar');
+                
+                // LINEA CLAVE: Pasar división a la API para activar el switch de tabla
+                const division = window.AppState?.user?.division || (isFrimetals ? 'FRIMETALS' : 'FRIPARTS');
+                console.log(`📡 [Pedidos] Cargando catálogo para división: ${division}`);
+                const respProd = await fetch(`/api/productos/listar?division=${division.toLowerCase()}`);
+                
                 const productosResp = await respProd.json();
                 const rawList = Array.isArray(productosResp) ? productosResp : (productosResp.items || []);
-                this.productosData = rawList.map(p => ({
-                    codigo_sistema: p.codigo_sistema || p.codigo || '',
-                    codigo: p.codigo || p.codigo_sistema || '',
-                    descripcion: p.descripcion || '',
-                    imagen: p.imagen || '',
-                    precio: parseFloat(p.precio) || 0,
-                    stock_por_pulir: p.stock_por_pulir || 0,
-                    stock_terminado: p.stock_terminado || 0,
-                    stock_disponible: p.stock_disponible !== undefined ? p.stock_disponible : (p.stock || 0),
-                    stock_total: p.existencias_totales || p.stock_total || 0,
-                }));
+                this.productosData = rawList.map(p => {
+                    const pRaw = p.precio !== undefined ? p.precio : (p.PRECIO || 0);
+                    let precioFinal = 0;
+                    
+                    if (isFrimetals) {
+                        // Ya viene como INTEGER limpio desde el backend
+                        precioFinal = parseInt(pRaw) || 0;
+                    } else {
+                        const pClean = String(pRaw).replace(/[^0-9.]/g, '');
+                        precioFinal = parseFloat(pClean) || 0;
+                    }
+                    
+                    return {
+                        codigo_sistema: p.codigo || p.codigo_sistema || '',
+                        codigo: p.codigo || p.codigo_sistema || '',
+                        descripcion: p.descripcion || p.nombre_producto || '',
+                        imagen: p.imagen || '',
+                        precio: precioFinal,
+                        stock_por_pulir: p.stock_por_pulir || 0,
+                        stock_terminado: p.stock_terminado || 0,
+                        stock_disponible: p.stock_disponible !== undefined ? p.stock_disponible : (p.stock || 0),
+                        stock_total: p.existencias_totales || p.stock_total || 0,
+                    };
+                });
                 this._emitProductosReady();
             }
             const conPrecio = this.productosData.filter(p => p.precio > 0).length;
@@ -349,12 +367,25 @@ const ModuloPedidos = {
         renderProductSuggestions(suggestionsDiv, resultados.slice(0, 10), (item) => {
             const codigoDisplay = item.codigo_sistema || item.codigo || '';
             document.getElementById('ped-producto').value = `${codigoDisplay} - ${item.descripcion}`;
-            const precio = parseFloat(item.precio) || 0;
-            document.getElementById('ped-precio').value = precio;
-            this.productoSeleccionado = item; // Guardar el objeto completo
-            console.log(`💰 Producto: ${codigoDisplay} | Precio: $${precio} | Stock: ${item.stock_disponible}`);
-            if (precio === 0) {
-                console.warn("⚠️ Este producto no tiene precio en DB_Productos. Ingréselo manualmente.");
+
+            // Juan Sebastian: Automatización de carga de precios simplificada
+            let precioUnitario = 0;
+            if (window.AppState?.user?.division === 'FRIMETALS') {
+                precioUnitario = parseInt(item.precio) || 0;
+            } else {
+                const pClean = String(item.precio || 0).replace(/[^0-9.]/g, '');
+                precioUnitario = parseFloat(pClean) || 0;
+            }
+
+            const inputPrecio = document.getElementById('ped-precio');
+            if (inputPrecio) {
+                inputPrecio.value = precioUnitario;
+                console.log(`💰 Precio automático: ${precioUnitario}`);
+            }
+
+            this.productoSeleccionado = item;
+            if (precioUnitario === 0) {
+                console.warn("⚠️ Este producto no tiene precio en la tabla de METALES.");
             }
             // Saltar automáticamente al campo cantidad
             const campoCantidad = document.getElementById('ped-cantidad');
@@ -743,7 +774,10 @@ const ModuloPedidos = {
                     inputProd.dataset.selectedCodigo = codigoDisplay;
                     inputProd.dataset.selectedDesc = res.descripcion;
                     inputProd.value = `${codigoDisplay} - ${res.descripcion}`;
+                    
+                    // Asignación automática de precio en modal
                     inputPrecio.value = parseFloat(res.precio) || 0;
+                    
                     suggestionsDiv.classList.remove('active');
                     inputCant.focus();
                 });
@@ -1383,6 +1417,12 @@ const ModuloPedidos = {
                     this.cargarPedidoPorId(pendingEditId);
                 }, 300);
             }
+
+            // Juan Sebastian: Si estamos en la página de historial de metales, cargar datos de inmediato
+            const page = window.AppState?.paginaActual;
+            if (page === 'metals-pedidos') {
+                setTimeout(() => this.cargarHistorialMetals(), 500);
+            }
         });
     },
 
@@ -1598,6 +1638,197 @@ const ModuloPedidos = {
                 btn.innerHTML = originalText;
                 btn.disabled = false;
             });
+    },
+
+    // --- HISTORIAL METALES (Juan Sebastian) ---
+
+    cargarHistorialMetals: async function () {
+        const container = document.getElementById('metals-historial-container');
+        if (!container) return;
+
+        const search = document.getElementById('busqueda-pedidos-metals')?.value || '';
+
+        try {
+            container.innerHTML = `
+                <div class="text-center py-5 text-muted" style="grid-column: 1 / -1;">
+                    <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                    <p>Consultando pedidos de Metales...</p>
+                </div>
+            `;
+
+            const res = await fetch(`/api/pedidos/listar?division=frimetals&search=${encodeURIComponent(search)}`);
+            const data = await res.json();
+
+            if (data.success) {
+                this.renderizarPedidosMetals(data.pedidos || []);
+            } else {
+                throw new Error(data.error || 'Error desconocido');
+            }
+
+        } catch (error) {
+            console.error('❌ Error cargando historial metales:', error);
+            container.innerHTML = `<div class="alert alert-danger" style="grid-column: 1 / -1;">Error al cargar datos: ${error.message}</div>`;
+        }
+    },
+
+    renderizarPedidosMetals: function (pedidos) {
+        console.log('📦 Pedidos recibidos:', pedidos);
+        const container = document.getElementById('metals-historial-container');
+        if (!container) return;
+
+        container.innerHTML = ''; 
+
+        if (!pedidos || pedidos.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-5 text-muted w-100" style="grid-column: 1 / -1;">
+                    <i class="fas fa-folder-open fa-3x mb-3 opacity-20"></i>
+                    <p class="fs-5">No se encontraron pedidos de metalmecánica</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        pedidos.forEach(ped => {
+            const totalFormatted = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(ped.total || 0);
+            const progresoNum = parseInt(String(ped.progreso || 0).replace('%', '')) || 0;
+            
+            let barColor = 'bg-danger';
+            if (progresoNum >= 70) barColor = 'bg-success';
+            else if (progresoNum >= 30) barColor = 'bg-warning';
+
+            html += `
+                <div class="pedido-card-metals p-3 bg-white rounded-4 shadow-sm border-start border-4 ${ped.estado === 'PENDIENTE' ? 'border-warning' : 'border-success'}" 
+                     style="transition: all 0.3s ease;">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <h5 class="mb-0 fw-bold text-primary" style="font-size: 1.1rem;">${ped.id_pedido}</h5>
+                            <small class="text-muted"><i class="fas fa-calendar-alt me-1"></i> ${ped.fecha}</small>
+                        </div>
+                        <span class="badge ${ped.estado === 'PENDIENTE' ? 'bg-warning text-dark' : 'bg-success'} text-uppercase shadow-sm" style="font-size: 0.65rem; padding: 5px 10px; border-radius: 20px;">${ped.estado}</span>
+                    </div>
+                    
+                    <div class="mb-3" onclick="ModuloPedidos.verDetalleMetals('${ped.id_pedido}', ${JSON.stringify(ped.productos).replace(/"/g, '&quot;')})" style="cursor: pointer;">
+                        <div class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.5px;">Cliente</div>
+                        <div class="text-truncate fw-bold" style="color: #1e293b; font-size: 1rem;" title="${ped.cliente}">${ped.cliente}</div>
+                    </div>
+
+                    <!-- Barra de Progreso -->
+                    <div class="progress-section mb-4">
+                        <div class="d-flex justify-content-between mb-2 align-items-center">
+                            <span class="fw-bold text-muted" style="font-size: 0.7rem;">PROGRESO DE PRODUCCIÓN</span>
+                            <span class="badge bg-light text-dark border fw-bold" style="font-size: 0.8rem;">${progresoNum}%</span>
+                        </div>
+                        <div class="progress shadow-sm" style="height: 12px; background-color: #f1f5f9; border-radius: 10px; overflow: hidden;">
+                            <div class="progress-bar ${barColor} progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progresoNum}%; border-radius: 10px;"></div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                        <div class="d-flex flex-column">
+                            <span class="text-muted small" style="font-size: 0.65rem; font-weight: 600;">TOTAL</span>
+                            <span class="fw-bold text-dark" style="font-size: 1.1rem;">${totalFormatted}</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" style="font-size: 0.75rem;" onclick="ModuloPedidos.abrirGestionProgreso('${ped.id_pedido}', ${progresoNum})">
+                                <i class="fas fa-tasks me-1"></i> GESTIONAR
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    },
+
+    abrirGestionProgreso: function (idPedido, progresoActual) {
+        // Encontrar el pedido para tener el estado actual
+        // (Podríamos pasarlo por parámetro, pero lo simplificamos aquí)
+        Swal.fire({
+            title: `Gestionar Pedido ${idPedido}`,
+            html: `
+                <div class="text-start p-2">
+                    <label class="form-label fw-bold small">Nivel de Progreso:</label>
+                    <select id="swal-progreso" class="form-select mb-3">
+                        <option value="0" ${progresoActual == 0 ? 'selected' : ''}>0% - Pendiente</option>
+                        <option value="25" ${progresoActual == 25 ? 'selected' : ''}>25% - Iniciado</option>
+                        <option value="50" ${progresoActual == 50 ? 'selected' : ''}>50% - En Proceso</option>
+                        <option value="75" ${progresoActual == 75 ? 'selected' : ''}>75% - Casi Listo</option>
+                        <option value="100" ${progresoActual == 100 ? 'selected' : ''}>100% - Completado</option>
+                    </select>
+
+                    <label class="form-label fw-bold small">Estado del Pedido:</label>
+                    <select id="swal-estado" class="form-select">
+                        <option value="PENDIENTE">PENDIENTE</option>
+                        <option value="PRODUCCION">EN PRODUCCIÓN</option>
+                        <option value="FINALIZADO">FINALIZADO</option>
+                    </select>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Guardar Cambios',
+            cancelButtonText: 'Cancelar',
+            preConfirm: () => {
+                return {
+                    progreso: document.getElementById('swal-progreso').value,
+                    estado: document.getElementById('swal-estado').value
+                }
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                this.actualizarEstadoMetals(idPedido, result.value.progreso, result.value.estado);
+            }
+        });
+    },
+
+    actualizarEstadoMetals: async function (idPedido, progreso, estado) {
+        try {
+            const res = await fetch('/api/pedidos/actualizar-progreso', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id_pedido: idPedido, progreso, estado })
+            });
+            const data = await res.json();
+            if (data.success) {
+                Swal.fire('¡Actualizado!', 'El progreso del pedido se ha guardado.', 'success');
+                this.cargarHistorialMetals(); // Recargar lista
+            } else {
+                throw new Error(data.error);
+            }
+        } catch (error) {
+            Swal.fire('Error', 'No se pudo actualizar: ' + error.message, 'error');
+        }
+    },
+
+    verDetalleMetals: function (idPedido, productos) {
+        let itemsHtml = productos.map(p => `
+            <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+                <div style="flex: 1;">
+                    <div class="fw-bold text-dark" style="font-size: 0.9rem;">${p.id_codigo}</div>
+                    <div class="small text-muted" style="font-size: 0.8rem;">${p.descripcion}</div>
+                </div>
+                <div class="text-end" style="min-width: 80px;">
+                    <div class="fw-bold">x${p.cantidad}</div>
+                    <div class="small text-primary fw-bold">$${new Intl.NumberFormat('es-CO').format(p.precio)}</div>
+                </div>
+            </div>
+        `).join('');
+
+        Swal.fire({
+            title: `<div class="text-primary fw-bold">Pedido ${idPedido}</div>`,
+            html: `
+                <div class="text-start mt-3" style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    ${itemsHtml}
+                </div>
+            `,
+            confirmButtonText: 'Cerrar',
+            confirmButtonColor: '#4361ee',
+            width: '500px',
+            customClass: {
+                popup: 'rounded-4 shadow-lg'
+            }
+        });
     }
 };
 

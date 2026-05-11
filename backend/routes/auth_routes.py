@@ -20,23 +20,23 @@ def get_metals_responsables():
     try:
         from backend.models.sql_models import Usuario
         
-        # Consultar usuarios activos filtrados por departamento o rol específico si existe
-        # Por ahora, usamos el campo 'departamento' si existe en el modelo
-        users = Usuario.query.filter(Usuario.activo == True).all()
+        # Filtro estricto para Frimetals y Administración
+        usuarios_db = Usuario.query.filter(
+            Usuario.activo == True,
+            Usuario.rol.in_(['staff frimetals', 'administracion'])
+        ).order_by(Usuario.nombre_completo).all()
         
-        for u in users:
-            # Priorizar nombre_completo, luego username
-            nombre_final = u.nombre_completo if u.nombre_completo else u.username
-            usuarios.append({
-                "nombre": nombre_final,
-                "departamento": u.departamento or 'Planta',
-                "username": u.username
-            })
+        resultado = [{
+            'username': u.username, 
+            'nombre_completo': u.nombre_completo if u.nombre_completo else u.username,
+            'nombre': u.nombre_completo if u.nombre_completo else u.username, # Compatibilidad frontend
+            'departamento': u.departamento or 'Planta'
+        } for u in usuarios_db]
         
-        return jsonify(usuarios)
+        return jsonify({'status': 'success', 'data': resultado})
     except Exception as e:
         logger.error(f"Error fetching metals responsables SQL: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @auth_bp.route('/api/auth/metals/login', methods=['POST'])
 def metals_login():

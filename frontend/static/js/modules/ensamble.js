@@ -1,203 +1,78 @@
 // ============================================
-// ensamble.js - Lógica de Ensamble (SMART SEARCH)
+// ensamble.js - Sub-módulo de Programación y Reporte Flexible
+// Versión RE-ESTABLECIDA: Captura Infalible de Usuario y Corrección de IDs
 // ============================================
 
 const ModuloEnsamble = {
     productosData: [],
     responsablesData: [],
-    
-    normalizarCodigo: function(c) {
-        if (!c) return "";
-        return String(c).toUpperCase().replace(/FR-/gi, "").trim();
-    },
-    init: async function () {
-        console.log('🔧 [Ensamble] Inicializando módulo Smart...');
+    currentTab: 'programacion', 
+    isManualMode: false,
+    pncDetalles: '',
+
+    inicializar: async function () {
+        console.log('🔧 [Ensamble] Inicializando módulo con Captura Infalible...');
+        this.configurarTabs();
         await this.cargarDatos();
         this.configurarEventos();
-        this.initAutocompleteComponente();
-        this.initAutocompleteResponsable();
+        
+        // Autocompletes
+        this.initAutocomplete('prog-producto', 'prog-producto-suggestions', true);
+        this.initAutocomplete('reporte-producto-manual', 'reporte-producto-manual-suggestions', true);
+
+        this.listarProgramacion();
+        this.listarTareasPendientes();
+        
+        // Inicializar fecha hoy
+        const hoy = new Date().toISOString().split('T')[0];
+        if (document.getElementById('reporte-fecha')) document.getElementById('reporte-fecha').value = hoy;
+        if (document.getElementById('prog-fecha')) document.getElementById('prog-fecha').value = hoy;
+
         this.intentarAutoSeleccionarResponsable();
-
-        // Configurar Smart Enter
-        if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
-            window.ModuloUX.setupSmartEnter({
-                inputIds: [
-                    'fecha-ensamble', 'responsable-ensamble', 'hora-inicio-ensamble', 'hora-fin-ensamble',
-                    'op-ensamble', 'ens-buje-componente', 'ens-qty-bujes', 'cantidad-ensamble',
-                    'almacen-origen-ensamble', 'almacen-destino-ensamble', 'pnc-ensamble', 'observaciones-ensamble'
-                ],
-                actionBtnId: 'btn-submit-ensamble', // En submit ya que no es por items
-                autocomplete: {
-                    inputId: 'ens-buje-componente',
-                    suggestionsId: 'ensamble-componente-suggestions'
-                }
-            });
-
-            // Autocomplete para responsable
-            window.ModuloUX.setupSmartEnter({
-                inputIds: ['responsable-ensamble'],
-                autocomplete: {
-                    inputId: 'responsable-ensamble',
-                    suggestionsId: 'ensamble-responsable-suggestions'
-                }
-            });
-        }
-
-        // Registrar persistencia de formulario Juan Sebastian Request
-        if (window.FormHelpers) {
-            window.FormHelpers.registrarPersistencia('form-ensamble');
-        }
     },
 
-    // Alias para compatibilidad con app.js
-    inicializar: function () {
-        return this.init();
+    configurarTabs: function() {
+        document.querySelectorAll('#ensamble-tabs .nav-link').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                this.switchTab(e.target.closest('.nav-link').dataset.tab);
+            });
+        });
+    },
+
+    switchTab: function(tabName) {
+        this.currentTab = tabName;
+        document.querySelectorAll('.ensamble-tab-content').forEach(el => el.style.display = 'none');
+        document.getElementById(`ens-tab-${tabName}`).style.display = 'block';
+        
+        document.querySelectorAll('#ensamble-tabs .nav-link').forEach(el => el.classList.remove('active'));
+        document.querySelector(`#ensamble-tabs .nav-link[data-tab="${tabName}"]`).classList.add('active');
+        
+        if (tabName === 'reporte') {
+            this.listarTareasPendientes();
+            this.resetFormulario(true);
+        }
+        if (tabName === 'programacion') this.listarProgramacion();
     },
 
     cargarDatos: async function () {
         try {
-            console.log('📦 Cargando datos de ensamble...');
             mostrarLoading(true);
-
-            // 1. Cargar Responsables
-            const responsables = await fetchData('/api/obtener_responsables');
-            if (responsables) {
-                // Mapear de objetos a strings (nombres) para el sistema de búsqueda
-                this.responsablesData = responsables.map(r => typeof r === 'object' ? r.nombre : r);
+            if (window.AppState?.sharedData?.productos?.length > 0) {
+                this.productosData = window.AppState.sharedData.productos;
+            } else {
+                const prods = await fetchData('/api/productos/listar');
+                this.productosData = prods?.productos || prods?.items || (Array.isArray(prods) ? prods : []);
             }
-
-            // 2. Cargar Productos (Para Buje Origen)
-            await this._cargarProductos();
-
             mostrarLoading(false);
         } catch (error) {
-            console.error('Error cargando datos:', error);
+            console.error('Error cargando datos ensamble:', error);
             mostrarLoading(false);
         }
     },
 
-    _cargarProductos: async function () {
-        // Intentar desde cache compartida
-        if (window.AppState?.sharedData?.productos?.length > 0) {
-            this.productosData = window.AppState.sharedData.productos;
-            console.log('📦 Productos desde cache:', this.productosData.length);
-            return;
-        }
-
-        // Fallback: cargar directamente desde API
-        try {
-            const prods = await fetchData('/api/productos/listar');
-            if (prods) {
-                const items = prods?.productos || prods?.items || (Array.isArray(prods) ? prods : []);
-                if (Array.isArray(items) && items.length > 0) {
-                    this.productosData = items;
-                    console.log('📦 Productos desde API directa:', this.productosData.length);
-                    return;
-                }
-            }
-        } catch (e) {
-            console.warn('⚠️ Fallo carga directa de productos:', e);
-        }
-
-        // Último intento: esperar 1.5s por si cargarDatosCompartidos aún no termina
-        console.log('⏳ Productos no disponibles aún, reintentando en 1.5s...');
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        if (window.AppState?.sharedData?.productos?.length > 0) {
-            this.productosData = window.AppState.sharedData.productos;
-            console.log('📦 Productos cargados en reintento:', this.productosData.length);
-        } else {
-            console.error('❌ No se pudieron cargar productos para Ensamble');
-        }
-    },
-
-    intentarAutoSeleccionarResponsable: function () {
-        const input = document.getElementById('responsable-ensamble');
-        if (!input) return;
-
-        let nombreUsuario = null;
-
-        if (window.AppState?.user?.name) {
-            nombreUsuario = window.AppState.user.name;
-        } else if (window.AuthModule?.currentUser?.nombre) {
-            nombreUsuario = window.AuthModule.currentUser.nombre;
-        }
-
-        if (nombreUsuario) {
-            input.value = nombreUsuario;
-            console.log(`✅ [Ensamble] Responsable auto-asignado: ${nombreUsuario}`);
-        } else {
-            console.log('⏳ [Ensamble] Esperando usuario para auto-asignación...');
-            const handler = () => {
-                this.intentarAutoSeleccionarResponsable();
-                window.removeEventListener('user-ready', handler);
-            };
-            window.addEventListener('user-ready', handler);
-
-            // Polling fallback
-            let attempts = 0;
-            const interval = setInterval(() => {
-                attempts++;
-                if (window.AppState?.user?.name) {
-                    this.intentarAutoSeleccionarResponsable();
-                    clearInterval(interval);
-                    window.removeEventListener('user-ready', handler);
-                }
-                if (attempts > 10) clearInterval(interval);
-            }, 500);
-        }
-    },
-
-    // ---------------------------------------------------------
-    // SMART SEARCH: BUJE ORIGEN (COMPONENTE)
-    // ---------------------------------------------------------
-    initAutocompleteComponente: function () {
-        const input = document.getElementById('ens-buje-componente');
-        const suggestionsDiv = document.getElementById('ensamble-componente-suggestions');
-
-        if (!input || !suggestionsDiv) return;
-
-        let debounceTimer;
-
-        input.addEventListener('input', (e) => {
-            clearTimeout(debounceTimer);
-            const query = e.target.value.trim();
-
-            if (query.length < 2) {
-                suggestionsDiv.classList.remove('active');
-                return;
-            }
-
-            debounceTimer = setTimeout(() => {
-                const resultados = this.productosData.filter(prod =>
-                    String(prod.codigo_sistema || '').toLowerCase().includes(query.toLowerCase()) ||
-                    String(prod.descripcion || '').toLowerCase().includes(query.toLowerCase())
-                ).slice(0, 15);
-
-                this.renderSuggestions(suggestionsDiv, resultados, (item) => {
-                    input.value = item.codigo_sistema || item.codigo;
-                    suggestionsDiv.classList.remove('active');
-
-                    // IMPORTANTE: Trigger manual del mapeo de ensamble
-                    actualizarMapeoEnsamble();
-
-                }, true);
-            }, 300);
-        });
-
-        document.addEventListener('click', (e) => {
-            if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
-                suggestionsDiv.classList.remove('active');
-            }
-        });
-    },
-
-    // ---------------------------------------------------------
-    // SMART SEARCH: RESPONSABLE
-    // ---------------------------------------------------------
-    initAutocompleteResponsable: function () {
-        const input = document.getElementById('responsable-ensamble');
-        const suggestionsDiv = document.getElementById('ensamble-responsable-suggestions');
-
+    initAutocomplete: function(inputId, suggestionsId, isProduct) {
+        const input = document.getElementById(inputId);
+        const suggestionsDiv = document.getElementById(suggestionsId);
         if (!input || !suggestionsDiv) return;
 
         input.addEventListener('input', (e) => {
@@ -207,14 +82,17 @@ const ModuloEnsamble = {
                 return;
             }
 
-            const resultados = this.responsablesData.filter(resp =>
-                resp.toLowerCase().includes(query)
-            );
-
-            this.renderSuggestions(suggestionsDiv, resultados, (item) => {
-                input.value = item;
+            const resultados = this.productosData.filter(p => 
+                (p.codigo_sistema || '').toLowerCase().includes(query) || 
+                (p.descripcion || '').toLowerCase().includes(query)
+            ).slice(0, 15);
+            
+            renderProductSuggestions(suggestionsDiv, resultados, (item) => {
+                input.value = item.codigo_sistema;
                 suggestionsDiv.classList.remove('active');
-            }, false);
+                if (inputId === 'prog-producto') this.consultarBOMStock(item.codigo_sistema);
+                if (inputId === 'reporte-producto-manual') this.seleccionarProductoManual(item);
+            });
         });
 
         document.addEventListener('click', (e) => {
@@ -224,527 +102,372 @@ const ModuloEnsamble = {
         });
     },
 
-    renderSuggestions: function (container, items, onSelect, isProduct) {
-        if (isProduct) {
-            renderProductSuggestions(container, items, onSelect);
-        } else {
-            if (items.length === 0) {
-                container.innerHTML = '<div class="suggestion-item">No se encontraron resultados</div>';
-                container.classList.add('active');
+    // --- VISTA NATHALIA ---
+    consultarBOMStock: async function(idCodigo) {
+        try {
+            const res = await fetchData(`/api/ensamble/bom_stock/${idCodigo}`);
+            const container = document.getElementById('prog-bom-container');
+            const alertBox = document.getElementById('prog-stock-alert');
+            
+            if (!res || !res.success) {
+                container.innerHTML = '<div class="alert alert-warning">Ficha técnica no encontrada.</div>';
                 return;
             }
 
-            container.innerHTML = items.map(item => `<div class="suggestion-item" data-val="${item}">${item}</div>`).join('');
+            const meta = parseInt(document.getElementById('prog-cantidad').value) || 0;
+            let stockInsuficiente = false;
 
-            container.querySelectorAll('.suggestion-item').forEach((div, index) => {
-                div.addEventListener('click', () => {
-                    onSelect(items[index]);
-                });
+            let html = `
+                <div class="table-responsive">
+                    <table class="table align-middle border shadow-sm rounded-3 overflow-hidden">
+                        <thead class="table-dark">
+                            <tr>
+                                <th class="py-3 px-3">Componente</th>
+                                <th class="py-3 text-center">Stock Actual</th>
+                                <th class="py-3 text-center">Capacidad Máxima</th>
+                                <th class="py-3 text-center">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            res.componentes.forEach(c => {
+                const isShort = c.alcanza_para < meta && meta > 0;
+                if (isShort) stockInsuficiente = true;
+                const rowClass = isShort ? 'table-warning bg-warning bg-opacity-25' : 'table-success bg-success bg-opacity-10';
+                
+                html += `
+                    <tr class="${rowClass}">
+                        <td class="fw-bold ps-3">${c.componente}<br><small class="text-muted">${c.codigo_inventario}</small></td>
+                        <td class="text-center fw-bold fs-5 text-dark">${c.stock_almacen}</td>
+                        <td class="text-center fw-bold fs-5 text-primary">${c.alcanza_para} und</td>
+                        <td class="text-center">
+                            <span class="badge ${isShort ? 'bg-warning text-dark' : 'bg-success'}">
+                                ${isShort ? 'INSUFICIENTE' : 'OK'}
+                            </span>
+                        </td>
+                    </tr>
+                `;
             });
 
-            container.classList.add('active');
-        }
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+            
+            if (stockInsuficiente) {
+                alertBox.innerHTML = `
+                    <div class="alert border-warning bg-warning bg-opacity-10 mt-2 py-3 rounded-4">
+                        <i class="fas fa-exclamation-triangle me-2"></i> Poka-Yoke: El stock resaltado no cubre la meta.
+                    </div>
+                `;
+                alertBox.style.display = 'block';
+            } else {
+                alertBox.style.display = 'none';
+            }
+        } catch (e) { console.error(e); }
     },
 
-    isSubmitting: false,
-    _idEnsambleActivo: null, // ID para persistencia inmediata (patrón Pulido)
+    // --- FLUJO DE REPORTE ---
+    renderBOMCheckboxes: async function(idCodigo, containerId) {
+        try {
+            const res = await fetchData(`/api/ensamble/bom_stock/${idCodigo}`);
+            const container = document.getElementById(containerId);
+            if (!res || !res.success) {
+                container.innerHTML = '<div class="col-12 text-center text-muted">Sin BOM definido.</div>';
+                return;
+            }
 
-    /**
-     * Persistencia inmediata al comenzar ensamble.
-     * Crea un registro EN_PROCESO en db_ensambles visible en el PC al instante.
-     */
-    persistirInicioSQL: async function() {
-        const resp = document.getElementById('responsable-ensamble')?.value?.trim();
-        const idCodigo = this.normalizarCodigo(document.getElementById('ens-id-codigo')?.value || '');
-        const horaInicio = document.getElementById('hora-inicio-ensamble')?.value || '';
-        const op = document.getElementById('op-ensamble')?.value || '';
+            let html = '';
+            res.componentes.forEach((c, index) => {
+                html += `
+                    <div class="col-md-4">
+                        <div class="card border shadow-sm p-3 rounded-3 h-100">
+                            <div class="form-check">
+                                <input class="form-check-input bom-checkbox" type="checkbox" value="${c.codigo_inventario}" id="bom-check-${index}" checked style="width: 20px; height: 20px;">
+                                <label class="form-check-label fw-bold ms-2" for="bom-check-${index}">
+                                    ${c.componente}<br><small class="text-muted">${c.codigo_inventario}</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        } catch (e) { console.error(e); }
+    },
 
-        if (!resp || !idCodigo || idCodigo === 'NO DEFINIDO') {
-            console.log('⏳ [Ensamble] Persistencia diferida — faltan datos');
+    seleccionarTarea: function(tarea) {
+        this.isManualMode = false;
+        this.resetFormulario(false);
+        
+        document.getElementById('reporte-id-prog').value = tarea.id_prog;
+        document.getElementById('reporte-producto-display').textContent = tarea.id_codigo;
+        document.getElementById('reporte-producto-display').style.display = 'block';
+        document.getElementById('reporte-producto-manual').value = tarea.id_codigo;
+        document.getElementById('reporte-buje-origen').value = tarea.id_codigo;
+        document.getElementById('reporte-cantidad').value = tarea.faltante;
+        
+        this.intentarAutoSeleccionarResponsable();
+        this.renderBOMCheckboxes(tarea.id_codigo, 'reporte-bom-check-container');
+        
+        document.getElementById('form-reporte-ensamble-container').style.display = 'block';
+        document.getElementById('form-reporte-ensamble-container').scrollIntoView({ behavior: 'smooth' });
+    },
+
+    seleccionarProductoManual: function(producto) {
+        document.getElementById('reporte-id-prog').value = '';
+        document.getElementById('reporte-producto-display').textContent = producto.codigo_sistema;
+        document.getElementById('reporte-producto-display').style.display = 'block';
+        document.getElementById('reporte-buje-origen').value = producto.codigo_sistema;
+        
+        this.intentarAutoSeleccionarResponsable();
+        this.renderBOMCheckboxes(producto.codigo_sistema, 'reporte-bom-check-container');
+    },
+
+    toggleManualMode: function() {
+        this.isManualMode = true;
+        document.getElementById('form-reporte-ensamble-container').style.display = 'block';
+        this.resetFormulario(true);
+        this.intentarAutoSeleccionarResponsable();
+        document.getElementById('form-reporte-ensamble-container').scrollIntoView({ behavior: 'smooth' });
+    },
+
+    reportarAvance: async function() {
+        const idCodigo = document.getElementById('reporte-producto-manual').value;
+        const cantidad = parseInt(document.getElementById('reporte-cantidad').value) || 0;
+        const responsable = document.getElementById('responsable').value; 
+        const pnc = parseInt(document.getElementById('reporte-pnc').value) || 0;
+        const qty = parseFloat(document.getElementById('reporte-qty').value) || 1;
+
+        if (!idCodigo || !cantidad || !responsable) {
+            mostrarNotificacion('Faltan datos obligatorios', 'error');
             return;
         }
 
-        const idEnsamble = 'ENS-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-        this._idEnsambleActivo = idEnsamble;
-
-        try {
-            await fetch('/api/ensamble/iniciar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id_ensamble: idEnsamble,
-                    responsable: resp,
-                    id_codigo: idCodigo,
-                    hora_inicio: horaInicio,
-                    orden_produccion: op
-                })
-            });
-            console.log(`✅ [Ensamble] Inicio persistido en SQL: ${idEnsamble}`);
-        } catch (e) {
-            console.error('Error persistencia inicio ensamble:', e);
-        }
-    },
-
-    configurarEventos: function () {
-        const form = document.getElementById('form-ensamble');
-        if (form) {
-            // Eliminar listener previo si existe para evitar duplicación
-            form.onsubmit = null;
-            form.addEventListener('submit', function (e) {
-                e.preventDefault();
-                registrarEnsamble();
-            });
+        if (pnc > 0 && !this.pncDetalles) {
+            Swal.fire('Calidad Pendiente', 'Detalla el motivo del PNC.', 'warning');
+            return;
         }
 
-        document.getElementById('cantidad-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
-        document.getElementById('pnc-ensamble')?.addEventListener('input', actualizarCalculoEnsamble);
-        document.getElementById('ens-qty-bujes')?.addEventListener('input', actualizarCalculoEnsamble);
-
-        // Persistir inicio cuando hora_inicio se llena (trigger clave para las tablets)
-        document.getElementById('hora-inicio-ensamble')?.addEventListener('change', () => {
-            this.persistirInicioSQL();
+        const componentesADescontar = [];
+        document.querySelectorAll('.bom-checkbox:checked').forEach(chk => {
+            componentesADescontar.push(chk.value);
         });
 
-        // El mapeo se dispara desde initAutocompleteComponente al seleccionar
-
-        // Configurar botón de defectos
-        const btnDefectos = document.getElementById('btn-defectos-ensamble');
-        if (btnDefectos) {
-            btnDefectos.replaceWith(btnDefectos.cloneNode(true));
-            const newBtn = document.getElementById('btn-defectos-ensamble');
-            newBtn.addEventListener('click', function () {
-                if (typeof window.abrirModalEnsamble === 'function') {
-                    window.abrirModalEnsamble();
-                } else {
-                    console.error('❌ Función window.abrirModalEnsamble no encontrada');
-                }
-            });
-        }
-    }
-};
-
-// ==========================================
-// FUNCIONES GLOBALES (Legacy/Compatibilidad)
-// ==========================================
-
-async function registrarEnsamble(event) {
-    if (event) event.preventDefault();
-    if (ModuloEnsamble.isSubmitting) return;
-
-    const horaInicio = document.getElementById('hora-inicio-ensamble')?.value || '00:00';
-    const horaFin = document.getElementById('hora-fin-ensamble')?.value || '00:00';
-    if (horaFin <= horaInicio) {
-        Swal.fire({
-            title: 'Error de Tiempos',
-            text: 'La Hora de Fin debe ser estrictamente posterior a la Hora de Inicio.',
-            icon: 'error',
-            confirmButtonColor: '#d33'
-        });
-        return;
-    }
-
-    try {
-        console.log('🚀 [Ensamble] Intentando registrar...');
-        ModuloEnsamble.isSubmitting = true;
-        mostrarLoading(true);
-
-        const btnSubmit = document.querySelector('#form-ensamble button[type="submit"]');
-        if (btnSubmit) btnSubmit.disabled = true;
-
-        const cantidadBolsas = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
-        const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
-        const qty = parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1;
-
-        // Cálculo: (Bolsas * QTY) - PNC = Cantidad Real
-        const totalPiezas = cantidadBolsas * qty;
-        const cantidadReal = Math.max(0, totalPiezas - pnc);
-
-        // NUEVO: Recopilar componentes del BOM — usando el select activo como fuente de verdad
-        const bomItems = document.querySelectorAll('.bom-item');
-        let componentes = [];
-
-        if (bomItems && bomItems.length > 0) {
-            bomItems.forEach(item => {
-                const checkbox = item.querySelector('.bom-checkbox');
-                if (checkbox && checkbox.checked) {
-                    const dataRaw = item.querySelector('.bom-data')?.value;
-                    if (dataRaw) {
-                        const op = JSON.parse(dataRaw.replace(/&apos;/g, "'"));
-
-                        // Si hay un <select> visible, su .value es la fuente de verdad (código limpio seleccionado)
-                        // Si no hay select (componente fijo), usamos op.buje_origen
-                        const selectEl = item.querySelector('.bom-select');
-                        let codigoFinal = selectEl ? selectEl.value : op.buje_origen;
-
-                        // Red de seguridad: eliminar cualquier parte después de "/" (ej. "CB9721 / FR9303" → "CB9721")
-                        if (codigoFinal && codigoFinal.includes('/')) {
-                            codigoFinal = codigoFinal.split('/')[0].trim();
-                        }
-
-                        // Normalización GLOBAL
-                        codigoFinal = ModuloEnsamble.normalizarCodigo(codigoFinal);
-
-                        componentes.push({
-                            buje_origen: codigoFinal,
-                            qty_unitaria: op.qty || op.qty_unitaria || 1
-                        });
-                        console.log(`✅ [BOM Submit] Componente capturado: "${codigoFinal}" × ${op.qty || 1}`);
-                    }
-                }
-            });
-        }
-
-
-        const datosFinales = {
-            id_ensamble: ModuloEnsamble._idEnsambleActivo || undefined, // Para upsert si se persistió al iniciar
-            id_codigo: ModuloEnsamble.normalizarCodigo(document.getElementById('ens-id-codigo')?.value || ''),
-            cantidad: totalPiezas,
-            responsable: document.getElementById('responsable-ensamble')?.value || '',
-            orden_produccion: document.getElementById('op-ensamble')?.value || '',
-            almacen_origen: document.getElementById('almacen-origen-ensamble')?.value || '',
-            almacen_destino: document.getElementById('almacen-destino-ensamble')?.value || '',
-            qty: parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1,
-            hora_inicio: document.getElementById('hora-inicio-ensamble')?.value || '',
-            hora_fin: document.getElementById('hora-fin-ensamble')?.value || '',
-            fecha_inicio: document.getElementById('fecha-ensamble')?.value || new Date().toISOString().split('T')[0],
-            defectos: window.tmpDefectosEnsamble || [],
-            componentes: componentes // Aseguramos que se envíen
+        const payload = {
+            id_prog: document.getElementById('reporte-id-prog').value || null,
+            id_codigo: idCodigo,
+            cantidad: cantidad,
+            responsable: responsable,
+            fecha: document.getElementById('reporte-fecha').value,
+            hora_inicio: document.getElementById('reporte-hora-inicio').value,
+            hora_fin: document.getElementById('reporte-hora-fin').value,
+            buje_origen: document.getElementById('reporte-buje-origen').value,
+            qty: qty,
+            almacen_origen: document.getElementById('reporte-almacen-origen').value,
+            almacen_destino: document.getElementById('reporte-almacen-destino').value,
+            op_numero: document.getElementById('reporte-op').value,
+            pnc: pnc,
+            pnc_detalles: this.pncDetalles,
+            observaciones: document.getElementById('reporte-observaciones').value,
+            componentes_seleccionados: componentesADescontar
         };
 
-        const response = await fetch('/api/ensamble/finalizar', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datosFinales)
-        });
+        try {
+            mostrarLoading(true);
+            const res = await fetch('/api/ensamble/reportar', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            mostrarLoading(false);
 
-        const resultado = await response.json();
-        console.log('📥 [Ensamble] RESPUESTA SERVIDOR:', resultado);
+            if (data.success) {
+                Swal.fire('¡Éxito!', 'Reporte procesado.', 'success');
+                this.resetFormulario(true);
+                this.listarTareasPendientes();
+                this.listarProgramacion();
+            } else {
+                mostrarNotificacion(data.error, 'error');
+            }
+        } catch (e) { mostrarLoading(false); console.error(e); }
+    },
 
-        if (response.ok && resultado.success) {
-            // Preparar datos para restauración
-            const datosRestaurar = { ...datosFinales };
-            const metaConCallback = {
-                ...resultado.undo_meta,
-                restoreCallback: async () => {
-                    // Restaurar valores Ensamble
-                    document.getElementById('fecha-ensamble').value = datosRestaurar.fecha_inicio;
-                    document.getElementById('responsable-ensamble').value = datosRestaurar.responsable;
-                    document.getElementById('hora-inicio-ensamble').value = datosRestaurar.hora_inicio;
-                    document.getElementById('hora-fin-ensamble').value = datosRestaurar.hora_fin;
-                    document.getElementById('op-ensamble').value = datosRestaurar.orden_produccion;
+    resetFormulario: function(fullReset = true) {
+        if (fullReset) {
+            document.getElementById('form-reporte-ensamble').reset();
+            document.getElementById('reporte-id-prog').value = '';
+            document.getElementById('reporte-producto-display').style.display = 'none';
+            document.getElementById('reporte-bom-check-container').innerHTML = '<div class="col-12 text-center text-muted py-2">Selecciona un producto.</div>';
+            this.pncDetalles = '';
+            
+            const hoy = new Date().toISOString().split('T')[0];
+            if (document.getElementById('reporte-fecha')) document.getElementById('reporte-fecha').value = hoy;
+            this.intentarAutoSeleccionarResponsable();
+        }
+        document.getElementById('form-reporte-ensamble-container').style.display = 'none';
+    },
 
-                    // Trigger change confirmando mapeo
-                    const bujeSelect = document.getElementById('ens-buje-componente');
-                    if (bujeSelect) {
-                        bujeSelect.value = datosRestaurar.buje_componente;
-                        // Trigger change manual para actualizar IDs
-                        if (typeof actualizarMapeoEnsamble === 'function') {
-                            await actualizarMapeoEnsamble();
-                        }
-                    }
+    abrirModalPNC: async function() {
+        // 1. Cargar criterios dinámicos desde la base de datos
+        await this.cargarCriteriosPNC();
 
-                    // Restaurar Lógica de Negocio (Almacenes)
-                    document.getElementById('almacen-origen-ensamble').value = datosRestaurar.almacen_origen || '';
-                    document.getElementById('almacen-destino-ensamble').value = datosRestaurar.almacen_destino || '';
-
-                    // Restaurar cantidades (después de mapeo seguro)
-                    document.getElementById('cantidad-ensamble').value = datosRestaurar.cantidad_bolsas;
-                    document.getElementById('ens-qty-bujes').value = datosRestaurar.qty_unitaria; // Sobreescribe lo que traiga el mapeo si es diferente
-                    document.getElementById('pnc-ensamble').value = datosRestaurar.pnc;
-                    document.getElementById('criterio-pnc-hidden-ensamble').value = datosRestaurar.criterio_pnc;
-                    document.getElementById('observaciones-ensamble').value = datosRestaurar.observaciones;
-                    // Re-calcular
-                    if (typeof actualizarCalculoEnsamble === 'function') actualizarCalculoEnsamble();
-                    mostrarNotificacion('Formulario restaurado', 'info');
-                }
-            };
-            mostrarNotificacion(`✅ ${resultado.mensaje || 'Ensamble registrado correctamente'}`, 'success', metaConCallback);
-            document.getElementById('form-ensamble')?.reset();
-            if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-ensamble');
-            ModuloEnsamble._idEnsambleActivo = null; // Reset para próximo ensamble
-            ModuloEnsamble.intentarAutoSeleccionarResponsable();
-
-            // Reset state
-            window.tmpDefectosEnsamble = [];
-            actualizarCalculoEnsamble();
+        // 2. Abrir el modal global usando el destino ENSAMBLE
+        if (typeof window.abrirModalInyeccion === 'function') {
+            window.abrirModalInyeccion('ENSAMBLE');
         } else {
-            const errorMsg = resultado.error || resultado.mensaje || 'Error desconocido';
-            mostrarNotificacion(`❌ Error: ${errorMsg}`, 'error');
+            console.error('Modal de PNC global no encontrado');
         }
-    } catch (error) {
-        console.error('❌ [Ensamble] Error crítico:', error);
-        mostrarNotificacion(`❌ Error de conexión: ${error.message}`, 'error');
-    } finally {
-        mostrarLoading(false);
-        ModuloEnsamble.isSubmitting = false;
-        const btnSubmit = document.querySelector('#form-ensamble button[type="submit"]');
-        if (btnSubmit) btnSubmit.disabled = false;
-    }
-}
+    },
 
-async function actualizarMapeoEnsamble() {
-    const bujeCode = document.getElementById('ens-buje-componente')?.value;
-    const selectorContainer = document.getElementById('ens-opciones-selector');
-    const bomSection = document.getElementById('ensamble-bom-section');
-    const bomLista = document.getElementById('ensamble-bom-lista');
+    cargarCriteriosPNC: async function() {
+        try {
+            const select = document.getElementById('crit-inyeccion');
+            if (!select) return;
 
-    // Limpiar UI anterior
-    if (selectorContainer) selectorContainer.remove();
-    if (bomSection) bomSection.style.display = 'none';
-    if (bomLista) bomLista.innerHTML = '';
+            // Fetch de criterios específicos de ENSAMBLE
+            const response = await fetch('/api/obtener_criterios_pnc/ensamble');
+            const criterios = await response.json();
 
-    if (!bujeCode) {
-        document.getElementById('ens-id-codigo').value = '';
-        document.getElementById('ens-qty-bujes').value = '1';
-        return;
-    }
+            if (criterios && Array.isArray(criterios)) {
+                select.innerHTML = '<option value="">Seleccionar Defecto...</option>';
+                criterios.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.toUpperCase();
+                    opt.textContent = c;
+                    select.appendChild(opt);
+                });
+                console.log('✅ [Ensamble] Criterios PNC sincronizados con el servidor.');
+            }
+        } catch (e) {
+            console.error('❌ Error cargando criterios PNC para ensamble:', e);
+        }
+    },
 
-    try {
-        console.log('🔍 Buscando ensamble para:', bujeCode);
+    listarTareasPendientes: async function() {
+        try {
+            const res = await fetchData('/api/ensamble/tareas_pendientes');
+            const container = document.getElementById('tareas-pendientes-container');
+            if (!res || !res.success) return;
+
+            if (res.data.length === 0) {
+                container.innerHTML = '<div class="text-center py-4 bg-light rounded-4">No hay tareas pendientes</div>';
+                return;
+            }
+
+            let html = '<div class="row g-2">';
+            res.data.forEach(t => {
+                const porc = Math.round((t.cantidad_realizada / t.cantidad_objetivo) * 100);
+                html += `
+                    <div class="col-md-6 col-lg-4">
+                        <div class="card shadow-sm border-0 rounded-4 hover-lift cursor-pointer bg-white" onclick="ModuloEnsamble.seleccionarTarea(${JSON.stringify(t).replace(/"/g, '&quot;')})">
+                            <div class="card-body p-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill">TAREA #${t.id_prog}</span>
+                                    <small class="text-muted fw-bold">${porc}%</small>
+                                </div>
+                                <h5 class="fw-bold mb-1">${t.id_codigo}</h5>
+                                <div class="progress mb-2" style="height: 5px;">
+                                    <div class="progress-bar" style="width: ${porc}%"></div>
+                                </div>
+                                <p class="small text-muted mb-0">Faltan: <span class="text-danger fw-bold">${t.faltante}</span> / Objetivo: ${t.cantidad_objetivo}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        } catch (e) { console.error(e); }
+    },
+
+    listarProgramacion: async function() {
+        try {
+            const res = await fetchData('/api/ensamble/programacion');
+            const container = document.getElementById('prog-lista-container');
+            if (!res || !res.success) return;
+
+            let html = '<div class="p-3">';
+            res.data.slice(0, 6).forEach(p => {
+                const porc = Math.min(100, Math.round((p.cantidad_realizada / p.cantidad_objetivo) * 100));
+                html += `
+                    <div class="mb-2 p-2 border-bottom">
+                        <div class="d-flex justify-content-between small">
+                            <span>${p.id_codigo}</span>
+                            <span>${p.cantidad_realizada}/${p.cantidad_objetivo}</span>
+                        </div>
+                        <div class="progress" style="height: 3px;">
+                            <div class="progress-bar" style="width: ${porc}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        } catch (e) { console.error(e); }
+    },
+
+    guardarProgramacion: async function() {
+        const idCodigo = document.getElementById('prog-producto').value;
+        const cantidad = document.getElementById('prog-cantidad').value;
+        const fecha = document.getElementById('prog-fecha').value;
+        if (!idCodigo || !cantidad || !fecha) return mostrarNotificacion('Faltan datos', 'error');
+
+        try {
+            mostrarLoading(true);
+            const res = await fetch('/api/ensamble/programacion', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id_codigo: idCodigo, cantidad_objetivo: cantidad, fecha_programada: fecha })
+            });
+            const data = await res.json();
+            mostrarLoading(false);
+            if (data.success) {
+                mostrarNotificacion('Meta programada', 'success');
+                this.listarProgramacion();
+                this.listarTareasPendientes();
+            }
+        } catch (e) { mostrarLoading(false); console.error(e); }
+    },
+
+    configurarEventos: function() {
+        document.getElementById('btn-guardar-prog')?.addEventListener('click', () => this.guardarProgramacion());
+        document.getElementById('btn-reportar-avance')?.addEventListener('click', () => this.reportarAvance());
+        document.getElementById('btn-manual-mode')?.addEventListener('click', () => this.toggleManualMode());
+        document.getElementById('btn-detalle-pnc')?.addEventListener('click', () => this.abrirModalPNC());
+        document.getElementById('btn-cancelar-reporte')?.addEventListener('click', () => this.resetFormulario(true));
         
-        const response = await fetch(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(bujeCode)}`);
-        
-        // Manejar errores de infraestructura ANTES de parsear JSON
-        if (response.status === 429) {
-            const errData = await response.json().catch(() => ({}));
-            const msg = errData.error || 'Límite de peticiones a Google superado. Intente en 1 minuto.';
-            mostrarNotificacion(`⏳ ${msg}`, 'warning');
-            document.getElementById('ens-id-codigo').value = '⚠️ Reintente en 1 min...';
-            return;
-        }
-        if (response.status === 503) {
-            const errData = await response.json().catch(() => ({}));
-            const msg = errData.error || 'Error de conexión con Google Sheets.';
-            mostrarNotificacion(`🔌 ${msg}`, 'error');
-            document.getElementById('ens-id-codigo').value = '⚠️ Error de conexión';
-            return;
-        }
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
+        document.getElementById('prog-cantidad')?.addEventListener('input', () => {
+            const idCodigo = document.getElementById('prog-producto').value;
+            if (idCodigo) this.consultarBOMStock(idCodigo);
+        });
+    },
 
-        if (data && data.success) {
-            // Si hay múltiples opciones, mostrar el selector para que el usuario decida
-            if (data.opciones && data.opciones.length > 1) {
-                console.log('🔀 Múltiples recetas encontradas:', data.opciones);
-                mostrarSelectorOpciones(data.opciones);
+    // --- CAPTURA INFALIBLE: Método del Input Oculto ---
+    intentarAutoSeleccionarResponsable: function () {
+        const input = document.getElementById('responsable'); // ID REAL corregido
+        const inputDisplay = document.getElementById('responsable-display'); // Cabecera reporte
+        const hiddenInput = document.getElementById('current_user_fullname'); // Fuente de verdad
 
-                // Limpiar campos mientras elige
-                document.getElementById('ens-id-codigo').value = '⚠️ Seleccione receta...';
-                document.getElementById('ens-qty-bujes').value = '1';
-            } else if (data.opciones && data.opciones.length === 1) {
-                // Una sola receta: aplicar directamente
-                const opcion = data.opciones[0];
-                console.log('✅ Una sola receta encontrada:', opcion);
+        if (!input || !hiddenInput) return;
 
-                document.getElementById('ens-id-codigo').value = opcion.codigo_ensamble || '';
-                document.getElementById('ens-qty-bujes').value = 1; // 1 kit = 1 ensamble siempre
+        const nombreCompleto = hiddenInput.value;
 
-                if (opcion.componentes && opcion.componentes.length > 0) {
-                    renderBOM(opcion.componentes);
-                }
-            } else if (data.codigo_ensamble) {
-                // Caso legacy o fallback directo
-                document.getElementById('ens-id-codigo').value = data.codigo_ensamble || '';
-                const qtyValue = data.qty || data.qty_unitaria || data.cantidad || data.qty_sugerida || 1;
-                document.getElementById('ens-qty-bujes').value = qtyValue;
+        if (nombreCompleto && nombreCompleto.trim().length > 2) {
+            // Asignar al formulario
+            input.value = nombreCompleto;
+            input.readOnly = true;
+            input.classList.add('bg-light');
+            
+            // Asignar a la cabecera visual (si existe)
+            if (inputDisplay) {
+                inputDisplay.value = nombreCompleto;
             }
             
-            // Recalcular inmediatamente
-            if (typeof actualizarCalculoEnsamble === 'function') {
-                actualizarCalculoEnsamble();
-            }
-        } else {
-            document.getElementById('ens-id-codigo').value = 'NO DEFINIDO';
-            document.getElementById('ens-qty-bujes').value = '1';
+            console.log('✅ [Ensamble] Usuario capturado infaliblemente:', nombreCompleto);
         }
-    } catch (error) {
-        console.error('❌ Error buscando mapeo:', error);
-        mostrarNotificacion(`❌ Error cargando receta: ${error.message}`, 'error');
-    }
-}
-
-/**
- * Renderiza la lista de componentes requeridos para el ensamble
- */
-function renderBOM(opciones) {
-    const bomSection = document.getElementById('ensamble-bom-section');
-    const bomLista = document.getElementById('ensamble-bom-lista');
-    if (!bomSection || !bomLista) return;
-
-    bomSection.style.display = 'block';
-    bomLista.innerHTML = opciones.map((op, idx) => {
-        const tieneAlternativas = op.tiene_alternativas && Array.isArray(op.opciones_alternativas) && op.opciones_alternativas.length > 1;
-
-        // Contenido del selector de componente: dropdown si hay alternativas, texto si no
-        const componenteHtml = tieneAlternativas
-            ? `<select class="bom-select form-select form-select-sm mt-1" data-idx="${idx}" style="font-weight:700; font-size:14px; border:2px solid #f59e0b; border-radius:6px; background:#fffbeb;"
-                onchange="window._actualizarBomData(${idx}, this.value)">
-                ${op.opciones_alternativas.map(alt =>
-                    `<option value="${alt}" ${alt === op.buje_origen ? 'selected' : ''}>${alt}</option>`
-                ).join('')}
-              </select>
-              <div class="text-muted" style="font-size:10px; margin-top:2px;">⚡ Sustituto disponible</div>`
-            : `<div style="font-size: 15px; font-weight: 800; color: #1e293b; margin: 2px 0;">${op.buje_origen}</div>`;
-
-        // bom-data serializa el op completo; se actualiza al cambiar el select
-        return `
-        <div class="bom-item" data-idx="${idx}" style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; flex: 1; min-width: 160px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-            <div class="d-flex justify-content-between align-items-center mb-1">
-                <span style="font-weight: 600; font-size: 11px; color: #64748b; text-transform: uppercase;">
-                    <i class="fas fa-puzzle-piece"></i> Componente ${idx + 1}
-                </span>
-                <input type="checkbox" checked class="bom-checkbox" data-idx="${idx}" style="width: 16px; height: 16px; cursor: pointer;" title="Incluir en el descuento de stock">
-            </div>
-            ${componenteHtml}
-            <div class="text-muted small" style="font-weight: 500; margin-top:4px;">
-                Consumo: <span class="badge bg-light text-dark border">${op.qty} und</span>
-            </div>
-            <input type="hidden" class="bom-data" data-idx="${idx}" value='${JSON.stringify(op).replace(/'/g, "&apos;")}'>
-        </div>`;
-    }).join('');
-}
-
-// Actualiza el bom-data cuando el usuario cambia el dropdown de sustituto
-window._actualizarBomData = function(idx, nuevoCodigo) {
-    const item = document.querySelector(`.bom-item[data-idx="${idx}"]`);
-    if (!item) return;
-    const hiddenInput = item.querySelector('.bom-data');
-    if (!hiddenInput) return;
-    try {
-        const data = JSON.parse(hiddenInput.value.replace(/&apos;/g, "'"));
-        data.buje_origen = nuevoCodigo;
-        hiddenInput.value = JSON.stringify(data).replace(/'/g, "&apos;");
-        console.log(`🔀 [BOM] Componente ${idx} cambiado a: ${nuevoCodigo}`);
-    } catch(e) {
-        console.warn('Error actualizando bom-data:', e);
     }
 };
 
-
-
-/**
- * Muestra un mini-selector cuando un producto tiene múltiples opciones de componente
- * Por ejemplo: 9721 puede usar CB9721 o FR-9303
- */
-function mostrarSelectorOpciones(opciones) {
-    // Crear contenedor del selector
-    const container = document.createElement('div');
-    container.id = 'ens-opciones-selector';
-    container.style.cssText = `
-        background: linear-gradient(135deg, #fef3c7, #fde68a);
-        border: 2px solid #f59e0b;
-        border-radius: 10px;
-        padding: 12px 16px;
-        margin-top: 8px;
-        animation: fadeIn 0.3s ease;
-    `;
-
-    container.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-            <i class="fas fa-exclamation-triangle" style="color: #d97706; font-size: 18px;"></i>
-            <strong style="color: #92400e; font-size: 14px;">¿Con cuál componente se hizo?</strong>
-        </div>
-        <div id="ens-opciones-btns" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
-    `;
-
-    const btnsContainer = container.querySelector('#ens-opciones-btns');
-
-    opciones.forEach((opcion, idx) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.style.cssText = `
-            flex: 1;
-            min-width: 120px;
-            padding: 10px 16px;
-            border: 2px solid #d97706;
-            border-radius: 8px;
-            background: white;
-            color: #92400e;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-align: center;
-        `;
-        btn.innerHTML = `<i class="fas fa-cube"></i> ${opcion.buje_origen}`;
-        btn.addEventListener('mouseenter', () => {
-            btn.style.background = '#f59e0b';
-            btn.style.color = 'white';
-            btn.style.transform = 'scale(1.03)';
-        });
-        btn.addEventListener('mouseleave', () => {
-            if (!btn.classList.contains('selected')) {
-                btn.style.background = 'white';
-                btn.style.color = '#92400e';
-                btn.style.transform = 'scale(1)';
-            }
-        });
-        btn.addEventListener('click', () => {
-            // Seleccionar esta opción
-            document.getElementById('ens-id-codigo').value = opcion.codigo_ensamble || '';
-            document.getElementById('ens-qty-bujes').value = 1; // 1 kit = 1 ensamble siempre
-
-            // RENDERIZAR BOM PARA ESTA RECETA ESPECÍFICA (Juan Sebastian request)
-            if (opcion.componentes && opcion.componentes.length > 0) {
-                renderBOM(opcion.componentes);
-            }
-
-            if (typeof actualizarCalculoEnsamble === 'function') {
-                actualizarCalculoEnsamble();
-            }
-
-            // Marcar como seleccionado visualmente
-            btnsContainer.querySelectorAll('button').forEach(b => {
-                b.classList.remove('selected');
-                b.style.background = 'white';
-                b.style.color = '#92400e';
-                b.style.transform = 'scale(1)';
-            });
-            btn.classList.add('selected');
-            btn.style.background = '#059669';
-            btn.style.color = 'white';
-            btn.style.borderColor = '#059669';
-            btn.style.transform = 'scale(1.03)';
-            btn.innerHTML = `<i class="fas fa-check-circle"></i> ${opcion.buje_origen}`;
-
-            console.log(`✅ Opción seleccionada: ${opcion.buje_origen} → ${opcion.codigo_ensamble} (QTY: ${opcion.qty})`);
-        });
-        btnsContainer.appendChild(btn);
-    });
-
-    // Insertar después del campo de Código Ensamble
-    const codigoField = document.getElementById('ens-id-codigo');
-    if (codigoField) {
-        const parentGroup = codigoField.closest('.form-group') || codigoField.parentElement;
-        if (parentGroup) {
-            parentGroup.appendChild(container);
-        }
-    }
-}
-
-function actualizarCalculoEnsamble() {
-    const cantidadBolsas = parseInt(document.getElementById('cantidad-ensamble')?.value) || 0;
-    const pnc = parseInt(document.getElementById('pnc-ensamble')?.value) || 0;
-    const qtyPerEnsamble = parseFloat(document.getElementById('ens-qty-bujes')?.value) || 1;
-
-    const totalPiezas = cantidadBolsas * qtyPerEnsamble;
-    const ensamblesBuenos = Math.max(0, totalPiezas - pnc);
-
-    const displaySalida = document.getElementById('produccion-calculada-ensamble');
-    const formulaCalc = document.getElementById('formula-calc-ensamble');
-    const piezasBuenasDisplay = document.getElementById('piezas-buenas-ensamble');
-
-    if (displaySalida) displaySalida.textContent = formatNumber(ensamblesBuenos);
-    if (formulaCalc) formulaCalc.textContent = `Bolsas: ${formatNumber(cantidadBolsas)} × QTY: ${qtyPerEnsamble} = ${formatNumber(totalPiezas)} piezas`;
-    if (piezasBuenasDisplay) piezasBuenasDisplay.textContent = `Total: ${formatNumber(totalPiezas)} - PNC: ${pnc} = ${formatNumber(ensamblesBuenos)} Real`;
-}
-
-function formatNumber(num) {
-    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-window.initEnsamble = () => ModuloEnsamble.init();
 window.ModuloEnsamble = ModuloEnsamble;
+window.initEnsamble = () => ModuloEnsamble.inicializar();

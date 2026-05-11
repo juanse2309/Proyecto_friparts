@@ -171,6 +171,11 @@ async function cargarDatosCompartidos() {
     } finally {
         isSharedDataLoading = false;
         if (window.ocultarLoaderGlobal) {
+            // Desplazar al inicio
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            // Juan Sebastian: Ajustar layout tras cargar datos
+            if (typeof ajustarLayout === 'function') ajustarLayout();
             window.ocultarLoaderGlobal();
         } else {
             const overlay = document.getElementById('loading-overlay');
@@ -309,17 +314,22 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         }
     }
 
-    // Ocultar todas las páginas
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    // Ocultar todas las páginas (Limpieza Total con !important force)
+    document.querySelectorAll('.page, .page-content, [id$="-page"]').forEach(p => {
+        p.classList.remove('active');
+        p.style.setProperty('display', 'none', 'important');
+    });
 
     // LÓGICA ESPECIAL PARA FRIMETALS (Páginas dinámicas)
     let pageIdToShow = nombrePagina;
-    if (nombrePagina.startsWith('metals-') && nombrePagina !== 'metals-dashboard') {
+    if (nombrePagina.startsWith('metals-') && nombrePagina !== 'metals-dashboard' && nombrePagina !== 'metals-pedidos') {
         pageIdToShow = 'metals-produccion'; // Todas usan el mismo host dinámico
     }
 
     const pagina = document.getElementById(`${pageIdToShow}-page`);
     if (pagina) {
+        pagina.style.setProperty('display', 'block', 'important');
+        pagina.classList.remove('hidden', 'd-none');
         pagina.classList.add('active');
         console.log('✅ Página visible:', pageIdToShow);
     } else {
@@ -360,6 +370,35 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
             backBtnContainer.classList.add('active');
         } else {
             backBtnContainer.classList.remove('active');
+        }
+    }
+    // Desplazar al inicio
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Juan Sebastian: Ajustar layout tras cargar página
+    ajustarLayout();
+}
+
+/**
+ * Juan Sebastian: Ajustar layout dinámicamente según estado del sidebar y pantalla
+ */
+function ajustarLayout() {
+    const isMobile = window.innerWidth < 992;
+    const sidebar = document.querySelector('.sidebar');
+    const mainContent = document.querySelector('.main-content');
+    
+    if (isMobile) {
+        // En móvil siempre colapsado al inicio para no tapar contenido
+        sidebar?.classList.remove('collapsed');
+        sidebar?.classList.remove('active');
+        mainContent?.classList.remove('expanded');
+    } else {
+        // En escritorio, respetar si el usuario colapsó manualmente
+        const isCollapsed = sidebar?.classList.contains('collapsed');
+        if (isCollapsed) {
+            mainContent?.classList.add('expanded');
+        } else {
+            mainContent?.classList.remove('expanded');
         }
     }
 }
@@ -404,6 +443,7 @@ function inicializarModulo(nombrePagina) {
         'mezcla': window.ModuloMezcla,
         'historial': window.ModuloHistorial,
         'pedidos': window.ModuloPedidos,
+        'metals-pedidos': window.ModuloPedidos,
         'almacen': window.AlmacenModule,
         'admin-clientes': window.ModuloAdminClientes,
         'metals-produccion': window.ModuloMetals,
@@ -626,6 +666,11 @@ async function inicializarAplicacion() {
     console.log('🚀 Aplicación inicializando...');
     try {
         configurarNavegacion();
+        
+        // Inicializar Autenticación y visibilidad de Sidebar
+        if (typeof AuthModule !== 'undefined' && AuthModule.init) {
+            AuthModule.init();
+        }
 
         // --- Optimización Cuota (Error 429) ---
         // Solo cargar datos si YA hay un usuario en sesión
@@ -766,4 +811,26 @@ function configurarAnimacionesEntrada() {
 document.addEventListener('DOMContentLoaded', () => {
     inicializarAplicacion();
     configurarAnimacionesEntrada();
+    
+    // Juan Sebastian: Listeners de Layout
+    window.addEventListener('resize', ajustarLayout);
+    ajustarLayout();
 });
+
+// Juan Sebastian: Alias para compatibilidad con solicitudes de usuario
+window.showPage = function (pageId) {
+    if (!pageId) return;
+    
+    // Limpieza agresiva antes de mostrar
+    document.querySelectorAll('.page, .page-content').forEach(p => {
+        p.classList.remove('active');
+        p.style.display = 'none';
+    });
+
+    const page = document.getElementById(pageId);
+    if (page) {
+        page.style.display = 'block';
+        page.classList.remove('hidden', 'd-none');
+        page.classList.add('active');
+    }
+};

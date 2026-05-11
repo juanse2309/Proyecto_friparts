@@ -8,6 +8,9 @@ const ModuloInyeccion = {
     items: [],
     isInitialized: false,
     isFetching: false,
+    pncRows: [], // Lista de PNC dinámicos para el cierre
+    currentModule: 'operator', // 'operator' (Reporte Máquina) o 'validation' (Validación Paola)
+
     
     normalizarCodigo: function(c) {
         if (!c) return "";
@@ -62,8 +65,8 @@ const ModuloInyeccion = {
 
         // Persistir inicio al definir hora (patrón Pulido - visible en PC inmediatamente)
         document.getElementById('hora-inicio-inyeccion')?.addEventListener('change', () => {
-            // Bloqueo crítico: Si estamos validando un lote existente, NO crear un registro nuevo
-            if (this.esValidacionMode) {
+            // Bloqueo crítico: Si estamos en modo VALIDACIÓN, NO crear un registro nuevo ni persistir inicio
+            if (this.currentModule === 'validation' || this.esValidacionMode) {
                 console.log('🚫 [Inyeccion] Persistencia bloqueada: Modo Validación activo.');
                 return;
             }
@@ -79,40 +82,45 @@ const ModuloInyeccion = {
      * Persistencia inmediata al iniciar turno de inyección.
      * Crea un registro EN_PROCESO en db_inyeccion visible en el PC al instante.
      */
-    persistirInicioSQL: async function() {
-        const responsable = document.getElementById('responsable-inyeccion')?.value?.trim();
-        const maquina = document.getElementById('maquina-inyeccion')?.value?.trim();
-        const horaInicio = document.getElementById('hora-inicio-inyeccion')?.value || '';
-        const fecha = document.getElementById('fecha-inyeccion')?.value || '';
+    persistirInicioSQL: async function () {
+        // SEGURIDAD: No persistir si estamos en modo validación (Paola)
+        if (this.currentModule === 'validation' || this.esValidacionMode) return;
 
-        if (!responsable || !maquina) {
-            console.log('⏳ [Inyeccion] Persistencia diferida — faltan responsable o máquina');
-            return;
-        }
+        const responsable = document.getElementById('responsable-inyeccion')?.value || '';
+        const maquina = document.getElementById('maquina-inyeccion')?.value || '';
+        const id_codigo = document.getElementById('codigo-producto-inyeccion')?.value || '';
 
-        if (this.esValidacionMode) {
-            console.log('🚫 [Inyeccion] persistirInicioSQL cancelado por modo Validación.');
-            return;
-        }
+        if (!responsable || !maquina || !id_codigo) return;
 
-        const idInyeccion = 'INY-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-        this._idTurnoActivo = idInyeccion;
+        // Evitar múltiples llamadas al mismo tiempo
+        if (this._persisting) return;
+        this._persisting = true;
+
+        const payload = {
+            responsable: responsable,
+            maquina: maquina,
+            id_codigo: id_codigo,
+            fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
+            hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
+            id_inyeccion: this._idTurnoActivo || undefined
+        };
 
         try {
-            await fetch('/api/inyeccion/iniciar_turno', {
+            const res = await fetchData('/api/iniciar_turno_inyeccion', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id_inyeccion: idInyeccion,
-                    responsable: responsable,
-                    maquina: maquina,
-                    hora_inicio: horaInicio,
-                    fecha_inicio: fecha
-                })
+                body: JSON.stringify(payload)
             });
-            console.log(`✅ [Inyeccion] Turno persistido en SQL: ${idInyeccion}`);
+
+            if (res && res.success) {
+                this._idTurnoActivo = res.id_inyeccion;
+                this._idSqlActivo = res.id_sql; // Guardar ID primario para evitar duplicados
+                console.log(`✅ [Inyeccion] Turno persistido en SQL: ${this._idTurnoActivo} (ID: ${this._idSqlActivo})`);
+            }
         } catch (e) {
             console.error('Error persistencia inicio inyección:', e);
+        } finally {
+            this._persisting = false;
         }
     },
 
@@ -301,6 +309,63 @@ const ModuloInyeccion = {
 
         // Marcar explícitamente que estamos en modo validación
         this.esValidacionMode = true; 
+
+        // Mostrar botón de VALIDACIÓN RÁPIDA en el header del form
+        this.mostrarBotonValidacionRapida(idValidacion);
+    },
+
+    mostrarBotonValidacionRapida: function(idInyeccion) {
+        const actions = document.querySelector('.form-actions');
+        if (!actions) return;
+
+        // Eliminar si ya existe
+        const existing = document.getElementById('btn-validar-directo');
+        if (existing) existing.remove();
+
+        const btn = document.createElement('button');
+        btn.id = 'btn-validar-directo';
+        btn.type = 'button';
+        btn.className = 'btn btn-success btn-lg mb-2';
+        btn.style.width = '100%';
+        btn.innerHTML = `<i class="fas fa-check-double me-2"></i> VALIDAR LOTE AHORA (Sin Modal)`;
+        btn.onclick = () => this.validarRegistro(idInyeccion);
+
+        actions.prepend(btn);
+    },
+
+    validarRegistro: async function (idInyeccion) {
+        if (!idInyeccion) return;
+
+        const result = await Swal.fire({
+            title: '¿Validar Lote?',
+            text: `Se marcarán todos los registros del lote ${idInyeccion} como VALIDADOS.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, Validar',
+            cancelButtonText: 'Cancelar'
+        });
+
+        if (result.isConfirmed) {
+            try {
+                mostrarLoading(true, 'Validando lote...');
+                const res = await fetchData(`/api/inyeccion/validar/${idInyeccion}`, {
+                    method: 'POST'
+                });
+                mostrarLoading(false);
+
+                if (res && res.success) {
+                    Swal.fire('¡Validado!', res.message, 'success');
+                    this.limpiarFormularioValidacion(true);
+                    if (window.ModuloHistorial) window.ModuloHistorial.cargarHistorial();
+                } else {
+                    Swal.fire('Error', res?.error || 'No se pudo validar', 'error');
+                }
+            } catch (err) {
+                mostrarLoading(false);
+                console.error("Error validando:", err);
+                Swal.fire('Error', 'Error de conexión', 'error');
+            }
+        }
     },
 
     limpiarFormularioValidacion: function (limpiarSelect = true) {
@@ -880,8 +945,38 @@ const ModuloInyeccion = {
             return;
         }
 
+        // --- SUB-MÓDULO 3: VALIDACIÓN (Paola) ---
+        if (this.currentModule === 'validation' || this.esValidacionMode) {
+            const idIny = document.getElementById('select-validar-lote')?.value;
+            
+            // Si es un lote existente seleccionado del dropdown
+            if (idIny) {
+                this.validarRegistro(idIny);
+                return;
+            }
+
+            // Si es "ENTRADA MANUAL" en el panel de Validación
+            // REQUERIMIENTO: Guardado directo sin modal de PNC
+            const confirm = await Swal.fire({
+                title: '¿Registrar Entrada Manual?',
+                text: "Se guardará el registro directamente como VALIDADO.",
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, Registrar',
+                cancelButtonText: 'Volver'
+            });
+
+            if (confirm.isConfirmed) {
+                this.esValidacionMode = true; // Forzar para el backend
+                this.confirmarRegistroFinal();
+            }
+            return;
+        }
+
+        // --- SUB-MÓDULO 2: REPORTE DE MÁQUINA (Operario) ---
         const horaInicio = document.getElementById('hora-inicio-inyeccion')?.value || '00:00';
         const horaFin = document.getElementById('hora-termina-inyeccion')?.value || '00:00';
+        
         if (horaFin <= horaInicio) {
             Swal.fire({
                 title: 'Error de Tiempos',
@@ -892,11 +987,164 @@ const ModuloInyeccion = {
             return;
         }
 
-        const btn = document.querySelector('#form-inyeccion button[type="submit"]');
+        // REQUERIMIENTO: SÍ debe salir el modal de 'Finalizar Reporte' (PNC, Disparos, etc.)
+        this.abrirModalCierre();
+    },
+
+    abrirModalCierre: function () {
+        const modal = document.getElementById('modal-cierre-inyeccion');
+        if (!modal) return;
+
+        // Reset de PNCs del modal
+        this.pncRows = [];
+        this.renderFilasPnc();
+
+        // Calcular totales para el resumen
+        let totalBuenas = 0;
+        this.items.forEach(item => {
+            totalBuenas += (item.piezasBuenas || 0);
+        });
+
+        document.getElementById('resumen-buenas-inyeccion').textContent = totalBuenas.toLocaleString();
+        document.getElementById('resumen-pnc-inyeccion').textContent = "0";
+
+        modal.style.display = 'flex';
+    },
+
+    agregarFilaPnc: function () {
+        const id = Date.now();
+        this.pncRows.push({
+            id,
+            codigo: '',
+            motivo: '',
+            cantidad: 0
+        });
+        this.renderFilasPnc();
+    },
+
+    eliminarFilaPnc: function (id) {
+        this.pncRows = this.pncRows.filter(r => r.id !== id);
+        this.renderFilasPnc();
+        this.actualizarTotalesResumen();
+    },
+
+    actualizarDatoPnc: function (id, campo, valor) {
+        const row = this.pncRows.find(r => r.id === id);
+        if (row) {
+            if (campo === 'cantidad') {
+                row[campo] = parseInt(valor) || 0;
+                this.actualizarTotalesResumen();
+            } else {
+                row[campo] = valor;
+            }
+        }
+    },
+
+    actualizarTotalesResumen: function () {
+        const totalPnc = this.pncRows.reduce((sum, row) => sum + row.cantidad, 0);
+        const display = document.getElementById('resumen-pnc-inyeccion');
+        if (display) display.textContent = totalPnc.toLocaleString();
+    },
+
+    renderFilasPnc: function () {
+        const container = document.getElementById('inyeccion-pnc-container');
+        const emptyMsg = document.getElementById('inyeccion-pnc-empty-msg');
+        if (!container) return;
+
+        if (this.pncRows.length === 0) {
+            if (emptyMsg) emptyMsg.style.display = 'block';
+            container.querySelectorAll('.pnc-row').forEach(el => el.remove());
+            return;
+        }
+
+        if (emptyMsg) emptyMsg.style.display = 'none';
+
+        // Mantener solo las filas que existen en el estado
+        const existingIds = this.pncRows.map(r => `pnc-row-${r.id}`);
+        container.querySelectorAll('.pnc-row').forEach(el => {
+            if (!existingIds.includes(el.id)) el.remove();
+        });
+
+        this.pncRows.forEach(row => {
+            let rowEl = document.getElementById(`pnc-row-${row.id}`);
+            if (!rowEl) {
+                rowEl = document.createElement('div');
+                rowEl.id = `pnc-row-${row.id}`;
+                rowEl.className = 'pnc-row d-flex gap-2 align-items-start p-2 border rounded-3 bg-white shadow-sm';
+                rowEl.innerHTML = `
+                    <div class="flex-grow-1 position-relative">
+                        <input type="text" class="form-control form-control-sm pnc-codigo-input" placeholder="Referencia..." value="${row.codigo}" oninput="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'codigo', this.value)">
+                        <div class="autocomplete-suggestions pnc-suggestions" id="suggestions-${row.id}"></div>
+                    </div>
+                    <div style="width: 140px;">
+                        <select class="form-select form-select-sm" onchange="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'motivo', this.value)">
+                            <option value="">Motivo...</option>
+                            <option value="RECHUPE" ${row.motivo === 'RECHUPE' ? 'selected' : ''}>Rechupe</option>
+                            <option value="QUEMADO" ${row.motivo === 'QUEMADO' ? 'selected' : ''}>Quemado</option>
+                            <option value="INCOMPLETA" ${row.motivo === 'INCOMPLETA' ? 'selected' : ''}>Incompleta</option>
+                            <option value="REBABA" ${row.motivo === 'REBABA' ? 'selected' : ''}>Rebaba</option>
+                            <option value="MANCHA ACEITE" ${row.motivo === 'MANCHA ACEITE' ? 'selected' : ''}>Mancha Aceite</option>
+                            <option value="CONTAMINADO" ${row.motivo === 'CONTAMINADO' ? 'selected' : ''}>Contaminado</option>
+                        </select>
+                    </div>
+                    <div style="width: 80px;">
+                        <input type="number" class="form-control form-control-sm text-center" placeholder="Cant" value="${row.cantidad}" oninput="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'cantidad', this.value)">
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="ModuloInyeccion.eliminarFilaPnc(${row.id})">
+                        <i class="fas fa-times"></i>
+                    </button>
+                `;
+                container.appendChild(rowEl);
+                this.initAutocompletePncRow(row.id);
+            }
+        });
+    },
+
+    initAutocompletePncRow: function (rowId) {
+        const rowEl = document.getElementById(`pnc-row-${rowId}`);
+        if (!rowEl) return;
+        const input = rowEl.querySelector('.pnc-codigo-input');
+        const suggestionsDiv = rowEl.querySelector('.pnc-suggestions');
+
+        let debounceTimer;
+        input.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const query = e.target.value.trim().toLowerCase();
+            if (query.length < 2) {
+                suggestionsDiv.classList.remove('active');
+                return;
+            }
+
+            debounceTimer = setTimeout(() => {
+                const resultados = this.productosData.filter(prod =>
+                    String(prod.codigo_sistema || '').toLowerCase().includes(query) ||
+                    String(prod.descripcion || '').toLowerCase().includes(query)
+                ).slice(0, 10);
+
+                if (window.renderProductSuggestions) {
+                    window.renderProductSuggestions(suggestionsDiv, resultados, (item) => {
+                        input.value = item.codigo_sistema || item.codigo;
+                        this.actualizarDatoPnc(rowId, 'codigo', input.value);
+                        suggestionsDiv.classList.remove('active');
+                    });
+                }
+            }, 300);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.classList.remove('active');
+            }
+        });
+    },
+
+    confirmarRegistroFinal: async function () {
+        const btn = document.getElementById('btn-finalizar-inyeccion');
+        const btnSubmitOriginal = document.querySelector('#form-inyeccion button[type="submit"]');
 
         try {
-            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, true);
-            mostrarLoading(true, 'Guardando datos y generando PDF...');
+            if (btn) btn.disabled = true;
+            mostrarLoading(true, 'Guardando reporte e inyectando PNC...');
 
             // Datos comunes de turno
             const datosTurno = {
@@ -907,29 +1155,23 @@ const ModuloInyeccion = {
                 hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
                 orden_produccion: document.getElementById('orden-produccion-inyeccion')?.value || '',
-                // NUEVOS CAMPOS Juan Sebastian - Limpieza Indestructible
                 entrada_manual: parseFloat(String(document.getElementById('inyeccion-entrada')?.value || '0').replace(/[^0-9.]/g, '')) || 0,
                 salida_manual: parseFloat(String(document.getElementById('inyeccion-salida')?.value || '0').replace(/[^0-9.]/g, '')) || 0,
                 peso_vela_maquina: parseFloat(String(document.getElementById('peso-vela-inyeccion')?.value || '0').replace(/[^0-9.]/g, '')) || 0,
                 id_programacion: document.getElementById('legacy-id-programacion')?.value || '',
                 almacen_destino: 'POR PULIR',
-                es_validacion: this.esValidacionMode || false,
-                id_inyeccion: this._idTurnoActivo || undefined // Continuidad con persist-on-start
+                es_validacion: (this.currentModule === 'validation' || this.esValidacionMode),
+                id_inyeccion: this._idTurnoActivo || undefined,
+                id_sql: this._idSqlActivo || undefined
             };
 
-            if (!datosTurno.maquina || !datosTurno.responsable) {
-                Swal.fire('Atención', 'Faltan datos del turno (Responsable o Máquina)', 'warning');
-                mostrarLoading(false);
-                return;
-            }
-
-            // Unir datos de turno con cada item iterado
             const payload = {
                 turno: datosTurno,
-                items: this.items
+                items: this.items,
+                pnc_list: this.pncRows.filter(r => r.codigo && r.cantidad > 0)
             };
 
-            console.log('📤 [Inyeccion] ENVIANDO LOTE:', payload);
+            console.log('📤 [Inyeccion] ENVIANDO REPORTE FINAL CON PNC:', payload);
 
             const response = await fetch('/api/inyeccion/lote', {
                 method: 'POST',
@@ -940,50 +1182,32 @@ const ModuloInyeccion = {
             const resultado = await response.json();
 
             if (response.ok && resultado.success) {
-                let title = '¡Registrado!';
-                let text = `Lote de ${this.items.length} productos procesado correctamente.`;
-                let icon = 'success';
-
-                if (resultado.pdf_generated) {
-                    text += '\nPDF generado y subido a Drive exitosamente.';
-                } else {
-                    title = 'Registro Parcial';
-                    text += '\nAtención: Los datos se guardaron, pero ocurrió un error con el PDF: ' + (resultado.pdf_error || 'Error desconocido');
-                    icon = 'warning';
-                }
-
-                Swal.fire({
-                    title: title,
-                    text: text,
-                    icon: icon,
-                    confirmButtonText: 'Entendido'
-                });
+                Swal.fire('¡Registrado!', 'El reporte de producción se ha guardado correctamente.', 'success');
+                
+                // Cerrar modal si estaba abierto
+                const modal = document.getElementById('modal-cierre-inyeccion');
+                if (modal) modal.style.display = 'none';
 
                 // Reiniciar todo
                 this.items = [];
+                this.pncRows = [];
                 this.renderTablaItems();
                 document.getElementById('form-inyeccion')?.reset();
                 if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-inyeccion');
-                this._idTurnoActivo = null; // Reset para próximo turno
+                this._idTurnoActivo = null;
+                this._idSqlActivo = null; // Limpiar ID SQL
                 this.intentarAutoSeleccionarResponsable();
-
-                // Limpiar turno parcialmente (mantener maquina, fecha, responsable si se desea)
-                // Usualmente se deja responsable y maquina, quizas limpiar hora.
-                document.getElementById('hora-llegada-inyeccion').value = '';
-                document.getElementById('peso-vela-inyeccion').value = 0;
-                // document.getElementById('orden-produccion-inyeccion').value = '';  // Opcional
-
                 this.limpiarFormularioValidacion(true);
             } else {
-                Swal.fire('Error', resultado.error || 'Error procesando lote', 'error');
+                Swal.fire('Error', resultado.error || 'Error procesando reporte', 'error');
             }
 
         } catch (e) {
-            console.error('Error [Inyeccion] registrar lote:', e);
+            console.error('Error [Inyeccion] confirmar registro:', e);
             Swal.fire('Error de Conexión', e.message, 'error');
         } finally {
             mostrarLoading(false);
-            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
+            if (btn) btn.disabled = false;
         }
     },
 

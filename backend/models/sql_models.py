@@ -164,13 +164,13 @@ class RawVentas(db.Model):
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
     fecha           = db.Column(db.Date,        index=True, nullable=True)
     documento       = db.Column(db.String(80),  index=True, nullable=True)
-    cliente         = db.Column(db.String(200), index=True, nullable=True)
+    nombres         = db.Column(db.String(200), index=True, nullable=True)
     productos       = db.Column(db.String(100), index=True, nullable=True)
     cantidad        = db.Column(db.Numeric(18, 2), default=0)
     total_ingresos  = db.Column(db.Numeric(18, 2), default=0)
     precio_promedio = db.Column(db.Numeric(18, 2), default=0)
     clasificacion   = db.Column(db.String(80),  nullable=True)
-    estado          = db.Column(db.String(50),  nullable=True)
+    # estado no existe en la DB real
 
 
 class DbClientes(db.Model):
@@ -418,12 +418,13 @@ class MetalsProduccion(db.Model):
     __tablename__ = 'metals_produccion'
     __table_args__ = {'extend_existing': True}
 
-    id              = db.Column(db.String(80), primary_key=True)
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
     fecha           = db.Column(db.String(50))
     responsable     = db.Column(db.String(150), index=True)
     departamento    = db.Column(db.String(100))
     proceso         = db.Column(db.String(150))
     maquina         = db.Column(db.String(100))
+    id_pedido       = db.Column(db.String(50), index=True)
     codigo          = db.Column(db.String(50), index=True)
     descripcion     = db.Column(db.String(500))
     cantidad_ok     = db.Column(db.Numeric(18, 2), default=0)
@@ -440,10 +441,19 @@ class MetalsPersonal(db.Model):
     __table_args__ = {'extend_existing': True}
 
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    responsable     = db.Column(db.String(150), unique=True)
+    responsable     = db.Column(db.String(150), index=True)
     departamento    = db.Column(db.String(100))
     documento       = db.Column(db.String(50))
     activo          = db.Column(db.String(10), default='SI')
+
+
+class MetalsProducto(db.Model):
+    __tablename__ = 'metals_productos'
+    __table_args__ = {'extend_existing': True}
+
+    codigo          = db.Column(db.String(50), primary_key=True)
+    descripcion     = db.Column(db.String(500))
+    precio          = db.Column(db.Integer, default=0)
 
 
 class DbProveedor(db.Model):
@@ -493,3 +503,38 @@ class MetalsCliente(db.Model):
     direccion       = db.Column(db.String(300))
     ciudad          = db.Column(db.String(100))
     telefono        = db.Column(db.String(100))
+
+
+class MetalsPedido(db.Model):
+    __tablename__ = 'metals_pedidos'
+    __table_args__ = {'extend_existing': True}
+
+    id_pedido       = db.Column(db.String(50), primary_key=True)
+    fecha           = db.Column(db.String(50))
+    hora            = db.Column(db.String(50))
+    id_codigo       = db.Column(db.String(50), primary_key=True)
+    descripcion     = db.Column(db.Text)
+    vendedor        = db.Column(db.String(100))
+    cliente         = db.Column(db.String(200))
+    nit             = db.Column(db.String(50))
+    direccion       = db.Column(db.String(300))
+    ciudad          = db.Column(db.String(100))
+    cantidad        = db.Column(db.Integer, default=0)
+    precio_unitario = db.Column(db.Integer, default=0)
+    total           = db.Column(db.Integer, default=0)
+    estado          = db.Column(db.String(50), default='PENDIENTE')
+    progreso        = db.Column(db.Integer, default=0)
+    observaciones   = db.Column(db.Text)
+
+
+class ProgramacionEnsamble(db.Model):
+    __tablename__ = 'db_programacion_ensamble'
+    __table_args__ = {'extend_existing': True}
+
+    id_prog            = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    id_codigo          = db.Column(db.String(50), index=True, nullable=True)
+    cantidad_objetivo  = db.Column(db.Integer, nullable=False)
+    cantidad_realizada = db.Column(db.Integer, default=0)
+    fecha_programada   = db.Column(db.Date, nullable=False)
+    estado             = db.Column(db.String(20), default='PENDIENTE') # PENDIENTE, EN_PROCESO, COMPLETADO
+

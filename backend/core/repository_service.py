@@ -1152,15 +1152,20 @@ class RepositoryService:
         from backend.utils.formatters import normalizar_codigo
         try:
             cod = normalizar_codigo(codigo)
-            rows = RawVentas.query.filter(RawVentas.productos.ilike(f'%{cod}%')).all()
+            sql = text("""
+                SELECT fecha, documento, nombres, productos, cantidad, total_ingresos 
+                FROM db_ventas 
+                WHERE productos ILIKE :o
+            """)
+            res = db.session.execute(sql, {"o": f"%{cod}%"}).mappings().all()
             return [{
-                'FECHA':          r.fecha or '',
-                'DOCUMENTO':      r.documento or '',
-                'CLIENTE':        r.cliente or '',
-                'PRODUCTOS':      r.productos or '',
-                'CANTIDAD':       _num(r.cantidad),
-                'TOTAL VENTA':    _num(r.total_ingresos),
-            } for r in rows]
+                'FECHA':          r['fecha'] or '',
+                'DOCUMENTO':      r['documento'] or '',
+                'CLIENTE':        r['nombres'] or '',
+                'PRODUCTOS':      r['productos'] or '',
+                'CANTIDAD':       _num(r['cantidad']),
+                'TOTAL VENTA':    _num(r['total_ingresos']),
+            } for r in res]
         except Exception as e:
             logger.error(f"[get_ventas_por_codigo] {e}")
             return []

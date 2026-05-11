@@ -49,12 +49,15 @@ def obtener_historial_global():
                         'Responsable': str(r.responsable or 'SISTEMA'),
                         'Cant': int(float(r.cantidad_real or 0)),
                         'Orden': str(r.id_inyeccion or ''),
+                        'Estado': str(r.estado or 'PENDIENTE'),
+                        'id': str(r.id_inyeccion or ''),
                         'Extra': str(r.maquina or ''),
                         'Detalle': f"Molde: {r.molde or ''} | Cav: {r.cavidades or 1}",
                         'hoja': 'db_inyeccion',
                         'fila': r.id
                     })
             except Exception as e_iny:
+                db.session.rollback()
                 logger.error(f"Error en bloque INYECCION: {e_iny}")
 
         # 2. PULIDO
@@ -75,27 +78,42 @@ def obtener_historial_global():
                         'fila': r.id
                     })
             except Exception as e_pul:
+                db.session.rollback()
                 logger.error(f"Error en bloque PULIDO: {e_pul}")
 
         # 3. VENTAS (db_ventas - Facturación Real)
         if not tipo_filtro or tipo_filtro in ['VENTA', 'VENTAS', 'FACTURACION']:
             try:
-                res_ven = RawVentas.query.filter(RawVentas.fecha.between(fecha_desde, fecha_hasta)).all()
+                # Usamos SQL nativo para evitar problemas de tipos con RawVentas y asegurar el CAST de fecha
+                query_ven = text("""
+                    SELECT id, fecha, productos, nombres, cantidad, documento, clasificacion, total_ingresos
+                    FROM db_ventas
+                    WHERE CAST(fecha AS DATE) BETWEEN :f1 AND :f2
+                """)
+                res_ven = db.session.execute(query_ven, {"f1": fecha_desde, "f2": fecha_hasta})
+                
                 for r in res_ven:
+                    f_reg = ''
+                    if r.fecha:
+                        if hasattr(r.fecha, 'strftime'): f_reg = r.fecha.strftime('%d/%m/%Y')
+                        else: f_reg = str(r.fecha).split(' ')[0]
+
                     movimientos.append({
-                        'Fecha': r.fecha.strftime('%d/%m/%Y') if r.fecha else '',
+                        'Fecha': f_reg,
                         'Tipo': 'VENTA',
                         'Producto': str(r.productos or ''),
-                        'Responsable': str(r.cliente or 'CLIENTE DESCONOCIDO'),
+                        'Responsable': str(r.nombres or 'CLIENTE DESCONOCIDO'),
                         'Cant': int(float(r.cantidad or 0)),
                         'Orden': str(r.documento or ''),
+                        'Estado': 'FACTURADO',
                         'Extra': str(r.clasificacion or ''),
-                        'Detalle': f"Estado: {r.estado or ''} | Ingreso: ${r.total_ingresos or 0}",
+                        'Detalle': f"Ingreso: ${r.total_ingresos or 0}",
                         'hoja': 'db_ventas',
                         'fila': r.id
                     })
             except Exception as e_ven:
-                logger.error(f"Error en bloque VENTAS (db_ventas): {e_ven}")
+                db.session.rollback()
+                logger.error(f"Error en bloque VENTAS (db_ventas SQL-Native): {e_ven}")
 
 
         # 🔥 4. ENSAMBLE (CONSULTA RAW CON BYPASS OID 25)
@@ -129,6 +147,7 @@ def obtener_historial_global():
                         'fila': r.id
                     })
             except Exception as e_ens:
+                db.session.rollback()
                 logger.error(f"⚠️ Error individual en bloque ENSAMBLE (Bypass SQL activado): {str(e_ens)}")
 
         # 5. MEZCLA (Casteo Float Crítico)
@@ -152,6 +171,7 @@ def obtener_historial_global():
                         'VIRGEN': float(r.virgen_kg or 0)
                     })
             except Exception as e_mez:
+                db.session.rollback()
                 logger.error(f"Error en bloque MEZCLA: {e_mez}")
 
         # 5.1 MOLIDO (NUEVO)
@@ -172,6 +192,7 @@ def obtener_historial_global():
                         'fila': r.id
                     })
             except Exception as e_mol:
+                db.session.rollback()
                 logger.error(f"Error en bloque MOLIDO: {e_mol}")
 
         # 6. PNC (Defectos - Unificado de todas las áreas)
@@ -194,13 +215,6 @@ def obtener_historial_global():
                     })
 
                 # 6.2 PNC Inyección (db_pnc_inyeccion)
-                # Nota: Estas tablas no tienen fecha propia, se asocian a la fecha de consulta o se busca por el registro padre
-                # Pero el usuario pidió unificarlas. Si no tienen fecha, buscaremos los que coincidan con la lógica de hoy o registros recientes.
-                # Mejor: Buscamos por registros que tengan el id_row reciente si no hay fecha.
-                # Sin embargo, para no romper el flujo de fecha, solo buscaremos en db_pnc que sí tiene fecha, 
-                # O consultaremos las tablas de producción que SI tienen PNC y fecha.
-                
-                # OPTIMIZACIÓN: Buscamos en tablas de producción registros con PNC > 0
                 res_iny_pnc = ProduccionInyeccion.query.filter(
                     ProduccionInyeccion.fecha_inicia.between(fecha_desde, fecha_hasta),
                     ProduccionInyeccion.pnc_total != '0'
@@ -239,6 +253,7 @@ def obtener_historial_global():
                     })
 
             except Exception as e_pnc:
+                db.session.rollback()
                 logger.error(f"Error en bloque PNC Unificado: {e_pnc}")
 
 

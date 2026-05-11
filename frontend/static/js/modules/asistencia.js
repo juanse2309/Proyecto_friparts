@@ -129,8 +129,9 @@ window.ModuloAsistencia = (function () {
         if (overlay) { overlay.style.display = 'flex'; if (document.getElementById('loading-overlay-text')) document.getElementById('loading-overlay-text').textContent = 'Consultando registros existentes...'; }
 
         try {
-            // 1. Obtener colaboradores base
-            const resColab = await fetch('/api/asistencia/colaboradores');
+            // 1. Obtener colaboradores base (Añadir división para filtro estricto en Metales)
+            const division = currentUserContext?.division?.toLowerCase() || 'friparts';
+            const resColab = await fetch(`/api/asistencia/colaboradores?division=${division}`);
             const dataColab = await resColab.json();
 
             // 2. Obtener registros existentes del día para PERSISTENCIA

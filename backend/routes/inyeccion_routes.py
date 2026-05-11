@@ -86,33 +86,51 @@ def registrar_inyeccion_lote():
         es_validacion = turno.get('es_validacion', False)
         nuevo_estado = 'VALIDADO' if es_validacion else 'PENDIENTE'
 
+        # Extraer ID de Inyección del turno para unificar el lote
+        id_iny_lote = turno.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
+        responsable_lote = turno.get('responsable')
+        maquina_lote = turno.get('maquina')
+
         for item in items:
             from backend.utils.formatters import normalizar_codigo, to_float, to_int
             from backend.app import registrar_entrada, registrar_salida
             
             # --- Identificación del Registro ---
             id_sql = item.get('id_sql') or item.get('id')
-            id_iny = item.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
+            id_iny = item.get('id_inyeccion') or id_iny_lote
             codigo_raw = item.get('codigo_producto') or item.get('id_codigo')
             id_cod = normalizar_codigo(codigo_raw)
             
-            # Intentar buscar por ID primario (SQL) primero para evitar colisiones en lotes mixtos
+            # 1. Búsqueda Robusta del Registro Existente (Evitar Duplicados)
             registro = None
             if id_sql:
                 registro = db.session.get(ProduccionInyeccion, id_sql)
             
-            if not registro:
-                # Fallback: buscar por id_inyeccion + id_codigo si es validación
+            if not registro and id_iny:
+                # Buscar por id_inyeccion + id_codigo (Lógica principal de lotes)
                 registro = db.session.query(ProduccionInyeccion).filter_by(
                     id_inyeccion=id_iny, 
                     id_codigo=id_cod
                 ).first()
 
-            if not registro:
-                registro = ProduccionInyeccion(id_inyeccion=id_iny, estado=nuevo_estado)
-                db.session.add(registro)
+            # Fallback Manual: Si no hay ID de lote pero hay Maquina + Responsable + Código + Fecha hoy
+            if not registro and not id_sql:
+                registro = db.session.query(ProduccionInyeccion).filter(
+                    ProduccionInyeccion.maquina == maquina,
+                    ProduccionInyeccion.responsable == responsable,
+                    ProduccionInyeccion.id_codigo == id_cod,
+                    db.func.date(ProduccionInyeccion.fecha_inicia) == fecha_dt,
+                    ProduccionInyeccion.estado == 'EN_PROCESO'
+                ).order_by(ProduccionInyeccion.id.desc()).first()
 
-            # --- Sincronización de Campos (Mapping Completo) ---
+            if not registro:
+                logger.info(f"🆕 [Inyeccion] Creando nuevo registro: {id_iny} - {id_cod}")
+                registro = ProduccionInyeccion(id_inyeccion=id_iny, estado=nuevo_estado, id_codigo=id_cod)
+                db.session.add(registro)
+            else:
+                logger.info(f"🔄 [Inyeccion] Actualizando registro existente (ID SQL: {registro.id})")
+
+            # --- Sincronización de Campos ---
             registro.id_codigo      = id_cod
             registro.responsable    = responsable
             registro.maquina        = maquina
@@ -120,33 +138,48 @@ def registrar_inyeccion_lote():
             registro.estado         = nuevo_estado
             registro.departamento   = 'Inyeccion'
             
-            # Datos de Producción
-            registro.cantidad_real  = to_float(item.get('cantidad_real'))
-            registro.cavidades      = to_int(item.get('no_cavidades') or item.get('cavidades'), default=1)
-            registro.molde          = to_int(item.get('molde') or item.get('observaciones')) # Molde suele venir en observaciones en el frontend
+            # Datos de Producción extraídos con fallbacks
+            disparos      = to_float(item.get('cantidad') or item.get('contador_maq') or 0)
+            num_cavidades = to_int(item.get('no_cavidades') or item.get('cavidades') or 1)
+            cant_real     = to_float(item.get('cantidad_real') or 0)
+            p_bujes       = to_float(item.get('peso_bujes') or 0)
+
+            # Unificación de Cavidades
+            registro.cavidades    = num_cavidades
+            # Intentar asignar a no_cavidades si el modelo lo permite (compatibilidad SQL)
+            if hasattr(registro, 'no_cavidades'):
+                setattr(registro, 'no_cavidades', num_cavidades)
+
+            # Cálculos Automáticos
+            registro.produccion_teorica = str(round(disparos * num_cavidades, 2))
+            registro.peso_lote          = str(round(cant_real * p_bujes, 4))
             
-            # Nuevas Columnas Sincronizadas
+            # Mapeo de Datos Base
+            registro.cantidad_real  = str(cant_real)
+            registro.molde          = to_int(item.get('molde'))
+            registro.peso_bujes     = str(p_bujes)
+            registro.observaciones  = item.get('observaciones') or ''
+            
+            # Mapeo de Contadores (con fallbacks de turno/item)
+            registro.contador_maq   = str(disparos)
+            registro.cant_contador  = str(to_float(item.get('cant_contador') or item.get('disparos') or 0))
+            
+            # Otros datos sincronizados
             registro.hora_llegada   = turno.get('hora_llegada')
             registro.hora_inicio    = item.get('hora_inicio') or turno.get('hora_inicio')
             registro.hora_termina   = item.get('hora_fin') or item.get('hora_termina') or turno.get('hora_fin') or turno.get('hora_termina')
-            registro.contador_maq   = to_float(item.get('contador_maq'))
-            registro.cant_contador  = to_float(item.get('cant_contador'))
-            registro.tomados_en_proceso = to_float(item.get('tomados_en_proceso'))
-            registro.peso_tomadas_en_proceso = to_float(item.get('peso_tomadas_en_proceso'))
+            registro.tomados_en_proceso = str(to_float(item.get('tomados_en_proceso')))
+            registro.peso_tomadas_en_proceso = str(to_float(item.get('peso_tomadas_en_proceso')))
             registro.almacen_destino = item.get('almacen_destino') or turno.get('almacen_destino', 'POR PULIR')
             registro.codigo_ensamble = item.get('codigo_ensamble')
             registro.orden_produccion = item.get('orden_produccion') or turno.get('orden_produccion')
-            registro.observaciones   = item.get('observaciones')
-            registro.peso_vela_maquina = to_float(item.get('peso_vela_maquina') or turno.get('peso_vela_maquina'))
-            registro.peso_bujes      = to_float(item.get('peso_bujes'))
+            registro.peso_vela_maquina = str(to_float(item.get('peso_vela_maquina') or turno.get('peso_vela_maquina')))
             registro.id_programacion = str(item.get('id_programacion') or turno.get('id_programacion', ''))
-            registro.produccion_teorica = to_float(item.get('produccion_teorica'))
-            registro.pnc_total       = to_float(item.get('pnc') or item.get('pnc_total'))
+            registro.pnc_total       = str(to_float(item.get('pnc') or item.get('pnc_total')))
             registro.pnc_detalle     = item.get('criterio_pnc') or item.get('pnc_detalle')
-            registro.peso_lote       = to_float(item.get('peso_lote'))
             registro.calidad_responsable = item.get('calidad_responsable')
-            registro.entrada         = to_float(item.get('entrada') or turno.get('entrada_manual'))
-            registro.salida          = to_float(item.get('salida') or turno.get('salida_manual'))
+            registro.entrada         = str(to_float(item.get('entrada') or turno.get('entrada_manual')))
+            registro.salida          = str(to_float(item.get('salida') or turno.get('salida_manual')))
 
             # --- Cálculo de Tiempos y Métricas ---
             h_inicio = registro.hora_inicio
@@ -212,8 +245,35 @@ def registrar_inyeccion_lote():
         if id_prog and id_prog != 'LEGACY':
             db.session.query(ProgramacionInyeccion).filter_by(id=id_prog).update({'estado': 'COMPLETADO'})
 
+        # 4. Procesar PNC Adicionales del Modal de Cierre (NUEVO)
+        pnc_list = data.get('pnc_list', [])
+        if pnc_list:
+            logger.info(f" 🚩 Procesando {len(pnc_list)} PNC adicionales para el lote {id_iny_lote}")
+            
+            # Limpiar PNC previos vinculados al lote para evitar duplicados en re-validación
+            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny_lote).delete()
+            
+            for pnc_data in pnc_list:
+                cod_raw = pnc_data.get('codigo', '')
+                cod_norm = normalizar_codigo(cod_raw)
+                cant_pnc = float(pnc_data.get('cantidad') or 0)
+                motivo = pnc_data.get('motivo', 'SIN ESPECIFICAR')
+                
+                if cant_pnc > 0:
+                    nuevo_pnc_row = PncInyeccion(
+                        id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                        id_inyeccion=id_iny_lote,
+                        id_codigo=cod_norm,
+                        cantidad=cant_pnc,
+                        criterio=motivo,
+                        responsable=responsable_lote,
+                        maquina=maquina_lote,
+                        departamento='Inyeccion'
+                    )
+                    db.session.add(nuevo_pnc_row)
+
         db.session.commit()
-        logger.info(f" ✅ Lote {nuevo_estado} en SQL: {len(items)} items.")
+        logger.info(f" ✅ Lote {id_iny_lote} ({nuevo_estado}) procesado con {len(items)} items.")
         
         # --- PASO 4: PDF (Opcional y Resiliente) ---
         pdf_ok = False
@@ -291,6 +351,7 @@ def iniciar_turno_inyeccion():
 
         registro = ProduccionInyeccion(
             id_inyeccion=id_inyeccion,
+            id_codigo=id_codigo,
             fecha_inicia=dt_inicio or fecha_dt,
             responsable=responsable,
             maquina=maquina,
@@ -312,6 +373,41 @@ def iniciar_turno_inyeccion():
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error en iniciar_turno_inyeccion: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@inyeccion_bp.route('/api/inyeccion/validar/<id_inyeccion>', methods=['POST'])
+@require_role(ROL_ADMINS + ['JEFE INYECCION', 'ADMINISTRACION', 'CALIDAD'])
+def validar_lote_inyeccion(id_inyeccion):
+    """
+    Endpoint para validación rápida de un lote completo sin pasar por el formulario de Paola.
+    """
+    try:
+        registros = ProduccionInyeccion.query.filter_by(id_inyeccion=id_inyeccion).all()
+        if not registros:
+            return jsonify({"success": False, "error": "Lote no encontrado"}), 404
+
+        for r in registros:
+            if r.estado != 'VALIDADO':
+                r.estado = 'VALIDADO'
+                # Opcional: Actualizar stock aquí si se requiere validación inmediata
+                try:
+                    from backend.services.bom_service import calcular_descuentos_ensamble
+                    from backend.app import registrar_entrada, registrar_salida
+                    bom_res = calcular_descuentos_ensamble(r.id_codigo, int(r.cantidad_real or 0))
+                    if bom_res.get('success'):
+                        for comp in bom_res.get('componentes', []):
+                            registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
+                    registrar_entrada(r.id_codigo, (r.cantidad_real or 0) - (r.pnc_total or 0), "POR PULIR")
+                except Exception as e_stock:
+                    logger.error(f"Error stock en validación rápida {r.id_codigo}: {e_stock}")
+
+        db.session.commit()
+        logger.info(f"✅ [Inyeccion] Lote {id_inyeccion} validado correctamente.")
+        return jsonify({"success": True, "message": f"Lote {id_inyeccion} validado correctamente"})
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error validando lote {id_inyeccion}: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @inyeccion_bp.route('/api/inyeccion/dashboard_stats', methods=['GET'])

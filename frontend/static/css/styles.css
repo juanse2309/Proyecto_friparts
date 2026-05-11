@@ -49,25 +49,87 @@ body.loaded {
     background: linear-gradient(180deg, var(--dark) 0%, #1a1a2e 100%);
     color: white;
     padding: 1.5rem 1.25rem;
-    display: flex;
+    display: none !important;
     flex-direction: column;
-    z-index: 1000;
+    z-index: 99999 !important; /* Juan Sebastian: Prioridad absoluta sobre tablas y modales */
     box-shadow: 5px 0 30px rgba(0, 0, 0, 0.2);
     transition: var(--transition);
     transform: translateX(-100%);
     /* Mobile First: Hidden by default */
 }
 
+/* Solo visible cuando el usuario esté autenticado */
+body.logged-in .sidebar {
+    display: flex !important;
+}
+
+/* Juan Sebastian: Asegurar visibilidad del botón hamburguesa */
+[id^="toggle-sidebar"] {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 45px;
+    height: 45px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    z-index: 1001;
+    cursor: pointer;
+    transition: var(--transition);
+    color: var(--primary);
+    font-size: 1.1rem;
+    margin-right: 15px;
+}
+
+[id^="toggle-sidebar"]:hover {
+    background: #f8fafc;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+}
+
+/* Ocultar en la landing / portal */
+body:not(.logged-in) [id^="toggle-sidebar"] {
+    display: none !important;
+}
+
+.sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 4999;
+    display: none;
+    backdrop-filter: blur(2px);
+}
+
+.sidebar-overlay.active {
+    display: block;
+}
+
 /* Desktop styles */
 @media (min-width: 992px) {
-    .sidebar {
+    body.logged-in .sidebar {
         transform: translateX(0);
     }
 }
 
 .sidebar.active {
     transform: translateX(0);
-    /* Allow toggling on mobile */
+}
+
+.sidebar.collapsed {
+    transform: translateX(-100%);
+}
+
+@media (min-width: 992px) {
+    .sidebar.collapsed {
+        width: 0;
+        padding: 0;
+        overflow: hidden;
+    }
 }
 
 .sidebar-header {
@@ -212,28 +274,73 @@ body.loaded {
 /* ===== MAIN CONTENT ===== */
 .main-content {
     margin-left: 0;
-    /* Mobile First: Full width */
     padding: 1.5rem;
     min-height: 100vh;
     overflow-y: visible !important;
     overflow-x: hidden;
     background: #f5f7fa;
-    transition: var(--transition);
+    transition: margin-left 0.3s ease;
+}
+
+.main-content.expanded {
+    margin-left: 0 !important;
 }
 
 @media (min-width: 992px) {
-    .main-content {
-        margin-left: var(--sidebar-width);
-        padding: 2rem;
+    #main-content {
+        margin-left: var(--sidebar-width, 280px);
+        padding: 2.5rem;
+        transition: margin-left 0.3s ease-in-out;
     }
+    
+    /* Cuando el sidebar esté oculto o colapsado */
+    body.sidebar-collapsed #main-content,
+    #main-content.expanded {
+        margin-left: 0 !important;
+    }
+}
 
-    /* Juan Sebastian: Estados para sidebar colapsado en escritorio */
+/* Estilo para tarjetas de Pedidos y Contenedores */
+.pedidos-card, .metals-card, .form-container, .table-container {
+    background: white;
+    border-radius: var(--border-radius);
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    padding: 25px;
+    margin-bottom: 25px;
+    transition: var(--transition);
+}
+
+.pedidos-card:hover, .metals-card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
+}
+
+/* Fix para el top-bar cuando hay sidebar */
+.top-bar {
+    display: flex;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding: 1.5rem 2rem;
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+/* Juan Sebastian: Estados para sidebar colapsado en escritorio */
+.sidebar.collapsed {
+    transform: translateX(-100%);
+}
+
+.main-content.expanded {
+    margin-left: 0 !important;
+}
+
+@media (min-width: 992px) {
     .sidebar.collapsed {
-        transform: translateX(-100%);
-    }
-
-    .main-content.expanded {
-        margin-left: 0;
+        width: 0;
+        padding: 0;
+        overflow: hidden;
     }
 }
 
@@ -271,6 +378,8 @@ body.loaded {
     box-shadow: var(--shadow);
     flex-wrap: wrap;
     gap: 15px;
+    position: relative;
+    z-index: 1000;
 }
 
 @media (max-width: 576px) {

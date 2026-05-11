@@ -118,10 +118,26 @@ def obtener_colaboradores():
         # 2. Construir Filtro
         ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
         es_admin = any(r in user_role for r in ADMS)
-        
-        if es_admin:
-            # Bypass total para administradores: ver todos los colaboradores activos
-            sql = text("SELECT * FROM db_usuarios WHERE activo = true ORDER BY username ASC")
+        division_req = request.args.get('division', '').lower()
+
+        # CASO ESPECIAL: Entorno de Metales (Filtro estricto solicitado por Juan Sebastian)
+        # Se aplica si se solicita explícitamente o si el usuario tiene ese rol único
+        if division_req == 'frimetals' or user_role == 'STAFF FRIMETALS':
+            sql = text("""
+                SELECT * FROM db_usuarios 
+                WHERE activo = true 
+                AND rol ILIKE 'staff frimetals'
+                ORDER BY username ASC
+            """)
+            params = {}
+        elif es_admin:
+            # Bypass total para administradores en FriParts (Excluyendo Metales por política de aislamiento)
+            sql = text("""
+                SELECT * FROM db_usuarios 
+                WHERE activo = true 
+                AND rol NOT ILIKE 'staff frimetals'
+                ORDER BY username ASC
+            """)
             params = {}
         else:
             deptos_interes = AREAS_POR_ROL.get(user_role, [])
@@ -424,8 +440,16 @@ def obtener_consolidado_pendiente():
         ultimo_corte = db.session.query(CorteNomina).order_by(CorteNomina.fecha_corte.desc()).first()
         ultima_fecha_str = seguro_formatear_fecha(ultimo_corte.fecha_corte) if ultimo_corte else "Sin cortes previos"
 
-        # 2. Query de Consolidado: Filtro que incluye registros NULL en estado_pago
-        sql = text("""
+        # 2. Query de Consolidado con filtro de división (Metales vs Global)
+        division = request.args.get('division', '').lower()
+        condicion_rol = ""
+        if division == 'frimetals':
+            condicion_rol = "AND u.rol ILIKE 'staff frimetals'"
+        else:
+            # Juan Sebastian: Para FriParts, excluimos personal de metales para total aislamiento
+            condicion_rol = "AND u.rol NOT ILIKE 'staff frimetals'"
+
+        sql = text(f"""
             SELECT 
                 u.username as colaborador,
                 u.departamento as departamento,
@@ -437,6 +461,7 @@ def obtener_consolidado_pendiente():
                 ON u.username = a.colaborador 
                 AND COALESCE(a.estado_pago, 'PENDIENTE') = 'PENDIENTE'
             WHERE u.activo = true
+            {condicion_rol}
             GROUP BY u.username, u.departamento
             ORDER BY u.username ASC
         """)
@@ -456,13 +481,15 @@ def obtener_consolidado_pendiente():
         # 3. Detalle para el CSV (incluyendo NULL -> PENDIENTE)
         detalle_diario = []
         try:
-            sql_detalle = text("""
+            sql_detalle = text(f"""
                 SELECT 
-                    fecha, colaborador, ingreso_real, salida_real,
-                    horas_ordinarias, horas_extras, motivo, comentarios
-                FROM db_asistencia
-                WHERE COALESCE(estado_pago, 'PENDIENTE') = 'PENDIENTE'
-                ORDER BY colaborador, fecha
+                    a.fecha, a.colaborador, a.ingreso_real, a.salida_real,
+                    a.horas_ordinarias, a.horas_extras, a.motivo, a.comentarios
+                FROM db_asistencia a
+                JOIN db_usuarios u ON a.colaborador = u.username
+                WHERE COALESCE(a.estado_pago, 'PENDIENTE') = 'PENDIENTE'
+                {condicion_rol}
+                ORDER BY a.colaborador, a.fecha
             """)
             registros_filtrados = db.session.execute(sql_detalle).mappings().all()
             
@@ -513,20 +540,31 @@ def ejecutar_corte():
 
         data = request.json
         usuario = data.get('usuario', 'Sistema')
+        division = data.get('division', 'friparts').lower()
         id_corte_uuid = str(uuid.uuid4())[:8].upper()
         
-        # 1. Detectar Periodo
-        res_periodo = db.session.query(
-            func.min(RegistroAsistencia.fecha), 
-            func.max(RegistroAsistencia.fecha)
-        ).filter(db.or_(RegistroAsistencia.estado_pago == 'PENDIENTE', RegistroAsistencia.estado_pago == None)).first()
+        # 1. Detectar Periodo Filtrado por División
+        # Un cierre en FriMetals no debe afectar registros de FriParts
+        from backend.models.sql_models import Usuario
+        
+        condicion_rol = "AND u.rol ILIKE 'staff frimetals'" if division == 'frimetals' else "AND u.rol NOT ILIKE 'staff frimetals'"
+
+        # Query para detectar p_inicio y p_fin localmente
+        sql_periodo = text(f"""
+            SELECT MIN(a.fecha), MAX(a.fecha)
+            FROM db_asistencia a
+            JOIN db_usuarios u ON a.colaborador = u.username
+            WHERE COALESCE(a.estado_pago, 'PENDIENTE') = 'PENDIENTE'
+            {condicion_rol}
+        """)
+        res_periodo = db.session.execute(sql_periodo).fetchone()
         
         p_inicio = res_periodo[0] if res_periodo else None
         p_fin = res_periodo[1] if res_periodo else None
 
         # 2. Histórico
         nuevo_corte = CorteNomina(
-            id_corte=id_corte_uuid,
+            id_corte=f"{id_corte_uuid}-{division.upper()}",
             fecha_corte=datetime.now(),
             usuario_que_corta=usuario,
             periodo_inicio=p_inicio,
@@ -534,17 +572,20 @@ def ejecutar_corte():
         )
         db.session.add(nuevo_corte)
         
-        # 3. UPDATE Masivo restringido al periodo (Blindaje total)
+        # 3. UPDATE Masivo aislado por división
         try:
-            sql_update = text("""
+            sql_update = text(f"""
                 UPDATE db_asistencia 
                 SET estado_pago = 'PROCESADO' 
-                WHERE COALESCE(estado_pago, 'PENDIENTE') = 'PENDIENTE'
-                AND fecha <= :fecha_limite
+                FROM db_usuarios u
+                WHERE db_asistencia.colaborador = u.username
+                AND COALESCE(db_asistencia.estado_pago, 'PENDIENTE') = 'PENDIENTE'
+                AND db_asistencia.fecha <= :fecha_limite
+                {condicion_rol}
             """)
             db.session.execute(sql_update, {"fecha_limite": p_fin})
             db.session.commit()
-            logger.info(f"✅ Corte {id_corte_uuid} finalizado: Registros hasta {p_fin} marcados como PROCESADO.")
+            logger.info(f"✅ Corte {id_corte_uuid} ({division}) finalizado: Registros hasta {p_fin} marcados como PROCESADO.")
         except Exception as e_sql:
             db.session.rollback()
             raise e_sql

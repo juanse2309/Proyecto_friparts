@@ -367,9 +367,18 @@ window.ModuloMes = {
                 if (targetId === '#panel-calidad') this.actualizarPendientesCalidad();
                 if (targetId === '#panel-operacion') this.cargarDashboard(); // <-- Llama dashboard unificado
                 if (targetId === '#panel-legacy') {
-                    if (window.ModuloInyeccion && typeof window.ModuloInyeccion.init === 'function') {
-                        window.ModuloInyeccion.init();
+                    if (window.ModuloInyeccion) {
+                        window.ModuloInyeccion.currentModule = 'validation';
+                        if (typeof window.ModuloInyeccion.init === 'function') {
+                            window.ModuloInyeccion.init();
+                        }
                     }
+                }
+                if (targetId === '#panel-operacion') {
+                    if (window.ModuloInyeccion) {
+                        window.ModuloInyeccion.currentModule = 'operator';
+                    }
+                    this.cargarDashboard();
                 }
             });
         });

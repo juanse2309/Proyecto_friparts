@@ -84,9 +84,13 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
         
         doc_nro = mapeo_internos[id_orig]
 
-        # --- ACTUALIZACIÓN SQL (Sin tocar id_pedido) ---
-        item.estado = 'EXPORTADO_WO'
+        # --- ACTUALIZACIÓN SQL (Quemado de ID) ---
+        old_id = item.id_pedido
+        item.id_pedido = doc_nro  # Se sobreescribe el ID original con el consecutivo de WO
         item.wo_consecutivo = doc_nro
+        item.estado = 'EXPORTADO_WO'
+        
+        logger.info(f"🔄 ID de pedido actualizado: {old_id} -> {doc_nro}")
         items_con_exito += 1
 
         # --- CONSTRUCCIÓN FILA EXCEL ---

@@ -69,6 +69,7 @@ from backend.routes.pulido_routes import pulido_bp
 from backend.routes.asistencia_routes import asistencia_bp
 from backend.routes.productos_routes import productos_bp
 from backend.routes.historial_routes import historial_bp
+from backend.routes.ensamble_routes import ensamble_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -85,6 +86,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(inyeccion_bp)
 app.register_blueprint(pulido_bp)
 app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
+app.register_blueprint(ensamble_bp)
 
 
 # --- RUTA DE DEBUG INICIAL ---
@@ -92,8 +94,15 @@ app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
 def index():
     """Pagina principal con la interfaz web."""
     try:
+        from backend.models.sql_models import Usuario
+        # FILTRO ESTRICTO: Solo staff frimetals o administracion
+        lista_usuarios = Usuario.query.filter(
+            Usuario.activo == True,
+            (Usuario.rol.ilike('staff frimetals')) | (Usuario.rol.ilike('administracion'))
+        ).order_by(Usuario.nombre_completo).all()
+
         logger.info(f"[{get_now_colombia()}] >>> PETICIÓN RECIBIDA: index.html")
-        return render_template('index.html')
+        return render_template('index.html', usuarios=lista_usuarios)
     except Exception as e:
         logger.error(f"âŒ ERROR RENDERIZANDO index.html: {e}")
         return f"Error en el servidor: {str(e)}", 500
@@ -3097,7 +3106,7 @@ def obtener_historial_producto(codigo):
     Migrado 100% a SQL-Native para velocidad y estabilidad.
     """
     try:
-        from backend.models.sql_models import ProduccionInyeccion, PncInyeccion, PncPulido, ProduccionPulido, Ensamble, Venta
+        from backend.models.sql_models import ProduccionInyeccion, PncInyeccion, PncPulido, ProduccionPulido, Ensamble, RawVentas
         from backend.utils.formatters import normalizar_codigo
         
         codigo_norm = normalizar_codigo(codigo)
@@ -3127,15 +3136,23 @@ def obtener_historial_producto(codigo):
                 'estado': 'Completado'
             })
             
-        # 3. Ventas
-        ven = Venta.query.filter(Venta.observaciones.ilike(f"%{codigo_norm}%")).limit(50).all()
+        # 3. Ventas (SQL Quirúrgico)
+        sql_ven = text("""
+            SELECT id, fecha, productos, nombres, cantidad, documento, clasificacion, total_ingresos
+            FROM db_ventas 
+            WHERE productos ILIKE :o 
+            LIMIT 50
+        """)
+        ven = db.session.execute(sql_ven, {"o": f"%{codigo_norm}%"}).mappings().all()
         for m in ven:
+            f_dt = m['fecha']
             movimientos.append({
-                'fecha': m.fecha.strftime('%Y-%m-%d') if m.fecha else 'S/F',
+                'fecha': f_dt.strftime('%Y-%m-%d') if hasattr(f_dt, 'strftime') else str(f_dt or 'S/F'),
                 'proceso': 'Venta',
-                'responsable': m.cliente,
-                'maquina': m.factura_numero,
-                'cantidad': float(m.total_ingresos or 0),
+                'responsable': m['nombres'],
+                'maquina': m['documento'],
+                'cantidad': float(m['cantidad'] or 0),
+                'total_ingresos': float(m['total_ingresos'] or 0),
                 'estado': 'Facturado'
             })
             

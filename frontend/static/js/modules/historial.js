@@ -303,6 +303,10 @@
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
                         ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.nombre?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.rol === 'Administración') ?
                         `<td class="text-center">
+                                ${r.Tipo === 'INYECCION' && r.Estado === 'PENDIENTE' ? `
+                                <button class="btn btn-sm btn-link text-success p-0 me-2" onclick="if(window.ModuloInyeccion) window.ModuloInyeccion.validarRegistro('${r.id}')" title="Validar Lote">
+                                    <i class="fas fa-check-double"></i>
+                                </button>` : ''}
                                 <button class="btn btn-sm btn-link text-primary p-0" onclick="window.ModuloHistorial.editarRegistro(${h_datos.indexOf(r)})">
                                     <i class="fas fa-pencil-alt"></i>
                                 </button>

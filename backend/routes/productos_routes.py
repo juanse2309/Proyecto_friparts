@@ -86,14 +86,39 @@ def buscar_productos(query):
     """
     Busca productos uniendo con la tabla de costos (SQL-Native).
     Permite obtener Stock y Precio en una sola consulta.
+    Si division=frimetals, busca en metals_productos.
     """
     try:
         from backend.core.sql_database import db
         from sqlalchemy import text
-        
+        from backend.models.sql_models import MetalsProducto
+
+        division = request.args.get('division', '').lower()
         limite = request.args.get('limite', 30, type=int)
         termino = f"%{query.strip().upper()}%"
-        
+
+        # --- Lógica de Switch para FriMetals ---
+        if division == 'frimetals':
+            # LINEA CLAVE: Cambio a tabla metals_productos para DBeaver
+            rows = MetalsProducto.query.filter(
+                (MetalsProducto.codigo.ilike(termino)) |
+                (MetalsProducto.descripcion.ilike(termino))
+            ).limit(limite).all()
+            
+            resultado = []
+            for r in rows:
+                # Conversión defensiva de precio (que es String en el modelo ahora)
+                # Simplificado: El campo ahora es INTEGER en DB
+                precio_val = r.precio or 0
+
+                resultado.append({
+                    "codigo": r.codigo,
+                    "descripcion": r.descripcion,
+                    "precio": "{:.2f}".format(precio_val)
+                })
+            return jsonify({'status': 'success', 'items': resultado}), 200
+
+        # --- Lógica EstStandard (FriParts) ---
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
             WITH precios_norm AS (
@@ -147,6 +172,7 @@ def buscar_productos(query):
             
             resultado.append({
                 "id_codigo": r['id_codigo'],
+                "codigo": r['id_codigo'], # Alias para compatibilidad
                 "nombre_producto": r['nombre_producto'],
                 "descripcion": r['nombre_producto'], # Alias para compatibilidad
                 "p_terminado": p_term,
@@ -176,13 +202,33 @@ def buscar_productos(query):
 @productos_bp.route('/listar', methods=['GET'])
 def listar_productos():
     """
-    Lista todos los productos uniendo la tabla maestra con la tabla de costos.
-    Cruza por id_codigo vs referencia aplicando normalización.
+    Lista todos los productos.
+    Si division=frimetals, retorna desde metals_productos.
     """
     try:
         from backend.core.sql_database import db
         from sqlalchemy import text
-        
+        from backend.models.sql_models import MetalsProducto
+
+        division = request.args.get('division', '').lower()
+
+        # --- Lógica de Switch para FriMetals ---
+        if division == 'frimetals':
+            # LINEA CLAVE: Cambio a tabla metals_productos para DBeaver
+            rows = MetalsProducto.query.all()
+            resultado = []
+            for r in rows:
+                # Simplificado: El campo ahora es INTEGER en DB
+                precio_val = r.precio or 0
+
+                resultado.append({
+                    "codigo": r.codigo,
+                    "descripcion": r.descripcion,
+                    "precio": "{:.2f}".format(precio_val)
+                })
+            return jsonify({"items": resultado}), 200
+
+        # --- Lógica Estándar (FriParts) ---
         # JOIN optimizado con CTE para pre-normalización
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
@@ -241,6 +287,7 @@ def listar_productos():
             
             resultado.append({
                 "id_codigo": r['id_codigo'],
+                "codigo": r['id_codigo'], # Alias
                 "nombre_producto": r['nombre_producto'],
                 "descripcion": r['nombre_producto'], # Alias para compatibilidad
                 "p_terminado": p_term,
@@ -270,7 +317,7 @@ def historial_producto(codigo):
         from backend.core.sql_database import db
         from backend.models.sql_models import (
             ProduccionInyeccion, ProduccionPulido, Ensamble, 
-            Pedido, Pnc
+            Pedido, Pnc, RawVentas
         )
         from datetime import datetime
 
@@ -301,7 +348,9 @@ def historial_producto(codigo):
                     'cant': int(float(r.cantidad_real or 0)),
                     'detalle': f"Máquina: {r.maquina or ''} | Molde: {r.molde or ''}"
                 })
-        except Exception as e: logger.error(f"Falla bloque Inyección para {codigo}: {e}")
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Falla bloque Inyección para {codigo}: {e}")
 
         # 2. BARRIDO DE PULIDO
         try:
@@ -321,7 +370,9 @@ def historial_producto(codigo):
                     'detalle': f"Hora: {r.hora_inicio} - {r.hora_fin} | OP: {r.orden_produccion or 'N/A'}",
                     'fecha_dt': r.fecha if hasattr(r.fecha, 'year') else datetime.now()
                 })
-        except Exception as e: logger.error(f"Falla bloque Pulido para {codigo}: {e}")
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Falla bloque Pulido para {codigo}: {e}")
 
         # 3. BARRIDO DE ENSAMBLE
         try:
@@ -342,22 +393,46 @@ def historial_producto(codigo):
                     'cant': int(float(r['cantidad'] or 0)),
                     'detalle': f"OP: {r['op_numero'] or ''} | {r['buje_ensamble'] or ''}"
                 })
-        except Exception as e: logger.error(f"Falla bloque Ensamble para {codigo}: {e}")
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Falla bloque Ensamble para {codigo}: {e}")
 
         # 4. BARRIDO DE VENTAS / PEDIDOS
         try:
+            # 4.1 Pedidos (Comercial)
             res_ped = Pedido.query.filter(Pedido.id_codigo.ilike(f"%{codigo_norm}%")).all()
-            radar['COMERCIAL'] = len(res_ped)
+            radar['COMERCIAL'] += len(res_ped)
             for r in res_ped:
                 eventos.append({
-                    'tipo': 'VENTA' if r.estado == 'EXPORTADO_WO' else 'PEDIDO',
+                    'tipo': 'PEDIDO',
                     'fecha_dt': r.fecha if hasattr(r.fecha, 'year') else datetime.now(),
                     'fecha': r.fecha.strftime('%d/%m/%Y') if hasattr(r.fecha, 'strftime') else str(r.fecha or ''),
                     'responsable': str(r.cliente or 'CLIENTE'),
                     'cant': int(float(r.cantidad or 0)),
                     'detalle': f"Orden: {r.id_pedido} | Vendedor: {r.vendedor or ''}"
                 })
-        except Exception as e: logger.error(f"Falla bloque Ventas para {codigo}: {e}")
+
+            # 4.2 Ventas Reales (db_ventas - SQL Quirúrgico)
+            sql_ven = text("""
+                SELECT id, fecha, productos, nombres, cantidad, documento, clasificacion, total_ingresos
+                FROM db_ventas 
+                WHERE productos ILIKE :o
+            """)
+            res_ven = db.session.execute(sql_ven, {"o": f"%{codigo_norm}%"}).mappings().all()
+            radar['COMERCIAL'] += len(res_ven)
+            for r in res_ven:
+                f_dt = r['fecha'] if hasattr(r['fecha'], 'year') else None
+                eventos.append({
+                    'tipo': 'VENTA',
+                    'fecha_dt': f_dt or datetime.now(),
+                    'fecha': f_dt.strftime('%d/%m/%Y') if f_dt else str(r['fecha'] or ''),
+                    'responsable': str(r['nombres'] or 'CLIENTE'),
+                    'cant': int(float(r['cantidad'] or 0)),
+                    'detalle': f"Doc: {r['documento'] or ''} | Clasif: {r['clasificacion'] or ''}"
+                })
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Falla bloque Ventas/Pedidos para {codigo}: {e}")
 
         # 5. BARRIDO DE PNC
         try:
@@ -372,7 +447,8 @@ def historial_producto(codigo):
                     'cant': int(float(r.cantidad or 0)),
                     'detalle': f"Criterio: {r.criterio or ''} | Ref: {r.codigo_ensamble or ''}"
                 })
-        except Exception as e: 
+        except Exception as e:
+            db.session.rollback()
             logger.error(f"Falla bloque PNC para {codigo}: {e}")
 
         eventos.sort(key=lambda x: x['fecha_dt'] if x['fecha_dt'] else datetime.min, reverse=True)

@@ -1,6 +1,6 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
 from flask import Blueprint, jsonify, request, session
-from backend.models.sql_models import db, Pedido
+from backend.models.sql_models import db, Pedido, MetalsPedido
 from sqlalchemy import text
 from backend.core.tenant import get_tenant_from_request
 from datetime import datetime
@@ -581,3 +581,126 @@ def obtener_pedidos_cliente():
         return jsonify({"success": True, "pedidos": final})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@pedidos_bp.route('/api/pedidos/listar', methods=['GET'])
+def listar_pedidos():
+    """Listado general de pedidos con soporte estricto para FriMetals."""
+    try:
+        division = request.args.get('division', 'friparts').lower()
+        search = request.args.get('search', '').strip().upper()
+        
+        logger.info(f"🔍 [API] Listando pedidos - División: {division}, Búsqueda: {search}")
+
+        if division == 'frimetals':
+            # Consulta a la tabla metals_pedidos (mapeada en sql_models.py)
+            query = MetalsPedido.query
+            if search:
+                query = query.filter(
+                    (MetalsPedido.id_pedido.ilike(f'%{search}%')) |
+                    (MetalsPedido.cliente.ilike(f'%{search}%'))
+                )
+            
+            # Orden descendente por fecha e id_pedido
+            rows = query.order_by(MetalsPedido.fecha.desc(), MetalsPedido.id_pedido.desc()).limit(200).all()
+            
+            # Agrupación por id_pedido para soportar múltiples ítems por orden
+            ped_map = {}
+            for r in rows:
+                id_p = r.id_pedido
+                if id_p not in ped_map:
+                    ped_map[id_p] = {
+                        "id_pedido": id_p,
+                        "fecha": str(r.fecha) if r.fecha else "",
+                        "cliente": r.cliente,
+                        "vendedor": r.vendedor,
+                        "estado": r.estado or "REGISTRADO",
+                        "progreso": r.progreso or 0,
+                        "items_count": 0,
+                        "total": 0,
+                        "productos": []
+                    }
+                
+                ped_map[id_p]["items_count"] += 1
+                ped_map[id_p]["total"] += (r.total or 0)
+                ped_map[id_p]["productos"].append({
+                    "id_codigo": r.id_codigo,
+                    "descripcion": r.descripcion,
+                    "cantidad": r.cantidad or 0,
+                    "precio": r.precio_unitario or 0,
+                    "total": r.total or 0
+                })
+            
+            # Devolver lista de pedidos agrupados
+            return jsonify({
+                "success": True, 
+                "pedidos": sorted(list(ped_map.values()), key=lambda x: x['id_pedido'], reverse=True)
+            }), 200
+            
+        else:
+            # Lógica estándar FriParts (db_pedidos)
+            query = Pedido.query
+            if search:
+                query = query.filter(
+                    (Pedido.id_pedido.ilike(f'%{search}%')) |
+                    (Pedido.cliente.ilike(f'%{search}%'))
+                )
+            
+            # Agrupar por id_pedido
+            rows = query.order_by(Pedido.id.desc()).limit(300).all()
+            ped_map = {}
+            for r in rows:
+                id_p = r.id_pedido
+                if id_p not in ped_map:
+                    ped_map[id_p] = {
+                        "id_pedido": id_p,
+                        "fecha": r.fecha.strftime('%Y-%m-%d') if r.fecha else "",
+                        "cliente": r.cliente,
+                        "vendedor": r.vendedor,
+                        "estado": r.estado,
+                        "total": 0,
+                        "items_count": 0,
+                        "productos": []
+                    }
+                ped_map[id_p]["items_count"] += 1
+                ped_map[id_p]["total"] += float(r.total or 0)
+            
+            return jsonify({
+                "success": True, 
+                "pedidos": sorted(list(ped_map.values()), key=lambda x: x['id_pedido'], reverse=True)
+            }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error crítico en listar_pedidos: {e}")
+        return jsonify({
+            "success": False, 
+            "error": "Error interno del servidor", 
+            "detail": str(e)
+        }), 500
+
+@pedidos_bp.route('/api/pedidos/actualizar-progreso', methods=['POST'])
+def actualizar_progreso_pedido():
+    """Actualiza el porcentaje de progreso de un pedido de Metales."""
+    try:
+        data = request.json
+        id_pedido = data.get('id_pedido')
+        nuevo_progreso = data.get('progreso')
+        nuevo_estado = data.get('estado')
+
+        if not id_pedido:
+            return jsonify({"success": False, "error": "ID de pedido faltante"}), 400
+
+        # Actualizar todas las filas que compartan el mismo id_pedido
+        pedidos = MetalsPedido.query.filter_by(id_pedido=id_pedido).all()
+        for p in pedidos:
+            if nuevo_progreso is not None:
+                p.progreso = int(nuevo_progreso)
+            if nuevo_estado:
+                p.estado = nuevo_estado
+        
+        db.session.commit()
+        return jsonify({"success": True, "message": f"Pedido {id_pedido} actualizado correctamente"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error actualizando progreso: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

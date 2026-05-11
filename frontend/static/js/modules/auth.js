@@ -55,12 +55,12 @@ const AuthModule = {
 
     // Matriz de Permisos por Rol (Modelo RBAC Estricto basado en Departamentos)
     permissions: {
-        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'ADMIN': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-pedidos', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMINISTRADOR': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-pedidos', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
+        'ADMIN': ['dashboard', 'inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'metals-dashboard', 'metals-produccion', 'metals-pedidos', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
         // === FRIMETALS ROLES (Phase 2 Multi-Tenant) ===
-        'STAFF FRIMETALS': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'pedidos', 'almacen', 'asistencia'],
-        'COMERCIAL FRIMETALS': ['metals-dashboard', 'pedidos', 'almacen'],
+        'STAFF FRIMETALS': ['metals-dashboard', 'metals-produccion', 'metals-pedidos', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'pedidos', 'almacen', 'asistencia'],
+        'COMERCIAL FRIMETALS': ['metals-dashboard', 'metals-pedidos', 'pedidos', 'almacen'],
         'COMERCIAL': ['almacen', 'pedidos'],
         'JEFE ALMACEN': ['inventario', 'inyeccion', 'facturacion', 'almacen', 'pedidos', 'asistencia'],
         'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'historial', 'procura', 'rotacion', 'asistencia'],
@@ -72,7 +72,7 @@ const AuthModule = {
         'ENSAMBLE': ['inyeccion', 'ensamble', 'procura', 'rotacion', 'asistencia'],
         'CLIENTE': ['portal-cliente'],
         'METALS_PROD': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],
-        'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'inventario', 'historial', 'procura'],
+        'METALS_ADMIN': ['metals-dashboard', 'metals-produccion', 'metals-pedidos', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m', 'inventario', 'historial', 'procura'],
         'INVITADO': []
     },
 
@@ -122,7 +122,20 @@ const AuthModule = {
     },
 
     init: async function () {
-        console.log("🔐 Inicializando Módulo de Autenticación Avancado...");
+        console.log("🔐 Inicializando Módulo de Autenticación Avanzado...");
+
+        // Juan Sebastian: Control estricto de visibilidad del sidebar en el portal
+        const user = sessionStorage.getItem('user');
+        const landingVisible = document.getElementById('landing-screen') && document.getElementById('landing-screen').style.display !== 'none';
+        const sidebar = document.querySelector('.sidebar');
+        
+        if (!user || landingVisible) {
+            document.body.classList.remove('logged-in');
+            if (sidebar) sidebar.style.setProperty('display', 'none', 'important');
+        } else {
+            document.body.classList.add('logged-in');
+            if (sidebar) sidebar.style.setProperty('display', 'flex', 'important');
+        }
 
         // 1. Bloquear interfaz o mostrar Landing - INMEDIATO para evitar race conditions
         this.checkSession();
@@ -158,22 +171,31 @@ const AuthModule = {
         if (landing) {
             landing.style.display = 'flex';
             document.body.style.overflow = 'hidden';
+            // Juan: Ocultar sidebar en el portal
+            document.body.classList.remove('logged-in');
         }
         // Cerrar otros modales por si acaso
         this.closeLoginModal();
         this.closeClientAuth();
     },
 
-    hideLandingScreen: function () {
-        console.log("🔓 Ocultando pantalla de entrada...");
+    hideLandingScreen: function (isLogin = false, skipRedirect = true) {
+        console.log(`🔓 Ocultando pantalla de entrada (isLogin=${isLogin}, skipRedirect=${skipRedirect})...`);
         const screen = document.getElementById('landing-screen');
         if (screen) {
             screen.style.display = 'none';
             document.body.style.overflow = 'auto';
         }
 
-        // Al restaurar sesión, NO forzar redirección para dejar que app.js cargue el hash o la última página
-        this.applyPermissions(false, true);
+        // Juan: Activar visibilidad del sidebar tras login
+        document.body.classList.add('logged-in');
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) {
+            sidebar.style.setProperty('display', 'flex', 'important');
+        }
+
+        // Ejecutar permisos y redirección
+        this.applyPermissions(isLogin, skipRedirect);
     },
     openStaffLogin: function (type = 'FRIPARTS') {
         this.currentStaffType = type;
@@ -188,8 +210,8 @@ const AuthModule = {
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
 
-            // Cargar los responsables correspondientes
-            this.loadResponsables();
+            // Juan: Cargar los responsables correspondientes (Forzar recarga por división)
+            this.loadResponsables(true);
         }
     },
 
@@ -376,31 +398,38 @@ const AuthModule = {
     // LÓGICA DE STAFF (Responsables)
     // =================================================================
 
-    loadResponsables: async function () {
+    loadResponsables: async function (force = false) {
         const select = document.getElementById('login-usuario');
         if (!select) return;
+
+        // Si ya tiene opciones y no forzamos, no sobrescribir 
+        if (!force && select.options.length > 1 && !select.innerHTML.includes('Cargando')) {
+            console.log("ℹ️ Usando usuarios en caché.");
+            return;
+        }
 
         // Limpiar y mostrar carga
         select.innerHTML = '<option value="">Cargando operarios...</option>';
 
         try {
-            const type = this.currentStaffType; // Capturar tipo actual para evitar race conditions
+            const type = this.currentStaffType;
             const endpoint = type === 'FRIMETALS'
-                ? '/api/auth/metals/responsables'
-                : '/api/auth/responsables';
+                ? `/api/auth/metals/responsables?division=${type.toLowerCase()}`
+                : `/api/auth/responsables?division=${type.toLowerCase()}`;
 
             const response = await fetch(endpoint);
-            const users = await response.json();
+            const result = await response.json();
+            const users = result.data || result; 
 
             // Si el tipo cambió mientras cargábamos, ignorar esta respuesta
             if (this.currentStaffType !== type) return;
 
-            if (users.error) {
-                select.innerHTML = `<option value="">Error: ${users.error}</option>`;
+            if (result.status === 'error' || result.error) {
+                select.innerHTML = `<option value="">Error: ${result.message || result.error}</option>`;
                 return;
             }
 
-            const usuariosActivos = users.filter(user => user.nombre && user.nombre.trim() !== '');
+            const usuariosActivos = Array.isArray(users) ? users.filter(user => user.nombre && user.nombre.trim() !== '') : [];
 
             select.innerHTML = '<option value="">Seleccione su nombre...</option>';
             usuariosActivos.forEach(user => {
@@ -456,7 +485,7 @@ const AuthModule = {
 
                 this.setCurrentUser(data.user);
                 this.closeLoginModal();
-                this.hideLandingScreen(); // Crucial
+                this.hideLandingScreen(true, false); // isLogin=true, skipRedirect=false -> Forzar redirección
                 passwordInput.value = '';
             } else {
                 this.showError(data.message);
@@ -559,7 +588,7 @@ const AuthModule = {
                     fullData: user
                 };
 
-                this.hideLandingScreen(); // Ocultar landing
+                this.hideLandingScreen(false, true); // Ocultar landing (Restauración, no redirigir)
                 this.closeLoginModal();
                 this.updateProfileUI();
 
@@ -589,6 +618,9 @@ const AuthModule = {
         console.log("🔐 Cerrando sesión y limpiando rastro de producción...");
         this.currentUser = null;
         sessionStorage.removeItem('friparts_user');
+        
+        // Limpiar clase de visibilidad
+        document.body.classList.remove('logged-in');
         
         // LIMPIEZA TOTAL DE ESTADOS DE PRODUCCIÓN (Juan Sebastian request)
         // 1. Limpiar llaves estáticas conocidas
@@ -645,7 +677,8 @@ const AuthModule = {
             const metalsPages = [
                 'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura',
                 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura',
-                'metals-zincado', 'metals-horno', 'metals-pulido-m'
+                'metals-zincado', 'metals-horno', 'metals-pulido-m',
+                'asistencia', 'pedidos'
             ];
 
             // Si el rol existe en la matriz, usar sus permisos
@@ -680,12 +713,13 @@ const AuthModule = {
             let forbiddenInMetals = [
                 'dashboard', 'inyeccion', 'pulido', 'ensamble', 'pnc',
                 'facturacion', 'mezcla', 'reportes',
-                'admin-clientes', 'portal-cliente', 'procura', 'rotacion'
+                'admin-clientes', 'portal-cliente', 'procura', 'rotacion',
+                'almacen', 'historial', 'inventario'
             ];
 
-            // EXCEPCIÓN: Admins y Gerencia siempre pueden ver Procura y Clientes
+            // EXCEPCIÓN: Admins y Gerencia siempre pueden ver Clientes (procura y rotacion se ocultan definitivamente en Metales)
             if (role.includes('ADMIN') || role.includes('GERENCIA')) {
-                forbiddenInMetals = forbiddenInMetals.filter(p => !['admin-clientes', 'procura', 'rotacion'].includes(p));
+                forbiddenInMetals = forbiddenInMetals.filter(p => !['admin-clientes'].includes(p));
             }
 
             console.log("🚫 Filtrando módulos de FriParts en sesión de Metales...");
@@ -729,12 +763,12 @@ const AuthModule = {
             }
         });
 
-        // 1.5 Colapso Forzado del Sidebar para Metales (Por solicitud de Juan)
-        if (division === 'FRIMETALS') {
+        // 1.5 Colapso Forzado del Sidebar para Metales (Solo en login fresco para no molestar)
+        if (division === 'FRIMETALS' && isLogin) {
             const sidebar = document.querySelector('.sidebar');
             const main = document.querySelector('.main-content');
             if (sidebar && main && !sidebar.classList.contains('collapsed')) {
-                console.log("🛡️ Sidebar colapsado automáticamente para FRIMETALS");
+                console.log("🛡️ Sidebar colapsado automáticamente para FRIMETALS (Login)");
                 sidebar.classList.add('collapsed');
                 main.classList.add('expanded');
             }
@@ -742,21 +776,29 @@ const AuthModule = {
 
         // 2. Redirección Forzada
         const activePage = document.querySelector('.page.active');
-        // Determinar destino ideal basado en DIVISION y ROL
-        // Landing FRIMETALS -> metals-produccion (Grid) por solicitud de Juan
-        // Landing FRIPARTS -> inyeccion (MES Dashboard de producción)
-        let targetPage = division === 'FRIMETALS' ? 'metals-produccion' : 'inyeccion';
+        
+        // --- Lógica de Destino (Source of Truth) ---
+        // Juan Sebastian: Prioridad ABSOLUTA a la División seleccionada
+        let targetPage = 'inyeccion'; // Default general
+        
+        if (role === 'CLIENTE') {
+            targetPage = 'portal-cliente';
+        } else if (division === 'FRIMETALS') {
+            // Si es METALS, SIEMPRE va a producción (Formularios) sin importar si es Admin
+            targetPage = 'metals-produccion';
+        } else if (role === 'ADMIN') {
+            targetPage = 'dashboard';
+        } else if (role === 'PULIDO') {
+            targetPage = 'pulido';
+        } else if (role.includes('COMERCIAL')) {
+            targetPage = 'pedidos';
+        } else if (role === 'ALISTAMIENTO') {
+            targetPage = 'almacen';
+        } else {
+            targetPage = firstAllowed || allowedPages[0] || 'inyeccion';
+        }
 
-        if (role === 'CLIENTE') targetPage = 'portal-cliente';
-        else if (role === 'ADMIN') targetPage = 'dashboard';
-        else if (role === 'PULIDO') targetPage = 'pulido';
-        else if (role === 'COMERCIAL FRIMETALS') targetPage = 'pedidos';
-        else if (role === 'COMERCIAL') targetPage = 'pedidos';
-        else if (role === 'ALISTAMIENTO') targetPage = 'almacen';
-        else if (!allowedPages.includes(targetPage)) targetPage = firstAllowed || allowedPages[0];
-        else if (!this.isPageAllowed(targetPage)) targetPage = firstAllowed || allowedPages[0];
-
-        console.log(`🎯 Target Page detectado: ${targetPage}`);
+        console.log(`🎯 [Auth] Target Page Final: ${targetPage} (Rol: ${role}, Div: ${division})`);
 
         if (activePage) {
             const pageId = activePage.id.replace('-page', '');

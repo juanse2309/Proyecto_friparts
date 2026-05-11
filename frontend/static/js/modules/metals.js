@@ -130,6 +130,10 @@ const ModuloMetals = {
         console.log(`🏭 [Metals] Página actual: ${paginaActual}`);
 
         if (paginaActual === 'metals-dashboard') {
+            // Fix: Asegurar que el historial esté oculto al entrar al dashboard
+            const historyPage = document.getElementById('metals-pedidos-page');
+            if (historyPage) historyPage.style.display = 'none';
+            
             this.cargarDashboard();
             return;
         }
@@ -233,7 +237,16 @@ const ModuloMetals = {
                             ${maquinasOptions}
                         </select>
                     </div>
-                    <div class="form-group-metals" style="position: relative;">
+                    <div class="form-group-metals">
+                        <label class="label-metals"><i class="fas fa-hashtag"></i> ID Pedido (Opcional)</label>
+                        <input type="text" id="metals-id-pedido" class="input-metals" placeholder="Ej: PED9644" list="lista-pedidos-sugeridos">
+                        <datalist id="lista-pedidos-sugeridos"></datalist>
+                    </div>
+                </div>
+
+                <!-- Fila 3: Producto -->
+                <div class="metals-form-grid">
+                    <div class="form-group-metals" style="position: relative; grid-column: 1 / -1;">
                         <label class="label-metals"><i class="fas fa-box"></i> Producto (Código / Descripción)</label>
                         <input type="text" id="metals-producto" class="input-metals" autocomplete="off"
                             placeholder="Buscar código o descripción..." required>
@@ -325,19 +338,24 @@ const ModuloMetals = {
                 suggestionsDiv.classList.remove('active');
                 return;
             }
-            const resultados = this.productosData.filter(p =>
-                String(p.CODIGO || '').toLowerCase().includes(query) ||
-                String(p.DESCRIPCION || '').toLowerCase().includes(query)
-            ).slice(0, 10);
+            const resultados = this.productosData.filter(p => {
+                const cod = String(p.codigo || '').toLowerCase();
+                const desc = String(p.descripcion || '').toLowerCase();
+                return cod.includes(query) || desc.includes(query);
+            }).slice(0, 10);
 
             if (resultados.length === 0) {
                 suggestionsDiv.innerHTML = '<div class="suggestion-item text-muted">Sin resultados</div>';
             } else {
-                suggestionsDiv.innerHTML = resultados.map(p => `
-                    <div class="suggestion-item" data-cod="${p.CODIGO}" data-desc="${p.DESCRIPCION}">
-                        <strong>${p.CODIGO}</strong> — ${p.DESCRIPCION}
-                    </div>
-                `).join('');
+                suggestionsDiv.innerHTML = resultados.map(p => {
+                    const cod = p.codigo || 'S/C';
+                    const desc = p.descripcion || 'Sin descripción';
+                    return `
+                        <div class="suggestion-item" data-cod="${cod}" data-desc="${desc}">
+                            <strong>${cod}</strong> — ${desc}
+                        </div>
+                    `;
+                }).join('');
                 suggestionsDiv.querySelectorAll('.suggestion-item').forEach(div => {
                     div.addEventListener('click', () => {
                         input.value = `${div.dataset.cod} — ${div.dataset.desc}`;
@@ -371,87 +389,53 @@ const ModuloMetals = {
 
     cargarProductos: async function () {
         try {
+            console.log("🔄 [Metals] Cargando lista maestra de productos...");
+            // Aseguramos que use el endpoint específico que ya maneja la tabla metals_productos
             const res = await fetch('/api/metals/productos/listar');
             const data = await res.json();
-            this.productosData = data.productos || [];
-            window.AppState.sharedData.productosMetals = this.productosData; // Cache global
-            console.log(`✅ [Metals] ${this.productosData.length} productos cargados.`);
+            
+            // Mapeo defensivo para asegurar llaves codigo y descripcion
+            const raw = data.productos || data.items || [];
+            this.productosData = raw.map(p => ({
+                codigo: p.codigo || p.ID || '',
+                descripcion: p.descripcion || p.nombre_producto || p.DESCRIPCION || 'Sin descripción',
+                precio: parseFloat(p.precio) || 0
+            }));
+            
+            window.AppState.sharedData.productosMetals = this.productosData; 
+            console.log(`✅ [Metals] ${this.productosData.length} productos cargados satisfactoriamente.`);
         } catch (e) {
-            console.error('Error cargando productos metals:', e);
+            console.error('❌ Error cargando productos metals:', e);
         }
     },
 
     cargarDashboard: async function () {
-        console.log('📊 [Metals] Cargando Dashboard...');
-        const historyBody = document.getElementById('metals-dashboard-history');
-        if (!historyBody) return;
+        console.log('📊 [Metals] Cargando Dashboard Dinámico...');
+        const statsHoy = document.getElementById('metals-kpi-hoy');
+        const statsActivos = document.getElementById('metals-kpi-activos');
+        const listaActividad = document.getElementById('metals-dashboard-history');
 
         try {
-            const res = await fetch('/api/metals/produccion/historial?limite=10');
+            const res = await fetch('/api/metals/dashboard/stats');
             const data = await res.json();
 
-            if (data.success && data.registros) {
-                // Actualizar KPIs
-                const stats = data.stats || { hoy: 0, mes: 0, pnc: 0, procesos: 0 };
-                document.getElementById('metals-kpi-hoy').textContent = stats.hoy || 0;
-                document.getElementById('metals-kpi-mes').textContent = stats.mes || 0;
-                document.getElementById('metals-kpi-pnc').textContent = stats.pnc || 0;
-                document.getElementById('metals-kpi-procesos').textContent = stats.procesos || 0;
+            if (data.success) {
+                if (statsHoy) statsHoy.textContent = data.piezas_hoy || 0;
+                if (statsActivos) statsActivos.textContent = data.pedidos_activos || 0;
 
-                // Preparar datos para gráficos
-                const tiemposPorMaquina = {};
-                const pncPorProceso = {};
-                const okPorMaquina = {};
-                const tendenciaDiaria = {};
-                const trabajosPorOperario = {};
-
-                data.registros.forEach(r => {
-                    const maq = r.MAQUINA || r.LOTE || 'Otro';
-                    const proc = r.PROCESO || 'Otro';
-                    const fecha = r.FECHA || 'N/A';
-
-                    const mins = r.TIEMPO_TOTAL ? ModuloMetals.parseTiempoAMinutos(r.TIEMPO_TOTAL) : 0;
-                    if (mins > 0) tiemposPorMaquina[maq] = (tiemposPorMaquina[maq] || 0) + mins;
-
-                    const pnc = parseInt(r.PNC) || 0;
-                    if (pnc > 0) pncPorProceso[proc] = (pncPorProceso[proc] || 0) + pnc;
-
-                    const ok = parseInt(r.CANTIDAD_OK) || 0;
-                    if (ok > 0) okPorMaquina[maq] = (okPorMaquina[maq] || 0) + ok;
-
-                    if (fecha !== 'N/A') {
-                        tendenciaDiaria[fecha] = (tendenciaDiaria[fecha] || 0) + ok;
-                    }
-
-                    const resp = r.RESPONSABLE || 'N/A';
-                    if (resp !== 'N/A') {
-                        trabajosPorOperario[resp] = (trabajosPorOperario[resp] || 0) + 1;
-                    }
-                });
-
-                ModuloMetals.renderizarGraficos(tiemposPorMaquina, pncPorProceso, okPorMaquina, tendenciaDiaria, trabajosPorOperario);
-
-                // Renderizar tabla
-                historyBody.innerHTML = data.registros.map(r => {
-                    const tiempoStr = r.TIEMPO_TOTAL ? r.TIEMPO_TOTAL : 'N/A';
-                    return `
-                    <tr>
-                        <td class="text-secondary fw-bold small"><i class="fas fa-barcode me-1"></i>${r.ID_REGISTRO || 'N/A'}</td>
-                        <td>${r.FECHA}</td>
-                        <td><span class="badge" style="background: #64748b;">${r.MAQUINA || r.LOTE || 'N/A'}</span></td>
-                        <td class="small fw-bold">${r.CODIGO_PRODUCTO}<br><span class="text-muted fw-normal">${r.DESCRIPCION_PRODUCTO}</span></td>
-                        <td>${r.PROCESO}</td>
-                        <td>${r.RESPONSABLE}</td>
-                        <td class="text-center fw-bold text-success">${r.CANTIDAD_OK}</td>
-                        <td class="text-center text-primary fw-bold"><i class="fas fa-clock me-1" style="opacity: 0.5;"></i>${tiempoStr}</td>
-                        <td class="text-center fw-bold text-danger">${r.PNC}</td>
-                    </tr>
-                `;
-                }).join('') || '<tr><td colspan="8" class="text-center p-3 text-muted">No hay registros recientes</td></tr>';
+                if (listaActividad && data.actividad_reciente) {
+                    listaActividad.innerHTML = data.actividad_reciente.map(a => `
+                        <tr>
+                            <td><span class="badge bg-light text-dark">${a.fecha}</span></td>
+                            <td><i class="fas fa-user-circle me-1 text-muted"></i>${a.responsable}</td>
+                            <td class="fw-bold text-primary">${a.proceso}</td>
+                            <td class="text-end fw-bold text-success">+${a.cantidad}</td>
+                        </tr>
+                    `).join('') || '<tr><td colspan="4" class="text-center text-muted">Sin actividad</td></tr>';
+                }
             }
         } catch (e) {
-            console.error('Error cargando dashboard metals:', e);
-            historyBody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">Error al cargar datos</td></tr>';
+            console.error('Error dashboard stats:', e);
         }
     },
 
@@ -515,6 +499,7 @@ const ModuloMetals = {
             tiempo_min: tiempoMin,
             cantidad_ok: document.getElementById('metals-cant-ok')?.value,
             pnc: document.getElementById('metals-pnc')?.value || '0',
+            id_pedido: document.getElementById('metals-id-pedido')?.value || '',
             observaciones: document.getElementById('metals-observaciones')?.value || '',
             campos_extra: this.getExtraData()
         };
@@ -531,7 +516,11 @@ const ModuloMetals = {
 
             if (res.success) {
                 mostrarNotificacion(`✅ Registro guardado — ${proc?.label}`, 'success');
-                // Limpiar formulario o recargar
+                
+                // Refresco silencioso del dashboard en segundo plano
+                this.cargarDashboard();
+                
+                // Volver al selector o limpiar
                 setTimeout(() => this.inicializar(), 1200);
             } else {
                 mostrarNotificacion(`❌ Error: ${res.message}`, 'error');

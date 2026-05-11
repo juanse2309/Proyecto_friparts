@@ -68,9 +68,12 @@ function renderProductSuggestions(container, items, onSelect) {
                         } else if (attempt === 2 && this.dataset.urlSrc) {
                             // Intento 3: .png -> Cloud URL (Google Drive)
                             this.src = this.dataset.urlSrc;
-                        } else {
-                            // Final: Fallback SVG
+                        } else if (attempt === 3) {
+                            // Intento 4: Placeholder SVG
                             this.src = this.dataset.placeholder;
+                        } else {
+                            // Final: Imagen por defecto no-photo.png
+                            this.src = '/static/img/no-photo.png';
                             this.onerror = null;
                         }
                      "

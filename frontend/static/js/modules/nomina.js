@@ -21,7 +21,8 @@ const ModuloNomina = (function () {
         body.innerHTML = '<tr><td colspan="4" class="text-center py-5"><i class="fas fa-spinner fa-spin text-primary me-2"></i> Consolidando información...</td></tr>';
 
         try {
-            const response = await fetch('/api/asistencia/consolidado_pendiente');
+            const division = (typeof AuthModule !== 'undefined' && AuthModule.currentUser) ? AuthModule.currentUser.division?.toLowerCase() : 'friparts';
+            const response = await fetch(`/api/asistencia/consolidado_pendiente?division=${division}`);
             const data = await response.json();
 
             if (data.status === 'success') {
@@ -90,13 +91,14 @@ const ModuloNomina = (function () {
 
         // 2. Notificar al backend para sellar el periodo
         try {
-            const user = (typeof AuthModule !== 'undefined' && AuthModule.currentUser) ? AuthModule.currentUser.nombre : 'Sistema';
+            const division = (typeof AuthModule !== 'undefined' && AuthModule.currentUser) ? AuthModule.currentUser.division?.toLowerCase() : 'friparts';
             const response = await fetch('/api/asistencia/ejecutar_corte', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     total_registros: totalRegsPendientes,
-                    usuario: user
+                    usuario: user,
+                    division: division
                 })
             });
 

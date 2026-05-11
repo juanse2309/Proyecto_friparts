@@ -5,7 +5,7 @@ Centraliza el acceso a la tabla db_productos en PostgreSQL.
 from typing import Optional, List, Dict
 from sqlalchemy import func
 from backend.core.sql_database import db
-from backend.models.sql_models import Producto
+from backend.models.sql_models import Producto, MetalsProducto
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,24 +14,29 @@ logger = logging.getLogger(__name__)
 class ProductoRepository:
     """
     Repositorio para operaciones con productos vía SQLAlchemy.
+    Soporta múltiples divisiones (FriParts / FriMetals).
     """
 
     def __init__(self, tenant: str = "friparts"):
-        self.tenant = tenant
+        self.tenant = tenant.lower()
+        # Seleccionar modelo base según división
+        self.model = MetalsProducto if self.tenant == "frimetals" else Producto
     
     def buscar_por_codigo(self, codigo: str) -> Optional[Dict]:
         """
-        Busca un producto en SQL por código de sistema o ID.
+        Busca un producto en SQL por código o ID.
         """
         try:
             from backend.utils.formatters import normalizar_codigo
             cod_norm = normalizar_codigo(codigo)
             
-            # Buscar por codigo_sistema o id_codigo (Flexible y tolerante a prefijos)
-            p = db.session.query(Producto).filter(
-                (Producto.codigo_sistema.ilike(f"%{cod_norm}%")) | 
-                (Producto.id_codigo.ilike(f"%{cod_norm}%"))
-            ).first()
+            if self.tenant == "frimetals":
+                p = db.session.query(MetalsProducto).filter(MetalsProducto.codigo.ilike(f"%{cod_norm}%")).first()
+            else:
+                p = db.session.query(Producto).filter(
+                    (Producto.codigo_sistema.ilike(f"%{cod_norm}%")) | 
+                    (Producto.id_codigo.ilike(f"%{cod_norm}%"))
+                ).first()
             
             if not p:
                 return None
@@ -39,18 +44,18 @@ class ProductoRepository:
             return self._to_dict(p)
             
         except Exception as e:
-            logger.error(f"Error buscando producto SQL {codigo}: {e}")
+            logger.error(f"Error buscando producto SQL {codigo} ({self.tenant}): {e}")
             return None
     
     def listar_todos(self) -> List[Dict]:
         """
-        Lista todos los productos desde db_productos.
+        Lista todos los productos de la tabla correspondiente.
         """
         try:
-            productos = db.session.query(Producto).order_by(Producto.codigo_sistema).all()
+            productos = db.session.query(self.model).all()
             return [self._to_dict(p) for p in productos]
         except Exception as e:
-            logger.error(f"Error listando productos SQL: {e}")
+            logger.error(f"Error listando productos SQL ({self.tenant}): {e}")
             return []
     
     def obtener_stock(self, codigo: str, almacen: str) -> float:
@@ -101,27 +106,44 @@ class ProductoRepository:
             logger.error(f"Error actualizando stock SQL: {e}")
             return False
 
-    def buscar_por_termino(self, termino: str, limite: int = 20) -> List[Dict]:
+    def buscar_por_termino(self, termino: str, limite: int = 50) -> List[Dict]:
         """
         Busca productos por término en SQL.
         Soporta búsqueda parcial: '9304' encontrará 'FR-9304'.
         """
         try:
             t = f"%{termino.strip()}%"
-            res = db.session.query(Producto).filter(
-                (Producto.codigo_sistema.ilike(t)) |
-                (Producto.id_codigo.ilike(t)) |
-                (Producto.descripcion.ilike(t)) |
-                (Producto.oem.ilike(t))
-            ).limit(limite).all()
+            if self.tenant == "frimetals":
+                res = db.session.query(MetalsProducto).filter(
+                    (MetalsProducto.codigo.ilike(t)) |
+                    (MetalsProducto.descripcion.ilike(t))
+                ).limit(limite).all()
+            else:
+                res = db.session.query(Producto).filter(
+                    (Producto.codigo_sistema.ilike(t)) |
+                    (Producto.id_codigo.ilike(t)) |
+                    (Producto.descripcion.ilike(t)) |
+                    (Producto.oem.ilike(t))
+                ).limit(limite).all()
             
             return [self._to_dict(p) for p in res]
         except Exception as e:
-            logger.error(f"Error en buscar_por_termino: {e}")
+            logger.error(f"Error en buscar_por_termino ({self.tenant}): {e}")
             return []
 
-    def _to_dict(self, p: Producto) -> Dict:
-        """Convierte modelo SQLAlchemy a diccionario amigable para el frontend legacy."""
+    def _to_dict(self, p) -> Dict:
+        """Convierte modelo SQLAlchemy a diccionario amigable para el frontend."""
+        if self.tenant == "frimetals":
+            # Simplificado: El campo ahora es INTEGER en DB
+            precio_val = getattr(p, 'precio', 0) or 0
+
+            return {
+                'id': getattr(p, 'codigo', 'S/C'), # Usamos codigo como ID
+                'codigo': getattr(p, 'codigo', 'S/C'),
+                'descripcion': getattr(p, 'descripcion', 'Sin descripción'),
+                'precio': "{:.2f}".format(precio_val) # Enviar como cadena limpia
+            }
+            
         return {
             'id': p.id,
             'CODIGO SISTEMA': p.codigo_sistema,
