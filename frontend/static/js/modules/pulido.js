@@ -83,6 +83,12 @@ const ModuloPulido = {
         await this.verificarTrabajoActivo(); // Rehidratar desde SQL
         this.cargarEstadoLocal(); // Fallback/Sync local
         
+        // Verificación de reportes pendientes por fallo de red previo
+        this.verificarReportesPendientes();
+
+        // Keep-Alive: Ping al servidor cada 5 min para evitar que Render se duerma
+        this.iniciarPingServidor();
+
         // Sync default mode state based on switch
         const switchEl = document.getElementById('toggle-pulido-mode');
         if (switchEl) {
@@ -98,6 +104,40 @@ const ModuloPulido = {
             this.verificarTrabajoActivo().then(() => this.cargarEstadoLocal());
         };
         document.addEventListener('user-ready', onUserReady);
+    },
+
+    iniciarPingServidor: function() {
+        console.log("📡 [Pulido] Iniciando Keep-Alive (ping cada 5 min)...");
+        setInterval(async () => {
+            try {
+                // Ping silencioso al endpoint de sesión para mantener el servidor despierto
+                await fetch('/api/pulido/session_active?ping=true');
+            } catch (e) {
+                console.warn("[Keep-Alive] Fallo de ping:", e);
+            }
+        }, 5 * 60 * 1000); // 5 minutos
+    },
+
+    verificarReportesPendientes: function() {
+        const backup = localStorage.getItem('pulido_failed_report');
+        if (backup) {
+            Swal.fire({
+                title: 'Reporte Pendiente',
+                text: 'Se detectó un reporte que no se pudo enviar anteriormente por fallo de red. ¿Deseas intentar enviarlo de nuevo?',
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, reintentar envío',
+                cancelButtonText: 'Descartar',
+                confirmButtonColor: '#3b82f6'
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    const data = JSON.parse(backup);
+                    await this.enviarAServidor(data);
+                } else if (result.dismiss === Swal.DismissReason.cancel) {
+                    localStorage.removeItem('pulido_failed_report');
+                }
+            });
+        }
     },
 
     guardarEstadoLocal: function() {
@@ -955,44 +995,52 @@ const ModuloPulido = {
 
     enviarAServidor: async function (data) {
         try {
-            Swal.showLoading();
-            const response = await fetch('/api/pulido', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
+            if (!navigator.onLine) {
+                throw new Error("No hay conexión a internet (Modo Offline)");
+            }
 
-            const result = await response.json();
+            Swal.showLoading();
+            // Usar el apiClient robusto que ya implementa 3 reintentos
+            const result = await window.apiClient.post('/api/pulido', data);
+
             if (result.success) {
                 Swal.fire('¡Éxito!', 'Producción guardada correctamente.', 'success');
-                // Limpieza total tras éxito
+                localStorage.removeItem('pulido_failed_report'); // Limpiar backup si existía
+                
                 this.terminarCiclo();
                 this.limpiarSesionLocal(); 
                 
-                document.getElementById('modal-reporte-final').style.display = 'none';
+                const modal = document.getElementById('modal-reporte-final');
+                if (modal) modal.style.display = 'none';
                 this.limpiarFormulario();
             } else {
                 console.warn("Servidor rechazó el reporte:", result.error);
-                Swal.fire({
-                    title: 'Error de Sincronización',
-                    text: (result.error || 'Error desconocido') + '. La sesión local se limpiará para evitar bloqueos.',
-                    icon: 'warning',
-                    confirmButtonText: 'Entendido'
-                }).then(() => {
-                    this.limpiarSesionLocal();
-                    location.reload();
-                });
+                throw new Error(result.error || 'Error desconocido del servidor');
             }
         } catch (error) {
             console.error("Error crítico al guardar:", error);
+            
+            // Persistencia Local (LocalStorage) ante fallos
+            localStorage.setItem('pulido_failed_report', JSON.stringify(data));
+
             Swal.fire({
-                title: 'Fallo de Red',
-                text: 'No hay comunicación con el servidor. La sesión local se limpiará para permitir nuevos registros.',
+                title: 'Fallo de Conexión',
+                text: 'No se pudo contactar al servidor tras varios intentos. El reporte se guardó LOCALMENTE en la tablet. Puedes reintentar ahora o cerrar para intentarlo más tarde.',
                 icon: 'error',
-                confirmButtonText: 'Limpiar y Reintentar'
-            }).then(() => {
-                this.limpiarSesionLocal();
-                location.reload();
+                showCancelButton: true,
+                confirmButtonText: 'Reintentar Ahora',
+                cancelButtonText: 'Guardar y Cerrar',
+                confirmButtonColor: '#3b82f6'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    this.enviarAServidor(data);
+                } else {
+                    // Si deciden cerrar, limpiamos la UI pero el reporte queda en 'pulido_failed_report'
+                    this.limpiarSesionLocal();
+                    const modal = document.getElementById('modal-reporte-final');
+                    if (modal) modal.style.display = 'none';
+                    location.reload();
+                }
             });
         }
     },
