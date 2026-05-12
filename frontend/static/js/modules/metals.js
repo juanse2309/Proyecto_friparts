@@ -411,31 +411,192 @@ const ModuloMetals = {
 
     cargarDashboard: async function () {
         console.log('📊 [Metals] Cargando Dashboard Dinámico...');
-        const statsHoy = document.getElementById('metals-kpi-hoy');
-        const statsActivos = document.getElementById('metals-kpi-activos');
-        const listaActividad = document.getElementById('metals-dashboard-history');
-
         try {
             const res = await fetch('/api/metals/dashboard/stats');
             const data = await res.json();
+            
+            // Debug Log solicitado: Ver en consola (F12) lo que llega del servidor
+            console.log('📦 [Metals] Datos recibidos del Dashboard:', data);
 
             if (data.success) {
+                const statsHoy = document.getElementById('metals-kpi-hoy');
+                const statsActivos = document.getElementById('metals-kpi-activos');
+                const statsPnc = document.getElementById('metals-kpi-pnc');
+                const statsTop = document.getElementById('metals-kpi-procesos');
+                const listaActividad = document.getElementById('metals-dashboard-history');
+
                 if (statsHoy) statsHoy.textContent = data.piezas_hoy || 0;
                 if (statsActivos) statsActivos.textContent = data.pedidos_activos || 0;
+                if (statsPnc) statsPnc.textContent = data.pnc_hoy || 0;
+                
+                if (statsTop && data.proceso_top) {
+                    statsTop.innerHTML = `
+                        <div style="font-size: 0.85rem; line-height: 1.1;">
+                            ${data.proceso_top.nombre}
+                            <div class="small opacity-75" style="font-size: 0.65rem;">(${data.proceso_top.cantidad} pz)</div>
+                        </div>
+                    `;
+                }
 
+                // --- TABLA DE ACTIVIDAD RECIENTE (Mapeo Quirúrgico) ---
                 if (listaActividad && data.actividad_reciente) {
                     listaActividad.innerHTML = data.actividad_reciente.map(a => `
                         <tr>
-                            <td><span class="badge bg-light text-dark">${a.fecha}</span></td>
-                            <td><i class="fas fa-user-circle me-1 text-muted"></i>${a.responsable}</td>
-                            <td class="fw-bold text-primary">${a.proceso}</td>
-                            <td class="text-end fw-bold text-success">+${a.cantidad}</td>
+                            <td><span class="badge bg-light text-dark" style="font-size: 0.7rem;">#${a.id}</span></td>
+                            <td class="small">${a.fecha}</td>
+                            <td class="text-muted small">${a.maquina}</td>
+                            <td class="fw-bold" style="font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${a.producto}">${a.producto}</td>
+                            <td><span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">${a.proceso}</span></td>
+                            <td class="small"><i class="fas fa-user-circle me-1 text-muted"></i>${a.responsable}</td>
+                            <td class="text-center fw-bold text-success">${a.cantidad_ok}</td>
+                            <td class="text-center text-muted small">${a.tiempo}</td>
+                            <td class="text-center text-danger fw-bold">${a.pnc}</td>
                         </tr>
-                    `).join('') || '<tr><td colspan="4" class="text-center text-muted">Sin actividad</td></tr>';
+                    `).join('') || '<tr><td colspan="9" class="text-center text-muted p-4">Sin actividad reciente</td></tr>';
+                }
+
+                // --- INTEGRACIÓN DE GRÁFICAS (Chart.js) ---
+                if (data.graficas) {
+                    this.renderizarGraficasMetals(data.graficas);
                 }
             }
         } catch (e) {
             console.error('Error dashboard stats:', e);
+        }
+    },
+
+    renderizarGraficasMetals: function(datos) {
+        if (!window.Chart) return;
+
+        // 1. Gráfica Producción OK por Máquina
+        const ctxOk = document.getElementById('metals-chart-ok');
+        if (ctxOk) {
+            if (this.chartOk) this.chartOk.destroy();
+            const labels = Object.keys(datos.produccion_maquina || {});
+            const values = Object.values(datos.produccion_maquina || {});
+            
+            this.chartOk = new Chart(ctxOk, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Piezas OK',
+                        data: values,
+                        backgroundColor: '#0d6efd',
+                        borderRadius: 5
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        // 2. Gráfica PNC por Proceso
+        const ctxPnc = document.getElementById('metals-chart-defectos');
+        if (ctxPnc) {
+            if (this.chartPnc) this.chartPnc.destroy();
+            const labels = Object.keys(datos.pnc_proceso || {});
+            const values = Object.values(datos.pnc_proceso || {});
+
+            this.chartPnc = new Chart(ctxPnc, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ['#dc3545', '#fd7e14', '#ffc107', '#20c997']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+
+        // 3. Gráfica Tiempos por Máquina
+        const ctxTiempos = document.getElementById('metals-chart-tiempos');
+        if (ctxTiempos) {
+            if (this.chartTiempos) this.chartTiempos.destroy();
+            const labels = Object.keys(datos.tiempos_maquina || {});
+            const values = Object.values(datos.tiempos_maquina || {});
+
+            this.chartTiempos = new Chart(ctxTiempos, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Minutos Operativos',
+                        data: values,
+                        backgroundColor: '#6610f2',
+                        borderRadius: 5
+                    }]
+                },
+                options: { 
+                    indexAxis: 'y',
+                    responsive: true, 
+                    maintainAspectRatio: false 
+                }
+            });
+        }
+
+        // 4. Participación por Operario
+        const ctxOp = document.getElementById('metals-chart-operarios');
+        if (ctxOp) {
+            if (this.chartOp) this.chartOp.destroy();
+            const labels = Object.keys(datos.participacion_operarios || {});
+            const values = Object.values(datos.participacion_operarios || {});
+
+            this.chartOp = new Chart(ctxOp, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ['#fd7e14', '#0d6efd', '#20c997', '#ffc107', '#6610f2']
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }
+                }
+            });
+        }
+
+        // 5. Gráfica Rendimiento de Producción (Tendencia 7 días)
+        const ctxTendencia = document.getElementById('metals-chart-tendencia');
+        if (ctxTendencia) {
+            if (this.chartTendencia) this.chartTendencia.destroy();
+            
+            // Ordenar fechas cronológicamente para la gráfica
+            const fechas = Object.keys(datos.rendimiento_diario || {}).sort((a, b) => {
+                const [da, ma, ya] = a.split('/').map(Number);
+                const [db, mb, yb] = b.split('/').map(Number);
+                return new Date(ya, ma - 1, da) - new Date(yb, mb - 1, db);
+            });
+            const values = fechas.map(f => datos.rendimiento_diario[f]);
+
+            this.chartTendencia = new Chart(ctxTendencia, {
+                type: 'line',
+                data: {
+                    labels: fechas,
+                    datasets: [{
+                        label: 'Piezas OK',
+                        data: values,
+                        borderColor: '#0dcaf0',
+                        backgroundColor: 'rgba(13, 202, 240, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#0dcaf0',
+                        pointRadius: 4
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
         }
     },
 

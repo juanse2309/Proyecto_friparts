@@ -52,6 +52,9 @@ window.ModuloAsistencia = (function () {
         } else if (role === 'ENSAMBLE') {
             esJefe = true;
             areasAsignadas = ['ENSAMBLE'];
+        } else if (role === 'JEFE DE PLANTA') {
+            esJefe = true;
+            areasAsignadas = [depto]; // Jeison ve su departamento (PLANTA)
         }
 
         // Juan Sebastian: Limpieza de cabecera (Solo Nombre y Áreas)
@@ -183,41 +186,9 @@ window.ModuloAsistencia = (function () {
     }
 
     function filtrarPorDeptoDelJefe(lista) {
-        if (!currentUserContext) return [];
-
-        const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
-        const nombreNorm = norm(currentUserContext.nombre || currentUserContext.name || '');
-
-        // 1. Filtrado de Exclusiones (Excepto el usuario actual)
-        const DEPTOS_EXCLUIDOS = ['COMERCIAL', 'ADMINISTRACION', 'ADMINISTRACIÓN'];
-        const NOMBRES_EXCLUIDOS = ['TEMPORAL PULIDO 1', 'ADRIANA SATELITE'];
-
-        lista = lista.filter(c => {
-            const nombreC = norm(c.nombre);
-            if (nombreC === nombreNorm) return true; // El jefe nunca se excluye a sí mismo
-
-            const deptoC = norm(c.departamento);
-            const excluidoDepto = DEPTOS_EXCLUIDOS.some(d => deptoC.includes(norm(d)));
-            const excluidoNombre = NOMBRES_EXCLUIDOS.some(n => nombreC.includes(norm(n)));
-            return !excluidoDepto && !excluidoNombre;
-        });
-
-        // 2. Filtrado por Área (RBAC)
-        const areasAsignadas = currentUserContext._areasAsignadas;
-        if (areasAsignadas === null || areasAsignadas === undefined) {
-            return lista; // Gerencia ve a todos los no excluidos
-        }
-
-        return lista.filter(c => {
-            const nombreC = norm(c.nombre);
-            if (nombreC === nombreNorm) return true; // Siempre mostrarse a sí mismo
-
-            const deptoC = norm(c.departamento);
-            return areasAsignadas.some(area => {
-                const areaNorm = norm(area);
-                return deptoC.includes(areaNorm) || areaNorm.includes(deptoC);
-            });
-        });
+        // El Backend ya realiza el filtrado por departamento y RBAC.
+        // El Frontend simplemente entrega la lista tal cual para evitar ocultar al Jefe.
+        return lista;
     }
 
     function renderizarTabla(lista) {

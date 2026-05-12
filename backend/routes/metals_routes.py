@@ -2,10 +2,10 @@ from flask import Blueprint, jsonify, request
 from backend.models.sql_models import db, MetalsProduccion, MetalsPersonal, MetalsPedido
 from backend.repositories.producto_repository import ProductoRepository
 import logging
-import datetime
 import uuid
 import json
 import time # Juan Sebastian: Para manejo de caché
+from datetime import datetime, timedelta, timezone
 
 metals_bp = Blueprint('metals', __name__)
 logger = logging.getLogger(__name__)
@@ -203,47 +203,179 @@ def get_metals_historial():
 def get_metals_dashboard_stats():
     """Endpoint para el Dashboard de Metales con manejo robusto de errores."""
     try:
-        hoy_str = datetime.date.today().strftime("%d/%m/%Y")
+        # 1. Fecha actual en Colombia (Bogotá: UTC-5)
+        # Esto asegura que el dashboard sea preciso independientemente del servidor (Render/AWS/etc)
+        bogota_tz = timezone(timedelta(hours=-5))
+        hoy_dt = datetime.now(bogota_tz)
+        hoy_str = hoy_dt.strftime("%d/%m/%Y")
+        
+        logger.info(f"📊 [Dashboard Metales] Consultando estadísticas para fecha: {hoy_str}")
         
         # KPI 1: Piezas producidas hoy (Suma de cantidad_ok)
+        piezas_hoy = 0
         try:
+            # func.sum() ahora directo sobre Numeric
             piezas_hoy_raw = db.session.query(db.func.sum(MetalsProduccion.cantidad_ok)).filter(
                 MetalsProduccion.fecha == hoy_str
             ).scalar()
             piezas_hoy = int(piezas_hoy_raw or 0)
         except Exception as e_piezas:
+            db.session.rollback() # Reset transacción
             logger.error(f"Error sumando piezas hoy: {e_piezas}")
-            piezas_hoy = 0
         
         # KPI 2: Pedidos activos (al menos un item con progreso < 100)
+        pedidos_activos = 0
         try:
             pedidos_activos = db.session.query(MetalsPedido.id_pedido).filter(
                 MetalsPedido.progreso < 100
             ).distinct().count()
         except Exception as e_ped:
+            db.session.rollback() # Reset transacción
             logger.error(f"Error contando pedidos activos: {e_ped}")
+
+        # KPI 3: PNC Total hoy
+        pnc_hoy = 0
+        try:
+            pnc_hoy_raw = db.session.query(db.func.sum(MetalsProduccion.pnc)).filter(
+                MetalsProduccion.fecha == hoy_str
+            ).scalar()
+            pnc_hoy = int(pnc_hoy_raw or 0)
+        except Exception as e_pnc:
             db.session.rollback()
-            pedidos_activos = 0
+            logger.error(f"Error sumando PNC hoy: {e_pnc}")
+
+        # --- ANÁLISIS HISTÓRICO (Últimos 7 Días) ---
+        ultimos_7_dias_str = [(hoy_dt - timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
         
-        # Lista actividad reciente (5 registros)
+        # 1. Rendimiento Diario (Tendencia)
+        rendimiento_diario = {}
+        try:
+            query_rend = db.session.query(
+                MetalsProduccion.fecha,
+                db.func.sum(MetalsProduccion.cantidad_ok)
+            ).filter(MetalsProduccion.fecha.in_(ultimos_7_dias_str)).group_by(MetalsProduccion.fecha).all()
+            rendimiento_diario = {row[0]: int(row[1] or 0) for row in query_rend}
+        except Exception as e_r:
+            db.session.rollback()
+            logger.error(f"Error rendimiento_diario: {e_r}")
+
+        # 2. Participación de Operarios (Semanal para incluir a Arturo y otros)
+        participacion_operarios = {}
+        try:
+            query_op = db.session.query(
+                MetalsProduccion.responsable,
+                db.func.count(MetalsProduccion.id)
+            ).filter(MetalsProduccion.fecha.in_(ultimos_7_dias_str)).group_by(MetalsProduccion.responsable).all()
+            participacion_operarios = {row[0]: int(row[1] or 0) for row in query_op}
+        except Exception as e_o:
+            db.session.rollback()
+            logger.error(f"Error participacion_operarios semanal: {e_o}")
+
+        # --- AGREGACIONES DE HOY ---
+        
+        # 3. Producción OK por Máquina (Hoy)
+        produccion_por_maquina = {}
+        try:
+            query_maquina = db.session.query(
+                MetalsProduccion.maquina, 
+                db.func.sum(MetalsProduccion.cantidad_ok)
+            ).filter(MetalsProduccion.fecha == hoy_str).group_by(MetalsProduccion.maquina).all()
+            produccion_por_maquina = {row[0]: int(row[1] or 0) for row in query_maquina}
+        except Exception as e_m:
+            db.session.rollback()
+            logger.error(f"Error produccion_por_maquina: {e_m}")
+
+        # 4. PNC por Proceso (Hoy)
+        pnc_por_proceso = {}
+        try:
+            query_pnc_proceso = db.session.query(
+                MetalsProduccion.proceso, 
+                db.func.sum(MetalsProduccion.pnc)
+            ).filter(MetalsProduccion.fecha == hoy_str).group_by(MetalsProduccion.proceso).all()
+            pnc_por_proceso = {row[0]: int(row[1] or 0) for row in query_pnc_proceso}
+        except Exception as e_p:
+            db.session.rollback()
+            logger.error(f"Error pnc_por_proceso: {e_p}")
+
+        # 5. Tiempos por Máquina (Hoy) - Suma en minutos
+        tiempos_por_maquina = {}
+        try:
+            registros_hoy = MetalsProduccion.query.filter_by(fecha=hoy_str).all()
+            def parse_tiempo_minutos(t_str):
+                if not t_str: return 0
+                total = 0
+                try:
+                    if 'h' in t_str:
+                        partes = t_str.split('h')
+                        total += int(partes[0].strip()) * 60
+                        if 'm' in partes[1]:
+                            total += int(partes[1].replace('m', '').strip())
+                    elif 'm' in t_str:
+                        total += int(t_str.replace('m', '').strip())
+                except: pass
+                return total
+
+            for r in registros_hoy:
+                maq = r.maquina or 'Sin Máquina'
+                mins = parse_tiempo_minutos(r.tiempo)
+                tiempos_por_maquina[maq] = tiempos_por_maquina.get(maq, 0) + mins
+        except Exception as e_t:
+            logger.error(f"Error tiempos_por_maquina: {e_t}")
+
+        # TAREA EXTRA: Proceso más activo de hoy
+        proceso_top_nombre = "N/A"
+        proceso_top_cantidad = 0
+        try:
+            top_query = db.session.query(
+                MetalsProduccion.proceso, 
+                db.func.sum(MetalsProduccion.cantidad_ok).label('total_vol')
+            ).filter(MetalsProduccion.fecha == hoy_str).group_by(MetalsProduccion.proceso).order_by(db.desc('total_vol')).first()
+            
+            if top_query:
+                proceso_top_nombre = top_query[0]
+                proceso_top_cantidad = int(top_query[1] or 0)
+        except Exception as e_top:
+            db.session.rollback()
+            logger.error(f"Error calculando proceso top: {e_top}")
+
+        # Widget de Actividad: Últimos 10 registros (Enriquecidos)
         actividad = []
         try:
-            recientes = MetalsProduccion.query.order_by(MetalsProduccion.id.desc()).limit(5).all()
+            recientes = MetalsProduccion.query.order_by(MetalsProduccion.id.desc()).limit(10).all()
             for r in recientes:
                 actividad.append({
+                    "id": r.id,
                     "fecha": r.fecha or '',
+                    "maquina": r.maquina or 'N/A',
+                    "producto": r.descripcion or 'Sin descripción',
                     "proceso": r.proceso or 'Sin proceso',
                     "responsable": r.responsable or 'Sin responsable',
-                    "cantidad": int(r.cantidad_ok or 0)
+                    "cantidad_ok": int(r.cantidad_ok or 0),
+                    "tiempo": r.tiempo or '0m',
+                    "pnc": int(r.pnc or 0)
                 })
         except Exception as e_rec:
-            logger.error(f"Error listando actividad reciente: {e_rec}")
             db.session.rollback()
+            logger.error(f"Error listando actividad reciente: {e_rec}")
+            
+        logger.info(f"✅ Dashboard Data Loaded. Activity Items: {len(actividad)}")
             
         return jsonify({
             "success": True,
             "piezas_hoy": piezas_hoy,
             "pedidos_activos": pedidos_activos,
+            "pnc_hoy": pnc_hoy,
+            "proceso_top": {
+                "nombre": proceso_top_nombre,
+                "cantidad": proceso_top_cantidad
+            },
+            "graficas": {
+                "rendimiento_diario": rendimiento_diario,
+                "produccion_maquina": produccion_por_maquina,
+                "pnc_proceso": pnc_por_proceso,
+                "tiempos_maquina": tiempos_por_maquina,
+                "participacion_operarios": participacion_operarios
+            },
             "actividad_reciente": actividad
         })
     except Exception as e:

@@ -111,63 +111,44 @@ def obtener_colaboradores():
         # 1. Definir Áreas de Responsabilidad (Reglas de Oro)
         AREAS_POR_ROL = {
             'JEFE INYECCION':     ['INYECCION', 'ENSAMBLE'],
-            'JEFE ALMACEN':       ['ALISTAMIENTO', 'ALMACEN'],
-            'JEFE PULIDO':        ['PULIDO'],
+            'JEFE ALMACEN':['ALISTAMIENTO', 'ALMACEN'],
+            'JEFE PULIDO':['PULIDO'],
+            'JEFE DE PLANTA':['PLANTA', 'PRODUCCION'],
         }
 
         # 2. Construir Filtro
         ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
-        es_admin = any(r in user_role for r in ADMS)
+        es_admin_global = any(r in user_role for r in ADMS)
         division_req = request.args.get('division', '').lower()
 
-        # CASO ESPECIAL: Entorno de Metales (Filtro estricto solicitado por Juan Sebastian)
-        # Se aplica si se solicita explícitamente o si el usuario tiene ese rol único
-        if division_req == 'frimetals' or user_role == 'STAFF FRIMETALS':
+        # 1. Obtener departamento del usuario actual (Jeison -> 'STAFF FRIMETALS')
+        sql_propio = text("SELECT departamento FROM db_usuarios WHERE username = :user")
+        propio_res = db.session.execute(sql_propio, {'user': user_name}).fetchone()
+        mi_depto = propio_res[0] if propio_res and propio_res[0] else 'SIN_DEPTO'
+
+        # LÓGICA DE VISIBILIDAD:
+        # 1. Admins Globales: Ven TODO sin restricciones (Bypass total)
+        # 2. Jefes de Área/Planta: Ven solo su departamento (Filtro Quirúrgico)
+        if es_admin_global:
             sql = text("""
                 SELECT * FROM db_usuarios 
                 WHERE activo = true 
-                AND rol ILIKE 'staff frimetals'
-                ORDER BY username ASC
-            """)
-            params = {}
-        elif es_admin:
-            # Bypass total para administradores en FriParts (Excluyendo Metales por política de aislamiento)
-            sql = text("""
-                SELECT * FROM db_usuarios 
-                WHERE activo = true 
-                AND rol NOT ILIKE 'staff frimetals'
                 ORDER BY username ASC
             """)
             params = {}
         else:
-            deptos_interes = AREAS_POR_ROL.get(user_role, [])
-            
-            # Si no hay áreas definidas, al menos ve su propio departamento
-            if not deptos_interes:
-                sql_propio = text("SELECT departamento FROM db_usuarios WHERE username = :user")
-                propio_res = db.session.execute(sql_propio, {'user': user_name}).fetchone()
-                if propio_res and propio_res[0]:
-                    deptos_interes = [propio_res[0]]
-
-            # Query: Filtra por deptos O que sea él mismo (Self-registry)
-            # FIX SQL: upper(departamento) IN :deptos (sin paréntesis extra)
+            # Filtro Estricto por Departamento
             sql = text("""
                 SELECT * FROM db_usuarios 
                 WHERE activo = true 
                 AND (
-                    upper(departamento) IN :deptos
-                    OR upper(jefe) ILIKE :nombre_jefe
+                    upper(departamento) = upper(:mi_depto)
                     OR username = :current_user
                 )
                 ORDER BY username ASC
             """)
-            
-            # Asegurar que deptos sea una tupla para SQLAlchemy IN
-            deptos_tuple = tuple(d.upper() for d in (deptos_interes or ['NONE']))
-            
             params = {
-                'deptos': deptos_tuple,
-                'nombre_jefe': f"%{user_name}%",
+                'mi_depto': mi_depto,
                 'current_user': user_name
             }
 

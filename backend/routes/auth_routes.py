@@ -23,7 +23,7 @@ def get_metals_responsables():
         # Filtro estricto para Frimetals y Administración
         usuarios_db = Usuario.query.filter(
             Usuario.activo == True,
-            Usuario.rol.in_(['staff frimetals', 'administracion'])
+            Usuario.rol.in_(['staff frimetals', 'administracion', 'jefe de planta'])
         ).order_by(Usuario.nombre_completo).all()
         
         resultado = [{
