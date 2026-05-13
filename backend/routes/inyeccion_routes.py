@@ -5,7 +5,7 @@ import traceback
 import pytz
 from datetime import datetime
 from flask import Blueprint, jsonify, request
-from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES
 from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion
 from backend.config.settings import Settings
 
@@ -232,7 +232,9 @@ def registrar_inyeccion_lote():
             if es_validacion:
                 try:
                     from backend.services.bom_service import calcular_descuentos_ensamble
-                    bom_res = calcular_descuentos_ensamble(id_cod, int(registro.cantidad_real))
+                    # Casteo seguro: cantidad_real puede ser String con decimales
+                    cant_for_bom = int(float(str(registro.cantidad_real or 0)))
+                    bom_res = calcular_descuentos_ensamble(id_cod, cant_for_bom)
                     if bom_res.get('success'):
                         for comp in bom_res.get('componentes', []):
                             registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
@@ -376,7 +378,7 @@ def iniciar_turno_inyeccion():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @inyeccion_bp.route('/api/inyeccion/validar/<id_inyeccion>', methods=['POST'])
-@require_role(ROL_ADMINS + ['JEFE INYECCION', 'ADMINISTRACION', 'CALIDAD'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD'])
 def validar_lote_inyeccion(id_inyeccion):
     """
     Endpoint para validación rápida de un lote completo sin pasar por el formulario de Paola.
@@ -393,7 +395,9 @@ def validar_lote_inyeccion(id_inyeccion):
                 try:
                     from backend.services.bom_service import calcular_descuentos_ensamble
                     from backend.app import registrar_entrada, registrar_salida
-                    bom_res = calcular_descuentos_ensamble(r.id_codigo, int(r.cantidad_real or 0))
+                    # Casteo resiliente para evitar Error 500 si cantidad_real tiene decimales o es String
+                    cant_val = int(float(str(r.cantidad_real or 0)))
+                    bom_res = calcular_descuentos_ensamble(r.id_codigo, cant_val)
                     if bom_res.get('success'):
                         for comp in bom_res.get('componentes', []):
                             registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")

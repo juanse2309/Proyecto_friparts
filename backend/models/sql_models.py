@@ -135,8 +135,8 @@ class ProduccionPulido(db.Model):
     tiempo_total_minutos = db.Column(db.Numeric(10, 2), default=0)
     duracion_segundos    = db.Column(db.Integer, default=0)
     segundos_por_unidad  = db.Column(db.Numeric(10, 2), default=0)
-    orden_prod      = db.Column(db.Text,    nullable=True) # Renombrado de orden_produccion (TEXT)
-    observaciones   = db.Column(db.Text,    nullable=True) # TEXT
+    orden_produccion     = db.Column(db.Text,    nullable=True) # Nombre real en DB: orden_produccion
+    observaciones        = db.Column(db.Text,    nullable=True) # TEXT
     criterio_pnc_inyeccion = db.Column(db.Text, nullable=True)
     criterio_pnc_pulido    = db.Column(db.Text, nullable=True)
     departamento           = db.Column(db.String(100), default='PULIDO')
