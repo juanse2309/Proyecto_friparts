@@ -79,6 +79,18 @@ const ModuloPulido = {
         await this.cargarDatosMaestros();
         this.initAutocompletes();
         this.limpiarLegacyStorageKeys();
+        
+        // --- LIMPIEZA POR CAMBIO DE VERSIÓN (v4.5 - Fix orden_produccion) ---
+        const PULIDO_VERSION = '4.5';
+        if (localStorage.getItem('pulido_app_version') !== PULIDO_VERSION) {
+            console.log("🚀 [Pulido] Nueva versión detectada (v4.5). Limpiando caché para sincronización...");
+            // Limpiar solo estados de sesión para no borrar preferencias de usuario
+            Object.keys(localStorage).forEach(key => {
+                if (key.includes('pulido_state')) localStorage.removeItem(key);
+            });
+            localStorage.setItem('pulido_app_version', PULIDO_VERSION);
+        }
+
         this.cargarCacheUI();
         await this.verificarTrabajoActivo(); // Rehidratar desde SQL
         this.cargarEstadoLocal(); // Fallback/Sync local

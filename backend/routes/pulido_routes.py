@@ -54,7 +54,7 @@ def registrar_pulido():
         registro.pnc_pulido = int(data.get('pnc_pulido') or 0)
         registro.criterio_pnc_inyeccion = data.get('criterio_pnc_inyeccion')
         registro.criterio_pnc_pulido = data.get('criterio_pnc_pulido')
-        registro.orden_prod = data.get('orden_produccion') or 'SIN OP'
+        registro.orden_produccion = data.get('orden_produccion') or 'SIN OP'
         registro.observaciones = data.get('observaciones', '')
         registro.estado = data.get('estado', 'FINALIZADO')
         registro.departamento = 'Pulido'  # Estandarización exigida
@@ -240,6 +240,9 @@ def registrar_pulido():
 @pulido_bp.route('/api/pulido/session_active', methods=['GET'])
 def get_active_pulido_session():
     try:
+        # Forzar limpieza de caché de sesión para obtener datos frescos de la DB
+        db.session.remove()
+        
         if request.args.get('ping') == 'true':
             return jsonify({"success": True, "ping": "pong"}), 200
 
@@ -261,7 +264,7 @@ def get_active_pulido_session():
                     "id_pulido": sesion.id_pulido,
                     "codigo": sesion.codigo,
                     "lote": sesion.lote,
-                    "orden_prod": sesion.orden_prod,
+                    "orden_produccion": sesion.orden_produccion,
                     "hora_inicio_dt": sesion.hora_inicio.isoformat() if sesion.hora_inicio else None,
                     "duracion_segundos": sesion.duracion_segundos or 0,
                     "estado": sesion.estado
