@@ -1805,12 +1805,12 @@ const ModuloPedidos = {
         let itemsHtml = productos.map(p => `
             <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
                 <div style="flex: 1;">
-                    <div class="fw-bold text-dark" style="font-size: 0.9rem;">${p.id_codigo}</div>
+                    <div class="fw-bold text-dark" style="font-size: 0.9rem;">${p.id_codigo || p.codigo}</div>
                     <div class="small text-muted" style="font-size: 0.8rem;">${p.descripcion}</div>
                 </div>
                 <div class="text-end" style="min-width: 80px;">
                     <div class="fw-bold">x${p.cantidad}</div>
-                    <div class="small text-primary fw-bold">$${new Intl.NumberFormat('es-CO').format(p.precio)}</div>
+                    <div class="small text-primary fw-bold">$${new Intl.NumberFormat('es-CO').format(p.precio_unitario || p.precio || 0)}</div>
                 </div>
             </div>
         `).join('');

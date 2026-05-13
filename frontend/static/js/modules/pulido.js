@@ -696,6 +696,12 @@ const ModuloPulido = {
 
 
     prepararReporteFinal: function () {
+        // DETENER CRONÓMETRO INMEDIATAMENTE PARA EXACTITUD (Bug Fix)
+        if (this.sesionActiva && !this.enPausa) {
+            console.log("⏱️ [Pulido] Deteniendo cronómetro para reporte final...");
+            this.pausarCiclo();
+        }
+
         const now = new Date();
         
         // El tiempo total es la suma de lo acumulado (sesiones previas) + el segmento actual
@@ -1001,7 +1007,7 @@ const ModuloPulido = {
 
             Swal.showLoading();
             // Usar el apiClient robusto que ya implementa 3 reintentos
-            const result = await window.apiClient.post('/api/pulido', data);
+            const result = await window.apiClient.post('/pulido', data);
 
             if (result.success) {
                 Swal.fire('¡Éxito!', 'Producción guardada correctamente.', 'success');
@@ -1023,9 +1029,12 @@ const ModuloPulido = {
             // Persistencia Local (LocalStorage) ante fallos
             localStorage.setItem('pulido_failed_report', JSON.stringify(data));
 
+            const isServerError = error.message.includes('HTTP');
+            const errorMsg = isServerError ? error.message : 'No se pudo contactar al servidor tras varios intentos.';
+
             Swal.fire({
-                title: 'Fallo de Conexión',
-                text: 'No se pudo contactar al servidor tras varios intentos. El reporte se guardó LOCALMENTE en la tablet. Puedes reintentar ahora o cerrar para intentarlo más tarde.',
+                title: isServerError ? 'Error del Servidor' : 'Fallo de Conexión',
+                text: `${errorMsg} El reporte se guardó LOCALMENTE en la tablet. Puedes reintentar ahora o cerrar para intentarlo más tarde.`,
                 icon: 'error',
                 showCancelButton: true,
                 confirmButtonText: 'Reintentar Ahora',
@@ -1174,7 +1183,11 @@ const ModuloPulido = {
             const desc = item.descripcion ? `<br><small class="text-muted" style="font-size: 0.75rem;">${item.descripcion}</small>` : '';
             
             if (isProd) {
-                const img = item.imagen ? `<img src="${item.imagen}" style="width: 45px; height: 45px; object-fit: contain; margin-right: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">` : '';
+                let imgSrc = item.imagen || '';
+                if (imgSrc && !imgSrc.startsWith('/') && !imgSrc.startsWith('http') && !imgSrc.startsWith('data:')) {
+                    imgSrc = `/static/img/productos/${imgSrc}`;
+                }
+                const img = imgSrc ? `<img src="${imgSrc}" style="width: 45px; height: 45px; object-fit: contain; margin-right: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;" onerror="this.src='/static/img/no-image.svg'">` : '';
                 return `
                     <div class="suggestion-item p-2 border-bottom d-flex align-items-center" style="cursor:pointer; transition: background 0.2s;">
                         ${img}
@@ -1468,6 +1481,10 @@ const ModuloPulido = {
         }
 
         if (url) {
+            // FIX: Si la URL es relativa (ej: 'No-disponible.jpg'), apuntar a la carpeta de productos
+            if (!url.startsWith('/') && !url.startsWith('http') && !url.startsWith('data:')) {
+                url = `/static/img/productos/${url}`;
+            }
             img.src = url;
             container.style.display = 'block';
         } else {

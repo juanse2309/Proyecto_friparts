@@ -63,17 +63,27 @@
         
         let text = detalle;
         
-        // Parsea JSON de PNC
+        // 1. Detectar y parsear JSON directamente (si el campo es un JSON string puro o contiene [PNC_DETAIL])
         const pncRegex = /\[PNC_DETAIL\]\s*(\{.*?\})/g;
-        text = text.replace(pncRegex, (match, jsonStr) => {
+        if (pncRegex.test(text)) {
+            text = text.replace(pncRegex, (match, jsonStr) => {
+                try {
+                    const data = JSON.parse(jsonStr);
+                    return "PNC: " + Object.entries(data).map(([k, v]) => `${k.toUpperCase()}: ${v}`).join(', ');
+                } catch (e) { return jsonStr; }
+            });
+        } else if (text.trim().startsWith('{') && text.trim().endsWith('}')) {
             try {
-                const data = JSON.parse(jsonStr);
-                return "PNC: " + Object.entries(data).map(([k, v]) => `${k}=${v}`).join(', ');
-            } catch (e) { return "PNC: " + jsonStr; }
-        });
+                const data = JSON.parse(text);
+                text = Object.entries(data).map(([k, v]) => `${k.toUpperCase()}: ${v}`).join(' | ');
+            } catch (e) { /* No es JSON válido, dejar como está */ }
+        }
 
-        // Reemplaza tags
-        text = text.replace(/\[AUTO_BREAK\]/g, 'RECESO: ');
+        // 2. Limpieza de tags y caracteres especiales
+        text = text.replace(/\[AUTO_BREAK\]/g, 'RECESO');
+        text = text.replace(/<br\s*\/?>/gi, ' | ');
+        text = text.replace(/&nbsp;/g, ' ');
+        
         return text.trim();
     }
 
@@ -83,7 +93,7 @@
      */
     async function cargarHistorial() {
         try {
-            console.log('📜 Cargando historial...');
+            console.log('📜 Cargando historial v4.1 (Direct Array)...');
             if (typeof mostrarLoading === 'function') mostrarLoading(true);
 
             const proceso = document.getElementById('tipoProceso')?.value || '';
@@ -99,31 +109,38 @@
 
             const res = await fetchData(url);
 
-            if (res && res.success) {
-                let rawData = res.data || [];
+            // LOG DE AUDITORÍA (Juan Sebastian Request)
+            console.log('📡 [Historial] Respuesta recibida:', res);
 
-                // Filtrado estricto por división (Juan Sebastian request)
+            // v4.1: La respuesta es un ARRAY directo. Ya no viene envuelto en .success/.data
+            if (Array.isArray(res)) {
+                let rawData = res;
+
+                // Filtrado estricto por división
                 const division = window.AppState.user?.division || 'FRIPARTS';
                 if (division === 'FRIPARTS') {
                     h_datos = rawData.filter(r => r.Tipo !== 'METALS');
                 } else {
-                    // Si es FRIMETALS, solo mostrar METALS
                     h_datos = rawData.filter(r => r.Tipo === 'METALS');
                 }
 
-                h_paginaActual = 1; // Reseteo imperativo a página 1
+                h_paginaActual = 1;
 
-                // Debug para verificar llaves reales Juan Sebastian
                 if (h_datos.length > 0) {
-                    console.log('✅ Historial - Primer registro recibido:', h_datos[0]);
+                    console.log('✅ Historial - Datos procesados exitosamente. Muestra:', h_datos[0]);
                 } else {
-                    console.log('⚠️ Historial - No se recibieron datos');
+                    console.log('⚠️ Historial - Filtro devolvió 0 registros');
                 }
 
                 renderizarTablaHistorial();
 
                 const totalSpan = document.getElementById('total-registros-historial');
                 if (totalSpan) totalSpan.textContent = h_datos.length;
+            } else {
+                console.error('❌ La API no devolvió un Array válido:', res);
+                if (typeof mostrarNotificacion === 'function') {
+                    mostrarNotificacion('Error en formato de datos del historial', 'error');
+                }
             }
 
         } catch (error) {
@@ -659,13 +676,15 @@
 
                 return {
                     'Fecha': r.Fecha,
+                    'Hora Inicio': formatHorario(r.HORA_INICIO),
+                    'Hora Fin': formatHorario(r.HORA_FIN),
                     'Tipo de Registro': r.Tipo,
                     'Responsable': responsable,
                     'Producto': r.Producto || 'Sin Producto',
                     'Orden de Producción': orden,
                     'Máquina/Extra': maquina,
                     'Detalle': limpiarTextoParaExcel(r.Detalle),
-                    'Cantidad': cantidad
+                    'Cantidad': { v: Number(cantidad) || 0, t: 'n' } // Forzar tipo numérico para Excel
                 };
             });
 
@@ -673,15 +692,17 @@
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.json_to_sheet(rows);
 
-            // Estilos básicos (ancho de columnas)
+            // Estilos básicos (ancho de columnas ajustado para las nuevas columnas)
             const wscols = [
                 { wch: 12 }, // Fecha
+                { wch: 10 }, // Hora Inicio
+                { wch: 10 }, // Hora Fin
                 { wch: 12 }, // Tipo
                 { wch: 25 }, // Responsable
                 { wch: 20 }, // Producto
                 { wch: 15 }, // Orden
                 { wch: 15 }, // Máquina
-                { wch: 50 }, // Detalle
+                { wch: 60 }, // Detalle
                 { wch: 10 }  // Cantidad
             ];
             ws['!cols'] = wscols;

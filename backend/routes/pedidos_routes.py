@@ -171,7 +171,17 @@ def registrar_pedido():
                 registro_existente = Pedido.query.filter_by(id_pedido=id_pedido_final, id_codigo=codigo).first()
 
             if registro_existente:
-                # SOBREESCRITURA TOTAL (No sumatoria)
+                # LÓGICA DE SUMA ATÓMICA (Juan Sebastian Request)
+                # Si viene id_sql, es una edición directa de esa fila -> Sobrecribimos.
+                # Si NO viene id_sql pero se halló por id_pedido + id_codigo -> Sumamos.
+                if id_sql:
+                    registro_existente.cantidad = cantidad
+                    logger.info(f"📝 Sobreescribiendo fila {id_sql} (Edición directa)")
+                else:
+                    nueva_cantidad = float(registro_existente.cantidad or 0) + cantidad
+                    registro_existente.cantidad = nueva_cantidad
+                    logger.info(f"➕ Sumando cantidad a producto existente {codigo}: {cantidad} -> Total: {nueva_cantidad}")
+
                 registro_existente.fecha = fecha_dt
                 registro_existente.cliente = cliente
                 registro_existente.nit = nit
@@ -179,9 +189,8 @@ def registrar_pedido():
                 registro_existente.ciudad = ciudad
                 registro_existente.id_codigo = codigo
                 registro_existente.descripcion = descripcion
-                registro_existente.cantidad = cantidad 
                 registro_existente.precio_unitario = precio 
-                registro_existente.total = total_item
+                registro_existente.total = float(registro_existente.cantidad) * precio
                 registro_existente.observaciones = observaciones
                 registro_existente.forma_de_pago = forma_pago
                 registro_existente.descuento = descuento_global
@@ -363,8 +372,12 @@ def obtener_pedidos_pendientes():
         user_session = str(session.get('user', '')).strip().upper()
         rol_session = str(session.get('rol') or session.get('role', '')).lower()
         
-        # Roles con visibilidad global
-        es_admin = any(x in rol_session for x in ["admin", "administracion", "administrador", "gerencia", "jefe almacen", "comercial", "metals_staff", "metals_admin"])
+        # Roles con visibilidad global (Inclusión ampliada para Almacén y Planta)
+        es_admin = any(x in rol_session for x in [
+            "admin", "administracion", "administrador", "gerencia", 
+            "jefe almacen", "jefe de planta", "auxiliar almacen", 
+            "alistador", "comercial", "metals_staff", "metals_admin"
+        ])
 
         filtrados = []
         for p in pedidos:

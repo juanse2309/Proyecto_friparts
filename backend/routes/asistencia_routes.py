@@ -111,24 +111,31 @@ def obtener_colaboradores():
         # 1. Definir Áreas de Responsabilidad (Reglas de Oro)
         AREAS_POR_ROL = {
             'JEFE INYECCION':     ['INYECCION', 'ENSAMBLE'],
-            'JEFE ALMACEN':['ALISTAMIENTO', 'ALMACEN'],
-            'JEFE PULIDO':['PULIDO'],
-            'JEFE DE PLANTA':['PLANTA', 'PRODUCCION'],
+            'JEFE ALMACEN':       ['ALISTAMIENTO', 'ALMACEN', 'BODEGA'],
+            'JEFE PULIDO':        ['PULIDO'],
+            'JEFE DE PLANTA':     ['INYECCION', 'PULIDO', 'ENSAMBLE', 'ALMACEN', 'ALISTAMIENTO', 'PLANTA', 'PRODUCCION'],
+            'STAFF FRIMETALS':    ['STAFF FRIMETALS', 'METALES', 'PLANTA'],
+            'ADMIN FRIMETALS':    ['STAFF FRIMETALS', 'METALES', 'PLANTA', 'ADMINISTRACION'],
         }
 
         # 2. Construir Filtro
         ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
         es_admin_global = any(r in user_role for r in ADMS)
-        division_req = request.args.get('division', '').lower()
 
-        # 1. Obtener departamento del usuario actual (Jeison -> 'STAFF FRIMETALS')
+        # Obtener departamento del usuario actual
         sql_propio = text("SELECT departamento FROM db_usuarios WHERE username = :user")
         propio_res = db.session.execute(sql_propio, {'user': user_name}).fetchone()
         mi_depto = propio_res[0] if propio_res and propio_res[0] else 'SIN_DEPTO'
 
+        # Determinar lista de departamentos visibles para este usuario
+        deptos_visibles = AREAS_POR_ROL.get(user_role, [mi_depto])
+        # Asegurar que siempre vea su propio departamento aunque no esté en el mapa
+        if mi_depto and mi_depto not in deptos_visibles:
+            deptos_visibles.append(mi_depto)
+
         # LÓGICA DE VISIBILIDAD:
-        # 1. Admins Globales: Ven TODO sin restricciones (Bypass total)
-        # 2. Jefes de Área/Planta: Ven solo su departamento (Filtro Quirúrgico)
+        # 1. Admins Globales: Ven TODO without restrictions
+        # 2. Jefes/Staff: Ven sus departamentos asignados + ellos mismos
         if es_admin_global:
             sql = text("""
                 SELECT * FROM db_usuarios 
@@ -137,18 +144,19 @@ def obtener_colaboradores():
             """)
             params = {}
         else:
-            # Filtro Estricto por Departamento
+            # Filtro por Áreas de Responsabilidad (Flexible)
             sql = text("""
                 SELECT * FROM db_usuarios 
                 WHERE activo = true 
                 AND (
-                    upper(departamento) = upper(:mi_depto)
+                    upper(departamento) IN :deptos
                     OR username = :current_user
                 )
                 ORDER BY username ASC
             """)
+            # Normalizar a mayúsculas para el match IN
             params = {
-                'mi_depto': mi_depto,
+                'deptos': tuple(d.upper() for d in deptos_visibles),
                 'current_user': user_name
             }
 

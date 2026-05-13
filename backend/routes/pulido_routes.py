@@ -54,7 +54,7 @@ def registrar_pulido():
         registro.pnc_pulido = int(data.get('pnc_pulido') or 0)
         registro.criterio_pnc_inyeccion = data.get('criterio_pnc_inyeccion')
         registro.criterio_pnc_pulido = data.get('criterio_pnc_pulido')
-        registro.orden_produccion = data.get('orden_produccion') or 'SIN OP'
+        registro.orden_prod = data.get('orden_produccion') or 'SIN OP'
         registro.observaciones = data.get('observaciones', '')
         registro.estado = data.get('estado', 'FINALIZADO')
         registro.departamento = 'Pulido'  # Estandarización exigida
@@ -144,13 +144,16 @@ def registrar_pulido():
             registro.tiempo_total_minutos = 0.0
             registro.segundos_por_unidad = 0.0
 
+        db.session.flush() # Asegurar que el registro principal tenga ID en la sesión
+ 
         # Sincronización de PNC Detallado (vaya esa info donde debe)
         pnc_detail = data.get('pnc_detail', [])
         if pnc_detail:
             # Limpiar registros previos de PNC vinculados a este id_pulido
-            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_pulido).delete()
-            db.session.query(PncPulido).filter_by(id_pulido=id_pulido).delete()
-            db.session.query(PncEnsamble).filter_by(id_ensamble=id_pulido).delete()
+            # Usar registro.id_pulido que es el identificador confirmado en este punto
+            db.session.query(PncInyeccion).filter_by(id_inyeccion=registro.id_pulido).delete()
+            db.session.query(PncPulido).filter_by(id_pulido=registro.id_pulido).delete()
+            db.session.query(PncEnsamble).filter_by(id_ensamble=registro.id_pulido).delete()
 
             for pnc_item in pnc_detail:
                 proc = pnc_item.get('proceso', '').upper()
@@ -161,7 +164,7 @@ def registrar_pulido():
                 if proc == 'INYECCION':
                     db.session.add(PncInyeccion(
                         id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                        id_inyeccion=id_pulido,
+                        id_inyeccion=registro.id_pulido,
                         id_codigo=registro.codigo,
                         cantidad=cant,
                         criterio=crit
@@ -169,7 +172,7 @@ def registrar_pulido():
                 elif proc == 'PULIDO':
                     db.session.add(PncPulido(
                         id_pnc_pulido=uuid.uuid4().hex[:8],
-                        id_pulido=id_pulido,
+                        id_pulido=registro.id_pulido,
                         codigo=registro.codigo,
                         cantidad=cant,
                         criterio=crit
@@ -177,14 +180,14 @@ def registrar_pulido():
                 elif proc == 'ENSAMBLE':
                     db.session.add(PncEnsamble(
                         id_pnc_ensamble=uuid.uuid4().hex[:8],
-                        id_ensamble=id_pulido,
+                        id_ensamble=registro.id_pulido,
                         id_codigo=registro.codigo,
                         cantidad=cant,
                         criterio=crit
                     ))
 
         db.session.flush() # Asegurar que el registro principal tenga ID en la sesión
- 
+
         # ---------------------------------------------------------
         # Manejo de Bujes Revueltos (NUEVO)
         # ---------------------------------------------------------
@@ -225,11 +228,21 @@ def registrar_pulido():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"❌ [PULIDO-ERROR] Error crítico al registrar: {str(e)}\n{error_trace}")
+        return jsonify({
+            "success": False, 
+            "error": str(e),
+            "detail": "Error interno al procesar el reporte de pulido (Revisa logs del servidor)"
+        }), 500
 
 @pulido_bp.route('/api/pulido/session_active', methods=['GET'])
 def get_active_pulido_session():
     try:
+        if request.args.get('ping') == 'true':
+            return jsonify({"success": True, "ping": "pong"}), 200
+
         responsable = request.args.get('responsable')
         if not responsable:
             return jsonify({"success": False, "error": "Falta responsable"}), 400
@@ -248,7 +261,7 @@ def get_active_pulido_session():
                     "id_pulido": sesion.id_pulido,
                     "codigo": sesion.codigo,
                     "lote": sesion.lote,
-                    "orden_produccion": sesion.orden_produccion,
+                    "orden_prod": sesion.orden_prod,
                     "hora_inicio_dt": sesion.hora_inicio.isoformat() if sesion.hora_inicio else None,
                     "duracion_segundos": sesion.duracion_segundos or 0,
                     "estado": sesion.estado

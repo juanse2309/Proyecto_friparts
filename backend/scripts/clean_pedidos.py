@@ -47,10 +47,15 @@ def curar_pedidos():
                 principal = rows[0]
                 restantes = rows[1:]
                 
-                logger.info(f"📦 Pedido {id_p} | Código {cod}: Manteniendo ID_SQL {principal.id_sql}, eliminando {len(restantes)} duplicados.")
+                logger.info(f"📦 Pedido {id_p} | Código {cod}: Manteniendo ID_SQL {principal.id_sql}, consolidando {len(restantes)} duplicados.")
                 
+                # Consolidación antes de borrar (Juan Sebastian Request)
                 for r in restantes:
+                    principal.cantidad = float(principal.cantidad or 0) + float(r.cantidad or 0)
+                    principal.total = float(principal.total or 0) + float(r.total or 0)
                     db.session.delete(r)
+                
+                logger.info(f"✨ Consolidación exitosa para {id_p} | {cod}: Cantidad final {principal.cantidad}")
         
         # 2. Corregir inconsistencias de prefijos (9319 vs FR-9319 en el mismo pedido)
         # Esto es un caso especial solicitado por el usuario anteriormente

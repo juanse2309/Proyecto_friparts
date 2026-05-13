@@ -570,6 +570,11 @@ const AlmacenModule = {
         let html = '';
         let itemsVisibles = 0;
 
+        if (!this.pedidoActual || !this.pedidoActual.productos) {
+            container.innerHTML = '<div class="text-center py-4 text-muted">No hay productos en este pedido</div>';
+            return;
+        }
+
         this.pedidoActual.productos.forEach((prod, index) => {
             if (prod.cant_lista === undefined) prod.cant_lista = 0;
             // Asegurar booleano

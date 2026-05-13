@@ -1,9 +1,9 @@
-﻿const apiClient = {
+const apiClient = {
     baseURL: '/api',
     
     async get(endpoint) {
         try {
-            const url = `${this.baseURL}${endpoint}`;
+            const url = endpoint.startsWith(this.baseURL) ? endpoint : `${this.baseURL}${endpoint}`;
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.json();
@@ -15,7 +15,7 @@
     
     async post(endpoint, data) {
         try {
-            const url = `${this.baseURL}${endpoint}`;
+            const url = endpoint.startsWith(this.baseURL) ? endpoint : `${this.baseURL}${endpoint}`;
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

@@ -384,116 +384,78 @@ class RepositoryService:
             return []
 
     def get_pedidos_pendientes_sql(self):
+        """
+        Obtiene pedidos pendientes para Almacén con mapeo robusto.
+        """
         try:
             sql = """
                 SELECT 
-                    p.id_pedido, 
-                    p.fecha, 
-                    p.hora,
-                    p.estado, 
-                    p.delegado_a,
-                    p.vendedor,
-                    COALESCE(p.cliente, c.nombre, 'Cliente Desconocido') as nombre_cliente,
-                    COALESCE(p.direccion, c.direccion, 'S/D - S/C') as direccion_cliente,
-                    COALESCE(p.ciudad, c.ciudad, '') as ciudad_cliente,
-                    p.id_codigo, 
-                    p.descripcion, 
-                    p.cantidad, 
-                    p.total,
-                    p.observaciones,
-                    p.progreso,
-                    p.progreso_despacho,
-                    p.cant_alistada
-                FROM db_pedidos p
-                LEFT JOIN (
-                    SELECT DISTINCT ON (identificacion) identificacion, nombre, direccion, ciudad 
-                    FROM db_clientes
-                ) c ON p.nit = c.identificacion
-                WHERE p.estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
-                  AND p.estado IS NOT NULL
-                ORDER BY p.fecha ASC, p.id_pedido ASC
+                    id, id_pedido, fecha, hora, estado, delegado_a, vendedor,
+                    nit, cliente, direccion, ciudad, id_codigo, descripcion,
+                    cantidad, precio_unitario, total, observaciones, progreso,
+                    progreso_despacho, cant_alistada
+                FROM db_pedidos
+                WHERE estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
+                  AND estado IS NOT NULL
+                ORDER BY fecha ASC, id_pedido ASC
             """
             rows = db.session.execute(text(sql)).mappings().all()
             
             agrupados = {}
             for r in rows:
-                nro_pedido = r['id_pedido'] # CLAVE PARA AGRUPAR (Ej: PED-9798)
-                
-                if not nro_pedido:
-                    continue
+                nro_pedido = str(r['id_pedido'] or '').strip()
+                if not nro_pedido: continue
                     
                 if nro_pedido not in agrupados:
-                    # Lógica inteligente para formatear la dirección
-                    ciudad = str(r['ciudad_cliente']).strip()
-                    direccion = str(r['direccion_cliente']).strip()
+                    # Formateo de dirección/ciudad para el frontend
+                    dir_raw = str(r['direccion'] or 'S/D').strip()
+                    ciu_raw = str(r['ciudad'] or 'S/C').strip()
+                    dir_final = f"{dir_raw} - {ciu_raw}" if ciu_raw and ciu_raw.upper() != 'S/C' else dir_raw
 
-                    # Si la ciudad es 'S/C', o si el nombre de la ciudad ya está escrito dentro de la dirección, no la concatenamos.
-                    if ciudad and ciudad.upper() != 'S/C' and ciudad.upper() not in direccion.upper():
-                        dir_completa = f"{direccion} - {ciudad}"
-                    else:
-                        dir_completa = direccion
-
-                    # Limpieza extra
-                    dir_completa = dir_completa.replace(' - S/C', '').replace('- S/C', '').strip(' -')
-                    
                     agrupados[nro_pedido] = {
                         "id": nro_pedido,
                         "id_pedido": nro_pedido,
                         "nro_pedido": nro_pedido,
                         "fecha": str(r['fecha'])[:10] if r['fecha'] else '',
                         "hora": str(r['hora'] or '').strip(),
-                        "cliente": r['nombre_cliente'],
-                        "direccion": dir_completa,
-                        "vendedor": r['vendedor'] or '',
-                        "estado": r['estado'],
-                        "delegado_a": r['delegado_a'] or '',
-                        "observaciones": r['observaciones'] or '',
-                        "progreso": r['progreso'] or '0',
-                        "progreso_despacho": r['progreso_despacho'] or '0',
+                        "cliente": str(r['cliente'] or 'Cliente Desconocido').strip(),
+                        "nit": str(r['nit'] or 'S/N').strip(),
+                        "direccion": dir_final,
+                        "ciudad": ciu_raw,
+                        "vendedor": str(r['vendedor'] or '').strip(),
+                        "estado": str(r['estado'] or 'PENDIENTE').strip().upper(),
+                        "delegado_a": str(r['delegado_a'] or '').strip(),
+                        "observaciones": str(r['observaciones'] or '').strip(),
+                        "progreso": str(r['progreso'] or '0').replace('%', ''),
+                        "progreso_despacho": str(r['progreso_despacho'] or '0').replace('%', ''),
                         "productos": []
                     }
-                else:
-                    # Robustez: Si la primera fila no tenía hora pero esta sí, capturarla
-                    if not agrupados[nro_pedido]["hora"] and r['hora']:
-                        agrupados[nro_pedido]["hora"] = str(r['hora']).strip()
                 
-                # Función segura de limpieza para el dashboard
-                def _safe_float(val):
-                    if not val: return 0
-                    s = str(val).replace('$', '').replace(',', '').strip()
-                    try: return int(float(s))
-                    except: return 0
+                # Mapeo de producto individual (ID CODIGO)
+                codigo = str(r['id_codigo'] or '').strip().upper()
+                
+                # Limpieza de cantidades (manejo de strings o nulls)
+                def _parse_num(v):
+                    if not v: return 0.0
+                    try: return float(str(v).replace('$', '').replace(',', '').strip())
+                    except: return 0.0
 
-                # Lógica de visualización única (Evitar duplicados incluso si hay error en DB)
-                def _norm_code(c):
-                    return str(c or '').strip().upper().replace('FR-', '')
-
-                codigo_actual = str(r['id_codigo'] or '').strip().upper()
-                codigo_norm = _norm_code(codigo_actual)
-                
-                # Buscar si este producto ya fue procesado para este pedido (Verdad Única)
-                ya_existe = any(_norm_code(p['codigo']) == codigo_norm for p in agrupados[nro_pedido]["productos"])
-                
-                if not ya_existe:
-                    # Solo agregamos si es la primera vez que lo vemos en este pedido
-                    cant_ali = _safe_float(r['cant_alistada'])
-                    agrupados[nro_pedido]["productos"].append({
-                        "id_sql": r.get('id_sql'), # Incluir para trazabilidad
-                        "codigo": codigo_actual,
-                        "descripcion": r['descripcion'] or '',
-                        "cantidad": _safe_float(r['cantidad']),
-                        "total": _safe_float(r['total']),
-                        "cant_alistada": cant_ali,
-                        "cant_lista": cant_ali
-                    })
-                else:
-                    # Si ya existe, lo ignoramos para no duplicar cantidades en pantalla
-                    pass
+                agrupados[nro_pedido]["productos"].append({
+                    "id_sql": r['id'],
+                    "codigo": codigo,
+                    "id_codigo": codigo,
+                    "descripcion": str(r['descripcion'] or '').strip(),
+                    "cantidad": _parse_num(r['cantidad']),
+                    "precio_unitario": _parse_num(r['precio_unitario']),
+                    "total": _parse_num(r['total']),
+                    "cant_alistada": str(r['cant_alistada'] or '0'),
+                    "cant_lista": str(r['cant_alistada'] or '0')
+                })
             
             return list(agrupados.values())
         except Exception as e:
             db.session.rollback()
-            logger.error(f"[get_pedidos_pendientes_sql] ERROR SQL: {e}")
+            logger.error(f"[get_pedidos_pendientes_sql] ERROR: {e}")
             return []
 
 

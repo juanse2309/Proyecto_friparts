@@ -14,7 +14,14 @@ logger = logging.getLogger(__name__)
 
 def obtener_mapa_vendedores():
     """Mapea nombres de vendedores a sus documentos."""
-    return {'JUAN SEBASTIAN NOVOA CEPEDA': '1018442255'} 
+    return {
+        'JUAN SEBASTIAN NOVOA CEPEDA': '1018442255',
+        'ANDRÉS BORBÓN REY': '1010193949',
+        'ANDRÉS BORBÓN': '1010193949',
+        'ANDRES BORBON': '1010193949',
+        'ANDRES BORBON REY': '1010193949',
+        'FRIPARTS': '900315300'
+    } 
 
 def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     """Lógica centralizada: Genera Excel y Actualiza SQL simultáneamente."""
@@ -79,7 +86,8 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
                 val_cons = str(curr_cons)
                 curr_cons += 1
             else:
-                val_cons = re.sub(r'[^0-9]', '', str(id_orig))
+                # MANTENER FORMATO COMPLETO (Ej: PED-1001)
+                val_cons = str(id_orig).strip().upper()
             mapeo_internos[id_orig] = val_cons
         
         doc_nro = mapeo_internos[id_orig]
@@ -99,7 +107,13 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
         nit_limpio = match_nit.group(1) if match_nit else str(nit_raw).strip()
         
         f_pag = str(item.forma_de_pago or 'Contado').replace('é', 'e').replace('á', 'a').replace('í', 'i').replace('ó', 'o')
-        v_id = v_ids.get(str(item.vendedor or '').upper(), '900315300')
+        
+        # Normalización Crítica del Vendedor (Juan Sebastian request)
+        vendedor_db = str(item.vendedor or '').strip().upper()
+        v_id = v_ids.get(vendedor_db, '900315300')
+        
+        # Trazabilidad Crítica
+        print(f"DEBUG WO: Pedido {id_orig} | Vendedor DB: {item.vendedor} | ID Asignado: {v_id}")
         
         try:
             d_val = str(item.descuento or '0').replace('%', '').strip()
