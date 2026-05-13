@@ -138,48 +138,42 @@ def registrar_inyeccion_lote():
             registro.estado         = nuevo_estado
             registro.departamento   = 'Inyeccion'
             
-            # Datos de Producción extraídos con fallbacks
-            disparos      = to_float(item.get('cantidad') or item.get('contador_maq') or 0)
-            num_cavidades = to_int(item.get('no_cavidades') or item.get('cavidades') or 1)
-            cant_real     = to_float(item.get('cantidad_real') or 0)
-            p_bujes       = to_float(item.get('peso_bujes') or 0)
-
-            # Unificación de Cavidades
-            registro.cavidades    = num_cavidades
-            # Intentar asignar a no_cavidades si el modelo lo permite (compatibilidad SQL)
-            if hasattr(registro, 'no_cavidades'):
-                setattr(registro, 'no_cavidades', num_cavidades)
-
-            # Cálculos Automáticos
-            registro.produccion_teorica = str(round(disparos * num_cavidades, 2))
-            registro.peso_lote          = str(round(cant_real * p_bujes, 4))
+            # --- BLINDAJE DE DATOS (int(round(float)) para BigInt/Integer) ---
+            disparos      = float(item.get('cantidad') or item.get('contador_maq') or 0)
+            num_cavidades = int(round(float(item.get('no_cavidades') or item.get('cavidades') or 1)))
+            cant_real     = int(round(float(item.get('cantidad_real') or 0)))
+            p_bujes       = float(item.get('peso_bujes') or 0)
             
-            # Mapeo de Datos Base
-            registro.cantidad_real  = str(cant_real)
-            registro.molde          = to_int(item.get('molde'))
-            registro.peso_bujes     = str(p_bujes)
+            # Asignación a modelo unificado (int4/bigint)
+            registro.cantidad_real = cant_real
+            registro.cavidades     = num_cavidades
+            registro.molde         = int(round(float(item.get('molde') or 0)))
+            
+            # Sincronización de Contadores y Métricas Recuperadas (JSON Mapping)
+            disparos      = float(item.get('cant_contador') or item.get('disparos') or 0)
+            registro.cant_contador      = int(round(disparos)) # Blindaje BigInt
+            registro.produccion_teorica = float(item.get('produccion_teorica') or (disparos * num_cavidades))
+            registro.peso_bujes         = float(item.get('peso_bujes') or 0)
+            registro.peso_lote          = str(round(cant_real * registro.peso_bujes, 4))
+            
+            # Metadatos y Tiempos (Fix hora_llegada)
             registro.observaciones  = item.get('observaciones') or ''
-            
-            # Mapeo de Contadores (con fallbacks de turno/item)
-            registro.contador_maq   = str(disparos)
-            registro.cant_contador  = str(to_float(item.get('cant_contador') or item.get('disparos') or 0))
-            
-            # Otros datos sincronizados
-            registro.hora_llegada   = turno.get('hora_llegada')
+            registro.hora_llegada   = item.get('hora_llegada') or item.get('horaLlegada') or turno.get('hora_llegada')
             registro.hora_inicio    = item.get('hora_inicio') or turno.get('hora_inicio')
             registro.hora_termina   = item.get('hora_fin') or item.get('hora_termina') or turno.get('hora_fin') or turno.get('hora_termina')
-            registro.tomados_en_proceso = str(to_float(item.get('tomados_en_proceso')))
-            registro.peso_tomadas_en_proceso = str(to_float(item.get('peso_tomadas_en_proceso')))
             registro.almacen_destino = item.get('almacen_destino') or turno.get('almacen_destino', 'POR PULIR')
             registro.codigo_ensamble = item.get('codigo_ensamble')
             registro.orden_produccion = item.get('orden_produccion') or turno.get('orden_produccion')
-            registro.peso_vela_maquina = str(to_float(item.get('peso_vela_maquina') or turno.get('peso_vela_maquina')))
-            registro.id_programacion = str(item.get('id_programacion') or turno.get('id_programacion', ''))
-            registro.pnc_total       = str(to_float(item.get('pnc') or item.get('pnc_total')))
-            registro.pnc_detalle     = item.get('criterio_pnc') or item.get('pnc_detalle')
-            registro.calidad_responsable = item.get('calidad_responsable')
-            registro.entrada         = str(to_float(item.get('entrada') or turno.get('entrada_manual')))
-            registro.salida          = str(to_float(item.get('salida') or turno.get('salida_manual')))
+            
+            # Sanitización de PNC
+            pnc_val = int(round(float(item.get('pnc') or item.get('pnc_total') or 0)))
+            registro.pnc_total   = pnc_val
+            pnc_det = item.get('criterio_pnc') or item.get('pnc_detalle')
+            registro.pnc_detalle = pnc_det if pnc_det else None # NULL en DB
+            
+            # Pesos y Movimientos
+            registro.entrada = str(float(item.get('entrada') or turno.get('entrada_manual') or 0))
+            registro.salida  = str(float(item.get('salida') or turno.get('salida_manual') or 0))
 
             # --- Cálculo de Tiempos y Métricas ---
             h_inicio = registro.hora_inicio
@@ -201,21 +195,19 @@ def registrar_inyeccion_lote():
                     if segundos < 0: segundos += 86400 # Cruce medianoche
                     
                     registro.duracion_segundos = segundos
-                    registro.tiempo_total_minutos = float(round(segundos / 60.0, 2))
+                    registro.tiempo_total_minutos = round(segundos / 60.0, 2)
                     
-                    if registro.cantidad_real > 0:
-                        registro.segundos_por_unidad = float(round(segundos / registro.cantidad_real, 2))
+                    if cant_real > 0:
+                        registro.segundos_por_unidad = int(round(segundos / cant_real))
                     else:
-                        registro.segundos_por_unidad = 0.0
+                        registro.segundos_por_unidad = 0
                         
-                    # Sincronizar timestamps DateTime si es necesario
                     registro.fecha_inicia = dt_inicio.replace(tzinfo=None)
                     registro.fecha_fin = dt_fin.replace(tzinfo=None)
                 except Exception as e_time:
                     logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
 
             # Registro de PNC
-            pnc_val = registro.pnc_total
             db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).delete()
             if pnc_val > 0:
                 nuevo_pnc = PncInyeccion(

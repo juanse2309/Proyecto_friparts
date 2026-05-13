@@ -12,16 +12,6 @@ from sqlalchemy import text
 facturacion_bp = Blueprint('facturacion_bp', __name__)
 logger = logging.getLogger(__name__)
 
-def obtener_mapa_vendedores():
-    """Mapea nombres de vendedores a sus documentos."""
-    return {
-        'JUAN SEBASTIAN NOVOA CEPEDA': '1018442255',
-        'ANDRÉS BORBÓN REY': '1010193949',
-        'ANDRÉS BORBÓN': '1010193949',
-        'ANDRES BORBON': '1010193949',
-        'ANDRES BORBON REY': '1010193949',
-        'FRIPARTS': '900315300'
-    } 
 
 def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     """Lógica centralizada: Genera Excel y Actualiza SQL simultáneamente."""
@@ -42,8 +32,7 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     except:
         mapa_clientes = {}
 
-    v_ids = obtener_mapa_vendedores()
-    
+
     # 3. Mapeo WO Estricto (57 columnas)
     columnas_wo = [
         'Encab: Empresa', 'Encab: Tipo Documento', 'Encab: Prefijo', 'Encab: Documento Número',
@@ -108,9 +97,20 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
         
         f_pag = str(item.forma_de_pago or 'Contado').replace('é', 'e').replace('á', 'a').replace('í', 'i').replace('ó', 'o')
         
-        # Normalización Crítica del Vendedor (Juan Sebastian request)
-        vendedor_db = str(item.vendedor or '').strip().upper()
-        v_id = v_ids.get(vendedor_db, '900315300')
+        # Resolución Dinámica del Vendedor — consulta directa a db_usuarios
+        vendedor_db = str(item.vendedor or '').strip()
+        v_id = '900315300'  # Fallback: NIT Friparts (sólo último recurso)
+        if vendedor_db:
+            try:
+                row_user = db.session.execute(
+                    text("SELECT cedula FROM db_usuarios "
+                         "WHERE UPPER(TRIM(nombre_completo)) = UPPER(TRIM(:nombre))"),
+                    {"nombre": vendedor_db}
+                ).first()
+                if row_user and row_user[0]:
+                    v_id = str(row_user[0]).strip()
+            except Exception as ue:
+                logger.warning(f"[WO] No se pudo resolver cédula para '{vendedor_db}': {ue}")
         
         # Trazabilidad Crítica
         print(f"DEBUG WO: Pedido {id_orig} | Vendedor DB: {item.vendedor} | ID Asignado: {v_id}")

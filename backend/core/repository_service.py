@@ -582,7 +582,7 @@ class RepositoryService:
             sql = f"""
                 SELECT 
                     i.responsable, 
-                    SUM(COALESCE(NULLIF(regexp_replace(i.cantidad_real::text, '[^0-9]', '', 'g'), ''), '0')::INTEGER) as total,
+                    SUM(COALESCE(i.cantidad_real, 0)) as total,
                     SUM(COALESCE(pnc.total_pnc, 0)) as scrap
                 FROM db_inyeccion i
                 LEFT JOIN (
@@ -613,7 +613,7 @@ class RepositoryService:
             def _cast(col):
                 return f"COALESCE(NULLIF(regexp_replace({col}::text, '[^0-9]', '', 'g'), '')::INTEGER, 0)"
 
-            sql = f"SELECT maquina, SUM({_cast('cantidad_real')}) as total FROM db_inyeccion WHERE 1=1"
+            sql = f"SELECT maquina, SUM(COALESCE(cantidad_real, 0)) as total FROM db_inyeccion WHERE 1=1"
             params = {}
             if desde and hasta:
                 sql += ' AND fecha_inicia BETWEEN :desde AND :hasta'
@@ -1208,11 +1208,11 @@ class RepositoryService:
 
             sql = f"""
                 WITH iny AS (
-                    SELECT DATE(fecha_inicia) as d, SUM({_cast('cantidad_real')}) as qty
+                    SELECT DATE(fecha_inicia) as d, SUM(COALESCE(cantidad_real, 0)) as qty
                     FROM db_inyeccion {filt_iny} GROUP BY 1
                 ),
                 pul AS (
-                    SELECT DATE(fecha) as d, SUM({_cast('cantidad_real')}) as qty
+                    SELECT DATE(fecha) as d, SUM(COALESCE(cantidad_real, 0)) as qty
                     FROM db_pulido {filt_pul} GROUP BY 1
                 ),
                 fechas AS (

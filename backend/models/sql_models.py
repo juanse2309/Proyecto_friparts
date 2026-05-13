@@ -43,38 +43,32 @@ class ProduccionInyeccion(db.Model):
     id_codigo       = db.Column(db.String(50),  index=True, nullable=True)
     responsable     = db.Column(db.String(150), nullable=True)
     maquina         = db.Column(db.String(80),  nullable=True)
-    cantidad_real   = db.Column(db.String,      default='0') # Ajustado a String
+    cantidad_real   = db.Column(db.BigInteger,  default=0)
     estado          = db.Column(db.String(50),  nullable=True)
     molde           = db.Column(db.Integer,     nullable=True)
-    cavidades       = db.Column(db.Integer,     default=1)
+    cavidades       = db.Column(db.Integer,     default=1) # Columna principal (int4)
     
-    # --- NUEVAS COLUMNAS (Sincronización SQL-First) ---
+    # --- Columnas Operativas ---
     hora_llegada         = db.Column(db.String(20),  nullable=True)
     hora_inicio          = db.Column(db.String(20),  nullable=True)
     hora_termina         = db.Column(db.String(20),  nullable=True)
-    contador_maq         = db.Column(db.String, default='0') # Ajustado a String
-    cant_contador        = db.Column(db.String, default='0') # Ajustado a String
-    tomados_en_proceso   = db.Column(db.String, default='0') # Ajustado a String
-    peso_tomadas_en_proceso = db.Column(db.String, default='0') # Ajustado a String
+    cant_contador        = db.Column(db.BigInteger,  default=0) # Sincronizado con BigInt real
     almacen_destino      = db.Column(db.String(100), default='POR PULIR')
     codigo_ensamble      = db.Column(db.String(100), nullable=True)
     orden_produccion     = db.Column(db.String(100), nullable=True)
     observaciones        = db.Column(db.Text,        nullable=True)
-    peso_vela_maquina    = db.Column(db.String, default='0') # Ajustado a String
-    peso_bujes           = db.Column(db.String, default='0') # Ajustado a String
-    id_programacion      = db.Column(db.String(100), nullable=True)
-    produccion_teorica   = db.Column(db.String, default='0') # Ajustado a String
-    pnc_total            = db.Column(db.String, default='0') # Ajustado a String
+    produccion_teorica   = db.Column(db.Numeric(12, 2), default=0)
+    peso_bujes           = db.Column(db.Numeric(12, 4), default=0)
+    pnc_total            = db.Column(db.BigInteger,  default=0)
     pnc_detalle          = db.Column(db.Text,        nullable=True)
-    peso_lote            = db.Column(db.String, default='0') # Ajustado a String
-    calidad_responsable  = db.Column(db.String(150), nullable=True)
-    entrada              = db.Column(db.String, default='0') # Ajustado a String
-    salida               = db.Column(db.String, default='0') # Ajustado a String
+    peso_lote            = db.Column(db.Numeric(18, 4), default=0)
+    entrada              = db.Column(db.Numeric(18, 2), default=0)
+    salida               = db.Column(db.Numeric(18, 2), default=0)
     
-    # --- Métricas Globales ---
+    # --- Métricas ---
     duracion_segundos    = db.Column(db.Integer, default=0)
-    tiempo_total_minutos = db.Column(db.String, default='0') # Ajustado a String
-    segundos_por_unidad  = db.Column(db.String, default='0') # Ajustado a String
+    tiempo_total_minutos = db.Column(db.Numeric(10, 2), default=0)
+    segundos_por_unidad  = db.Column(db.Integer, default=0)
     departamento         = db.Column(db.String(100), default='Inyeccion')
 
 
@@ -143,6 +137,8 @@ class ProduccionPulido(db.Model):
     lote                   = db.Column(db.Text, nullable=True) # TEXT
     cantidad_recibida      = db.Column(db.Numeric(18, 2), default=0)
     almacen_destino        = db.Column(db.String(100), default='P. TERMINADO')
+    hora_pausa             = db.Column(db.DateTime,    nullable=True)
+    tiempo_pausa_acumulado = db.Column(db.Integer,     default=0)
 
 
 class PausasPulido(db.Model):
@@ -250,7 +246,7 @@ class Ensamble(db.Model):
     op_numero      = db.Column(db.Text, nullable=True) # TEXT
     almacen_para_descargar = db.Column(db.String(100), nullable=True)
     almacen_destino        = db.Column(db.String(100), nullable=True)
-    qty            = db.Column(db.Numeric(18, 4), default=1)
+    qty                    = db.Column(db.Numeric(18, 4), default=1)
     buje_ensamble  = db.Column(db.Text, nullable=True) # TEXT
     buje_origen    = db.Column(db.String(100), nullable=True)
     consumo_total  = db.Column(db.Numeric(18, 4), default=0)
@@ -260,6 +256,8 @@ class Ensamble(db.Model):
     segundos_por_unidad  = db.Column(db.Numeric(10, 2), default=0)
     departamento         = db.Column(db.String(100), default='Ensamble')
     estado               = db.Column(db.String(50),  default='FINALIZADO') # EN_PROCESO, FINALIZADO
+    hora_pausa           = db.Column(db.DateTime,    nullable=True)
+    tiempo_pausa_acumulado = db.Column(db.Integer,     default=0)
 
 
 class Pnc(db.Model):
@@ -308,7 +306,7 @@ class Usuario(db.Model):
     password_hash   = db.Column(db.String(255), nullable=False)
     nombre_completo = db.Column(db.String(150), nullable=True)
     rol             = db.Column(db.String(50),  default='operario')
-    jefe            = db.Column(db.String(150), nullable=True) # Jefe directo para filtrado RBAC
+    cedula          = db.Column(db.String(20),  nullable=True) # Identificación oficial del usuario
     departamento    = db.Column(db.String(100), nullable=True) # Area asignada (ej: INYECCION, PULIDO)
     hora_entrada    = db.Column(db.String(20),  nullable=True) # Horario oficial
     hora_salida     = db.Column(db.String(20),  nullable=True) # Horario oficial
@@ -532,8 +530,8 @@ class ProgramacionEnsamble(db.Model):
 
     id_prog            = db.Column(db.Integer, primary_key=True, autoincrement=True)
     id_codigo          = db.Column(db.String(50), index=True, nullable=True)
+    op_numero          = db.Column(db.String(100), nullable=True)
     cantidad_objetivo  = db.Column(db.Integer, nullable=False)
     cantidad_realizada = db.Column(db.Integer, default=0)
     fecha_programada   = db.Column(db.Date, nullable=False)
     estado             = db.Column(db.String(20), default='PENDIENTE') # PENDIENTE, EN_PROCESO, COMPLETADO
-

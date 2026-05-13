@@ -252,10 +252,15 @@ def get_active_pulido_session():
         
         # FIX Efecto Daniela: Filtrar por estado EN_PROCESO/PAUSADO,
         # NO por hora_fin=None (registros migrados no tienen hora_fin)
-        sesion = ProduccionPulido.query.filter(
-            ProduccionPulido.responsable == responsable,
-            ProduccionPulido.estado.in_(['EN_PROCESO', 'PAUSADO', 'PAUSADO_COLA', 'TRABAJANDO'])
-        ).order_by(ProduccionPulido.id.desc()).first()
+        query = ProduccionPulido.query.filter(ProduccionPulido.responsable == responsable)
+        
+        id_especifico = request.args.get('id_pulido')
+        if id_especifico:
+            query = query.filter(ProduccionPulido.id_pulido == id_especifico)
+        else:
+            query = query.filter(ProduccionPulido.estado.in_(['EN_PROCESO', 'PAUSADO', 'PAUSADO_COLA', 'TRABAJANDO']))
+            
+        sesion = query.order_by(ProduccionPulido.id.desc()).first()
 
         if sesion:
             return jsonify({
@@ -267,7 +272,9 @@ def get_active_pulido_session():
                     "orden_produccion": sesion.orden_produccion,
                     "hora_inicio_dt": sesion.hora_inicio.isoformat() if sesion.hora_inicio else None,
                     "duracion_segundos": sesion.duracion_segundos or 0,
-                    "estado": sesion.estado
+                    "estado": sesion.estado,
+                    "tiempo_pausa_acumulado": sesion.tiempo_pausa_acumulado or 0,
+                    "hora_pausa": sesion.hora_pausa.isoformat() if (sesion.estado == 'PAUSADO' and sesion.hora_pausa) else None
                 }
             })
         
@@ -275,7 +282,122 @@ def get_active_pulido_session():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@pulido_bp.route('/api/pulido/dashboard_stats', methods=['GET'])
+@pulido_bp.route('/api/pulido/tareas_pendientes', methods=['GET'])
+def get_pulido_tareas_pendientes():
+    try:
+        responsable = request.args.get('responsable')
+        if not responsable:
+            return jsonify({"success": False, "error": "Falta responsable"}), 400
+        
+        tareas = ProduccionPulido.query.filter(
+            ProduccionPulido.responsable == responsable,
+            ProduccionPulido.estado.in_(['PENDIENTE', 'PAUSADO_COLA'])
+        ).order_by(ProduccionPulido.id.desc()).all()
+        
+        return jsonify({
+            "success": True,
+            "tareas": [{
+                "id_pulido": t.id_pulido,
+                "codigo": t.codigo,
+                "lote": t.lote,
+                "orden_produccion": t.orden_produccion,
+                "estado": t.estado
+            } for t in tareas]
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pulido_bp.route('/api/pulido/pausar', methods=['POST'])
+def pausar_pulido():
+    """Registra el inicio de la pausa en el servidor."""
+    data = request.json
+    id_pulido = data.get('id_pulido')
+    try:
+        registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first()
+        if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
+        
+        # Blindaje: Forzar timestamp del servidor
+        registro.estado = 'PAUSADO'
+        registro.hora_pausa = datetime.now()
+        db.session.add(registro) # Asegurar marcaje para commit
+        db.session.commit()
+        
+        logger.info(f" [PAUSA] Actividad {id_pulido} pausada a las {registro.hora_pausa}")
+        return jsonify({"success": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pulido_bp.route('/api/pulido/reanudar', methods=['POST'])
+def reanudar_pulido():
+    """Calcula el tiempo de la pausa y lo suma al acumulador."""
+    data = request.json
+    id_pulido = data.get('id_pulido')
+    try:
+        registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first()
+        if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
+        
+        if registro.hora_pausa:
+            diferencia = datetime.now() - registro.hora_pausa
+            segundos_pausa = int(diferencia.total_seconds())
+            registro.tiempo_pausa_acumulado = (registro.tiempo_pausa_acumulado or 0) + segundos_pausa
+            
+        registro.estado = 'TRABAJANDO'
+        registro.hora_pausa = None
+        db.session.commit()
+        return jsonify({"success": True, "acumulado": registro.tiempo_pausa_acumulado})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pulido_bp.route('/api/pulido/swap_task', methods=['POST'])
+def swap_pulido_task():
+    try:
+        data = request.get_json()
+        responsable = str(data.get('responsable') or "")
+        id_raw = data.get('id_pulido')
+
+        # Registro de depuración para Render
+        logger.info(f" [SWAP-DEBUG] Recibido id_pulido: {id_raw} (Tipo: {type(id_raw)})")
+
+        # Blindaje definitivo contra [object Object] o diccionarios
+        if isinstance(id_raw, dict):
+            id_nuevo = str(id_raw.get('id_pulido') or "")
+        elif str(id_raw) == "[object Object]":
+            logger.error(" [SWAP-ERROR] El frontend envió un string '[object Object]'")
+            return jsonify({"success": False, "error": "ID de tarea inválido (object)"}), 400
+        else:
+            id_nuevo = str(id_raw or "")
+        
+        if not responsable or not id_nuevo or id_nuevo == "None":
+            return jsonify({"success": False, "error": "Datos incompletos o ID nulo"}), 400
+
+        # 1. Pausar TODO lo que esté TRABAJANDO para este operario
+        # Usamos datetime.now() para asegurar precisión en el registro de pausa
+        now = datetime.now()
+        trabajos_activos = ProduccionPulido.query.filter(
+            ProduccionPulido.responsable == responsable,
+            ProduccionPulido.estado == 'TRABAJANDO'
+        ).all()
+        
+        for t in trabajos_activos:
+            t.estado = 'PAUSADO_COLA'
+            t.hora_pausa = now
+            db.session.add(t)
+            
+        # 2. Activar la nueva tarea
+        nueva_tarea = ProduccionPulido.query.filter_by(id_pulido=id_nuevo).first()
+        if nueva_tarea:
+            nueva_tarea.estado = 'TRABAJANDO'
+            nueva_tarea.hora_pausa = None # Limpiar pausa para reanudación
+            db.session.add(nueva_tarea)
+            
+        db.session.commit()
+        return jsonify({"success": True, "message": "Intercambio realizado con éxito"})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[Pulido-Swap] Error crítico: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 @require_role(ROL_ADMINS + ['JEFE PULIDO', 'PULIDO'])
 def get_pulido_stats():
     # Placeholder

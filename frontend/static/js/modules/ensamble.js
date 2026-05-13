@@ -9,6 +9,14 @@ const ModuloEnsamble = {
     currentTab: 'programacion', 
     isManualMode: false,
     pncDetalles: '',
+    
+    // Estado de Sesión Persistente
+    sessionId: null,
+    sesionActiva: false,
+    enPausa: false,
+    startTime: null,
+    totalPausaMs: 0,
+    timerInterval: null,
 
     inicializar: async function () {
         console.log('🔧 [Ensamble] Inicializando módulo con Captura Infalible...');
@@ -29,6 +37,116 @@ const ModuloEnsamble = {
         if (document.getElementById('prog-fecha')) document.getElementById('prog-fecha').value = hoy;
 
         this.intentarAutoSeleccionarResponsable();
+        
+        // --- VERIFICACIÓN DE SESIÓN ACTIVA (Evita Duplicados) ---
+        await this.verificarSesionActiva();
+    },
+
+    verificarSesionActiva: async function() {
+        const responsable = document.getElementById('responsable')?.value || localStorage.getItem('ensamble_responsable');
+        if (!responsable) return;
+
+        try {
+            console.log(`📡 [Ensamble] Buscando sesión activa para: ${responsable}...`);
+            const res = await fetch(`/api/ensamble/session_active?responsable=${encodeURIComponent(responsable)}`);
+            const data = await res.json();
+
+            if (data.success && data.session) {
+                console.log("✅ [Ensamble] Sesión recuperada de DB:", data.session);
+                this.sessionId = data.session.id_ensamble;
+                this.sesionActiva = true;
+                this.enPausa = (data.session.estado === 'PAUSADO');
+                this.startTime = new Date(data.session.hora_inicio_dt);
+                this.totalPausaMs = (data.session.tiempo_pausa_acumulado || 0) * 1000;
+
+                // Poblar UI y Bloquear
+                const prodInput = document.getElementById('reporte-producto-manual');
+                const prodDisplay = document.getElementById('reporte-producto-display');
+                if (prodInput) prodInput.value = data.session.id_codigo;
+                if (prodDisplay) {
+                    prodDisplay.textContent = data.session.id_codigo;
+                    prodDisplay.style.display = 'block';
+                }
+                const opInput = document.getElementById('reporte-op');
+                if (opInput) opInput.value = data.session.orden_produccion || '';
+                const cantInput = document.getElementById('reporte-cantidad');
+                if (cantInput) cantInput.value = data.session.cantidad;
+                
+                const bujeOrigen = document.getElementById('reporte-buje-origen');
+                if (bujeOrigen) bujeOrigen.value = data.session.id_codigo;
+
+                // --- REHIDRATACIÓN BOM ---
+                this.renderBOMCheckboxes(data.session.id_codigo, 'reporte-bom-check-container');
+                
+                document.getElementById('form-reporte-ensamble-container').style.display = 'block';
+                this.bloquearFormulario(true);
+                
+                // FORZAR UI DE BOTONES
+                this.actualizarUIBotones();
+                
+                if (this.timerInterval) clearInterval(this.timerInterval);
+                this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
+            }
+        } catch (e) {
+            console.error("[Ensamble] Error al verificar sesión activa:", e);
+        }
+    },
+
+    bloquearFormulario: function(lock) {
+        ['reporte-producto-manual', 'reporte-op', 'reporte-fecha', 'reporte-almacen-origen', 'reporte-almacen-destino'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.disabled = lock;
+        });
+    },
+
+    actualizarUIBotones: function() {
+        const btnFinalizar = document.getElementById('btn-reportar-avance'); // Alineado con HTML
+        const container = document.getElementById('form-reporte-ensamble');
+        
+        console.log(`[Ensamble] Actualizando UI: Activa=${this.sesionActiva}, Pausa=${this.enPausa}`);
+
+        if (this.sesionActiva) {
+            // Asegurarnos que el botón de Finalizar sea visible y tenga el estilo correcto
+            if (btnFinalizar) {
+                btnFinalizar.style.display = 'inline-block';
+                btnFinalizar.className = 'btn btn-success btn-lg w-100 shadow py-3 rounded-4';
+            }
+
+            // Inyectar botón de Pausa si no existe en el DOM
+            let btnPausar = document.getElementById('btn-pausar-ensamble-dinamico');
+            if (!btnPausar && container) {
+                const row = btnFinalizar.closest('.row');
+                const col = document.createElement('div');
+                col.className = 'col-md-12 mt-2';
+                col.innerHTML = `
+                    <button type="button" id="btn-pausar-ensamble-dinamico" class="btn btn-warning btn-lg w-100 py-3 rounded-4">
+                        <i class="fas fa-pause me-2"></i>Pausar Producción
+                    </button>
+                `;
+                row.appendChild(col);
+                btnPausar = document.getElementById('btn-pausar-ensamble-dinamico');
+                btnPausar.onclick = () => this.pausarProduccion();
+            }
+
+            if (btnPausar) {
+                btnPausar.innerHTML = this.enPausa ? '<i class="fas fa-play me-2"></i>REANUDAR PRODUCCIÓN' : '<i class="fas fa-pause me-2"></i>PAUSAR PRODUCCIÓN';
+                btnPausar.className = this.enPausa ? 'btn btn-info btn-lg w-100 py-3 rounded-4' : 'btn btn-warning btn-lg w-100 py-3 rounded-4';
+            }
+
+            // Validar inmediatamente
+            setTimeout(() => this.validarFormulario(), 300);
+        }
+    },
+
+    actualizarTimer: function() {
+        if (this.enPausa || !this.startTime) return;
+        const now = new Date();
+        const diff = now - this.startTime - this.totalPausaMs;
+        const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
+        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+        const display = document.getElementById('ensamble-timer-display');
+        if (display) display.innerText = `${h}:${m}:${s}`;
     },
 
     configurarTabs: function() {
@@ -49,7 +167,7 @@ const ModuloEnsamble = {
         
         if (tabName === 'reporte') {
             this.listarTareasPendientes();
-            this.resetFormulario(true);
+            if (!this.sesionActiva) this.resetFormulario(true);
         }
         if (tabName === 'programacion') this.listarProgramacion();
     },
@@ -196,6 +314,10 @@ const ModuloEnsamble = {
     },
 
     seleccionarTarea: function(tarea) {
+        if (this.sesionActiva) {
+            Swal.fire('Sesión Activa', 'Termina el trabajo actual antes de iniciar una nueva tarea.', 'warning');
+            return;
+        }
         this.isManualMode = false;
         this.resetFormulario(false);
         
@@ -214,6 +336,7 @@ const ModuloEnsamble = {
     },
 
     seleccionarProductoManual: function(producto) {
+        if (this.sesionActiva) return;
         document.getElementById('reporte-id-prog').value = '';
         document.getElementById('reporte-producto-display').textContent = producto.codigo_sistema;
         document.getElementById('reporte-producto-display').style.display = 'block';
@@ -224,6 +347,7 @@ const ModuloEnsamble = {
     },
 
     toggleManualMode: function() {
+        if (this.sesionActiva) return;
         this.isManualMode = true;
         document.getElementById('form-reporte-ensamble-container').style.display = 'block';
         this.resetFormulario(true);
@@ -231,21 +355,20 @@ const ModuloEnsamble = {
         document.getElementById('form-reporte-ensamble-container').scrollIntoView({ behavior: 'smooth' });
     },
 
-    reportarAvance: async function() {
+    reportarAvance: async function(estado = 'EN_PROCESO') {
         const idCodigo = document.getElementById('reporte-producto-manual').value;
         const cantidad = parseInt(document.getElementById('reporte-cantidad').value) || 0;
         const responsable = document.getElementById('responsable').value; 
-        const pnc = parseInt(document.getElementById('reporte-pnc').value) || 0;
-        const qty = parseFloat(document.getElementById('reporte-qty').value) || 1;
 
-        if (!idCodigo || !cantidad || !responsable) {
+        if (!idCodigo || (cantidad < 0 && estado !== 'PAUSADO') || !responsable) {
             mostrarNotificacion('Faltan datos obligatorios', 'error');
             return;
         }
 
-        if (pnc > 0 && !this.pncDetalles) {
-            Swal.fire('Calidad Pendiente', 'Detalla el motivo del PNC.', 'warning');
-            return;
+        // Generar nuevo ID solo si no existe sesión
+        if (!this.sessionId) {
+            this.sessionId = 'ENS-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+            this.startTime = new Date();
         }
 
         const componentesADescontar = [];
@@ -254,26 +377,25 @@ const ModuloEnsamble = {
         });
 
         const payload = {
+            id_ensamble: this.sessionId,
             id_prog: document.getElementById('reporte-id-prog').value || null,
             id_codigo: idCodigo,
             cantidad: cantidad,
             responsable: responsable,
-            fecha: document.getElementById('reporte-fecha').value,
-            hora_inicio: document.getElementById('reporte-hora-inicio').value,
-            hora_fin: document.getElementById('reporte-hora-fin').value,
+            estado: estado,
+            op_numero: document.getElementById('reporte-op').value,
             buje_origen: document.getElementById('reporte-buje-origen').value,
-            qty: qty,
             almacen_origen: document.getElementById('reporte-almacen-origen').value,
             almacen_destino: document.getElementById('reporte-almacen-destino').value,
-            op_numero: document.getElementById('reporte-op').value,
-            pnc: pnc,
+            pnc: parseInt(document.getElementById('reporte-pnc').value) || 0,
             pnc_detalles: this.pncDetalles,
             observaciones: document.getElementById('reporte-observaciones').value,
             componentes_seleccionados: componentesADescontar
         };
 
         try {
-            mostrarLoading(true);
+            console.log(`📤 [Ensamble] Enviando reporte estado='${estado}'`, payload);
+            mostrarLoading(true, estado === 'FINALIZADO' ? 'Finalizando y descontando inventario...' : 'Guardando avance...');
             const res = await fetch('/api/ensamble/reportar', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -282,30 +404,102 @@ const ModuloEnsamble = {
             const data = await res.json();
             mostrarLoading(false);
 
-            if (data.success) {
-                Swal.fire('¡Éxito!', 'Reporte procesado.', 'success');
-                this.resetFormulario(true);
-                this.listarTareasPendientes();
-                this.listarProgramacion();
+            if (data && data.success) {
+                if (estado === 'FINALIZADO') {
+                    // 1. Matar sesión fantasma inmediatamente
+                    this.sesionActiva = false;
+                    this.sessionId = null;
+                    if (this.timerInterval) clearInterval(this.timerInterval);
+                    localStorage.removeItem('ensamble_session_id');
+                    localStorage.removeItem('ensamble_session_data');
+
+                    // 2. Cierre FORZOSO del modal (blindado con try/catch)
+                    try {
+                        // Intentar con el ID real del HTML
+                        ['modalReporteEnsamble', 'modalEnsamble'].forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) {
+                                const inst = bootstrap.Modal.getInstance(el);
+                                if (inst) inst.hide();
+                            }
+                        });
+                        // Fallback: ocultar backdrop si quedó colgado
+                        document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+                        document.body.classList.remove('modal-open');
+                        document.body.style.removeProperty('padding-right');
+                    } catch(modalErr) {
+                        console.warn('[Ensamble] Error cerrando modal:', modalErr);
+                    }
+
+                    // 3. Reset y ocultar formulario
+                    this.resetFormulario(true);
+                    const cont = document.getElementById('form-reporte-ensamble-container');
+                    if (cont) cont.style.display = 'none';
+
+                    // 4. Refrescar lista de metas
+                    this.listarTareasPendientes();
+                    if (typeof ModuloMesControl !== 'undefined' && ModuloMesControl.cargarProgramaciones) {
+                        ModuloMesControl.cargarProgramaciones();
+                    }
+
+                    // 5. Notificación de éxito
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Reporte Finalizado!',
+                        text: 'Inventario actualizado y programación cerrada.',
+                        timer: 2500,
+                        showConfirmButton: false
+                    });
+                } else {
+                    this.sesionActiva = true;
+                    this.bloquearFormulario(true);
+                    this.actualizarUIBotones();
+                    if (!this.timerInterval) this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
+                    mostrarNotificacion('Avance parcial guardado.', 'success');
+                }
             } else {
-                mostrarNotificacion(data.error, 'error');
+                mostrarNotificacion(data.error || 'Error en el servidor', 'error');
             }
-        } catch (e) { mostrarLoading(false); console.error(e); }
+        } catch (e) { 
+            mostrarLoading(false); 
+            console.error('[Ensamble] Error en reporte:', e);
+            mostrarNotificacion('Error de conexión con el servidor', 'error');
+        }
     },
 
+    pausarReporte: async function() {
+        const nuevoEstado = this.enPausa ? 'TRABAJANDO' : 'PAUSADO';
+        await this.reportarAvance(nuevoEstado);
+        this.enPausa = !this.enPausa;
+        this.actualizarUIBotones();
+    },
     resetFormulario: function(fullReset = true) {
         if (fullReset) {
-            document.getElementById('form-reporte-ensamble').reset();
-            document.getElementById('reporte-id-prog').value = '';
-            document.getElementById('reporte-producto-display').style.display = 'none';
-            document.getElementById('reporte-bom-check-container').innerHTML = '<div class="col-12 text-center text-muted py-2">Selecciona un producto.</div>';
+            const form = document.getElementById('form-reporte-ensamble');
+            if (form) form.reset();
+            
+            const idProg = document.getElementById('reporte-id-prog');
+            if (idProg) idProg.value = '';
+            
+            const prodDisplay = document.getElementById('reporte-producto-display');
+            if (prodDisplay) prodDisplay.style.display = 'none';
+            
+            const bomContainer = document.getElementById('reporte-bom-check-container');
+            if (bomContainer) bomContainer.innerHTML = '<div class="col-12 text-center text-muted py-2">Selecciona un producto.</div>';
+            
             this.pncDetalles = '';
+            this.bloquearFormulario(false);
+            this.actualizarUIBotones();
             
             const hoy = new Date().toISOString().split('T')[0];
-            if (document.getElementById('reporte-fecha')) document.getElementById('reporte-fecha').value = hoy;
+            const fechaInput = document.getElementById('reporte-fecha');
+            if (fechaInput) fechaInput.value = hoy;
             this.intentarAutoSeleccionarResponsable();
         }
-        document.getElementById('form-reporte-ensamble-container').style.display = 'none';
+        if (!this.sesionActiva) {
+            const container = document.getElementById('form-reporte-ensamble-container');
+            if (container) container.style.display = 'none';
+        }
     },
 
     abrirModalPNC: async function() {
@@ -432,7 +626,7 @@ const ModuloEnsamble = {
 
     configurarEventos: function() {
         document.getElementById('btn-guardar-prog')?.addEventListener('click', () => this.guardarProgramacion());
-        document.getElementById('btn-reportar-avance')?.addEventListener('click', () => this.reportarAvance());
+        document.getElementById('btn-reportar-avance')?.addEventListener('click', () => this.reportarAvance('FINALIZADO'));
         document.getElementById('btn-manual-mode')?.addEventListener('click', () => this.toggleManualMode());
         document.getElementById('btn-detalle-pnc')?.addEventListener('click', () => this.abrirModalPNC());
         document.getElementById('btn-cancelar-reporte')?.addEventListener('click', () => this.resetFormulario(true));
@@ -465,6 +659,20 @@ const ModuloEnsamble = {
             }
             
             console.log('✅ [Ensamble] Usuario capturado infaliblemente:', nombreCompleto);
+        }
+    },
+
+    validarFormulario: function() {
+        const op = document.getElementById('reporte-op')?.value;
+        const resp = document.getElementById('ensamble-responsable')?.value || document.getElementById('responsable')?.value;
+        const qty = parseFloat(document.getElementById('reporte-cantidad')?.value || 0);
+        const almacenDestino = document.getElementById('reporte-almacen-destino')?.value;
+        const btn = document.getElementById('btn-reportar-avance');
+
+        if (btn) {
+            const esValido = op && resp && qty > 0 && almacenDestino;
+            btn.disabled = !esValido;
+            btn.style.opacity = esValido ? '1' : '0.6';
         }
     }
 };

@@ -11,6 +11,8 @@ import json
 import math
 import pandas as pd
 import logging
+import psycopg2.extensions
+psycopg2.extensions.register_type(psycopg2.extensions.UNICODE) # Blindaje OID 25
 from concurrent.futures import ThreadPoolExecutor
 from backend.utils.report_service import PDFGenerator
 from backend.services.bom_service import calcular_descuentos_ensamble, traducir_codigo_componente
@@ -1255,15 +1257,11 @@ def mes_reportar():
         id_iny = data.get('id_inyeccion')
         cierres = int(data.get('cierres', 0))
         
-        # 1. Buscar TODOS los registros bajo este ID de inyecciÃ³n
+        # 1. Buscar TODOS los registros bajo este ID de inyección
         prods_en_lote = db.session.query(ProduccionInyeccion).filter(ProduccionInyeccion.id_inyeccion == id_iny).all()
         if not prods_en_lote:
-            return jsonify({'success': False, 'error': 'Batch de producciÃ³n no encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Batch de producción no encontrado'}), 404
             
-        # Capturar horas reales enviadas desde el modal
-        hi_str = data.get('hora_inicio') # Ej: "08:30"
-        hf_str = data.get('hora_fin')    # Ej: "17:45"
-        
         # 2. Actualizar cada registro del Batch
         for prod in prods_en_lote:
             # Sincronizar Horas Reales (si vienen del modal)
@@ -1276,14 +1274,14 @@ def mes_reportar():
             if hf_str and prod.fecha_inicia:
                 try:
                     h, m = map(int, hf_str.split(':'))
-                    # Usamos la misma fecha base del inicio para el fin (Batch del dÃ­a)
+                    # Usamos la misma fecha base del inicio para el fin (Batch del día)
                     prod.fecha_fin = prod.fecha_inicia.replace(hour=h, minute=m, second=0)
                 except: pass
 
             prod.cantidad_real = cierres * (prod.cavidades or 1)
             prod.estado = 'PENDIENTE'
             
-            # Finalizar ProgramaciÃ³n asociada para este cÃ³digo en esta mÃ¡quina
+            # Finalizar Programación asociada para este código en esta máquina (Uso de orden_produccion)
             db.session.query(ProgramacionInyeccion).filter(
                 ProgramacionInyeccion.codigo_sistema == prod.id_codigo,
                 ProgramacionInyeccion.maquina == prod.maquina,
@@ -1295,7 +1293,7 @@ def mes_reportar():
         return jsonify({'success': True, 'count': len(prods_en_lote)}), 200
     except Exception as e:
         db.session.rollback()
-        logger.error(f"âŒ Error en mes_reportar Batch SQL: {e}")
+        logger.error(f"❌ Error en mes_reportar Batch SQL: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -1303,7 +1301,7 @@ def mes_reportar():
 
 @app.route('/api/mes/pendientes_validacion', methods=['GET'])
 def mes_pendientes_validacion():
-    """Obtiene todos los lotes en estado PENDIENTE desde SQL para validaciÃ³n."""
+    """Obtiene todos los lotes en estado PENDIENTE desde SQL para validación."""
     try:
         # Consulta robusta 100% SQL para evitar problemas de metadatos de SQLAlchemy
         from sqlalchemy import text
@@ -1312,12 +1310,10 @@ def mes_pendientes_validacion():
                 i.id, i.id_inyeccion, i.fecha_inicia as fecha, i.fecha_fin as fecha_fin, 
                 i.id_codigo, i.responsable, i.maquina, i.molde, i.cavidades, 
                 i.estado, i.cantidad_real,
-                i.hora_llegada, i.hora_inicio, i.hora_termina, i.contador_maq,
-                i.cant_contador, i.tomados_en_proceso, i.peso_tomadas_en_proceso,
-                i.almacen_destino, i.codigo_ensamble, i.orden_produccion,
-                i.observaciones, i.peso_vela_maquina, i.peso_bujes,
-                i.id_programacion, i.produccion_teorica, i.pnc_total,
-                i.pnc_detalle, i.peso_lote, i.calidad_responsable,
+                i.hora_inicio, i.hora_termina,
+                i.cant_contador, i.almacen_destino, i.orden_produccion,
+                i.observaciones, i.pnc_total,
+                i.pnc_detalle, i.peso_lote,
                 i.entrada, i.salida,
                 COALESCE(pnc.total_pnc, 0) as total_pnc_sql
             FROM db_inyeccion i
@@ -1354,21 +1350,14 @@ def mes_pendientes_validacion():
                 'maquina': p['maquina'],
                 'molde': p['molde'],
                 'cavidades': p['cavidades'],
-                # Nuevos campos para el formulario
                 'cant_contador': _clean_num(p['cant_contador']),
-                'tomados_en_proceso': _clean_num(p['tomados_en_proceso']),
-                'peso_tomadas_en_proceso': _clean_num(p['peso_tomadas_en_proceso']),
                 'almacen_destino': p['almacen_destino'],
-                'codigo_ensamble': p['codigo_ensamble'],
                 'orden_produccion': p['orden_produccion'],
                 'observaciones': p['observaciones'],
-                'peso_vela_maquina': _clean_num(p['peso_vela_maquina']),
-                'peso_bujes': _clean_num(p['peso_bujes']),
-                'id_programacion': p['id_programacion'],
                 'pnc_detalle': p['pnc_detalle'],
-                'calidad_responsable': p['calidad_responsable'],
                 'entrada': _clean_num(p['entrada']),
-                'salida': _clean_num(p['salida'])
+                'salida': _clean_num(p['salida']),
+                'peso_lote': _clean_num(p['peso_lote'])
             })
 
         return jsonify({'success': True, 'data': data}), 200

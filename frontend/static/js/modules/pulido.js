@@ -330,27 +330,22 @@ const ModuloPulido = {
         }
     },
 
-    verificarTrabajoActivo: async function() {
+    verificarTrabajoActivo: async function(idEspecifico = null) {
         const resp = document.getElementById('responsable-pulido-input')?.value || localStorage.getItem(this.getLastResponsableKey());
         if (!resp) return;
 
         try {
             console.log(`📡 [Pulido] Validando estado de sesión en servidor para: ${resp}...`);
-            const res = await fetch(`/api/pulido/session_active?responsable=${encodeURIComponent(resp)}`);
+            let url = `/api/pulido/session_active?responsable=${encodeURIComponent(resp)}`;
+            if (idEspecifico) url += `&id_pulido=${idEspecifico}`;
+            
+            const res = await fetch(url);
             const data = await res.json();
             
             if (data.success && data.session) {
-                // FIX Efecto Daniela: Solo cargar si el estado es genuinamente activo
-                const estado = (data.session.estado || '').toUpperCase();
-                if (!['EN_PROCESO', 'PAUSADO', 'PAUSADO_COLA', 'TRABAJANDO'].includes(estado)) {
-                    console.log("🚫 [Pulido] Sesión encontrada pero estado='" + estado + "' — NO es activa, ignorando.");
-                    this.limpiarGhostState(resp);
-                    return;
-                }
-
                 // BLINDAJE hora_inicio nula: No arrancar cronómetro sin hora válida
                 if (!data.session.hora_inicio_dt) {
-                    console.log('🚫 [Pulido] Sesión activa sin hora_inicio — cronómetro no arrancará.');
+                    console.log('🚫 [Pulido] Sesión activa sin hora_inicio — ignorando.');
                     return;
                 }
 
@@ -358,7 +353,9 @@ const ModuloPulido = {
                 this.sesionActiva = true;
                 this.sessionId = data.session.id_pulido;
                 this.startTime = new Date(data.session.hora_inicio_dt);
-                this.tiempoAcumuladoMs = (data.session.duracion_segundos || 0) * 1000;
+                // Convertir acumulado de segundos a ms para el timer local
+                this.totalPausaMs = (data.session.tiempo_pausa_acumulado || 0) * 1000;
+                this.enPausa = (data.session.estado === 'PAUSADO');
                 
                 // Poblar UI
                 const rInput = document.getElementById('responsable-pulido-input');
@@ -371,13 +368,146 @@ const ModuloPulido = {
                 if(l) l.value = data.session.lote;
 
                 this.continuarUIActiva();
+                
+                // --- ACTUALIZAR BANNER Y UI ---
+                const prod = data.session.codigo || '---';
+                const lote = data.session.lote || '---';
+                const display = document.getElementById('current-pulido-job');
+                if (display) display.innerText = `${prod} | Lote: ${lote}`;
+
+                this.renderCola(); // Refrescar cola (ahora filtrará la activa)
+                
+                // --- ACTUALIZAR IMAGEN (Blindaje contra TypeError) ---
+                try {
+                    if (data.session.codigo) {
+                        this.cargarImagenProducto(data.session.codigo);
+                    }
+                } catch (imgErr) {
+                    console.warn("[Pulido] No se pudo cargar la imagen del producto:", imgErr);
+                }
+                
+                if (this.timerInterval) clearInterval(this.timerInterval);
+                this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
             } else {
-                // SINCRONIZACIÓN ESTRICTA: El backend dice que no hay nada activo
-                console.log(`🧹 [Pulido] Sincronización: No hay trabajos activos para '${resp}' en DB. Limpiando caché local.`);
-                this.limpiarGhostState(resp);
+                console.log(`🧹 [Pulido] No hay trabajos activos específicos para '${resp}' en DB.`);
+                if (!idEspecifico) this.limpiarGhostState(resp);
             }
         } catch (e) {
             console.error("Error recuperando sesión SQL:", e);
+        }
+    },
+
+    renderCola: async function() {
+        const container = document.getElementById('pulido-queue-container');
+        const list = document.getElementById('pulido-queue-list');
+        const responsable = document.getElementById('responsable-pulido-input')?.value;
+
+        if (!responsable) {
+            if (container) container.style.display = 'none';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/pulido/tareas_pendientes?responsable=${encodeURIComponent(responsable)}`);
+            const data = await res.json();
+
+            if (data.success && data.tareas.length > 0) {
+                container.style.display = 'block';
+                
+                // FILTRAR: Excluir la que ya está trabajando
+                const tareasFiltradas = data.tareas.filter(t => t.id_pulido !== this.sessionId);
+                
+                if (tareasFiltradas.length === 0) {
+                    container.style.display = 'none';
+                    return;
+                }
+
+                // Estilo compacto con scroll (Restaurado)
+                list.style.maxHeight = '250px';
+                list.style.overflowY = 'auto';
+                list.style.paddingRight = '5px';
+
+                list.innerHTML = tareasFiltradas.map(t => {
+                    const isPausada = t.estado === 'PAUSADO_COLA';
+                    return `
+                        <div class="card mb-2 border-start border-4 ${isPausada ? 'border-warning shadow-sm' : 'border-secondary'}" 
+                             style="background: #f8f9fa;">
+                            <div class="card-body p-2 d-flex justify-content-between align-items-center">
+                                <div style="flex: 1;">
+                                    <span class="fw-bold d-block text-dark" style="font-size: 0.8rem;">${t.codigo}</span>
+                                    <small class="text-muted" style="font-size: 0.65rem;">
+                                        OP: ${t.orden_produccion || 'N/A'} | ${isPausada ? '<b class="text-warning">PAUSADA</b>' : 'PENDIENTE'}
+                                    </small>
+                                </div>
+                                <button class="btn btn-sm ${isPausada ? 'btn-warning' : 'btn-outline-primary'} py-1 px-2" 
+                                        style="font-size: 0.7rem;"
+                                        onclick="ModuloPulido.seleccionarTareaRecuperada('${t.id_pulido}')">
+                                    <i class="fas ${isPausada ? 'fa-play' : 'fa-hand-pointer'}"></i> Retomar
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                if (container) container.style.display = 'none';
+            }
+        } catch (e) {
+            console.error("[Pulido] Error al cargar cola:", e);
+        }
+    },
+
+    seleccionarTareaRecuperada: async function(idPulido) {
+        const responsable = document.getElementById('responsable-pulido-input')?.value;
+        
+        // EXTRACCIÓN FORZADA: Garantizar que enviamos solo el String del ID
+        let idReal = idPulido;
+        if (typeof idPulido === 'object' && idPulido !== null) {
+            idReal = idPulido.id_pulido;
+        }
+
+        if (!idReal || idReal === "[object Object]") {
+            console.error("🚫 [Pulido] ID inválido detectado en Swap:", idPulido);
+            return;
+        }
+
+        try {
+            // Ejecutar el SWAP (Pausa automática de lo actual y activación de lo nuevo)
+            const res = await fetch('/api/pulido/swap_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ responsable, id_pulido: idReal })
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                // Rehidratar UI con la nueva tarea activa de forma instantánea
+                // Pasamos el ID real como String para evitar [object Object]
+                this.verificarTrabajoActivo(idReal);
+            }
+        } catch (e) {
+            console.error("[Pulido] Error en el intercambio de tareas:", e);
+        }
+    },
+
+    cargarImagenProducto: function(idCodigo) {
+        const imgElement = document.getElementById('pulido-product-image');
+        const container = document.getElementById('pulido-product-image-container');
+        if (!imgElement || !container) return;
+
+        try {
+            // Normalizar código para la ruta de la imagen
+            const codigoLimpio = idCodigo.split(' ')[0].replace(/\//g, '-');
+            const imgPath = `/static/img/productos/imagenes/${codigoLimpio}.jpg`;
+            
+            imgElement.src = imgPath;
+            imgElement.onerror = () => {
+                imgElement.src = '/static/img/no-image.svg';
+                console.log(`[Pulido] Imagen no encontrada para: ${idCodigo}`);
+            };
+            container.style.display = 'block';
+        } catch (e) {
+            console.error("[Pulido] Error al gestionar imagen:", e);
+            container.style.display = 'none';
         }
     },
 
@@ -407,6 +537,18 @@ const ModuloPulido = {
         document.getElementById('btn-pausar-pulido').disabled = false;
         document.getElementById('btn-terminar-pulido').disabled = false;
         document.getElementById('btn-cambiar-ref-pulido').style.display = 'block';
+
+        // Sincronizar botón de pausa según estado actual
+        const btnPausa = document.getElementById('btn-pausar-pulido');
+        if (this.enPausa) {
+            btnPausa.innerHTML = '<i class="fas fa-play me-2"></i> Reanudar';
+            btnPausa.className = 'btn btn-info btn-lg p-3 shadow';
+            document.getElementById('pulido-pausa-msg').style.display = 'block';
+        } else {
+            btnPausa.innerHTML = '<i class="fas fa-pause me-2"></i> Pausar';
+            btnPausa.className = 'btn btn-warning btn-lg p-3 shadow';
+            document.getElementById('pulido-pausa-msg').style.display = 'none';
+        }
 
         if (this.timerInterval) clearInterval(this.timerInterval);
         this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
@@ -525,20 +667,36 @@ const ModuloPulido = {
         document.getElementById('pulido-main-timer').innerText = `${hrs}:${mins}:${secs}`;
     },
 
-    pausarCiclo: function () {
+    pausarCiclo: async function () {
         const btn = document.getElementById('btn-pausar-pulido');
         if (!this.enPausa) {
-            this.enPausa = true;
-            this.pausaTime = new Date();
-            btn.innerHTML = '<i class="fas fa-play me-2"></i> Reanudar';
-            btn.className = 'btn btn-info btn-lg p-3 shadow';
-            document.getElementById('pulido-pausa-msg').style.display = 'block';
+            // Acción: Pausar en Servidor
+            const res = await fetch('/api/pulido/pausar', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id_pulido: this.sessionId })
+            });
+            if (res.ok) {
+                this.enPausa = true;
+                btn.innerHTML = '<i class="fas fa-play me-2"></i> Reanudar';
+                btn.className = 'btn btn-info btn-lg p-3 shadow';
+                document.getElementById('pulido-pausa-msg').style.display = 'block';
+            }
         } else {
-            this.enPausa = false;
-            this.totalPausaMs += (new Date() - this.pausaTime);
-            btn.innerHTML = '<i class="fas fa-pause me-2"></i> Pausar';
-            btn.className = 'btn btn-warning btn-lg p-3 shadow';
-            document.getElementById('pulido-pausa-msg').style.display = 'none';
+            // Acción: Reanudar en Servidor
+            const res = await fetch('/api/pulido/reanudar', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id_pulido: this.sessionId })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.enPausa = false;
+                this.totalPausaMs = (data.acumulado || 0) * 1000;
+                btn.innerHTML = '<i class="fas fa-pause me-2"></i> Pausar';
+                btn.className = 'btn btn-warning btn-lg p-3 shadow';
+                document.getElementById('pulido-pausa-msg').style.display = 'none';
+            }
         }
         this.guardarEstadoLocal();
     },
@@ -625,58 +783,72 @@ const ModuloPulido = {
         });
     },
 
-    renderCola: function() {
+    renderCola: async function() {
         const container = document.getElementById('pulido-queue-container');
         const list = document.getElementById('pulido-queue-list');
-        
-        if (this.sesionesEnPausa.length === 0) {
-            container.style.display = 'none';
+        const responsable = document.getElementById('responsable-pulido-input')?.value;
+
+        if (!responsable) {
+            if (container) container.style.display = 'none';
             return;
         }
 
-        container.style.display = 'block';
-        list.innerHTML = this.sesionesEnPausa.map((s, index) => `
-            <div class="card border-start border-primary border-4 shadow-sm mb-2">
-                <div class="card-body p-2 d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="fw-bold text-dark" style="font-size: 0.85rem;">${s.prod}</div>
-                        <div class="text-muted" style="font-size: 0.7rem;">OP: ${s.op || 'N/A'} | Lote: ${s.lote}</div>
-                    </div>
-                    <button class="btn btn-sm btn-outline-primary" onclick="ModuloPulido.retomarSesion(${index})">
-                        <i class="fas fa-undo me-1"></i> Retomar
-                    </button>
-                </div>
-            </div>
-        `).join('');
+        try {
+            const res = await fetch(`/api/pulido/tareas_pendientes?responsable=${encodeURIComponent(responsable)}`);
+            const data = await res.json();
+
+            if (data.success && data.tareas.length > 0) {
+                container.style.display = 'block';
+                list.innerHTML = data.tareas.map(t => {
+                    const isPausada = t.estado === 'PAUSADO_COLA';
+                    return `
+                        <div class="card mb-2 border-start border-4 ${isPausada ? 'border-warning shadow-sm' : 'border-secondary'}">
+                            <div class="card-body p-2 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="fw-bold d-block" style="font-size: 0.85rem;">${t.codigo}</span>
+                                    <small class="text-muted" style="font-size: 0.7rem;">
+                                        OP: ${t.orden_produccion || 'N/A'} | ${isPausada ? '<b class="text-warning">PAUSADA</b>' : 'PENDIENTE'}
+                                    </small>
+                                </div>
+                                <button class="btn btn-sm ${isPausada ? 'btn-warning' : 'btn-outline-primary'}" 
+                                        onclick="ModuloPulido.seleccionarTareaRecuperada(${JSON.stringify(t).replace(/"/g, '&quot;')})">
+                                    <i class="fas ${isPausada ? 'fa-play' : 'fa-hand-pointer'}"></i> Retomar
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                if (container) container.style.display = 'none';
+            }
+        } catch (e) {
+            console.error("[Pulido] Error al cargar cola:", e);
+        }
     },
 
-    retomarSesion: function(index) {
-        if (this.sesionActiva) {
-            Swal.fire('Atención', 'Debes terminar o pausar el trabajo actual antes de retomar uno de la cola.', 'warning');
-            return;
-        }
+    // Función eliminada (unificada arriba)
 
+    retomarSesion: async function(index) {
         const s = this.sesionesEnPausa[index];
-        
-        // Restaurar datos
-        document.getElementById('buscador-productos').value = s.prod;
-        document.getElementById('orden-produccion-pulido').value = s.op;
-        document.getElementById('lote-pulido').value = s.lote;
-        document.getElementById('responsable-pulido-input').value = s.resp;
-        
-        this.sessionId = s.sessionId;
-        this.tiempoAcumuladoMs = s.tiempoAcumuladoMs;
-        this.descuentoProgramadoMs = s.descuentoProgramadoMs || 0;
-        this.startTime = new Date(); // El nuevo segmento empieza AHORA
-        this.totalPausaMs = 0; // Reset pausas del nuevo segmento
-        
-        // Quitar de la cola
-        this.sesionesEnPausa.splice(index, 1);
-        this.renderCola();
-        
-        // Iniciar ciclo con datos restaurados
-        this.iniciarCiclo();
-        this.guardarEstadoLocal();
+        const responsable = document.getElementById('responsable-pulido-input')?.value;
+
+        try {
+            // Ejecutar el SWAP (Pausa automática de lo actual y activación de lo nuevo)
+            const res = await fetch('/api/pulido/swap_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ responsable, id_pulido: s.sessionId })
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                // Quitar de la cola local y rehidratar UI
+                this.sesionesEnPausa.splice(index, 1);
+                this.verificarTrabajoActivo(s.sessionId);
+            }
+        } catch (e) {
+            console.error("[Pulido] Error en el intercambio de tareas:", e);
+        }
     },
 
     limpiarSesionLocal: function() {
