@@ -184,7 +184,7 @@ const AlmacenModule = {
             url.searchParams.set('_t', Date.now()); // Cache-buster
             if (user) {
                 const role = AuthModule.normalizeRole(user.rol || user.role);
-                const isAdmin = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'COMERCIAL'].includes(role);
+                const isAdmin = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'JEFE ALISTAMIENTO', 'COMERCIAL'].includes(role);
 
                 // Si es admin, pasamos el rol Administración para que el backend devuelva todo
                 url.searchParams.append('usuario', user.name || user.nombre || 'N/A');
@@ -332,7 +332,7 @@ const AlmacenModule = {
             const isFrimetals = (window.AppState?.user?.division === 'FRIMETALS');
 
             // RBAC: Solo Administración, Jefe Almacén y Comercial pueden DELEGAR
-            const puedeDelegar = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'COMERCIAL'].includes(currentRole);
+            const puedeDelegar = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'JEFE ALISTAMIENTO', 'COMERCIAL'].includes(currentRole);
             const esParaMi = (currentUser?.nombre || currentUser?.name) === pedido.delegado_a;
 
             html += `
@@ -629,7 +629,7 @@ const AlmacenModule = {
             // RBAC: Solo Administración y Jefe Almacén pueden ELIMINAR productos
             const currentUser = window.AppState?.user;
             const currentRole = AuthModule.normalizeRole(currentUser?.rol || currentUser?.role);
-            const puedeEliminar = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN'].includes(currentRole);
+            const puedeEliminar = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'JEFE ALMACEN', 'JEFE ALISTAMIENTO'].includes(currentRole);
 
             // Estilo de producto no disponible (tachado y gris)
             const ndOverlayStyle = prod.no_disponible ? 'opacity: 0.5; text-decoration: line-through;' : '';

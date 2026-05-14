@@ -143,7 +143,7 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     return df, items_con_exito
 
 @facturacion_bp.route('/api/facturacion/pedidos-pendientes', methods=['GET'])
-@require_role(ROL_ADMINS + ['JEFE ALMACEN'])
+@require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def obtener_pedidos_pendientes():
     """Obtiene pedidos PENDIENTES desde SQL."""
     try:
@@ -168,7 +168,7 @@ def obtener_pedidos_pendientes():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @facturacion_bp.route('/api/exportar/world-office', methods=['POST'])
-@require_role(ROL_ADMINS + ['JEFE ALMACEN'])
+@require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def exportar_world_office():
     """Genera Excel y Actualiza SQL simultáneamente."""
     try:
@@ -204,7 +204,7 @@ def exportar_world_office():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @facturacion_bp.route('/api/exportar/world-office/preview', methods=['POST'])
-@require_role(ROL_ADMINS + ['JEFE ALMACEN'])
+@require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def preview_world_office():
     """Vista previa sin persistencia (rollback automático de la sesión)."""
     try:

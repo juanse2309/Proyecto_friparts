@@ -64,6 +64,7 @@ const AuthModule = {
         'COMERCIAL FRIMETALS': ['metals-dashboard', 'metals-pedidos', 'pedidos', 'almacen'],
         'COMERCIAL': ['almacen', 'pedidos'],
         'JEFE ALMACEN': ['inventario', 'inyeccion', 'facturacion', 'almacen', 'pedidos', 'asistencia'],
+        'JEFE ALISTAMIENTO': ['inventario', 'inyeccion', 'facturacion', 'almacen', 'pedidos', 'asistencia'],
         'AUXILIAR INVENTARIO': ['inventario', 'inyeccion', 'pulido', 'ensamble', 'pnc', 'historial', 'procura', 'rotacion', 'asistencia'],
         'JEFE INYECCION': ['dashboard', 'inyeccion', 'mezcla', 'asistencia'],
         'INYECCION': ['dashboard', 'inyeccion', 'mezcla', 'asistencia'],
@@ -793,7 +794,7 @@ const AuthModule = {
             targetPage = 'pulido';
         } else if (role.includes('COMERCIAL')) {
             targetPage = 'pedidos';
-        } else if (role === 'ALISTAMIENTO') {
+        } else if (role === 'ALISTAMIENTO' || role === 'JEFE ALISTAMIENTO') {
             targetPage = 'almacen';
         } else {
             targetPage = firstAllowed || allowedPages[0] || 'inyeccion';

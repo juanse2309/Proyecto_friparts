@@ -77,7 +77,7 @@ def _generar_siguiente_id_pedido_sql():
         return f"PED-{datetime.now().strftime('%M%S')}"
 
 @pedidos_bp.route('/api/pedidos/registrar', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def registrar_pedido():
     """
     Registra o actualiza un pedido en PostgreSQL (SQL-Native).
@@ -375,8 +375,8 @@ def obtener_pedidos_pendientes():
         # Roles con visibilidad global (Inclusión ampliada para Almacén y Planta)
         es_admin = any(x in rol_session for x in [
             "admin", "administracion", "administrador", "gerencia", 
-            "jefe almacen", "jefe de planta", "auxiliar almacen", 
-            "alistador", "comercial", "metals_staff", "metals_admin"
+            "jefe almacen", "jefe alistamiento", "jefe de planta", "auxiliar almacen", 
+            "alistador", "alistamiento", "comercial", "metals_staff", "metals_admin"
         ])
 
         filtrados = []
@@ -401,7 +401,7 @@ def obtener_pedidos_pendientes():
 
 
 @pedidos_bp.route('/api/pedidos/delegar', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def delegar_pedido():
     """Asigna un pedido a una colaboradora en SQL."""
     try:
@@ -419,7 +419,7 @@ def delegar_pedido():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/eliminar-producto', methods=['POST'])
-@require_role(ROL_ADMINS + ['JEFE ALMACEN'])
+@require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def eliminar_producto_pedido():
     """Elimina un producto de un pedido en SQL y restaura stock."""
     try:
