@@ -3251,15 +3251,15 @@
             <div class="filtros-container"
                 style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label small fw-bold">Desde</label>
                         <input type="date" id="fechaDesde" class="form-control">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label small fw-bold">Hasta</label>
                         <input type="date" id="fechaHasta" class="form-control">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label small fw-bold">Proceso</label>
                         <select id="tipoProceso" class="form-select">
                             <option value="">Todos los Movimientos</option>
@@ -3270,9 +3270,18 @@
                             <option value="PNC">PNC (Defectos)</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <button onclick="filtrarHistorial()" class="btn btn-primary w-100" style="height: 38px;">
-                            <i class="fas fa-filter"></i> Aplicar Filtros
+                    <!-- FILTROS DINÁMICOS PULIDO -->
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Operario</label>
+                        <input type="text" id="filtroOperario" class="form-control" placeholder="Nombre...">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Producto/Código</label>
+                        <input type="text" id="filtroCodigo" class="form-control" placeholder="REF-...">
+                    </div>
+                    <div class="col-md-2">
+                        <button onclick="window.ModuloHistorial.cargarHistorial()" class="btn btn-primary w-100" style="height: 38px;">
+                            <i class="fas fa-filter"></i> Filtrar
                         </button>
                     </div>
                 </div>
@@ -4520,30 +4529,30 @@
     <script src="/static/js/modules/touch-feedback.js?v=1.6.2"></script>
 
     <!-- Funcionalidades de Módulos (IMPORTANTE: ui_ux debe ir ANTES) -->
-    <script src="/static/js/modules/dashboard.js?v=1.6.2"></script>
+    <script src="/static/js/modules/dashboard.js?v=1.6.3"></script>
     <script>console.log("✅ dashboard.js cargado");</script>
-    <script src="/static/js/modules/inventario.js?v=1.6.2"></script>
-    <script src="/static/js/modules/inyeccion.js?v=1.6.2"></script>
-    <script src="/static/js/modules/mes_control.js?v=1.6.2"></script>
-    <script src="/static/js/modules/pulido.js?v=1.6.2"></script>
-    <script src="/static/js/modules/ensamble.js?v=1.6.2"></script>
-    <script src="/static/js/modules/pnc.js?v=1.6.2"></script>
-    <script src="/static/js/modules/facturacion.js?v=1.6.2"></script>
-    <script src="/static/js/modules/reportes.js?v=1.6.2"></script>
-    <script src="/static/js/modules/mezcla.js?v=1.6.2"></script>
-    <script src="/static/js/modules/historial.js?v=1.6.2"></script>
+    <script src="/static/js/modules/inventario.js?v=1.6.3"></script>
+    <script src="/static/js/modules/inyeccion.js?v=1.6.3"></script>
+    <script src="/static/js/modules/mes_control.js?v=1.6.3"></script>
+    <script src="/static/js/modules/pulido.js?v=1.6.3"></script>
+    <script src="/static/js/modules/ensamble.js?v=1.6.3"></script>
+    <script src="/static/js/modules/pnc.js?v=1.6.3"></script>
+    <script src="/static/js/modules/facturacion.js?v=1.6.3"></script>
+    <script src="/static/js/modules/reportes.js?v=1.6.3"></script>
+    <script src="/static/js/modules/mezcla.js?v=1.6.3"></script>
+    <script src="/static/js/modules/historial.js?v=1.6.3"></script>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 
-    <script src="/static/js/modules/pedidos.js?v=1.6.2"></script>
-    <script src="/static/js/modules/almacen.js?v=1.6.2"></script>
-    <script src="/static/js/modules/metals.js?v=1.6.2"></script>
-    <script src="/static/js/modules/portal_client.js?v=1.6.2"></script>
-    <script src="/static/js/modules/procura.js?v=1.6.2"></script>
-    <script src="/static/js/modules/rotacion.js?v=1.6.2"></script>
-    <script src="/static/js/modules/asistencia.js?v=1.6.2"></script>
-    <script src="/static/js/modules/nomina.js?v=1.6.2"></script>
+    <script src="/static/js/modules/pedidos.js?v=1.6.3"></script>
+    <script src="/static/js/modules/almacen.js?v=1.6.3"></script>
+    <script src="/static/js/modules/metals.js?v=1.6.3"></script>
+    <script src="/static/js/modules/portal_client.js?v=1.6.3"></script>
+    <script src="/static/js/modules/procura.js?v=1.6.3"></script>
+    <script src="/static/js/modules/rotacion.js?v=1.6.3"></script>
+    <script src="/static/js/modules/asistencia.js?v=1.6.3"></script>
+    <script src="/static/js/modules/nomina.js?v=1.6.3"></script>
 
     <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
     <script src="/static/js/app.js?v=1.6.2"></script>

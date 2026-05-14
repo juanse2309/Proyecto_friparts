@@ -108,36 +108,31 @@ def obtener_colaboradores():
             
             return f"{hh:02d}:{mm:02d}"
 
-        # 1. Definir Áreas de Responsabilidad (Reglas de Oro)
-        AREAS_POR_ROL = {
-            'JEFE INYECCION':     ['INYECCION', 'ENSAMBLE'],
-            'JEFE ALMACEN':       ['ALISTAMIENTO', 'ALMACEN', 'BODEGA'],
-            'JEFE PULIDO':        ['PULIDO'],
-            'JEFE DE PLANTA':     ['INYECCION', 'PULIDO', 'ENSAMBLE', 'ALMACEN', 'ALISTAMIENTO', 'PLANTA', 'PRODUCCION'],
-            'STAFF FRIMETALS':    ['STAFF FRIMETALS', 'METALES', 'PLANTA'],
-            'ADMIN FRIMETALS':    ['STAFF FRIMETALS', 'METALES', 'PLANTA', 'ADMINISTRACION'],
-        }
-
-        # 2. Construir Filtro
+        # 1. Identificación de Poder (Dynamic RBAC)
         ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
         es_admin_global = any(r in user_role for r in ADMS)
-        es_jefe_general = 'JEFE' in user_role
+        es_jefe = 'JEFE' in user_role
 
-        # Obtener departamento del usuario actual
-        sql_propio = text("SELECT departamento FROM db_usuarios WHERE username = :user")
+        # 2. Obtener departamento del usuario actual (Pivote de Seguridad)
+        sql_propio = text("SELECT upper(trim(departamento)) FROM db_usuarios WHERE username = :user")
         propio_res = db.session.execute(sql_propio, {'user': user_name}).fetchone()
         mi_depto = propio_res[0] if propio_res and propio_res[0] else 'SIN_DEPTO'
-
-        # Determinar lista de departamentos visibles para este usuario
-        deptos_visibles = AREAS_POR_ROL.get(user_role, [mi_depto])
         
-        # Si es un jefe que no está en el mapa, asegurar que vea su departamento
-        if es_jefe_general and mi_depto and mi_depto not in deptos_visibles:
-            deptos_visibles.append(mi_depto)
+        # 2.1. Derivar departamento base (Ej: 'JEFE ALMACEN' -> 'ALMACEN')
+        depto_base = mi_depto.replace('JEFE ', '').strip()
+        deptos_match = (mi_depto, depto_base)
 
-        # LÓGICA DE VISIBILIDAD:
-        # 1. Admins Globales: Ven TODO without restrictions
-        # 2. Jefes/Staff: Ven sus departamentos asignados + ellos mismos
+        # 3. Determinar Áreas Visibles
+        if es_admin_global:
+            deptos_visibles = None # Ver todo
+        elif es_jefe:
+            # Lógica Genérica: El Jefe solo ve su propio departamento (Match Exacto)
+            deptos_visibles = [mi_depto]
+        else:
+            # Operarios solo se ven a sí mismos (handled below in the query logic or result filtering)
+            deptos_visibles = [mi_depto]
+
+        # LÓGICA DE VISIBILIDAD BLINDADA:
         if es_admin_global:
             sql = text("""
                 SELECT * FROM db_usuarios 
@@ -146,19 +141,18 @@ def obtener_colaboradores():
             """)
             params = {}
         else:
-            # Filtro por Áreas de Responsabilidad (Flexible)
+            # Filtro por Coincidencia de Departamento (Soporta prefijo JEFE)
             sql = text("""
                 SELECT * FROM db_usuarios 
                 WHERE activo = true 
                 AND (
-                    upper(departamento) IN :deptos
+                    upper(trim(departamento)) IN :deptos
                     OR username = :current_user
                 )
                 ORDER BY username ASC
             """)
-            # Normalizar a mayúsculas para el match IN
             params = {
-                'deptos': tuple(d.upper() for d in deptos_visibles),
+                'deptos': deptos_match,
                 'current_user': user_name
             }
 

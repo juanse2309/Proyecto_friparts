@@ -28,7 +28,7 @@ window.ModuloAsistencia = (function () {
 
         const nombreNorm = normalize(nombre);
 
-        // Mapa de roles con sus áreas de responsabilidad (RBAC Flexible)
+        // Mapa de roles con sus áreas de responsabilidad (DINÁMICO)
         let areasAsignadas = [];
         const ADMIN_ROLES = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'ADMIN', 'GERENCIA GLOBAL'];
         let esRolGerencia = ADMIN_ROLES.includes(role);
@@ -36,18 +36,9 @@ window.ModuloAsistencia = (function () {
 
         if (esRolGerencia) {
             areasAsignadas = null; // null = VE TODO
-        } else if (role.includes('JEFE INYECCION') || role === 'INYECCION') {
-            areasAsignadas = ['INYECCION', 'ENSAMBLE'];
-        } else if (role.includes('JEFE PULIDO') || role === 'PULIDO') {
-            areasAsignadas = ['PULIDO'];
-        } else if (role.includes('JEFE ALMACEN') || role === 'ALMACEN' || role === 'ALISTAMIENTO') {
-            areasAsignadas = ['ALISTAMIENTO'];
-        } else if (role === 'AUXILIAR INVENTARIO') {
-            areasAsignadas = ['AUXILIAR INVENTARIO'];
-        } else if (role === 'ENSAMBLE') {
-            areasAsignadas = ['ENSAMBLE'];
         } else if (esJefe) {
-            // Caso general para Jefes (como Paola): ven su propio departamento
+            // Lógica Dinámica: El Jefe solo ve personal de su propio departamento
+            // Independientemente de si es Frimetals o Friparts.
             areasAsignadas = [depto.toUpperCase()];
         }
 

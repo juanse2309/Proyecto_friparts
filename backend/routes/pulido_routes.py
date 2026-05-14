@@ -1,4 +1,6 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
+from sqlalchemy import text
+from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto
 from backend.utils.formatters import normalizar_codigo
@@ -398,7 +400,294 @@ def swap_pulido_task():
         db.session.rollback()
         logger.error(f"[Pulido-Swap] Error crítico: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+@pulido_bp.route('/api/pulido/historial', methods=['GET'])
+def get_pulido_historial():
+    """
+    Endpoint para el historial detallado de Pulido con filtros dinámicos.
+    """
+    try:
+        # 1. Parámetros
+        f_inicio = request.args.get('fecha_inicio', '')
+        f_fin = request.args.get('fecha_fin', '')
+        operario = request.args.get('operario', '')
+        id_codigo = request.args.get('id_codigo', '')
+
+        # 2. Base Query con Casts explícitos para evitar OID 25 (TEXT)
+        sql = """
+            SELECT 
+                id,
+                id_pulido::TEXT as id_pulido,
+                fecha,
+                codigo::TEXT as codigo,
+                responsable::TEXT as responsable,
+                cantidad_real,
+                pnc_inyeccion,
+                pnc_pulido,
+                hora_inicio,
+                hora_fin,
+                orden_produccion::TEXT as orden_produccion,
+                observaciones::TEXT as observaciones,
+                cantidad_recibida
+            FROM db_pulido
+            WHERE 1=1
+        """
+        params = {}
+
+        # 3. Filtros Dinámicos
+        if f_inicio and f_fin:
+            sql += " AND CAST(fecha AS DATE) BETWEEN :f_inicio AND :f_fin"
+            params['f_inicio'] = f_inicio
+            params['f_fin'] = f_fin
+        elif f_inicio:
+            sql += " AND CAST(fecha AS DATE) >= :f_inicio"
+            params['f_inicio'] = f_inicio
+        elif f_fin:
+            sql += " AND CAST(fecha AS DATE) <= :f_fin"
+            params['f_fin'] = f_fin
+
+        if operario and operario.upper() != 'TODOS':
+            sql += " AND UPPER(TRIM(responsable)) LIKE :operario"
+            params['operario'] = f"%{operario.strip().upper()}%"
+
+        if id_codigo and id_codigo.upper() != 'TODOS':
+            sql += " AND UPPER(TRIM(codigo)) LIKE :codigo"
+            params['codigo'] = f"%{id_codigo.strip().upper()}%"
+
+        sql += " ORDER BY fecha DESC, id DESC"
+
+        # 4. Ejecución y Conversión Inmediata a Diccionario (Clean Data)
+        result = db.session.execute(text(sql), params)
+        resultados = [dict(row._mapping) for row in result]
+
+        # 5. Batch Pre-fetch de Revueltos (v5.2 - Zero queries in loop)
+        all_ids = [str(r.get('id_pulido') or '').strip() for r in resultados]
+        all_ids = [pid for pid in all_ids if pid]  # Filtrar vacíos
+
+        revueltos_map = {}  # { id_pulido: [ {id_codigo, cantidad}, ... ] }
+        if all_ids:
+            # Una sola consulta para TODOS los revueltos
+            placeholders = ', '.join([f':pid_{i}' for i in range(len(all_ids))])
+            sql_revs = f"SELECT id_pulido::TEXT as id_pulido, id_codigo::TEXT as id_codigo, COALESCE(cantidad, 0) as cantidad FROM db_bujes_revueltos WHERE id_pulido IN ({placeholders})"
+            params_revs = {f'pid_{i}': pid for i, pid in enumerate(all_ids)}
+            revs_raw = db.session.execute(text(sql_revs), params_revs)
+            for rv in revs_raw:
+                rv_dict = dict(rv._mapping)
+                pid = str(rv_dict['id_pulido'])
+                if pid not in revueltos_map:
+                    revueltos_map[pid] = []
+                revueltos_map[pid].append(rv_dict)
+
+        # 6. Mapeo para el Frontend (cero consultas en el bucle)
+        data = []
+        for r in resultados:
+            p_id = str(r.get('id_pulido') or '').strip()
+
+            # Lookup directo en memoria
+            revs = revueltos_map.get(p_id, [])
+            det_revueltos = ""
+            if revs:
+                det_revueltos = " | REVUELTOS: " + ", ".join([f"{str(rv['id_codigo'])}({float(rv['cantidad'] or 0)})" for rv in revs])
+
+            obs = str(r.get('observaciones') or '').strip()
+            detalle_final = f"Obs: {obs}{det_revueltos}" if obs else det_revueltos.strip(" | ")
+
+            data.append({
+                'id': int(r['id']),
+                'Fecha': r['fecha'].strftime('%d/%m/%Y') if r['fecha'] else '',
+                'Tipo': 'PULIDO',
+                'Producto': str(r['codigo'] or ''),
+                'Responsable': str(r['responsable'] or 'SISTEMA'),
+                'cantidad_real': float(r['cantidad_real'] or 0),
+                'Cant': float(r['cantidad_real'] or 0),
+                'Orden': str(r['orden_produccion'] or p_id or '-'),
+                'Extra': str(f"OP: {r['orden_produccion'] or ''}"),
+                'Detalle': str(detalle_final.strip()),
+                'HORA_INICIO': r['hora_inicio'].strftime('%H:%M') if r['hora_inicio'] else '',
+                'HORA_FIN': r['hora_fin'].strftime('%H:%M') if r['hora_fin'] else '',
+                'hoja': 'db_pulido',
+                'fila': int(r['id']),
+                'cantidad_recibida': float(r['cantidad_recibida'] or 0),
+                'pnc_inyeccion': int(r['pnc_inyeccion'] or 0),
+                'pnc_pulido': int(r['pnc_pulido'] or 0)
+            })
+
+        return jsonify(data)
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error en api/pulido/historial: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pulido_bp.route('/api/pulido/stats', methods=['GET'])
 @require_role(ROL_ADMINS + ['JEFE PULIDO', 'PULIDO'])
 def get_pulido_stats():
     # Placeholder
     return jsonify({"success": True, "message": "Estadísticas de pulido (WIP)"})
+
+
+@pulido_bp.route('/api/pulido/exportar_excel', methods=['GET'])
+def exportar_excel_pulido():
+    """
+    Exportación profesional a Excel del historial de Pulido.
+    Usa openpyxl para estilos avanzados (cabecera, cebreado, alertas PNC).
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    try:
+        # 1. Parámetros (mismos filtros que el historial)
+        f_inicio = request.args.get('fecha_inicio', '')
+        f_fin = request.args.get('fecha_fin', '')
+        operario = request.args.get('operario', '')
+        id_codigo = request.args.get('id_codigo', '')
+
+        # 2. Query con casts
+        sql = """
+            SELECT
+                id, id_pulido::TEXT as id_pulido, fecha,
+                codigo::TEXT as codigo, responsable::TEXT as responsable,
+                cantidad_real, pnc_inyeccion, pnc_pulido,
+                hora_inicio, hora_fin,
+                orden_produccion::TEXT as orden_produccion,
+                observaciones::TEXT as observaciones,
+                cantidad_recibida
+            FROM db_pulido
+            WHERE 1=1
+        """
+        params = {}
+
+        if f_inicio and f_fin:
+            sql += " AND CAST(fecha AS DATE) BETWEEN :f_inicio AND :f_fin"
+            params['f_inicio'] = f_inicio
+            params['f_fin'] = f_fin
+        elif f_inicio:
+            sql += " AND CAST(fecha AS DATE) >= :f_inicio"
+            params['f_inicio'] = f_inicio
+        elif f_fin:
+            sql += " AND CAST(fecha AS DATE) <= :f_fin"
+            params['f_fin'] = f_fin
+
+        if operario and operario.upper() != 'TODOS':
+            sql += " AND UPPER(TRIM(responsable)) LIKE :operario"
+            params['operario'] = f"%{operario.strip().upper()}%"
+
+        if id_codigo and id_codigo.upper() != 'TODOS':
+            sql += " AND UPPER(TRIM(codigo)) LIKE :codigo"
+            params['codigo'] = f"%{id_codigo.strip().upper()}%"
+
+        sql += " ORDER BY fecha DESC, id DESC"
+
+        result = db.session.execute(text(sql), params)
+        resultados = [dict(row._mapping) for row in result]
+
+        # 3. Crear Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Historial Pulido"
+
+        # --- ESTILOS ---
+        header_font = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
+        header_fill = PatternFill(start_color='2C3E50', end_color='2C3E50', fill_type='solid')
+        header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        thin_border = Border(
+            left=Side(style='thin', color='D5D8DC'),
+            right=Side(style='thin', color='D5D8DC'),
+            top=Side(style='thin', color='D5D8DC'),
+            bottom=Side(style='thin', color='D5D8DC')
+        )
+        zebra_fill = PatternFill(start_color='F2F3F4', end_color='F2F3F4', fill_type='solid')
+        pnc_fill = PatternFill(start_color='FADBD8', end_color='FADBD8', fill_type='solid')
+        data_align = Alignment(horizontal='center', vertical='center')
+        text_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+        # --- CABECERA ---
+        columnas = [
+            'Fecha', 'Hora Inicio', 'Hora Fin', 'Operario', 'Referencia',
+            'Orden/OP', 'Cant. Recibida', 'Cantidad OK', 'PNC Iny', 'PNC Pul', 'Observaciones'
+        ]
+        for col_idx, titulo in enumerate(columnas, 1):
+            cell = ws.cell(row=1, column=col_idx, value=titulo)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+        # --- FILAS DE DATOS ---
+        for row_idx, r in enumerate(resultados, 2):
+            fecha_str = r['fecha'].strftime('%d/%m/%Y') if r['fecha'] else ''
+            h_inicio = r['hora_inicio'].strftime('%H:%M') if r['hora_inicio'] else ''
+            h_fin = r['hora_fin'].strftime('%H:%M') if r['hora_fin'] else ''
+            cant_recibida = float(r['cantidad_recibida'] or 0)
+            cant_ok = int(r['cantidad_real'] or 0)
+            pnc_i = int(r['pnc_inyeccion'] or 0)
+            pnc_p = int(r['pnc_pulido'] or 0)
+
+            fila = [
+                fecha_str,
+                h_inicio,
+                h_fin,
+                str(r['responsable'] or 'SISTEMA'),
+                str(r['codigo'] or ''),
+                str(r['orden_produccion'] or r['id_pulido'] or '-'),
+                round(cant_recibida, 1) if cant_recibida != int(cant_recibida) else int(cant_recibida),
+                cant_ok,
+                pnc_i,
+                pnc_p,
+                str(r['observaciones'] or '')
+            ]
+
+            for col_idx, valor in enumerate(fila, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=valor)
+                cell.border = thin_border
+
+                # Alineación: texto a la izquierda, números al centro
+                if col_idx in (4, 5, 6, 11):  # Operario, Referencia, Orden, Observaciones
+                    cell.alignment = text_align
+                else:
+                    cell.alignment = data_align
+
+            # Cebreado (filas pares)
+            if row_idx % 2 == 0:
+                for col_idx in range(1, len(columnas) + 1):
+                    ws.cell(row=row_idx, column=col_idx).fill = zebra_fill
+
+            # Alerta PNC (fondo rojo claro si > 0)
+            if pnc_i > 0:
+                ws.cell(row=row_idx, column=9).fill = pnc_fill
+                ws.cell(row=row_idx, column=9).font = Font(bold=True, color='C0392B')
+            if pnc_p > 0:
+                ws.cell(row=row_idx, column=10).fill = pnc_fill
+                ws.cell(row=row_idx, column=10).font = Font(bold=True, color='C0392B')
+
+        # --- AUTO-AJUSTE DE ANCHOS ---
+        anchos = [12, 11, 11, 22, 18, 18, 14, 13, 9, 9, 40]
+        for i, w in enumerate(anchos, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        # Inmovilizar primera fila
+        ws.freeze_panes = 'A2'
+
+        # 4. Generar archivo en memoria
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        fecha_archivo = datetime.now().strftime('%Y-%m-%d')
+        filename = f"Historial_Pulido_{fecha_archivo}.xlsx"
+
+        logger.info(f"📊 [Excel] Exportando {len(resultados)} registros de Pulido")
+
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error exportando Excel Pulido: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500

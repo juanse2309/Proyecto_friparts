@@ -116,11 +116,11 @@ class ProduccionPulido(db.Model):
     __table_args__ = {'extend_existing': True}
 
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    id_pulido       = db.Column(db.Text,    index=True, nullable=True) # TEXT (OID 25)
+    id_pulido       = db.Column(db.String(100), index=True, nullable=True) # VARCHAR
     fecha           = db.Column(db.DateTime, index=True, nullable=True)
-    codigo          = db.Column(db.Text,    index=True, nullable=True) # TEXT
-    responsable     = db.Column(db.Text,    nullable=True) # TEXT
-    cantidad_real   = db.Column(db.BigInteger, default=0) # int8 en DB
+    codigo          = db.Column(db.String(100), index=True, nullable=True) # VARCHAR
+    responsable     = db.Column(db.String(200), nullable=True) # VARCHAR
+    cantidad_real   = db.Column(db.Integer,     default=0) # int4 en DB
     pnc_inyeccion   = db.Column(db.Integer,     default=0)
     pnc_pulido      = db.Column(db.Integer,     default=0)
     hora_inicio     = db.Column(db.DateTime,    nullable=True)
@@ -129,12 +129,12 @@ class ProduccionPulido(db.Model):
     tiempo_total_minutos = db.Column(db.Numeric(10, 2), default=0)
     duracion_segundos    = db.Column(db.Integer, default=0)
     segundos_por_unidad  = db.Column(db.Numeric(10, 2), default=0)
-    orden_produccion     = db.Column(db.Text,    nullable=True) # Nombre real en DB: orden_produccion
-    observaciones        = db.Column(db.Text,    nullable=True) # TEXT
+    orden_produccion     = db.Column(db.String(100), nullable=True) # VARCHAR
+    observaciones        = db.Column(db.Text,        nullable=True) # TEXT
     criterio_pnc_inyeccion = db.Column(db.Text, nullable=True)
     criterio_pnc_pulido    = db.Column(db.Text, nullable=True)
     departamento           = db.Column(db.String(100), default='PULIDO')
-    lote                   = db.Column(db.Text, nullable=True) # TEXT
+    lote                   = db.Column(db.String(100), nullable=True) # VARCHAR
     cantidad_recibida      = db.Column(db.Numeric(18, 2), default=0)
     almacen_destino        = db.Column(db.String(100), default='P. TERMINADO')
     hora_pausa             = db.Column(db.DateTime,    nullable=True)
@@ -278,7 +278,7 @@ class BujeRevuelto(db.Model):
     __table_args__ = {'extend_existing': True}
 
     id_bujes_revueltos = db.Column(db.String(80), primary_key=True, default=lambda: uuid.uuid4().hex[:8])
-    id_pulido        = db.Column(db.Text, index=True) # OID 25
+    id_pulido        = db.Column(db.String(100), index=True) # VARCHAR
     id_codigo        = db.Column(db.String(50), index=True) 
     cantidad         = db.Column(db.Numeric(18, 2), default=0)
     codigo_ensamble  = db.Column(db.String(50), nullable=True)

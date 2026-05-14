@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from sqlalchemy import text
 from datetime import datetime
 import logging
 import psycopg2.extensions
@@ -30,7 +31,7 @@ def format_time_py(dt_obj):
 @historial_bp.route('/api/historial-global', methods=['GET'])
 def obtener_historial_global():
     """
-    Historial Global v4.2 ORM-Pure (Espejo de Mapeo).
+    Historial Global v5.0 SQL-Limpio (Dict Mapping).
     Sincronizado con llaves en Mayúscula para el frontend.
     """
     try:
@@ -43,7 +44,7 @@ def obtener_historial_global():
         f_desde = datetime.strptime(desde_str, '%Y-%m-%d').date() if desde_str else hoy
         f_hasta = datetime.strptime(hasta_str, '%Y-%m-%d').date() if hasta_str else hoy
         
-        logger.info(f"🔍 [Historial] Consulta v4.2 ORM-Espejo ({f_desde} -> {f_hasta})")
+        logger.info(f"🔍 [Historial] Consulta v5.0 SQL-Limpio ({f_desde} -> {f_hasta})")
         movimientos = []
 
         # 1. INYECCIÓN
@@ -71,42 +72,67 @@ def obtener_historial_global():
         # 2. PULIDO (Lógica Quirúrgica v4.4)
         if not tipo_filtro or tipo_filtro == 'PULIDO':
             try:
-                # Consulta ORM Simple
-                res_pul = ProduccionPulido.query.filter(ProduccionPulido.fecha.between(f_desde, f_hasta)).all()
-                
+                # Consulta SQL con Casts explícitos
+                sql_pul = """
+                    SELECT 
+                        id, id_pulido::TEXT, fecha, codigo::TEXT, responsable::TEXT, 
+                        cantidad_real, orden_produccion::TEXT, observaciones::TEXT,
+                        hora_inicio, hora_fin
+                    FROM db_pulido
+                    WHERE CAST(fecha AS DATE) BETWEEN :desde AND :hasta
+                """
+                res_raw = db.session.execute(text(sql_pul), {"desde": f_desde, "hasta": f_hasta})
+                res_pul = [dict(row._mapping) for row in res_raw]
+
+                # Batch Pre-fetch Revueltos (v5.2 - Zero queries in loop)
+                all_pul_ids = [str(r.get('id_pulido') or '').strip() for r in res_pul]
+                all_pul_ids = [pid for pid in all_pul_ids if pid]
+
+                revueltos_map = {}
+                if all_pul_ids:
+                    placeholders = ', '.join([f':pid_{i}' for i in range(len(all_pul_ids))])
+                    sql_revs = f"SELECT id_pulido::TEXT as id_pulido, id_codigo::TEXT as id_codigo, COALESCE(cantidad, 0) as cantidad FROM db_bujes_revueltos WHERE id_pulido IN ({placeholders})"
+                    params_revs = {f'pid_{i}': pid for i, pid in enumerate(all_pul_ids)}
+                    revs_raw = db.session.execute(text(sql_revs), params_revs)
+                    for rv in revs_raw:
+                        rv_dict = dict(rv._mapping)
+                        pid = str(rv_dict['id_pulido'])
+                        if pid not in revueltos_map:
+                            revueltos_map[pid] = []
+                        revueltos_map[pid].append(rv_dict)
+
                 for r in res_pul:
                     try:
-                        # id_pulido es la clave para buscar revueltos (OID 25 / TEXT)
-                        p_id = str(getattr(r, 'id_pulido', '') or '').strip()
+                        p_id = str(r.get('id_pulido') or '').strip()
                         
-                        # 2.1 Consulta secundaria para revueltos
+                        # Lookup directo en memoria (cero DB calls)
+                        revs = revueltos_map.get(p_id, [])
                         det_revueltos = ""
-                        if p_id:
-                            revs = BujeRevuelto.query.filter(BujeRevuelto.id_pulido == p_id).all()
-                            if revs:
-                                det_revueltos = " | REVUELTOS: " + ", ".join([f"{str(rv.id_codigo)}({rv.cantidad})" for rv in revs])
+                        if revs:
+                            det_revueltos = " | REVUELTOS: " + ", ".join([f"{str(rv['id_codigo'])}({float(rv['cantidad'] or 0)})" for rv in revs])
 
-                        # 2.2 Construcción de Detalle (Sin rastro de Mezcla ni molido_kg)
-                        obs = str(getattr(r, 'observaciones', '') or '').strip()
+                        obs = str(r.get('observaciones') or '').strip()
                         detalle_final = f"Obs: {obs}{det_revueltos}" if obs else det_revueltos.strip(" | ")
 
                         movimientos.append({
-                            'Fecha': getattr(r.fecha, 'strftime', lambda x: '')('%d/%m/%Y') if r.fecha else '',
+                            'Fecha': r['fecha'].strftime('%d/%m/%Y') if r['fecha'] else '',
                             'Tipo': 'PULIDO',
-                            'Producto': str(getattr(r, 'codigo', '') or ''),
-                            'Responsable': str(getattr(r, 'responsable', 'SISTEMA') or ''),
-                            'Cant': float(getattr(r, 'cantidad_real', 0) or 0),
-                            'Orden': str(getattr(r, 'orden_produccion', '') or p_id),
-                            'Extra': f"OP: {str(getattr(r, 'orden_produccion', '') or '')}",
-                            'Detalle': detalle_final.strip(),
-                            'HORA_INICIO': format_time_py(getattr(r, 'hora_inicio', None)),
-                            'HORA_FIN': format_time_py(getattr(r, 'hora_fin', None)),
+                            'Producto': str(r['codigo'] or ''),
+                            'Responsable': str(r['responsable'] or 'SISTEMA'),
+                            'cantidad_real': float(r['cantidad_real'] or 0),
+                            'Cant': float(r['cantidad_real'] or 0),
+                            'Orden': str(r['orden_produccion'] or p_id or '-'),
+                            'Extra': f"OP: {str(r['orden_produccion'] or '')}",
+                            'Detalle': str(detalle_final.strip()),
+                            'HORA_INICIO': format_time_py(r['hora_inicio']),
+                            'HORA_FIN': format_time_py(r['hora_fin']),
                             'hoja': 'db_pulido',
-                            'fila': getattr(r, 'id', 0)
+                            'fila': int(r['id'])
                         })
                     except Exception as e_row:
+                        db.session.rollback()
                         print(f'Error en fila Pulido: {e_row}')
-                        logger.error(f"❌ Error procesando fila Pulido (ID {getattr(r, 'id', '?') }): {e_row}")
+                        logger.error(f"❌ Error procesando fila Pulido (ID {r.get('id', '?')}): {e_row}")
                         continue
             except Exception as e_block:
                 print(f'Error en Pulido: {e_block}')

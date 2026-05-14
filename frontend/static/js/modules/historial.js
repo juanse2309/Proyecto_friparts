@@ -93,14 +93,21 @@
      */
     async function cargarHistorial() {
         try {
-            console.log('📜 Cargando historial v4.1 (Direct Array)...');
+            console.log('📜 Cargando historial v5.0 (SQL-Limpio)...');
             if (typeof mostrarLoading === 'function') mostrarLoading(true);
 
             const proceso = document.getElementById('tipoProceso')?.value || '';
             const desde = document.getElementById('fechaDesde')?.value || '';
             const hasta = document.getElementById('fechaHasta')?.value || '';
+            const operario = document.getElementById('filtroOperario')?.value || '';
+            const codigo = document.getElementById('filtroCodigo')?.value || '';
 
-            const url = `/api/historial-global?tipo=${proceso}&desde=${desde}&hasta=${hasta}`;
+            let url = `/api/historial-global?tipo=${proceso}&desde=${desde}&hasta=${hasta}`;
+            
+            // Si el proceso es PULIDO, usamos el endpoint especializado con filtros dinámicos
+            if (proceso === 'PULIDO') {
+                url = `/api/pulido/historial?fecha_inicio=${desde}&fecha_fin=${hasta}&operario=${encodeURIComponent(operario)}&id_codigo=${encodeURIComponent(codigo)}`;
+            }
 
             if (typeof fetchData !== 'function') {
                 console.error('❌ Error: fetchData no está definida.');
@@ -132,7 +139,13 @@
                     console.log('⚠️ Historial - Filtro devolvió 0 registros');
                 }
 
-                renderizarTablaHistorial();
+                try {
+                    renderizarTablaHistorial();
+                } catch (renderErr) {
+                    console.error('❌ Error renderizando tabla historial:', renderErr);
+                    const container = document.getElementById('historial-container');
+                    if (container) container.innerHTML = '<div class="text-center py-5 text-danger"><i class="fas fa-exclamation-triangle mb-2"></i> Error al dibujar la tabla. Revisa la consola.</div>';
+                }
 
                 const totalSpan = document.getElementById('total-registros-historial');
                 if (totalSpan) totalSpan.textContent = h_datos.length;
@@ -194,8 +207,8 @@
                     maquina = r.MAQUINA || r.Extra;
                 } else if (r.Tipo === 'PULIDO') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    // FIX: Mostrar Cantidad Recibida (Total) en lugar de Real (Buenos)
-                    cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
+                    // USAR cantidad_real según instrucción del usuario
+                    cantidad = r.cantidad_real !== undefined ? r.cantidad_real : r.Cant;
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = 'N/A';
                 } else if (r.Tipo === 'METALS') {
@@ -289,8 +302,8 @@
                     maquina = r.MAQUINA || r.Extra;
                 } else if (r.Tipo === 'PULIDO') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    // FIX: Mostrar Cantidad Recibida (Total) en lugar de Real (Buenos)
-                    cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
+                    // USAR cantidad_real según instrucción del usuario
+                    cantidad = r.cantidad_real !== undefined ? r.cantidad_real : r.Cant;
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = '-'; // Pulido no tiene máquina
                 } else if (r.Tipo === 'METALS') {
@@ -419,10 +432,15 @@
             }
 
             // Filtros dinámicos (Auto-filtrar al cambiar)
-            ['fechaDesde', 'fechaHasta', 'tipoProceso'].forEach(id => {
+            ['fechaDesde', 'fechaHasta', 'tipoProceso', 'filtroOperario', 'filtroCodigo'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
-                    el.addEventListener('change', () => cargarHistorial());
+                    const eventType = el.tagName === 'INPUT' && el.type === 'text' ? 'keyup' : 'change';
+                    el.addEventListener(eventType, (e) => {
+                        // Si es keyup, solo filtrar después de 3 caracteres o Enter
+                        if (eventType === 'keyup' && e.key !== 'Enter' && el.value.length < 3 && el.value.length > 0) return;
+                        cargarHistorial();
+                    });
                 }
             });
 
@@ -650,6 +668,12 @@
             return;
         }
 
+        // Si estamos en vista PULIDO, usar el endpoint del backend (formato profesional)
+        const proceso = document.getElementById('tipoProceso')?.value || '';
+        if (proceso === 'PULIDO') {
+            return descargarExcelPulido();
+        }
+
         try {
             console.log('📊 Generando Excel del historial...');
             mostrarLoading(true);
@@ -664,17 +688,18 @@
 
                 if (r.Tipo === 'INYECCION') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
+                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : (r.cantidad_real !== undefined ? r.cantidad_real : r.Cant);
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = r.MAQUINA || r.Extra;
                 } else if (r.Tipo === 'PULIDO') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    cantidad = r.Cant !== undefined ? r.Cant : (r['CANTIDAD RECIBIDA'] || r['CANTIDAD REAL']);
+                    // Priorizamos cantidad_real para Pulido
+                    cantidad = r.cantidad_real !== undefined ? r.cantidad_real : r.Cant;
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
                     maquina = 'N/A';
                 }
 
-                return {
+                const rowData = {
                     'Fecha': r.Fecha,
                     'Hora Inicio': formatHorario(r.HORA_INICIO),
                     'Hora Fin': formatHorario(r.HORA_FIN),
@@ -684,15 +709,24 @@
                     'Orden de Producción': orden,
                     'Máquina/Extra': maquina,
                     'Detalle': limpiarTextoParaExcel(r.Detalle),
-                    'Cantidad': { v: Number(cantidad) || 0, t: 'n' } // Forzar tipo numérico para Excel
+                    'Cantidad OK': { v: Number(cantidad) || 0, t: 'n' }
                 };
+
+                // Añadir columnas extra para Pulido si están presentes
+                if (r.Tipo === 'PULIDO') {
+                    rowData['Cant. Recibida'] = { v: Number(r.cantidad_recibida) || 0, t: 'n' };
+                    rowData['PNC Iny'] = { v: Number(r.pnc_inyeccion) || 0, t: 'n' };
+                    rowData['PNC Pul'] = { v: Number(r.pnc_pulido) || 0, t: 'n' };
+                }
+
+                return rowData;
             });
 
             // Crear libro de trabajo
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.json_to_sheet(rows);
 
-            // Estilos básicos (ancho de columnas ajustado para las nuevas columnas)
+            // Estilos básicos (ancho de columnas ajustado)
             const wscols = [
                 { wch: 12 }, // Fecha
                 { wch: 10 }, // Hora Inicio
@@ -702,8 +736,11 @@
                 { wch: 20 }, // Producto
                 { wch: 15 }, // Orden
                 { wch: 15 }, // Máquina
-                { wch: 60 }, // Detalle
-                { wch: 10 }  // Cantidad
+                { wch: 50 }, // Detalle
+                { wch: 10 }, // Cantidad OK
+                { wch: 15 }, // Cant. Recibida
+                { wch: 10 }, // PNC Iny
+                { wch: 10 }  // PNC Pul
             ];
             ws['!cols'] = wscols;
 
@@ -723,6 +760,24 @@
         } finally {
             mostrarLoading(false);
         }
+    }
+
+    /**
+     * Descarga Excel profesional de Pulido desde el backend (openpyxl)
+     */
+    function descargarExcelPulido() {
+        const desde = document.getElementById('fechaDesde')?.value || '';
+        const hasta = document.getElementById('fechaHasta')?.value || '';
+        const operario = document.getElementById('filtroOperario')?.value || '';
+        const codigo = document.getElementById('filtroCodigo')?.value || '';
+
+        const url = `/api/pulido/exportar_excel?fecha_inicio=${desde}&fecha_fin=${hasta}&operario=${encodeURIComponent(operario)}&id_codigo=${encodeURIComponent(codigo)}`;
+
+        console.log('📊 [Excel Pulido] Descargando desde backend:', url);
+        mostrarNotificacion('Generando Excel profesional de Pulido...', 'info');
+
+        // Descarga directa via navegación (el backend devuelve el archivo)
+        window.location.href = url;
     }
 
     let swalTimelineState = {
