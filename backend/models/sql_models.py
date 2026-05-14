@@ -193,7 +193,7 @@ class RegistroAsistencia(db.Model):
     horas_ordinarias    = db.Column(db.Numeric(10, 2), default=0)
     horas_extras        = db.Column(db.Numeric(10, 2), default=0)
     # El campo en la BD real se llama 'jefe'
-    jefe                = db.Column(db.String(150), nullable=True)
+
     estado              = db.Column(db.String(50),  nullable=True)
     estado_pago         = db.Column(db.String(50),  default='PENDIENTE')
     motivo              = db.Column(db.String(255), nullable=True)

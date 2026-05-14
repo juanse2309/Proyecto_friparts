@@ -28,33 +28,27 @@ window.ModuloAsistencia = (function () {
 
         const nombreNorm = normalize(nombre);
 
-        // Mapa de roles con sus áreas de responsabilidad (RBAC Estricto)
+        // Mapa de roles con sus áreas de responsabilidad (RBAC Flexible)
         let areasAsignadas = [];
-        let esJefe = false;
         const ADMIN_ROLES = ['ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'ADMIN', 'GERENCIA GLOBAL'];
         let esRolGerencia = ADMIN_ROLES.includes(role);
+        let esJefe = esRolGerencia || role.includes('JEFE');
 
         if (esRolGerencia) {
-            esJefe = true;
             areasAsignadas = null; // null = VE TODO
-        } else if (role === 'JEFE INYECCION' || role === 'INYECCION') {
-            esJefe = true;
+        } else if (role.includes('JEFE INYECCION') || role === 'INYECCION') {
             areasAsignadas = ['INYECCION', 'ENSAMBLE'];
-        } else if (role === 'JEFE PULIDO' || role === 'PULIDO') {
-            esJefe = true;
+        } else if (role.includes('JEFE PULIDO') || role === 'PULIDO') {
             areasAsignadas = ['PULIDO'];
-        } else if (role === 'JEFE ALMACEN' || role === 'ALMACEN' || role === 'ALISTAMIENTO') {
-            esJefe = true;
+        } else if (role.includes('JEFE ALMACEN') || role === 'ALMACEN' || role === 'ALISTAMIENTO') {
             areasAsignadas = ['ALISTAMIENTO'];
         } else if (role === 'AUXILIAR INVENTARIO') {
-            esJefe = true;
             areasAsignadas = ['AUXILIAR INVENTARIO'];
         } else if (role === 'ENSAMBLE') {
-            esJefe = true;
             areasAsignadas = ['ENSAMBLE'];
-        } else if (role === 'JEFE DE PLANTA') {
-            esJefe = true;
-            areasAsignadas = [depto]; // Jeison ve su departamento (PLANTA)
+        } else if (esJefe) {
+            // Caso general para Jefes (como Paola): ven su propio departamento
+            areasAsignadas = [depto.toUpperCase()];
         }
 
         // Juan Sebastian: Limpieza de cabecera (Solo Nombre y Áreas)

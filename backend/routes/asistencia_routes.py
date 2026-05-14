@@ -121,6 +121,7 @@ def obtener_colaboradores():
         # 2. Construir Filtro
         ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
         es_admin_global = any(r in user_role for r in ADMS)
+        es_jefe_general = 'JEFE' in user_role
 
         # Obtener departamento del usuario actual
         sql_propio = text("SELECT departamento FROM db_usuarios WHERE username = :user")
@@ -129,8 +130,9 @@ def obtener_colaboradores():
 
         # Determinar lista de departamentos visibles para este usuario
         deptos_visibles = AREAS_POR_ROL.get(user_role, [mi_depto])
-        # Asegurar que siempre vea su propio departamento aunque no esté en el mapa
-        if mi_depto and mi_depto not in deptos_visibles:
+        
+        # Si es un jefe que no está en el mapa, asegurar que vea su departamento
+        if es_jefe_general and mi_depto and mi_depto not in deptos_visibles:
             deptos_visibles.append(mi_depto)
 
         # LÓGICA DE VISIBILIDAD:
@@ -207,10 +209,16 @@ def obtener_colaboradores():
 
 @asistencia_bp.route('/guardar', methods=['POST'])
 @asistencia_bp.route('/registrar_masivo', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_JEFES)
 def guardar_asistencia():
     """Guarda los registros de asistencia masivos en PostgreSQL."""
     try:
+        # Validación de Permisos Manual para permitir 'JEFE' wildcard
+        user_role = session.get('role', '').upper()
+        ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
+        es_autorizado = any(r in user_role for r in ADMS) or 'JEFE' in user_role
+        
+        if not es_autorizado:
+            return jsonify({'status': 'error', 'message': 'No tiene permisos para reportar asistencia'}), 403
         data = request.json
         if not data or 'registros' not in data:
             return jsonify({'status': 'error', 'message': 'Datos inválidos o vacíos'}), 400
@@ -248,7 +256,7 @@ def guardar_asistencia():
                 existente.salida_real = reg.get('salida_real') or reg.get('hora_salida', '')
                 existente.horas_ordinarias = h_ord
                 existente.horas_extras = h_ext
-                existente.jefe = usuario_registra
+                # Columna 'jefe' eliminada para evitar caídas del servidor
                 existente.estado = reg.get('estado', 'REGISTRADO')
                 existente.comentarios = reg.get('comentarios', '')
             else:
@@ -260,7 +268,7 @@ def guardar_asistencia():
                     salida_real=reg.get('salida_real') or reg.get('hora_salida', ''),
                     horas_ordinarias=h_ord,
                     horas_extras=h_ext,
-                    jefe=usuario_registra,
+                    # Columna 'jefe' eliminada
                     estado=reg.get('estado', 'REGISTRADO'),
                     estado_pago='PENDIENTE',
                     comentarios=reg.get('comentarios', '')
@@ -283,10 +291,16 @@ def guardar_asistencia():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/guardar_ausencia', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_JEFES)
 def guardar_ausencia():
-    """Guarda un registro de ausencia en SQL y Google Sheets."""
+    """Guarda un registro de ausencia en SQL."""
     try:
+        # Validación de Permisos Manual
+        user_role = session.get('role', '').upper()
+        ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
+        es_autorizado = any(r in user_role for r in ADMS) or 'JEFE' in user_role
+        
+        if not es_autorizado:
+            return jsonify({'status': 'error', 'message': 'No tiene permisos para reportar ausencias'}), 403
         data = request.json
         if not data or 'registro' not in data:
             return jsonify({'status': 'error', 'message': 'Datos inválidos'}), 400
@@ -303,7 +317,7 @@ def guardar_ausencia():
             salida_real='',
             horas_ordinarias=0,
             horas_extras=0,
-            jefe=reg.get('registrado_por', 'Sistema'),
+            # Columna 'jefe' eliminada
             estado='AUSENTE',
             estado_pago='PENDIENTE', 
             motivo=reg.get('motivo', ''),
@@ -341,7 +355,7 @@ def obtener_mis_horas():
         sql = text("""
             SELECT 
                 id, fecha, colaborador, ingreso_real, salida_real, 
-                horas_ordinarias, horas_extras, jefe, estado, motivo, comentarios, estado_pago 
+                horas_ordinarias, horas_extras, estado, motivo, comentarios, estado_pago 
             FROM db_asistencia 
             WHERE (colaborador ILIKE :full_name OR colaborador ILIKE :username_pattern)
             ORDER BY fecha DESC, id DESC 
