@@ -20,6 +20,10 @@ const ModuloEnsamble = {
 
     inicializar: async function () {
         console.log('🔧 [Ensamble] Inicializando módulo con Captura Infalible...');
+        
+        // Capturar usuario actual para validaciones de voz
+        this.usuarioActual = document.getElementById('current_user_fullname')?.value || '';
+        
         this.configurarTabs();
         await this.cargarDatos();
         this.configurarEventos();
@@ -290,10 +294,12 @@ const ModuloEnsamble = {
             const res = await fetchData(`/api/ensamble/bom_stock/${idCodigo}`);
             const container = document.getElementById(containerId);
             if (!res || !res.success) {
+                this.currentBOM = [];
                 container.innerHTML = '<div class="col-12 text-center text-muted">Sin BOM definido.</div>';
                 return;
             }
 
+            this.currentBOM = res.componentes || []; // Guardar para el envío multiregistro
             let html = '';
             res.componentes.forEach((c, index) => {
                 html += `
@@ -310,7 +316,10 @@ const ModuloEnsamble = {
                 `;
             });
             container.innerHTML = html;
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e);
+            this.currentBOM = [];
+        }
     },
 
     seleccionarTarea: function(tarea) {
@@ -331,11 +340,19 @@ const ModuloEnsamble = {
         this.intentarAutoSeleccionarResponsable();
         this.renderBOMCheckboxes(tarea.id_codigo, 'reporte-bom-check-container');
         
-        document.getElementById('form-reporte-ensamble-container').style.display = 'block';
-        document.getElementById('form-reporte-ensamble-container').scrollIntoView({ behavior: 'smooth' });
+        const container = document.getElementById('form-reporte-ensamble-container');
+        if (container) container.style.display = 'block';
+        
+        let modalEl = document.getElementById('modalReporteEnsamble') || document.getElementById('modalEnsamble');
+        if (modalEl) {
+            let inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+            inst.show();
+        } else {
+            if (container) container.scrollIntoView({ behavior: 'smooth' });
+        }
     },
 
-    seleccionarProductoManual: function(producto) {
+    seleccionarProductoManual: async function(producto) {
         if (this.sesionActiva) return;
         document.getElementById('reporte-id-prog').value = '';
         document.getElementById('reporte-producto-display').textContent = producto.codigo_sistema;
@@ -343,20 +360,57 @@ const ModuloEnsamble = {
         document.getElementById('reporte-buje-origen').value = producto.codigo_sistema;
         
         this.intentarAutoSeleccionarResponsable();
-        this.renderBOMCheckboxes(producto.codigo_sistema, 'reporte-bom-check-container');
+        return await this.renderBOMCheckboxes(producto.codigo_sistema, 'reporte-bom-check-container');
     },
 
-    toggleManualMode: function() {
-        if (this.sesionActiva) return;
+    abrirModalManual: function() {
         this.isManualMode = true;
-        document.getElementById('form-reporte-ensamble-container').style.display = 'block';
+        
+        // 1. Limpiar todos los campos (Formulario en blanco)
         this.resetFormulario(true);
+        
+        // Limpieza extra explícita
+        const idsToClear = ['reporte-id-prog', 'reporte-producto-manual', 'reporte-cantidad', 'reporte-op', 'reporte-pnc', 'reporte-observaciones'];
+        idsToClear.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        
+        const prodDisplay = document.getElementById('reporte-producto-display');
+        if (prodDisplay) prodDisplay.style.display = 'none';
+        
+        const bomContainer = document.getElementById('reporte-bom-check-container');
+        if (bomContainer) bomContainer.innerHTML = '<div class="col-12 text-center text-muted py-2">Escribe un código para cargar el BOM.</div>';
+        
         this.intentarAutoSeleccionarResponsable();
-        document.getElementById('form-reporte-ensamble-container').scrollIntoView({ behavior: 'smooth' });
+        
+        // 2. Forzar visualización del contenedor
+        const container = document.getElementById('form-reporte-ensamble-container');
+        if (container) container.style.display = 'block';
+        
+        // 3. Forzar apertura de Bootstrap Modal explícitamente
+        const modalId = document.getElementById('modalReporteEnsamble') ? 'modalReporteEnsamble' : 'modalEnsamble';
+        const modalEl = document.getElementById(modalId);
+        
+        if (modalEl) {
+            try {
+                let inst = bootstrap.Modal.getInstance(modalEl);
+                if (!inst) {
+                    inst = new bootstrap.Modal(modalEl);
+                }
+                inst.show();
+            } catch(e) {
+                console.error("[Ensamble] Error forzando modal:", e);
+            }
+        } else {
+            if (container) container.scrollIntoView({ behavior: 'smooth' });
+        }
     },
 
     reportarAvance: async function(estado = 'EN_PROCESO') {
-        const idCodigo = document.getElementById('reporte-producto-manual').value;
+        const rawIdCodigo = document.getElementById('reporte-producto-manual').value;
+        // Normalización: Eliminar prefijo FR-
+        const idCodigo = rawIdCodigo.replace(/^FR-/i, '').trim();
         const cantidad = parseInt(document.getElementById('reporte-cantidad').value) || 0;
         const responsable = document.getElementById('responsable').value; 
 
@@ -365,41 +419,68 @@ const ModuloEnsamble = {
             return;
         }
 
-        // Generar nuevo ID solo si no existe sesión
+        // ID de Ensamble Único para la operación
         if (!this.sessionId) {
             this.sessionId = 'ENS-' + Math.random().toString(36).substr(2, 9).toUpperCase();
             this.startTime = new Date();
         }
 
-        const componentesADescontar = [];
-        document.querySelectorAll('.bom-checkbox:checked').forEach(chk => {
-            componentesADescontar.push(chk.value);
-        });
-
-        const payload = {
+        const commonData = {
             id_ensamble: this.sessionId,
             id_prog: document.getElementById('reporte-id-prog').value || null,
-            id_codigo: idCodigo,
-            cantidad: cantidad,
             responsable: responsable,
             estado: estado,
             op_numero: document.getElementById('reporte-op').value,
-            buje_origen: document.getElementById('reporte-buje-origen').value,
-            almacen_origen: document.getElementById('reporte-almacen-origen').value,
-            almacen_destino: document.getElementById('reporte-almacen-destino').value,
+            fecha: document.getElementById('reporte-fecha').value,
+            hora_inicio: document.getElementById('reporte-hora-inicio')?.value || null,
+            hora_fin: document.getElementById('reporte-hora-fin')?.value || null,
             pnc: parseInt(document.getElementById('reporte-pnc').value) || 0,
             pnc_detalles: this.pncDetalles,
             observaciones: document.getElementById('reporte-observaciones').value,
-            componentes_seleccionados: componentesADescontar
+            buje_origen: document.getElementById('reporte-buje-origen').value.replace(/^FR-/i, ''),
         };
 
+        const registrosPayload = [];
+
+        // 1. Registro del Producto Final (Entrada a Almacén)
+        registrosPayload.push({
+            ...commonData,
+            id_codigo: idCodigo, // El Ancla
+            buje_ensamble: idCodigo, // El Detalle
+            cantidad: cantidad,
+            qty: 1, // Ratio del producto final es siempre 1
+            almacen_destino: document.getElementById('reporte-almacen-destino').value,
+            almacen_para_descargar: null,
+            es_final: true
+        });
+
+        // 2. Registros de Componentes (Salida de Almacén) - Solo si es FINALIZADO
+        if (estado === 'FINALIZADO') {
+            document.querySelectorAll('.bom-checkbox:checked').forEach(chk => {
+                const codComp = chk.value;
+                const compInfo = (this.currentBOM || []).find(c => c.codigo_inventario === codComp);
+                const ratio = compInfo ? parseFloat(compInfo.cantidad_por_unidad || 1) : 1;
+                
+                registrosPayload.push({
+                    ...commonData,
+                    id_codigo: idCodigo, // El Ancla
+                    buje_ensamble: codComp, // El Detalle
+                    cantidad: cantidad * ratio,
+                    qty: ratio, // Guardamos el ratio/factor del componente
+                    almacen_para_descargar: document.getElementById('reporte-almacen-origen').value,
+                    almacen_destino: null,
+                    es_final: false
+                });
+            });
+        }
+
         try {
-            console.log(`📤 [Ensamble] Enviando reporte estado='${estado}'`, payload);
-            mostrarLoading(true, estado === 'FINALIZADO' ? 'Finalizando y descontando inventario...' : 'Guardando avance...');
+            console.log(`📤 [Ensamble] Enviando ${registrosPayload.length} registros`, registrosPayload);
+            mostrarLoading(true, estado === 'FINALIZADO' ? 'Procesando multi-registro e inventario...' : 'Guardando avance...');
             const res = await fetch('/api/ensamble/reportar', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
+                body: JSON.stringify({ registros: registrosPayload })
             });
             const data = await res.json();
             mostrarLoading(false);
@@ -627,14 +708,206 @@ const ModuloEnsamble = {
     configurarEventos: function() {
         document.getElementById('btn-guardar-prog')?.addEventListener('click', () => this.guardarProgramacion());
         document.getElementById('btn-reportar-avance')?.addEventListener('click', () => this.reportarAvance('FINALIZADO'));
-        document.getElementById('btn-manual-mode')?.addEventListener('click', () => this.toggleManualMode());
+        document.getElementById('btn-registro-manual-directo')?.addEventListener('click', () => this.abrirModalManual());
+        document.getElementById('btn-manual-mode')?.addEventListener('click', () => this.abrirModalManual());
         document.getElementById('btn-detalle-pnc')?.addEventListener('click', () => this.abrirModalPNC());
         document.getElementById('btn-cancelar-reporte')?.addEventListener('click', () => this.resetFormulario(true));
+        
+        document.getElementById('btn-ia-voice-ensamble')?.addEventListener('click', () => this.toggleGrabacionVoz());
         
         document.getElementById('prog-cantidad')?.addEventListener('input', () => {
             const idCodigo = document.getElementById('prog-producto').value;
             if (idCodigo) this.consultarBOMStock(idCodigo);
         });
+
+        // Trigger manual BOM load on input change
+        document.getElementById('reporte-producto-manual')?.addEventListener('change', (e) => {
+            const val = e.target.value.trim().toUpperCase();
+            if (val) {
+                e.target.value = val;
+                this.seleccionarProductoManual({codigo_sistema: val});
+            }
+        });
+    },
+
+    // --- PUERTO PARA IA DE VOZ ---
+    poblarFormularioDesdeVoz: async function(data) {
+        if (this.sesionActiva) {
+            Swal.fire('Sesión Activa', 'Termina el trabajo actual antes de cargar uno por voz.', 'warning');
+            return;
+        }
+        
+        console.log('🎤 [Voz] Procesando datos recibidos:', data);
+        
+        // 1. Abrir formulario
+        this.abrirModalManual();
+        
+        // 2. Poblar campos
+        if (data.id_codigo) {
+            const inputProd = document.getElementById('reporte-producto-manual');
+            if (inputProd) {
+                inputProd.value = data.id_codigo.toUpperCase();
+                await this.seleccionarProductoManual({codigo_sistema: data.id_codigo.toUpperCase()});
+            }
+        }
+        
+        if (data.cantidad) {
+            const inputCant = document.getElementById('reporte-cantidad');
+            if (inputCant) inputCant.value = data.cantidad;
+        }
+        
+        // Cruce de Responsable: Si no coincide con el usuario logueado, mantener el de la sesión
+        if (data.responsable) {
+            const userLogged = this.usuarioActual;
+            if (data.responsable.toLowerCase() === userLogged.toLowerCase()) {
+                const inputResp = document.getElementById('responsable');
+                if (inputResp) {
+                    inputResp.value = data.responsable;
+                    inputResp.readOnly = true;
+                    inputResp.classList.add('bg-light');
+                }
+                const inputDisplay = document.getElementById('responsable-display');
+                if (inputDisplay) inputDisplay.value = data.responsable;
+            } else {
+                console.warn(`[Voz] El responsable '${data.responsable}' no coincide con el usuario '${userLogged}'. Manteniendo usuario de sesión.`);
+            }
+        }
+        
+        if (data.op_numero) {
+            const inputOp = document.getElementById('reporte-op');
+            if (inputOp) inputOp.value = data.op_numero;
+        }
+        
+        if (data.fecha) {
+            const inputFecha = document.getElementById('reporte-fecha');
+            if (inputFecha) inputFecha.value = data.fecha;
+        }
+
+        // Mapeo de Horas
+        if (data.hora_inicio) {
+            const inputHoraIni = document.getElementById('reporte-hora-inicio');
+            if (inputHoraIni) inputHoraIni.value = data.hora_inicio;
+        }
+        if (data.hora_fin) {
+            const inputHoraFin = document.getElementById('reporte-hora-fin');
+            if (inputHoraFin) inputHoraFin.value = data.hora_fin;
+        }
+
+        // Trigger de PNC
+        if (data.pnc > 0) {
+            const inputPnc = document.getElementById('reporte-pnc');
+            if (inputPnc) inputPnc.value = data.pnc;
+            // Ejecutar click en el botón que abre el modal de criterios
+            const btnPnc = document.getElementById('btn-detalle-pnc');
+            if (btnPnc) btnPnc.click();
+        }
+
+        // Componentes: Si contiene "TODOS", marcar todos los checkboxes del BOM
+        if (data.componentes_seleccionados && data.componentes_seleccionados.toUpperCase().includes("TODOS")) {
+            setTimeout(() => {
+                document.querySelectorAll('.bom-checkbox').forEach(chk => chk.checked = true);
+                console.log('✅ [Voz] BOM marcado completamente (TODOS).');
+            }, 500); // Pequeño delay para asegurar renderizado final
+        }
+        
+        console.log('🎤 [Voz] Formulario poblado con éxito.');
+    },
+
+    // --- LÓGICA DE GRABACIÓN DE VOZ (IA) ---
+    mediaRecorder: null,
+    audioChunks: [],
+    isRecording: false,
+
+    toggleGrabacionVoz: async function() {
+        if (this.isRecording) {
+            this.detenerGrabacion();
+        } else {
+            this.iniciarGrabacion();
+        }
+    },
+
+    iniciarGrabacion: async function() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            const options = { mimeType: 'audio/webm;codecs=opus' };
+            if (MediaRecorder.isTypeSupported(options.mimeType)) {
+                this.mediaRecorder = new MediaRecorder(stream, options);
+            } else {
+                console.warn('[Ensamble] audio/webm;codecs=opus no soportado, usando fallback');
+                this.mediaRecorder = new MediaRecorder(stream);
+            }
+            
+            this.audioChunks = [];
+
+            this.mediaRecorder.ondataavailable = e => {
+                if (e.data.size > 0) this.audioChunks.push(e.data);
+            };
+
+            this.mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+                await this.procesarAudioIA(audioBlob);
+            };
+
+            this.mediaRecorder.start();
+            this.isRecording = true;
+            
+            // UI Feedback
+            const btn = document.getElementById('btn-ia-voice-ensamble');
+            if (btn) {
+                // Remove animation class before triggering a reflow, then add back
+                btn.classList.add('bg-danger');
+                btn.style.background = ''; // Override gradient
+                btn.innerHTML = '<i class="fas fa-stop-circle pulse"></i> Grabando...';
+            }
+            mostrarNotificacion('Escuchando...', 'info');
+
+        } catch (err) {
+            console.error('[Ensamble] Error accediendo al micrófono:', err);
+            Swal.fire('Error', 'No se pudo acceder al micrófono. Verifica los permisos de tu navegador.', 'error');
+        }
+    },
+
+    detenerGrabacion: function() {
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+            this.mediaRecorder.stop();
+            // Free the stream
+            this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+            this.isRecording = false;
+            
+            const btn = document.getElementById('btn-ia-voice-ensamble');
+            if (btn) {
+                btn.classList.remove('bg-danger');
+                btn.style.background = 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)';
+                btn.innerHTML = '<i class="fas fa-microphone"></i>';
+            }
+        }
+    },
+
+    procesarAudioIA: async function(audioBlob) {
+        try {
+            mostrarLoading(true, '🤖 Procesando audio con Gemini IA...');
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'ensamble_voz.webm');
+
+            const res = await fetch('/api/ia/procesar-audio-ensamble', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await res.json();
+            mostrarLoading(false);
+
+            if (result.success && result.data) {
+                this.poblarFormularioDesdeVoz(result.data);
+                mostrarNotificacion('IA: Formulario llenado exitosamente', 'success');
+            } else {
+                Swal.fire('Error de IA', result.error || 'No se pudo extraer información', 'error');
+            }
+        } catch (err) {
+            mostrarLoading(false);
+            console.error('[Ensamble] Error enviando audio:', err);
+            Swal.fire('Error', 'Problema de conexión con el servidor IA.', 'error');
+        }
     },
 
     // --- CAPTURA INFALIBLE: Método del Input Oculto ---

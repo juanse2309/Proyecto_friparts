@@ -162,206 +162,160 @@ def tareas_pendientes():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ensamble_bp.route('/api/ensamble/reportar', methods=['POST'])
-def reportar_ensamble_upsert():
-    """Lógica Upsert unificada para reportar avance o finalizar ensamble."""
+def reportar_ensamble_multi():
+    """Lógica para procesar múltiples registros de ensamble (Producto + Componentes)."""
     try:
         data = request.get_json()
-        id_ensamble = data.get('id_ensamble')
-        id_codigo = data.get('id_codigo')
-        cantidad = int(data.get('cantidad', 0) or 0)
-        estado_final = data.get('estado', 'EN_PROCESO')
-        responsable = data.get('responsable', 'OPERARIO')
-        qty_val = float(data.get('qty', 1) or 1)
+        registros_data = data.get('registros', [])
         
-        # LOG DE DIAGNÓSTICO — Confirmar estado recibido
-        logger.info(f"[ENSAMBLE-REPORTE] estado='{estado_final}' | id_codigo={id_codigo} | cantidad={cantidad} | id_ensamble={id_ensamble}")
-        
-        # Captura Completa de Variables (Evita Variables Huérfanas)
-        fecha_str = data.get('fecha')
-        hora_inicio_str = data.get('hora_inicio')
-        hora_fin_str = data.get('hora_fin')
-        observaciones = data.get('observaciones', '')
-        buje_origen = data.get('buje_origen', '')
-        almacen_origen = data.get('almacen_origen', 'P. TERMINADO').upper()
-        almacen_destino = data.get('almacen_destino', 'PRODUCTO ENSAMBLADO').upper()
-        pnc_cant = int(data.get('pnc', 0) or 0)
-        pnc_detalles = data.get('pnc_detalles', '')
-        componentes_filtro = data.get('componentes_seleccionados', []) 
-        
-        if not id_codigo or (cantidad < 0 and estado_final != 'PAUSADO'):
-            return jsonify({'success': False, 'error': 'Producto o cantidad inválidos'}), 400
+        if not registros_data:
+            return jsonify({'success': False, 'error': 'No se recibieron registros'}), 400
 
-        # 2. Lógica UPSERT: Buscar o Crear
-        registro = Ensamble.query.filter_by(id_ensamble=id_ensamble).first() if id_ensamble else None
-        is_new = False
+        id_ensamble_global = registros_data[0].get('id_ensamble')
         
-        if not registro:
-            is_new = True
-            id_ensamble = id_ensamble or uuid.uuid4().hex[:8]
-            registro = Ensamble(id_ensamble=id_ensamble, hora_inicio=datetime.now())
-            db.session.add(registro)
-
-        # 3. Mapeo de Datos y Persistencia de Pausa
-        registro.id_codigo = id_codigo
-        registro.responsable = responsable
-        registro.cantidad = cantidad
-        registro.op_numero = data.get('op_numero', '')
-        registro.estado = estado_final
-        registro.qty = qty_val
-        registro.fecha = datetime.now().date()
+        # 1. Identificar el registro principal (es_final = True)
+        main_reg = next((r for r in registros_data if r.get('es_final')), registros_data[0])
+        estado_final = main_reg.get('estado', 'EN_PROCESO')
+        responsable = main_reg.get('responsable', 'OPERARIO')
         
-        if estado_final == 'PAUSADO':
-            registro.hora_pausa = datetime.now()
-        elif estado_final in ['EN_PROCESO', 'TRABAJANDO', 'FINALIZADO'] and registro.hora_pausa:
-            diff = datetime.now() - registro.hora_pausa
-            registro.tiempo_pausa_acumulado = (registro.tiempo_pausa_acumulado or 0) + int(diff.total_seconds())
-            registro.hora_pausa = None
+        logger.info(f"[ENSAMBLE-MULTI] Procesando {len(registros_data)} registros para id_ensamble={id_ensamble_global}")
 
-        # 4. Finalización y Descarga BOM (SOLO en FINALIZADO)
-        if estado_final == 'FINALIZADO':
-            registro.hora_fin = datetime.now()
+        for reg_data in registros_data:
+            id_codigo_ancla = reg_data.get('id_codigo')
+            buje_detalle = reg_data.get('buje_ensamble')
+            cantidad = float(reg_data.get('cantidad', 0) or 0)
+            es_final_flag = reg_data.get('es_final', False) # Flag local para lógica interna
             
-            # Parsing de Tiempos
-            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date() if fecha_str else datetime.now().date()
-            h_inicio = datetime.combine(fecha_obj, datetime.strptime(hora_inicio_str, '%H:%M').time()) if hora_inicio_str else datetime.now()
-            h_fin = datetime.combine(fecha_obj, datetime.strptime(hora_fin_str, '%H:%M').time()) if hora_fin_str else datetime.now()
+            # UPSERT: Solo intentamos recuperar el registro si es el producto final (fila de sesión)
+            registro = None
+            if es_final_flag:
+                # Usamos id_ensamble y buje_ensamble (que para el final es igual al id_codigo)
+                registro = Ensamble.query.filter_by(
+                    id_ensamble=id_ensamble_global, 
+                    buje_ensamble=buje_detalle
+                ).first()
             
-            registro.fecha = fecha_obj
-            registro.hora_inicio = h_inicio
-            registro.hora_fin = h_fin
-            registro.observaciones = observaciones
-            registro.buje_origen = buje_origen
-            registro.almacen_para_descargar = almacen_origen
-            registro.almacen_destino = almacen_destino
+            if not registro:
+                registro = Ensamble(id_ensamble=id_ensamble_global, id_codigo=id_codigo_ancla)
+                if es_final_flag:
+                    # Si es nuevo y es el final, marcamos el inicio de la operación
+                    registro.hora_inicio = datetime.now()
+                db.session.add(registro)
 
-            # Explosión de Materiales (BOM)
-            bom_res = calcular_descuentos_ensamble(id_codigo, cantidad)
-            
-            if bom_res.get('success'):
-                for comp in bom_res['componentes']:
-                    cod_comp = comp['codigo_inventario']
-                    if componentes_filtro and cod_comp not in componentes_filtro:
-                        continue
-                    
-                    cant_desc = comp['cantidad_total_descontar']
-                    producto_comp = Producto.query.filter(
-                        (Producto.codigo_sistema == cod_comp) | (Producto.id_codigo == cod_comp)
-                    ).with_for_update().first()
-                    
-                    if producto_comp:
-                        if 'TERMINADO' in almacen_origen:
-                            producto_comp.p_terminado = float(producto_comp.p_terminado or 0) - cant_desc
-                        elif 'ENSAMBLADO' in almacen_origen:
-                            producto_comp.producto_ensamblado = float(producto_comp.producto_ensamblado or 0) - cant_desc
+            # Mapeo de datos (solo columnas físicas en db_ensambles)
+            registro.id_codigo = id_codigo_ancla
+            registro.buje_ensamble = buje_detalle
+            registro.responsable = responsable
+            registro.cantidad = cantidad
+            registro.qty = float(reg_data.get('qty', 1) or 1) # Persistir ratio/factor
+            registro.estado = reg_data.get('estado', 'FINALIZADO')
+            registro.op_numero = reg_data.get('op_numero', '')
+            registro.observaciones = reg_data.get('observaciones', '')
+            registro.buje_origen = reg_data.get('buje_origen', '')
+            registro.almacen_para_descargar = reg_data.get('almacen_para_descargar')
+            registro.almacen_destino = reg_data.get('almacen_destino')
+            registro.fecha = datetime.strptime(reg_data.get('fecha'), '%Y-%m-%d').date() if reg_data.get('fecha') else datetime.now().date()
+
+            # Lógica de Inventario (Basada en el DETALLE: buje_ensamble)
+            if estado_final == 'FINALIZADO' or registro.estado == 'CONSUMO':
+                producto_db = Producto.query.filter(
+                    (Producto.codigo_sistema == buje_detalle) | (Producto.id_codigo == buje_detalle)
+                ).with_for_update().first()
+
+                if producto_db:
+                    # Descontar si hay origen
+                    if registro.almacen_para_descargar:
+                        almacen = registro.almacen_para_descargar.upper()
+                        if 'TERMINADO' in almacen:
+                            producto_db.p_terminado = float(producto_db.p_terminado or 0) - cantidad
+                        elif 'ENSAMBLADO' in almacen:
+                            producto_db.producto_ensamblado = float(producto_db.producto_ensamblado or 0) - cantidad
                         
                         db.session.add(OperacionLog(
-                            modulo='ENSAMBLE', operario=responsable, accion='CONSUMO_INSUMO',
-                            detalles=f"Descontado {cant_desc} de {cod_comp} (Cierre Final)"
+                            modulo='ENSAMBLE', operario=responsable, accion='CONSUMO_MULTI',
+                            detalles=f"Descontado {cantidad} de {buje_detalle} para ensamble {id_ensamble_global}"
                         ))
 
-            # Registro de PNC (Si aplica al finalizar)
-            if pnc_cant > 0:
-                db.session.add(PncEnsamble(
-                    id_ensamble=id_ensamble, id_codigo=id_codigo, 
-                    cantidad=pnc_cant, criterio=pnc_detalles, codigo_ensamble=id_codigo
-                ))
-            # 4. Incremento de Producto Terminado (SOLO al finalizar)
-            producto_final = Producto.query.filter(
-                (Producto.codigo_sistema == id_codigo) | (Producto.id_codigo == id_codigo)
-            ).with_for_update().first()
-            
-            if producto_final:
-                if 'ENSAMBLADO' in almacen_destino:
-                    producto_final.producto_ensamblado = float(producto_final.producto_ensamblado or 0) + cantidad
-                elif 'TERMINADO' in almacen_destino:
-                    producto_final.p_terminado = float(producto_final.p_terminado or 0) + cantidad
+                    # Incrementar si hay destino
+                    if registro.almacen_destino:
+                        almacen = registro.almacen_destino.upper()
+                        if 'ENSAMBLADO' in almacen:
+                            producto_db.producto_ensamblado = float(producto_db.producto_ensamblado or 0) + cantidad
+                        elif 'TERMINADO' in almacen:
+                            producto_db.p_terminado = float(producto_db.p_terminado or 0) + cantidad
 
-            # 5. CÁLCULO DE MÉTRICAS (KPIs)
-            if registro.hora_inicio and registro.hora_fin:
-                diff_total = (registro.hora_fin - registro.hora_inicio).total_seconds()
-                duracion_real = diff_total - (registro.tiempo_pausa_acumulado or 0)
-                
-                registro.duracion_segundos = int(max(0, duracion_real))
-                registro.tiempo_total_minutos = round(registro.duracion_segundos / 60, 2)
-                if cantidad > 0:
-                    registro.segundos_por_unidad = round(registro.duracion_segundos / cantidad, 2)
+                        db.session.add(OperacionLog(
+                            modulo='ENSAMBLE', operario=responsable, accion='ENTRADA_MULTI',
+                            detalles=f"Ingresado {cantidad} de {buje_detalle} desde ensamble {id_ensamble_global}"
+                        ))
 
-        # Mapeo de Trazabilidad (blindado contra NULLs con defaults explícitos)
-        registro.buje_ensamble = id_codigo or registro.buje_ensamble or ''
-        registro.buje_origen = buje_origen or registro.buje_origen or ''
-        registro.almacen_para_descargar = almacen_origen or registro.almacen_para_descargar or 'P. TERMINADO'
-        registro.almacen_destino = almacen_destino or registro.almacen_destino or 'PRODUCTO ENSAMBLADO'
-        registro.op_numero = data.get('op_numero') or registro.op_numero or ''
+            # Lógica de Tiempos y KPIs (Exclusiva del producto final usando el flag local)
+            if es_final_flag:
+                if estado_final == 'PAUSADO':
+                    registro.hora_pausa = datetime.now()
+                elif estado_final in ['EN_PROCESO', 'TRABAJANDO', 'FINALIZADO'] and registro.hora_pausa:
+                    diff = datetime.now() - registro.hora_pausa
+                    registro.tiempo_pausa_acumulado = (registro.tiempo_pausa_acumulado or 0) + int(diff.total_seconds())
+                    registro.hora_pausa = None
 
-        # Cálculo de consumo_total (cantidad × suma de factores BOM)
-        try:
-            bom_consumo = calcular_descuentos_ensamble(id_codigo, cantidad)
-            if bom_consumo.get('success') and cantidad > 0:
-                total_consumo = sum(
-                    float(c.get('cantidad_total_descontar', 0))
-                    for c in bom_consumo.get('componentes', [])
-                )
-                registro.consumo_total = round(total_consumo, 4)
-        except Exception as bom_err:
-            logger.warning(f"[ENSAMBLE] No se pudo calcular consumo_total: {bom_err}")
-
-        # --- GUARDADO FINAL ---
-        db.session.commit()
-        
-        # 7. SINCRONIZACIÓN DE PROGRAMACIÓN (Recálculo Atómico con Fallback)
-        op_actual = data.get('op_numero') or registro.op_numero
-        if op_actual or id_codigo:
-            total_op = db.session.query(db.func.sum(Ensamble.cantidad)).filter(
-                Ensamble.id_codigo == id_codigo,
-                Ensamble.estado.in_(['FINALIZADO', 'EN_PROCESO', 'TRABAJANDO', 'PAUSADO'])
-            )
-            
-            if op_actual:
-                total_op = total_op.filter(Ensamble.op_numero == op_actual)
-            
-            total_final = total_op.scalar() or 0
-            
-            # Intento de UPDATE con Fallback: Primero por OP, luego por Código+Fecha
-            meta = None
-            if op_actual:
-                meta = db.session.execute(text("SELECT id_prog FROM db_programacion_ensamble WHERE op_numero = :op"), {"op": op_actual}).first()
-            
-            if not meta:
-                meta = db.session.execute(text("SELECT id_prog FROM db_programacion_ensamble WHERE id_codigo = :cod AND fecha_programada = :f"), {"cod": id_codigo, "f": registro.fecha}).first()
-
-            if meta:
-                # Si es FINALIZADO y la cantidad cubre el objetivo, cerrar la meta
-                nuevo_estado_prog = None
                 if estado_final == 'FINALIZADO':
-                    meta_row = db.session.execute(
-                        text("SELECT cantidad_objetivo FROM db_programacion_ensamble WHERE id_prog = :id"),
-                        {"id": meta[0]}
-                    ).first()
-                    if meta_row and total_final >= (meta_row[0] or 0):
-                        nuevo_estado_prog = 'COMPLETADO'
-                
-                if nuevo_estado_prog:
-                    db.session.execute(text(
-                        "UPDATE db_programacion_ensamble "
-                        "SET cantidad_realizada = :total, estado = :est, op_numero = :op "
-                        "WHERE id_prog = :id"
-                    ), {"total": total_final, "est": nuevo_estado_prog, "op": op_actual or '', "id": meta[0]})
-                    logger.info(f"[ENSAMBLE] Meta {meta[0]} cerrada como COMPLETADO ({total_final} unidades)")
-                else:
-                    db.session.execute(text(
-                        "UPDATE db_programacion_ensamble "
-                        "SET cantidad_realizada = :total, op_numero = :op "
-                        "WHERE id_prog = :id"
-                    ), {"total": total_final, "op": op_actual or '', "id": meta[0]})
+                    registro.hora_fin = datetime.now()
+                    # Parsing de horas manuales si vienen del frontend
+                    h_ini_str = reg_data.get('hora_inicio')
+                    h_fin_str = reg_data.get('hora_fin')
+                    if h_ini_str:
+                        registro.hora_inicio = datetime.combine(registro.fecha, datetime.strptime(h_ini_str, '%H:%M').time())
+                    if h_fin_str:
+                        registro.hora_fin = datetime.combine(registro.fecha, datetime.strptime(h_fin_str, '%H:%M').time())
+
+                    # KPIs
+                    if registro.hora_inicio and registro.hora_fin:
+                        duracion = (registro.hora_fin - registro.hora_inicio).total_seconds() - (registro.tiempo_pausa_acumulado or 0)
+                        registro.duracion_segundos = int(max(0, duracion))
+                        registro.tiempo_total_minutos = round(registro.duracion_segundos / 60, 2)
+                        if cantidad > 0:
+                            registro.segundos_por_unidad = round(duracion / cantidad, 2)
+
+                    # Registro de PNC
+                    pnc_cant = int(reg_data.get('pnc', 0) or 0)
+                    if pnc_cant > 0:
+                        db.session.add(PncEnsamble(
+                            id_ensamble=id_ensamble_global, id_codigo=id_codigo_ancla, 
+                            cantidad=pnc_cant, criterio=reg_data.get('pnc_detalles', ''),
+                            codigo_ensamble=id_codigo_ancla
+                        ))
+
+        db.session.commit()
+
+        # 4. Sincronizar Programación (Solo si hay id_prog válido)
+        id_prog = main_reg.get('id_prog')
+        op_numero = main_reg.get('op_numero')
+        id_prod_final = main_reg.get('id_codigo')
+
+        if id_prog:
+            # Recalcular total producido para esta meta
+            total_realizado = db.session.query(db.func.sum(Ensamble.cantidad)).filter(
+                Ensamble.id_codigo == id_prod_final,
+                Ensamble.op_numero == op_numero,
+                Ensamble.estado == 'FINALIZADO'
+            ).scalar() or 0
+            
+            prog = ProgramacionEnsamble.query.get(id_prog)
+            if prog:
+                prog.cantidad_realizada = total_realizado
+                if estado_final == 'FINALIZADO' and total_realizado >= prog.cantidad_objetivo:
+                    prog.estado = 'COMPLETADO'
+                elif prog.estado == 'PENDIENTE':
+                    prog.estado = 'EN_PROCESO'
                 db.session.commit()
-        
+
         return jsonify({
             'success': True, 
-            'message': 'Reporte procesado y métricas calculadas.',
-            'id_ensamble': id_ensamble
+            'message': f'Se procesaron {len(registros_data)} registros con éxito.',
+            'id_ensamble': id_ensamble_global
         })
-        
+
     except Exception as e:
         db.session.rollback()
-        logger.error(f"❌ ERROR REPORTE ENSAMBLE: {e}")
-        return jsonify({'success': False, 'error': f"Error: {str(e)}"}), 500
+        logger.error(f"❌ ERROR REPORTE MULTI-ENSAMBLE: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

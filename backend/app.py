@@ -72,6 +72,7 @@ from backend.routes.asistencia_routes import asistencia_bp
 from backend.routes.productos_routes import productos_bp
 from backend.routes.historial_routes import historial_bp
 from backend.routes.ensamble_routes import ensamble_bp
+from backend.routes.ia_routes import ia_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -89,6 +90,7 @@ app.register_blueprint(inyeccion_bp)
 app.register_blueprint(pulido_bp)
 app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
 app.register_blueprint(ensamble_bp)
+app.register_blueprint(ia_bp)
 
 
 # --- RUTA DE DEBUG INICIAL ---
