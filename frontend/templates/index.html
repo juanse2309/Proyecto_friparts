@@ -564,6 +564,8 @@
                         Procura y Rotación</span></a> </li>
             <li class="menu-item" data-page="asistencia"> <a href="#"><i class="fas fa-user-clock"></i><span>Control de
                         Asistencia</span></a> </li>
+            <li class="menu-item" data-page="gerencia"> <a href="#" onclick="ModuloGerencia.init()"><i
+                        class="fas fa-tachometer-alt text-primary"></i><span>Tablero Gerencial</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i
@@ -1462,6 +1464,7 @@
                                                 <i class="fas fa-plus-circle me-1"></i> Programar
                                             </button>
                                         </form>
+                                        <div id="contenedor-pedidos-pendientes"></div>
                                     </div>
                                 </div>
                             </div>
@@ -1775,6 +1778,7 @@
                                                         <td id="inyeccion-total-pnc"
                                                             class="text-center fw-bold text-danger">0
                                                         </td>
+                                                        <td id="inyeccion-total-peso" class="text-center fw-bold text-primary">0</td>
                                                         <td id="inyeccion-total-bruto"
                                                             class="text-center fw-bold text-secondary">0</td>
                                                         <td></td>
@@ -2408,7 +2412,7 @@
                 <!-- TAB 2: REPORTE -->
                 <div id="ens-tab-reporte" class="ensamble-tab-content" style="display: none;">
                     <!-- Campo oculto para captura infalible del usuario -->
-                    <input type="hidden" id="current_user_fullname" value="{{ session.get('user_name', 'Juan Sebastian Novoa Cepeda') }}">
+                    <input type="hidden" id="current_user_fullname" value="{{ session['user_name'] }}">
 
                     <!-- Responsable Global -->
                     <div class="alert alert-light border shadow-sm mb-4 d-flex align-items-center gap-3 py-3 rounded-4">
@@ -2417,7 +2421,7 @@
                         </div>
                         <div class="flex-grow-1">
                             <label class="form-label small fw-bold text-muted mb-0">Responsable del Reporte</label>
-                            <input type="text" id="responsable-display" class="form-control border-0 bg-transparent fw-bold p-0" style="font-size: 1.2rem;" value="{{ session.get('user_name', 'Juan Sebastian Novoa Cepeda') }}" readonly>
+                            <input type="text" id="responsable-display" class="form-control border-0 bg-transparent fw-bold p-0" style="font-size: 1.2rem;" value="{{ session['user_name'] }}" readonly>
                         </div>
                     </div>
 
@@ -2456,7 +2460,8 @@
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label fw-bold"><i class="fas fa-user-circle me-1"></i> Responsable</label>
-                                        <input type="text" id="responsable" class="form-control bg-light" readonly>
+                                        <input type="text" id="responsable" class="form-control" list="responsables-list" placeholder="Escribe o dicta nombre...">
+                                        <datalist id="responsables-list"></datalist>
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label fw-bold"><i class="fas fa-clock me-1"></i> Hora Inicio (24h)</label>
@@ -3019,6 +3024,30 @@
                 <div class="text-center py-5 text-muted">
                     <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
                     <p>Cargando historial de pedidos...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tablero Gerencial (Torre de Control) -->
+        <div id="gerencia-page" class="page" style="display: none;">
+            <header class="top-bar">
+                <button class="btn-icon" id="toggle-sidebar-gerencia">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="page-title">
+                    <h1><i class="fas fa-chart-line text-primary"></i> Torre de Control Gerencial</h1>
+                    <p class="subtitle">Trazabilidad en tiempo real de Pedidos y avance en plantas de producción</p>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-primary shadow-sm rounded-pill px-4 fw-bold" onclick="ModuloGerencia.cargarTrazabilidad()">
+                        <i class="fas fa-sync-alt me-2"></i> Actualizar Tablero
+                    </button>
+                </div>
+            </header>
+
+            <div class="container-fluid py-4">
+                <div id="vista-gerencia-container">
+                    <!-- Renderizado dinámico desde gerencia.js -->
                 </div>
             </div>
         </div>
@@ -4546,6 +4575,7 @@
     <script src="/static/js/modules/reportes.js?v=1.6.3"></script>
     <script src="/static/js/modules/mezcla.js?v=1.6.3"></script>
     <script src="/static/js/modules/historial.js?v=1.6.3"></script>
+    <script src="/static/js/modules/gerencia.js?v=1.6.3"></script>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>

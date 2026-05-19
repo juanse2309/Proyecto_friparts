@@ -219,6 +219,63 @@ def registrar_pulido():
             ))
             logger.info(f" [REVUELTOS] Registro agregado a sesión: {cod_rev}")
 
+        # --- Propagación de avances a cubetas FIFO (db_distribucion_op_pedidos) ---
+        op_actual = registro.orden_produccion
+        if op_actual and str(op_actual).strip() != 'SIN OP':
+            from backend.models.sql_models import DistribucionOpPedidos
+            
+            # Normalizar la OP y el código eliminando prefijos y espacios de forma defensiva
+            op_limpia = str(registro.orden_produccion or '').strip()
+            codigo_limpio = str(registro.codigo or '').replace('FR-', '').strip()
+            
+            # Buscar las cubetas por OP y Referencia ordenadas de forma ascendente
+            cubetas = db.session.query(DistribucionOpPedidos).filter(
+                DistribucionOpPedidos.op_world_office == op_limpia,
+                DistribucionOpPedidos.codigo_producto == codigo_limpio
+            ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+            piezas_por_repartir = float(registro.cantidad_real or 0)
+            
+            # Validación y creación de cubeta de contingencia
+            if not cubetas and piezas_por_repartir > 0:
+                # Intentar buscar el id_pedido de otra cubeta asociada a la misma OP
+                pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
+                    DistribucionOpPedidos.op_world_office == op_limpia
+                ).first()
+                id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
+                
+                logger.info(f" ⚠️ [PULIDO-CONTINGENCIA] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
+                nueva_cubeta = DistribucionOpPedidos(
+                    op_world_office=op_limpia,
+                    id_pedido=id_pedido_final,
+                    codigo_producto=codigo_limpio,
+                    cant_requerida=piezas_por_repartir,
+                    cant_inyectada=piezas_por_repartir, # Nivelar inyección
+                    cant_pulida=piezas_por_repartir,
+                    cant_ensamblada=0,
+                    cant_alistada=0
+                )
+                db.session.add(nueva_cubeta)
+                db.session.flush() # Sincronizar temporalmente en sesión
+                cubetas = [nueva_cubeta]
+                piezas_por_repartir = 0.0 # Consumido por completo
+            
+            logger.info(f" 📦 [PULIDO-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
+            
+            for cubeta in cubetas:
+                if piezas_por_repartir <= 0:
+                    break
+                
+                # Cuánto le falta a esta cubeta en la etapa de pulido
+                falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_pulida or 0))
+                if falta > 0:
+                    if piezas_por_repartir >= falta:
+                        cubeta.cant_pulida = (cubeta.cant_pulida or 0) + falta
+                        piezas_por_repartir -= falta
+                    else:
+                        cubeta.cant_pulida = (cubeta.cant_pulida or 0) + piezas_por_repartir
+                        piezas_por_repartir = 0
+
         db.session.commit()
 
         return jsonify({
@@ -318,10 +375,21 @@ def pausar_pulido():
         registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first()
         if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
         
-        # Blindaje: Forzar timestamp del servidor
+        # Blindaje: Forzar timestamp de Colombia (Bogotá)
+        colombia_tz = pytz.timezone('America/Bogota')
+        ahora = datetime.now(colombia_tz)
+
+        # Si el frontend envía una hora específica, intentar usarla para la parte de tiempo
+        hora_front = data.get('hora_pausa')
+        if hora_front and ':' in hora_front:
+            try:
+                h, m = hora_front.split(':')
+                ahora = ahora.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
+            except: pass
+
         registro.estado = 'PAUSADO'
-        registro.hora_pausa = datetime.now()
-        db.session.add(registro) # Asegurar marcaje para commit
+        registro.hora_pausa = ahora.replace(tzinfo=None) # Guardar como naive Bogota
+        db.session.add(registro)
         db.session.commit()
         
         logger.info(f" [PAUSA] Actividad {id_pulido} pausada a las {registro.hora_pausa}")
@@ -340,8 +408,22 @@ def reanudar_pulido():
         if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
         
         if registro.hora_pausa:
-            diferencia = datetime.now() - registro.hora_pausa
+            colombia_tz = pytz.timezone('America/Bogota')
+            ahora = datetime.now(colombia_tz)
+
+            # Si el frontend envía una hora específica de reanudación
+            hora_front = data.get('hora_reanudar')
+            if hora_front and ':' in hora_front:
+                try:
+                    h, m = hora_front.split(':')
+                    ahora = ahora.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
+                except: pass
+
+            ahora_naive = ahora.replace(tzinfo=None)
+            diferencia = ahora_naive - registro.hora_pausa
             segundos_pausa = int(diferencia.total_seconds())
+            if segundos_pausa < 0: segundos_pausa = 0 # Evitar pausas negativas por drift
+            
             registro.tiempo_pausa_acumulado = (registro.tiempo_pausa_acumulado or 0) + segundos_pausa
             
         registro.estado = 'TRABAJANDO'
@@ -375,8 +457,9 @@ def swap_pulido_task():
             return jsonify({"success": False, "error": "Datos incompletos o ID nulo"}), 400
 
         # 1. Pausar TODO lo que esté TRABAJANDO para este operario
-        # Usamos datetime.now() para asegurar precisión en el registro de pausa
-        now = datetime.now()
+        # Usamos la hora de Colombia para asegurar consistencia en el registro de pausa
+        colombia_tz = pytz.timezone('America/Bogota')
+        now = datetime.now(colombia_tz).replace(tzinfo=None)
         trabajos_activos = ProduccionPulido.query.filter(
             ProduccionPulido.responsable == responsable,
             ProduccionPulido.estado == 'TRABAJANDO'

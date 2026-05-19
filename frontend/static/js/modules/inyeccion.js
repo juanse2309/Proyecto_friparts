@@ -256,7 +256,8 @@ const ModuloInyeccion = {
 
         this.limpiarFormularioValidacion(false);
         this.esValidacionMode = true; // Activar modo validación inmediatamente
-        this._idTurnoActivo = null;   // Limpiar ID temporal generado por persist-on-start previo
+        this._idTurnoActivo = idValidacion; // Preservar ID de lote seleccionado
+        this._idSqlActivo = lotePrincipal.id_sql; // Capturar ID SQL del registro principal
 
         if (document.getElementById('fecha-inyeccion')) {
             document.getElementById('fecha-inyeccion').value = (lotePrincipal.fecha || '').split('T')[0];
@@ -273,6 +274,9 @@ const ModuloInyeccion = {
         }
         if (document.getElementById('hora-llegada-inyeccion')) {
             document.getElementById('hora-llegada-inyeccion').value = '06:00';
+        }
+        if (document.getElementById('orden-produccion-inyeccion')) {
+            document.getElementById('orden-produccion-inyeccion').value = lotePrincipal.orden_produccion || '';
         }
 
         // 2. Poblar los Items desde los registros del lote
@@ -327,10 +331,14 @@ const ModuloInyeccion = {
         btn.type = 'button';
         btn.className = 'btn btn-success btn-lg mb-2';
         btn.style.width = '100%';
-        btn.innerHTML = `<i class="fas fa-check-double me-2"></i> VALIDAR LOTE AHORA (Sin Modal)`;
-        btn.onclick = () => this.validarRegistro(idInyeccion);
+        btn.innerHTML = `<i class="fas fa-check-double me-2"></i> Validar y Registrar Lote`;
+        btn.onclick = () => this.confirmarRegistroFinal();
 
         actions.prepend(btn);
+
+        // Ocultar botón submit original para evitar confusiones en planta
+        const btnSubmitOriginal = document.querySelector('#form-inyeccion button[type="submit"]');
+        if (btnSubmitOriginal) btnSubmitOriginal.classList.add('d-none');
     },
 
     validarRegistro: async function (idInyeccion) {
@@ -369,7 +377,7 @@ const ModuloInyeccion = {
     },
 
     limpiarFormularioValidacion: function (limpiarSelect = true) {
-        this.esValidacionMode = false; // Resetear modo validaciÃ³n
+        this.esValidacionMode = false; // Resetear modo validación
         if (limpiarSelect) {
             const select = document.getElementById('select-validar-lote');
             if (select) select.value = '';
@@ -384,6 +392,14 @@ const ModuloInyeccion = {
         if (document.getElementById('legacy-id-programacion')) {
             document.getElementById('legacy-id-programacion').value = '';
         }
+
+        // Remover botón temporal
+        const existing = document.getElementById('btn-validar-directo');
+        if (existing) existing.remove();
+
+        // Mostrar botón submit original
+        const btnSubmitOriginal = document.querySelector('#form-inyeccion button[type="submit"]');
+        if (btnSubmitOriginal) btnSubmitOriginal.classList.remove('d-none');
 
         this.items = [];
         this.renderTablaItems();
@@ -806,42 +822,70 @@ const ModuloInyeccion = {
 
     editarPNCLista: async function (index) {
         const item = this.items[index];
+        if (!item) return;
+
+        const criterios = ['RECHUPE', 'QUEMADO', 'INCOMPLETA', 'REBABA', 'MANCHA ACEITE', 'CONTAMINADO', 'BUJE DE PRUEBA', 'ESCASO'];
+        const defectosActuales = item.defectos_pnc || {};
+
+        let htmlContent = `
+            <div style="text-align: left; margin-bottom: 15px;">
+                <span class="badge bg-secondary mb-1">Producto: ${item.codigo_producto}</span>
+                <p class="text-muted small mb-0">Ingresa la cantidad de piezas defectuosas por cada criterio aplicable:</p>
+            </div>
+            <div class="pnc-list-modal-body" style="max-height: 320px; overflow-y: auto; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc;">
+        `;
+
+        criterios.forEach(crit => {
+            const val = defectosActuales[crit] || 0;
+            htmlContent += `
+                <div class="row align-items-center mb-2 pb-2 border-bottom" style="border-color: #f1f5f9 !important;">
+                    <div class="col-7 text-start fw-bold text-dark small" style="text-transform: capitalize;">
+                        ${crit.toLowerCase().replace(/_/g, ' ')}
+                    </div>
+                    <div class="col-5">
+                        <input type="number" min="0" class="form-control form-control-sm text-center swal-pnc-input fw-bold" data-criterio="${crit}" value="${val}" style="border-radius: 6px;">
+                    </div>
+                </div>
+            `;
+        });
+        htmlContent += `</div>`;
 
         const { value: formValues } = await Swal.fire({
-            title: 'Reportar PNC',
-            html: `
-                <div class="mb-3 text-start">
-                    <label class="form-label fw-bold">Cantidad PNC</label>
-                    <input type="number" id="swal-pnc-qty" class="form-control" min="0" value="${item.pnc}">
-                </div>
-                <div class="text-start">
-                    <label class="form-label fw-bold">Criterio (Opcional)</label>
-                    <select id="swal-pnc-crit" class="form-select">
-                        <option value="">Selecciona un motivo...</option>
-                        <option value="ESCASO" ${item.criterio_pnc === 'ESCASO' ? 'selected' : ''}>Escaso</option>
-                        <option value="RECHUPE" ${item.criterio_pnc === 'RECHUPE' ? 'selected' : ''}>Rechupe</option>
-                        <option value="CONTAMINADO" ${item.criterio_pnc === 'CONTAMINADO' ? 'selected' : ''}>Contaminado</option>
-                        <option value="BUJE DE PRUEBA" ${item.criterio_pnc === 'BUJE DE PRUEBA' ? 'selected' : ''}>Buje de Prueba</option>
-                    </select>
-                </div>
-            `,
+            title: 'Reportar Criterios PNC',
+            html: htmlContent,
             focusConfirm: false,
             showCancelButton: true,
-            confirmButtonText: 'Guardar PNC',
+            confirmButtonText: '<i class="fas fa-save me-1"></i> Guardar PNC',
             cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#e11d48',
             preConfirm: () => {
-                return {
-                    qty: parseInt(document.getElementById('swal-pnc-qty').value) || 0,
-                    crit: document.getElementById('swal-pnc-crit').value
-                }
+                const inputs = document.querySelectorAll('.swal-pnc-input');
+                const resultados = {};
+                inputs.forEach(input => {
+                    const crit = input.getAttribute('data-criterio');
+                    const qty = parseInt(input.value) || 0;
+                    if (qty > 0) {
+                        resultados[crit] = qty;
+                    }
+                });
+                return resultados;
             }
         });
 
         if (formValues) {
-            item.pnc = formValues.qty;
-            item.criterio_pnc = formValues.crit;
-            // Forzar actualización
-            this.editarItem(index, 'pnc', formValues.qty);
+            item.defectos_pnc = formValues; // Guardar mapa para reapertura
+            
+            // Construir el array detailed para enviar al backend
+            item.pnc_list = Object.entries(formValues).map(([criterio, cantidad]) => ({
+                criterio,
+                cantidad
+            }));
+
+            // Calcular suma total de PNC
+            const totalPNC = Object.values(formValues).reduce((sum, val) => sum + val, 0);
+
+            // Actualizar la celda principal y recalcular buenas/bruto
+            this.editarItem(index, 'pnc', totalPNC);
         }
     },
 
@@ -882,11 +926,13 @@ const ModuloInyeccion = {
         let totalBuenas = 0;
         let totalPNC = 0;
         let totalBruto = 0;
+        let totalPeso = 0;
 
         tbody.innerHTML = this.items.map((item, index) => {
             totalBuenas += item.piezasBuenas;
             totalPNC += item.pnc;
             totalBruto += item.cantidad_real;
+            totalPeso += (parseFloat(item.peso_bujes) || 0);
 
             return `
             <tr>
@@ -934,6 +980,10 @@ const ModuloInyeccion = {
             tfoot.style.display = 'table-footer-group';
             document.getElementById('inyeccion-total-buenas').textContent = totalBuenas.toLocaleString();
             document.getElementById('inyeccion-total-pnc').textContent = totalPNC.toLocaleString();
+            
+            const pesoFooter = document.getElementById('inyeccion-total-peso');
+            if (pesoFooter) pesoFooter.textContent = totalPeso.toFixed(2);
+
             const brutoFooter = document.getElementById('inyeccion-total-bruto');
             if (brutoFooter) brutoFooter.textContent = totalBruto.toLocaleString();
         }
@@ -1165,10 +1215,35 @@ const ModuloInyeccion = {
                 id_sql: this._idSqlActivo || undefined
             };
 
+            // Consolidar todos los criterios detallados de PNC reportados en cada item
+            const pncListConsolidada = [];
+            this.items.forEach(item => {
+                if (item.pnc_list && item.pnc_list.length > 0) {
+                    item.pnc_list.forEach(p => {
+                        pncListConsolidada.push({
+                            codigo: item.codigo_producto,
+                            criterio: p.criterio,
+                            cantidad: p.cantidad
+                        });
+                    });
+                }
+            });
+
+            // Sumar también las PNC de la lista general del modal de cierre (si las hay)
+            this.pncRows.forEach(r => {
+                if (r.codigo && r.cantidad > 0) {
+                    pncListConsolidada.push({
+                        codigo: r.codigo,
+                        criterio: r.motivo || 'SIN ESPECIFICAR',
+                        cantidad: r.cantidad
+                    });
+                }
+            });
+
             const payload = {
                 turno: datosTurno,
                 items: this.items,
-                pnc_list: this.pncRows.filter(r => r.codigo && r.cantidad > 0)
+                pnc_list: pncListConsolidada
             };
 
             console.log('📤 [Inyeccion] ENVIANDO REPORTE FINAL CON PNC:', payload);

@@ -6,7 +6,7 @@ import pytz
 from datetime import datetime
 from flask import Blueprint, jsonify, request
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES
-from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion
+from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion, DistribucionOpPedidos, Pedido
 from backend.config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -251,7 +251,7 @@ def registrar_inyeccion_lote():
                 cod_raw = pnc_data.get('codigo', '')
                 cod_norm = normalizar_codigo(cod_raw)
                 cant_pnc = float(pnc_data.get('cantidad') or 0)
-                motivo = pnc_data.get('motivo', 'SIN ESPECIFICAR')
+                motivo = pnc_data.get('criterio') or pnc_data.get('motivo') or 'SIN ESPECIFICAR'
                 
                 if cant_pnc > 0:
                     nuevo_pnc_row = PncInyeccion(
@@ -259,10 +259,7 @@ def registrar_inyeccion_lote():
                         id_inyeccion=id_iny_lote,
                         id_codigo=cod_norm,
                         cantidad=cant_pnc,
-                        criterio=motivo,
-                        responsable=responsable_lote,
-                        maquina=maquina_lote,
-                        departamento='Inyeccion'
+                        criterio=motivo
                     )
                     db.session.add(nuevo_pnc_row)
 
@@ -411,3 +408,409 @@ def validar_lote_inyeccion(id_inyeccion):
 def get_inyeccion_stats():
     # Placeholder
     return jsonify({"success": True, "message": "Estadísticas de inyección (WIP)"})
+
+
+@inyeccion_bp.route('/api/programacion/guardar', methods=['POST'])
+def guardar_programacion_diaria():
+    """
+    Registra la planificación del turno de la tarde anterior en db_programacion
+    y crea su distribución asociada de cubetas por pedido en db_distribucion_op_pedidos
+    dejando op_world_office como NULL.
+    Soporta múltiples productos en el mismo montaje de forma atómica.
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No se recibieron datos"}), 400
+
+        # --- Extracción y Validación de campos principales ---
+        maquina = data.get('maquina')
+        fecha_str = data.get('fecha')
+        
+        if not all([maquina, fecha_str]):
+            return jsonify({"success": False, "error": "Los campos maquina y fecha son obligatorios"}), 400
+
+        # Parsear fecha de forma robusta
+        try:
+            fecha_dt = datetime.strptime(fecha_str.split('T')[0], '%Y-%m-%d').date()
+        except Exception as e_date:
+            logger.error(f"Error parseando fecha '{fecha_str}': {e_date}")
+            return jsonify({"success": False, "error": "Formato de fecha inválido. Usar YYYY-MM-DD"}), 400
+
+        # Extraer parámetros comunes
+        responsable_planta = data.get('responsable_planta')
+        observaciones = data.get('observaciones')
+        pedidos_asignados = data.get('pedidos_asignados', [])
+
+        # Parsear molde
+        try:
+            molde_val = int(float(data.get('molde'))) if data.get('molde') is not None else None
+        except (ValueError, TypeError) as e_molde:
+            return jsonify({"success": False, "error": f"Error en formato de molde: {str(e_molde)}"}), 400
+
+        # Obtener lista de productos (Multi-SKU) o construir fallback para flujo singular
+        productos = data.get('productos')
+        if not productos:
+            codigo_sistema = data.get('codigo_sistema')
+            if not codigo_sistema:
+                return jsonify({"success": False, "error": "Debes especificar al menos un producto (codigo_sistema o productos)"}), 400
+            
+            try:
+                cavidades_val = int(float(data.get('cavidades'))) if data.get('cavidades') is not None else 1
+                cantidad_val = float(data.get('cantidad') or 0)
+            except (ValueError, TypeError) as e_num:
+                return jsonify({"success": False, "error": f"Error en formato de cavidades/cantidad: {str(e_num)}"}), 400
+
+            productos = [{
+                "codigo_sistema": codigo_sistema,
+                "cavidades": cavidades_val,
+                "cantidad": cantidad_val
+            }]
+
+        # --- Iniciar Transacción Atómica ---
+        programaciones_creadas = []
+        for prod_data in productos:
+            cod_sistema = prod_data.get('codigo_sistema')
+            if not cod_sistema:
+                raise ValueError("Cada producto del montaje debe especificar 'codigo_sistema'")
+
+            try:
+                cav_val = int(float(prod_data.get('cavidades') or 1))
+                cant_val = float(prod_data.get('cantidad') or 0)
+            except (ValueError, TypeError) as e_num:
+                raise ValueError(f"Error en campos numéricos para producto {cod_sistema}: {e_num}")
+
+            nueva_prog = ProgramacionInyeccion(
+                fecha=fecha_dt,
+                codigo_sistema=cod_sistema,
+                maquina=maquina,
+                cantidad=cant_val,
+                estado='PROGRAMADO',
+                molde=molde_val,
+                cavidades=cav_val,
+                responsable_planta=responsable_planta,
+                observaciones=observaciones,
+                op_world_office=None  # Aún no se conoce la OP la tarde anterior
+            )
+            db.session.add(nueva_prog)
+            programaciones_creadas.append(nueva_prog)
+
+        # Insertar registros correspondientes en db_distribucion_op_pedidos
+        for pedido in pedidos_asignados:
+            id_pedido = pedido.get('id_pedido')
+            cant_req = pedido.get('cant_requerida')
+            # Si no viene codigo_producto en la cubeta, se asocia al primer producto programado
+            cod_prod_cubeta = pedido.get('codigo_producto') or productos[0].get('codigo_sistema')
+
+            if not id_pedido or cant_req is None:
+                raise ValueError("Cada pedido asignado debe incluir 'id_pedido' y 'cant_requerida'")
+
+            try:
+                cant_req_val = int(float(cant_req))
+            except (ValueError, TypeError):
+                raise ValueError(f"Cantidad requerida inválida para el pedido {id_pedido}")
+
+            nueva_dist = DistribucionOpPedidos(
+                op_world_office=None,  # Nullable para ser actualizado en la mañana
+                id_pedido=id_pedido,
+                codigo_producto=cod_prod_cubeta,
+                cant_requerida=cant_req_val,
+                cant_inyectada=0,
+                cant_pulida=0,
+                cant_ensamblada=0,
+                cant_alistada=0
+            )
+            db.session.add(nueva_dist)
+
+        # Guardar en base de datos de manera atómica
+        db.session.commit()
+
+        logger.info(f"✅ {len(programaciones_creadas)} Programación(es) creada(s) exitosamente. Pedidos distribuidos: {len(pedidos_asignados)}")
+        return jsonify({
+            "success": True,
+            "message": f"Programación diaria ({len(programaciones_creadas)} referencias) y cubetas creadas correctamente",
+            "id_programacion": programaciones_creadas[0].id if programaciones_creadas else None
+        }), 201
+
+    except ValueError as val_err:
+        db.session.rollback()
+        logger.warning(f"⚠️ Error de validación en guardar_programacion_diaria: {val_err}")
+        return jsonify({"success": False, "error": str(val_err)}), 400
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": "Error interno del servidor al guardar la programación"}), 500
+
+    except ValueError as val_err:
+        db.session.rollback()
+        logger.warning(f"⚠️ Error de validación en guardar_programacion_diaria: {val_err}")
+        return jsonify({"success": False, "error": str(val_err)}), 400
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": "Error interno del servidor al guardar la programación"}), 500
+
+
+@inyeccion_bp.route('/api/pedidos/pendientes/<codigo>', methods=['GET'])
+def obtener_pedidos_pendientes(codigo):
+    """
+    Obtiene el listado de pedidos abiertos (PENDIENTE, ABIERTO, etc.) o con
+    cantidades pendientes de despacho para un código de producto específico.
+    """
+    try:
+        if not codigo:
+            return jsonify({"success": False, "error": "Código de producto es requerido"}), 400
+
+        # Limpiar y normalizar el código recibido (por compatibilidad con el sistema)
+        from backend.utils.formatters import normalizar_codigo
+        codigo_norm = normalizar_codigo(codigo)
+
+        # Asegurar que comience con el prefijo 'FR-'
+        if not codigo_norm.startswith('FR-'):
+            codigo_norm = f"FR-{codigo_norm}"
+
+        # Consultar pedidos asociados al código de producto
+        # Filtramos por estados no finalizados y activos de alistamiento
+        pedidos_activos = db.session.query(Pedido).filter(
+            Pedido.id_codigo == codigo_norm,
+            Pedido.estado.in_(['PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO'])
+        ).all()
+
+        resultados = []
+        for p in pedidos_activos:
+            try:
+                cant_solicitada = float(p.cantidad or 0)
+                # cant_alistada viene como VARCHAR en db_pedidos, controlamos conversión resiliente
+                cant_alistada = float(p.cant_alistada or 0)
+            except (ValueError, TypeError):
+                cant_solicitada = 0.0
+                cant_alistada = 0.0
+
+            cant_pendiente = max(0.0, cant_solicitada - cant_alistada)
+
+            # Incluir el pedido si tiene saldo pendiente o si su estado es abierto
+            if cant_pendiente > 0 or p.estado in ['PENDIENTE', 'ABIERTO']:
+                resultados.append({
+                    "id_pedido": p.id_pedido,
+                    "cliente": p.cliente or "CLIENTE GENERAL",
+                    "cantidad_solicitada": int(cant_solicitada),
+                    "cantidad_pendiente": int(cant_pendiente)
+                })
+
+        # Evitar duplicados de pedidos por el mismo ID (en caso de inconsistencia de datos)
+        pedidos_unicos = {}
+        for res in resultados:
+            id_ped = res["id_pedido"]
+            if id_ped not in pedidos_unicos:
+                pedidos_unicos[id_ped] = res
+            else:
+                # Si está duplicado en BD, sumamos cantidades
+                pedidos_unicos[id_ped]["cantidad_solicitada"] += res["cantidad_solicitada"]
+                pedidos_unicos[id_ped]["cantidad_pendiente"] += res["cantidad_pendiente"]
+
+        return jsonify({
+            "success": True,
+            "pedidos": list(pedidos_unicos.values())
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error en obtener_pedidos_pendientes para el código {codigo}: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": "Error interno del servidor al consultar pedidos"}), 500
+
+
+@inyeccion_bp.route('/api/mes/iniciar_trabajo', methods=['POST'])
+def mes_iniciar_trabajo():
+    """
+    Fase 4: Inicia el trabajo en la máquina a partir de una programación vespertina.
+    Registra la OP de World Office, actualiza estado a EN_PROCESO en bloque para todas
+    las referencias programadas en el mismo montaje (máquina, molde, fecha),
+    propaga la OP a las cubetas de pedidos y crea los lotes de inyección correspondientes
+    bajo el mismo identificador de lote inyeccion compartido.
+    """
+    try:
+        data = request.get_json()
+        id_prog = data.get('id_programacion')
+        op_world_office = data.get('op_world_office')
+
+        if not id_prog or not op_world_office:
+            return jsonify({"success": False, "error": "Los campos id_programacion y op_world_office son obligatorios"}), 400
+
+        # Normalizar OP
+        op_world_office = str(op_world_office).strip().upper()
+
+        # 1. Buscar la programación vespertina de referencia en db_programacion
+        prog_inicial = db.session.query(ProgramacionInyeccion).get(id_prog)
+        if not prog_inicial:
+            return jsonify({"success": False, "error": "Programación no encontrada"}), 404
+
+        # 2. Buscar todas las programaciones que compartan máquina, molde y fecha en estado PROGRAMADO
+        programaciones_bloque = db.session.query(ProgramacionInyeccion).filter(
+            ProgramacionInyeccion.maquina == prog_inicial.maquina,
+            ProgramacionInyeccion.fecha == prog_inicial.fecha,
+            ProgramacionInyeccion.molde == prog_inicial.molde,
+            ProgramacionInyeccion.estado == 'PROGRAMADO'
+        ).all()
+
+        if prog_inicial not in programaciones_bloque:
+            programaciones_bloque.append(prog_inicial)
+
+        # 3. Generar un lote ID_INYECCION compartido para el lote físico del montaje
+        id_inyeccion_bloque = f"INY-{uuid.uuid4().hex[:8].upper()}"
+        colombia_tz = pytz.timezone('America/Bogota')
+        ahora = datetime.now(colombia_tz).replace(tzinfo=None)
+
+        logger.info(f"⚡ Iniciando bloque de {len(programaciones_bloque)} programaciones para la máquina {prog_inicial.maquina}")
+
+        # 4. Procesar en bloque de forma atómica
+        for prog in programaciones_bloque:
+            # Actualizar estado de la programación diaria
+            prog.estado = 'EN_PROCESO'
+            prog.op_world_office = op_world_office
+
+            # Propagar la OP a las cubetas de pedidos correspondientes
+            db.session.query(DistribucionOpPedidos).filter(
+                DistribucionOpPedidos.codigo_producto == prog.codigo_sistema,
+                DistribucionOpPedidos.op_world_office.is_(None)
+            ).update({DistribucionOpPedidos.op_world_office: op_world_office}, synchronize_session=False)
+
+            # Crear lote en ProduccionInyeccion (db_inyeccion)
+            nueva_prod = ProduccionInyeccion(
+                id_inyeccion=id_inyeccion_bloque,
+                fecha_inicia=ahora,
+                id_codigo=prog.codigo_sistema,
+                responsable=prog.responsable_planta or "Supervisor",
+                maquina=prog.maquina,
+                molde=prog.molde,
+                cavidades=prog.cavidades,
+                estado='EN_PROCESO',
+                orden_produccion=op_world_office,
+                observaciones=prog.observaciones
+            )
+            db.session.add(nueva_prod)
+
+        db.session.commit()
+        
+        # Opcional: Invalidar el cache del MES
+        try:
+            from backend.app import clear_mes_cache
+            clear_mes_cache()
+        except:
+            pass
+
+        logger.info(f"🚀 Trabajo iniciado en bloque en {prog_inicial.maquina}. OP: {op_world_office}. Lote único: {id_inyeccion_bloque}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Trabajo iniciado con éxito en la {prog_inicial.maquina} para {len(programaciones_bloque)} referencias del montaje.",
+            "id_inyeccion": id_inyeccion_bloque
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error al iniciar trabajo en el MES: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": "Error interno al iniciar el trabajo"}), 500
+
+
+@inyeccion_bp.route('/api/mes/reportar', methods=['POST'])
+def mes_reportar():
+    """
+    Fase 4: Finalización de Turno y Reporte de Inyección (Lógica de Cubetas FIFO).
+    Procesa el cierre a partir de los cierres (contador físico) y las cubetas de pedidos
+    para la OP asociada de forma transaccional y limpia.
+    """
+    try:
+        data = request.get_json() or {}
+        id_iny = data.get('id_inyeccion')
+        cierres = int(data.get('cierres', 0))
+        hf_str = data.get('hora_fin')
+
+        if not id_iny:
+            return jsonify({"success": False, "error": "El campo id_inyeccion es obligatorio"}), 400
+
+        # 1. Buscar registros en db_inyeccion asociados a este id_inyeccion
+        prods_en_lote = db.session.query(ProduccionInyeccion).filter(
+            ProduccionInyeccion.id_inyeccion == id_iny
+        ).all()
+        
+        if not prods_en_lote:
+            return jsonify({"success": False, "error": "Lote de producción no encontrado"}), 404
+
+        # 2. Procesar cada producto en el lote físicamente
+        total_teorica = 0
+        for prod in prods_en_lote:
+            cavidades = prod.cavidades or 1
+            piezas_inyectadas = cierres * cavidades
+            total_teorica += piezas_inyectadas
+
+            # Sincronizar fecha de finalización
+            if hf_str and prod.fecha_inicia:
+                try:
+                    h, m = map(int, hf_str.split(':'))
+                    # Preservamos la fecha local naive del inicio para el fin (Batch del día)
+                    prod.fecha_fin = prod.fecha_inicia.replace(hour=h, minute=m, second=0, microsecond=0)
+                    
+                    # Calcular duración y métricas
+                    delta = prod.fecha_fin - prod.fecha_inicia
+                    prod.duracion_segundos = max(0, int(delta.total_seconds()))
+                    prod.tiempo_total_minutos = prod.duracion_segundos / 60.0
+                except Exception as ex:
+                    logger.warning(f"⚠️ Error al formatear hora_fin: {ex}")
+
+            # Guardar la cantidad producida y actualizar estado a PENDIENTE
+            prod.cantidad_real = piezas_inyectadas
+            prod.estado = 'PENDIENTE'
+
+            # 3. Lógica FIFO para cubetas (db_distribucion_op_pedidos)
+            op_actual = prod.orden_produccion
+            if op_actual:
+                # Buscamos todas las cubetas asociadas a esta OP y producto
+                cubetas = db.session.query(DistribucionOpPedidos).filter(
+                    DistribucionOpPedidos.op_world_office == op_actual,
+                    DistribucionOpPedidos.codigo_producto == prod.id_codigo
+                ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+                piezas_por_repartir = piezas_inyectadas
+                for cubeta in cubetas:
+                    if piezas_por_repartir <= 0:
+                        break
+                    
+                    falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_inyectada or 0))
+                    if falta > 0:
+                        if piezas_por_repartir >= falta:
+                            cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + falta
+                            piezas_por_repartir -= falta
+                        else:
+                            cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + piezas_por_repartir
+                            piezas_por_repartir = 0
+
+            # 4. Finalizar programación asociada en db_programacion
+            db.session.query(ProgramacionInyeccion).filter(
+                ProgramacionInyeccion.codigo_sistema == prod.id_codigo,
+                ProgramacionInyeccion.maquina == prod.maquina,
+                ProgramacionInyeccion.estado == 'EN_PROCESO'
+            ).update({"estado": 'FINALIZADO'}, synchronize_session=False)
+
+        # 5. Confirmar transacción de forma atómica
+        db.session.commit()
+
+        # Limpiar caché del MES
+        try:
+            from backend.app import clear_mes_cache
+            clear_mes_cache()
+        except:
+            pass
+
+        logger.info(f"✅ Lote {id_iny} reportado y finalizado exitosamente. Total piezas: {total_teorica}")
+        return jsonify({
+            "success": True,
+            "count": len(prods_en_lote),
+            "teorica": total_teorica,
+            "message": "Turno finalizado con éxito. Cubetas de prioridad actualizadas por FIFO."
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error al reportar turno en el MES: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": "Error interno al finalizar el turno"}), 500
+
+

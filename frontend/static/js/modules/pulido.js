@@ -623,6 +623,9 @@ const ModuloPulido = {
     },
 
     persistirInicioSQL: async function(resp, prod, lote, op) {
+        const horaInicioStr = this.startTime.toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour12: false, hour: '2-digit', minute: '2-digit' });
+        const fechaInicioStr = this.startTime.toLocaleDateString('sv-SE', { timeZone: 'America/Bogota' });
+
         const data = {
             id_pulido: this.sessionId,
             responsable: resp,
@@ -630,8 +633,8 @@ const ModuloPulido = {
             lote: lote,
             orden_produccion: op || 'SIN OP',
             estado: 'TRABAJANDO',
-            hora_inicio: this.startTime.getHours() + ':' + String(this.startTime.getMinutes()).padStart(2, '0'),
-            fecha_inicio: this.startTime.toISOString().split('T')[0]
+            hora_inicio: horaInicioStr,
+            fecha_inicio: fechaInicioStr
         };
 
         try {
@@ -669,12 +672,23 @@ const ModuloPulido = {
 
     pausarCiclo: async function () {
         const btn = document.getElementById('btn-pausar-pulido');
+        const horaPausa = new Date().toLocaleTimeString('es-CO', { 
+            timeZone: 'America/Bogota', 
+            hour12: false, 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+        
         if (!this.enPausa) {
+            console.log(`⏸️ [Pulido] Pausando a las ${horaPausa}...`);
             // Acción: Pausar en Servidor
             const res = await fetch('/api/pulido/pausar', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ id_pulido: this.sessionId })
+                body: JSON.stringify({ 
+                    id_pulido: this.sessionId,
+                    hora_pausa: horaPausa 
+                })
             });
             if (res.ok) {
                 this.enPausa = true;
@@ -683,11 +697,15 @@ const ModuloPulido = {
                 document.getElementById('pulido-pausa-msg').style.display = 'block';
             }
         } else {
+            console.log(`▶️ [Pulido] Reanudando a las ${horaPausa}...`);
             // Acción: Reanudar en Servidor
             const res = await fetch('/api/pulido/reanudar', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ id_pulido: this.sessionId })
+                body: JSON.stringify({ 
+                    id_pulido: this.sessionId,
+                    hora_reanudar: horaPausa 
+                })
             });
             const data = await res.json();
             if (data.success) {
@@ -749,6 +767,7 @@ const ModuloPulido = {
         };
 
         // Guardado preventivo en DB
+        const horaInicioStr = this.startTime.toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour12: false, hour: '2-digit', minute: '2-digit' });
         const dataPreventiva = {
             id_pulido: this.sessionId,
             codigo_producto: prod,
@@ -757,7 +776,7 @@ const ModuloPulido = {
             lote: lote,
             estado: 'PAUSADO_COLA',
             cantidad_real: 0,
-            hora_inicio: this.startTime.getHours() + ':' + String(this.startTime.getMinutes()).padStart(2, '0')
+            hora_inicio: horaInicioStr
         };
 
         mostrarLoading(true, 'Enviando trabajo a la cola...');

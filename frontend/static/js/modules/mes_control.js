@@ -232,34 +232,53 @@ window.ModuloMes = {
      */
     clickIniciarDesdeCard: async function (idProg) {
         if (!idProg) return;
-        const operario = window.AuthModule?.currentUser?.nombre || 'OPERARIO';
 
-        const result = await Swal.fire({
-            title: '¿Iniciar Trabajo?',
-            text: `Se registrará la Hora de Inicio ahora. Operador: ${operario}`,
-            icon: 'question',
+        const { value: opWorldOffice } = await Swal.fire({
+            title: 'Iniciar Trabajo (Turno Mañana)',
+            text: 'Por favor, ingresa el número de Orden de Producción (OP) de World Office para iniciar el lote y activar la distribución a cubetas:',
+            input: 'text',
+            inputPlaceholder: 'Ej: OP-1025',
+            icon: 'info',
             showCancelButton: true,
-            confirmButtonText: 'Sí, iniciar',
-            cancelButtonText: 'Cancelar'
+            confirmButtonText: '<i class="fas fa-play me-1"></i> Iniciar Lote',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#0284c7',
+            inputValidator: (value) => {
+                if (!value || !value.trim()) {
+                    return 'El número de OP es estrictamente obligatorio para iniciar el trabajo';
+                }
+            }
         });
 
-        if (result.isConfirmed) {
+        if (opWorldOffice) {
             try {
                 mostrarLoading(true);
-                const res = await fetchData('/api/mes/iniciar', {
+                const res = await fetchData('/api/mes/iniciar_trabajo', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id_programacion: idProg, operario })
+                    body: JSON.stringify({ 
+                        id_programacion: idProg, 
+                        op_world_office: opWorldOffice.trim() 
+                    })
                 });
                 mostrarLoading(false);
                 if (res?.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Trabajo Iniciado!',
+                        text: res.message || 'El lote está activo y las cubetas de pedidos han sido despertadas.',
+                        timer: 2500,
+                        showConfirmButton: false
+                    });
                     await this.cargarDashboard(); // Refrescar tarjetas
+                    await this.actualizarColaProgramacion(); // Refrescar cola
                 } else {
-                    Swal.fire('Error', res?.error || 'No se pudo iniciar', 'error');
+                    Swal.fire('Error', res?.error || 'No se pudo iniciar el trabajo', 'error');
                 }
             } catch (e) {
                 mostrarLoading(false);
-                console.error('[MES] Error iniciando:', e);
+                console.error('[MES] Error iniciando trabajo:', e);
+                Swal.fire('Error', 'Error de red al intentar iniciar el trabajo', 'error');
             }
         }
     },
@@ -586,6 +605,13 @@ window.ModuloMes = {
                 const p = res.producto;
                 console.log('✅ [MES] Detalles encontrados:', p);
 
+                // NUEVO: Consultar pedidos pendientes para la tarde (cubetas)
+                if (p.codigo_sistema) {
+                    this.buscarPedidosPendientes(p.codigo_sistema);
+                } else if (p.codigo) {
+                    this.buscarPedidosPendientes(p.codigo);
+                }
+
                 if (preview) {
                     preview.innerHTML = `
                         <div class="alert alert-success d-flex align-items-center mb-0 p-2 border-0" style="background-color: #d1fae5; color: #065f46; border-radius: 8px;">
@@ -853,18 +879,59 @@ window.ModuloMes = {
             return;
         }
 
-        const payload = {
-            maquina: maquina,
-            fecha: fecha,
-            molde: molde,
-            productos: productosParaEnviar,
-            observaciones: observaciones,
-            responsable_planta: window.AuthModule?.currentUser?.nombre || 'ADMIN'
-        };
+        // RECOPILAR PEDIDOS ASIGNADOS (TRAZABILIDAD VESPERTINA):
+        const pedidosAsignados = [];
+        const inputsCubetas = document.querySelectorAll('.input-cant-asignada');
+        inputsCubetas.forEach(input => {
+            const cant = parseInt(input.value) || 0;
+            if (cant > 0) {
+                pedidosAsignados.push({
+                    id_pedido: input.getAttribute('data-id-pedido'),
+                    cant_requerida: cant,
+                    codigo_producto: input.getAttribute('data-codigo-producto') || ''
+                });
+            }
+        });
+
+        const usarNuevoEndpoint = pedidosAsignados.length > 0;
+        const urlEndpoint = usarNuevoEndpoint ? '/api/programacion/guardar' : '/api/mes/programar';
+
+        let payload;
+        if (usarNuevoEndpoint) {
+            payload = {
+                maquina: maquina,
+                productos: productosParaEnviar.map(p => {
+                    // Calcular cantidad específica para este producto sumando sus cubetas
+                    const totalSKU = pedidosAsignados
+                        .filter(pa => pa.codigo_producto === p.codigo)
+                        .reduce((sum, pa) => sum + pa.cant_requerida, 0);
+
+                    return {
+                        codigo_sistema: p.codigo,
+                        cavidades: p.cavidades,
+                        cantidad: totalSKU
+                    };
+                }),
+                molde: molde,
+                fecha: fecha,
+                responsable_planta: window.AuthModule?.currentUser?.nombre || 'ADMIN',
+                observaciones: observaciones,
+                pedidos_asignados: pedidosAsignados
+            };
+        } else {
+            payload = {
+                maquina: maquina,
+                fecha: fecha,
+                molde: molde,
+                productos: productosParaEnviar,
+                observaciones: observaciones,
+                responsable_planta: window.AuthModule?.currentUser?.nombre || 'ADMIN'
+            };
+        }
 
         try {
             mostrarLoading(true);
-            const res = await fetchData('/api/mes/programar', {
+            const res = await fetchData(urlEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -872,13 +939,11 @@ window.ModuloMes = {
             mostrarLoading(false);
 
             if (res && res.success) {
-                Swal.fire({
-                    icon: 'success',
-                    title: '¡Programado!',
-                    text: `Se han programado ${res.count} items en la ${maquina}`,
-                    timer: 2000,
-                    showConfirmButton: false
-                });
+                Swal.fire(
+                    '¡Programado!',
+                    res.message || 'Programación diaria guardada correctamente.',
+                    'success'
+                );
 
                 this.tempProductList = [];
                 this.renderTempList();
@@ -1185,6 +1250,132 @@ window.ModuloMes = {
                 select.appendChild(opt);
             });
         }
+    },
+
+    // ====================================================================
+    // TRAZABILIDAD VESPERTINA: MÓDULO DE CUBETAS
+    // ====================================================================
+
+    /**
+     * Busca pedidos pendientes para un código de producto desde la API
+     */
+    buscarPedidosPendientes: async function (codigo) {
+        console.log("🔥 Ejecutando buscarPedidosPendientes para:", codigo); // Rastreador 1
+        const contenedor = document.getElementById('contenedor-pedidos-pendientes');
+        console.log("📦 ¿Existe el contenedor en el HTML?", contenedor); // Rastreador 2
+        
+        if (!contenedor) {
+            console.warn("⚠️ ALERTA: No se encontró el contenedor-pedidos-pendientes en el HTML");
+            return;
+        }
+
+        try {
+            contenedor.innerHTML = `
+                <div class="text-center py-3 text-muted small">
+                    <i class="fas fa-spinner fa-spin me-1"></i> Consultando pedidos pendientes de World Office...
+                </div>`;
+
+            const res = await fetchData(`/api/pedidos/pendientes/${codigo}`);
+            
+            if (res && res.success && res.pedidos && res.pedidos.length > 0) {
+                this.renderizarTablaPedidos(res.pedidos, codigo);
+            } else {
+                contenedor.innerHTML = `
+                    <div class="alert alert-info py-2 px-3 border-0 small text-center mt-3" style="background:#e0f2fe; color:#0369a1; border-radius:12px;">
+                        <i class="fas fa-info-circle me-1"></i> No hay pedidos pendientes de alistamiento abiertos para <strong>${codigo}</strong>.
+                    </div>`;
+            }
+        } catch (error) {
+            console.error('[TRAZABILIDAD] Error al buscar pedidos:', error);
+            contenedor.innerHTML = `
+                <div class="alert alert-danger py-2 px-3 border-0 small text-center mt-3" style="border-radius:12px;">
+                    <i class="fas fa-exclamation-triangle me-1"></i> Error al conectar con el servidor de pedidos.
+                </div>`;
+        }
+    },
+
+    /**
+     * Renderiza dinámicamente la tabla de cubetas para asignación de pedidos
+     */
+    renderizarTablaPedidos: function (pedidos, codigoProducto = '') {
+        const contenedor = document.getElementById('contenedor-pedidos-pendientes');
+        if (!contenedor) return;
+
+        const filas = pedidos.map(p => `
+            <tr class="align-middle">
+                <td class="fw-bold text-primary small">#${p.id_pedido}</td>
+                <td class="small text-truncate" style="max-width: 140px;" title="${p.cliente}">${p.cliente}</td>
+                <td class="text-center small">${p.cantidad_solicitada}</td>
+                <td class="text-center small fw-bold text-secondary">${p.cantidad_pendiente}</td>
+                <td style="width: 100px;">
+                    <input type="number" 
+                           class="form-control form-control-sm text-center fw-bold input-cant-asignada border-0 bg-light"
+                           style="border-radius: 8px;"
+                           min="0" 
+                           max="${p.cantidad_pendiente}" 
+                           value="${p.cantidad_pendiente}"
+                           placeholder="0"
+                           data-id-pedido="${p.id_pedido}"
+                           data-pendiente="${p.cantidad_pendiente}"
+                           data-codigo-producto="${codigoProducto}"
+                           oninput="ModuloMes.calcularTotalAsignado()">
+                </td>
+            </tr>
+        `).join('');
+
+        contenedor.innerHTML = `
+            <div class="card border-0 shadow-sm mt-3" style="border-radius: 16px; background: #ffffff;">
+                <div class="card-header bg-white border-0 pt-3 pb-0">
+                    <h6 class="fw-bold mb-0 text-dark">
+                        <i class="fas fa-cubes text-primary me-2"></i>Distribución a Cubetas de Pedidos
+                    </h6>
+                    <small class="text-muted text-xs">Asigna la cantidad a inyectar para cada pedido pendiente</small>
+                </div>
+                <div class="card-body px-3 py-2">
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="table table-sm table-hover border-0 mb-2" style="font-size: 0.85rem;">
+                            <thead>
+                                <tr class="text-muted" style="font-size: 0.75rem; border-bottom: 2px solid #f1f5f9;">
+                                    <th>Pedido</th>
+                                    <th>Cliente</th>
+                                    <th class="text-center">Solicitado</th>
+                                    <th class="text-center">Pendiente</th>
+                                    <th class="text-center" style="width: 100px;">Asignar</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${filas}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center pt-2 border-top" style="border-color: #f1f5f9 !important;">
+                        <span class="small fw-bold text-muted">Total Distribuido:</span>
+                        <span id="badge-total-asignado" class="badge bg-primary fs-7" style="border-radius: 8px; padding: 6px 12px;">0 piezas</span>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Actualizar el total distribuido inmediatamente al renderizar la tabla
+        this.calcularTotalAsignado();
+    },
+
+    /**
+     * Calculates and updates the dynamic counter for assigned pieces
+     */
+    calcularTotalAsignado: function () {
+        let total = 0;
+        const inputs = document.querySelectorAll('.input-cant-asignada');
+        inputs.forEach(input => {
+            const val = parseInt(input.value) || 0;
+            total += val;
+        });
+
+        const badge = document.getElementById('badge-total-asignado');
+        if (badge) {
+            badge.innerText = `${total.toLocaleString()} piezas`;
+        }
+        return total;
     }
 };
 

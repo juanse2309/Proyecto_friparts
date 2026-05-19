@@ -303,7 +303,8 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'metals-dashboard': window.ModuloMetals,
         'procura': window.ModuloProcura,
         'rotacion': window.ModuloProcura, // Alias por si acaso
-        'asistencia': window.ModuloAsistencia
+        'asistencia': window.ModuloAsistencia,
+        'gerencia': window.ModuloGerencia
     };
 
     if (window.AppState.paginaActual) {
@@ -460,7 +461,8 @@ function inicializarModulo(nombrePagina) {
         'metals-pulido-m': window.ModuloMetals,
         'procura': window.ModuloProcura,
         'rotacion': window.ModuloRotacion, // Este inicializa su propia lógica si existe
-        'asistencia': window.ModuloAsistencia
+        'asistencia': window.ModuloAsistencia,
+        'gerencia': window.ModuloGerencia
     };
 
     const modulo = modulos[nombrePagina];

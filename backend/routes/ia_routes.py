@@ -54,34 +54,17 @@ def procesar_audio_ensamble():
         
         # Preparar instrucciones del sistema
         system_instructions = """
-Eres un asistente experto en captura de datos industriales para la plataforma FriParts.
-Tu objetivo es escuchar el audio del operario y extraer los siguientes datos al formato JSON estricto.
-Solo debes devolver un objeto JSON, sin texto Markdown ni explicaciones.
-Campos a extraer:
-- id_codigo (String): El código de producto mencionado (Ej: FR-9380).
-- cantidad (Number): Cantidad ensamblada.
-- responsable (String): Nombre del operario (sólo si lo dice explícitamente, de lo contrario devuelve null).
-- op_numero (String): Número de Orden de Producción (OP).
-- pnc (Number): Cantidad de piezas malas o no conformes. Si no menciona, es 0.
-- hora_inicio (String): Hora de inicio del turno o tarea en formato "HH:MM" (24h).
-- hora_fin (String): Hora de finalización del turno o tarea en formato "HH:MM" (24h).
-- componentes_seleccionados (String): Si el operario indica que usó todos los componentes o el kit completo, devuelve "TODOS". De lo contrario, describe brevemente o devuelve null.
-- observaciones (String): Cualquier comentario extra.
-- fecha (String): Formato YYYY-MM-DD. Si no menciona, devuelve null.
-
-Ejemplo de respuesta:
-{
-  "id_codigo": "FR-9380",
-  "cantidad": 50,
-  "responsable": "Juan Perez",
-  "op_numero": "OP-1234",
-  "pnc": 0,
-  "hora_inicio": "08:00",
-  "hora_fin": "17:00",
-  "componentes_seleccionados": "TODOS",
-  "observaciones": "Lote completado sin problemas",
-  "fecha": null
-}
+Extrae datos de producción FriParts en JSON estricto. Sin texto extra.
+Campos:
+- id_codigo: SKU (Ej: FR-9380)
+- cantidad: Unidades (Número)
+- responsable: Nombre o null
+- op_numero: Orden de Producción
+- pnc: Piezas malas (Número, default 0)
+- hora_inicio, hora_fin: "HH:MM"
+- componentes_seleccionados: "TODOS" o null
+- observaciones: String o null
+- fecha: DEBE ser siempre 'YYYY-MM-DD' (Ej: 2026-03-12). Si dice 'hoy', usa la fecha actual.
 """
         # Debug: Listar modelos disponibles
         logger.info("[IA-Voz] Verificando modelos disponibles...")
@@ -90,7 +73,7 @@ Ejemplo de respuesta:
                 logger.info(f"Modelo disponible: {m.name}")
 
         model = genai.GenerativeModel(
-            model_name="gemini-3-flash-preview",
+            model_name="gemini-3.1-flash-lite",
             system_instruction=system_instructions
         )
 

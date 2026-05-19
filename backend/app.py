@@ -73,6 +73,7 @@ from backend.routes.productos_routes import productos_bp
 from backend.routes.historial_routes import historial_bp
 from backend.routes.ensamble_routes import ensamble_bp
 from backend.routes.ia_routes import ia_bp
+from backend.routes.gerencia_routes import gerencia_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -91,6 +92,7 @@ app.register_blueprint(pulido_bp)
 app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
 app.register_blueprint(ensamble_bp)
 app.register_blueprint(ia_bp)
+app.register_blueprint(gerencia_bp)
 
 
 # --- RUTA DE DEBUG INICIAL ---
@@ -986,7 +988,7 @@ def mes_get_programaciones(maquina):
         maquina_upper = maquina.upper()
         
         query = db.session.query(ProgramacionInyeccion).filter(
-            ProgramacionInyeccion.estado.notin_(['COMPLETADO', 'CANCELADO'])
+            ProgramacionInyeccion.estado.notin_(['COMPLETADO', 'CANCELADO', 'FINALIZADO'])
         )
         
         if maquina_upper != 'TODAS':
@@ -1044,6 +1046,8 @@ def mes_dashboard():
                     'id_inyeccion':       primer.id_inyeccion,
                     'molde':              primer.molde,
                     'hora_inicio':        primer.fecha_inicia.strftime('%H:%M') if primer.fecha_inicia else '',
+                    'producto':           ", ".join([str(r.id_codigo or '') for r in activos_maq]),
+                    'cavidades':          sum([int(r.cavidades or 0) for r in activos_maq]),
                     'productos_activos': [
                         {
                             'codigo_sistema': r.id_codigo,
@@ -1139,42 +1143,58 @@ def mes_get_productos_programacion(id_prog):
 
 @app.route('/api/mes/status/<maquina>', methods=['GET'])
 def mes_get_status_maquina(maquina):
-    """Obtiene el estado actual de una máquina (Activo, Programado o Libre) usando SQL."""
+    """Obtiene el estado actual de una máquina (Activo, Programado o Libre) agrupando montajes Multi-SKU usando SQL."""
     try:
         from backend.models.sql_models import ProduccionInyeccion, ProgramacionInyeccion
         maquina_upper = str(maquina).strip().upper()
         
-        # 1. Buscar en INYECCION si hay algo EN_PROCESO
-        activo = db.session.query(ProduccionInyeccion).filter(
+        # 1. Buscar en INYECCION si hay algo EN_PROCESO (Consultar todas las referencias activas de la máquina)
+        activos = db.session.query(ProduccionInyeccion).filter(
             ProduccionInyeccion.maquina == maquina_upper,
             ProduccionInyeccion.estado == 'EN_PROCESO'
-        ).first()
+        ).all()
         
-        if activo:
+        if activos:
+            primer = activos[0]
+            # Agrupar códigos y sumar cavidades para soportar Multi-SKU en pantalla operario
+            codigos_concatenados = ", ".join([str(r.id_codigo or '') for r in activos])
+            total_cavidades = sum([int(r.cavidades or 0) for r in activos])
+            
             return jsonify({
                 'estado': 'EN_PROCESO',
-                'id_inyeccion': activo.id_inyeccion,
-                'id_programacion': activo.id_inyeccion,
-                'producto': activo.id_codigo,
-                'molde': str(activo.molde or ''),
-                'cavidades': int(activo.cavidades or 1),
-                'inicio': activo.fecha_inicia.strftime('%H:%M') if activo.fecha_inicia else '',
+                'id_inyeccion': primer.id_inyeccion,
+                'id_programacion': primer.id_inyeccion,
+                'producto': codigos_concatenados,
+                'molde': str(primer.molde or ''),
+                'cavidades': total_cavidades,
+                'inicio': primer.fecha_inicia.strftime('%H:%M') if primer.fecha_inicia else '',
                 'teorica': 0
             }), 200
             
         # 2. Si no hay activo, buscar en PROGRAMACION_INYECCION el siguiente PROGRAMADO
-        programado = db.session.query(ProgramacionInyeccion).filter(
+        primer_programado = db.session.query(ProgramacionInyeccion).filter(
             ProgramacionInyeccion.maquina == maquina_upper,
             ProgramacionInyeccion.estado == 'PROGRAMADO'
         ).first()
         
-        if programado:
-             return jsonify({
+        if primer_programado:
+            # Buscar todas las programaciones que compartan la misma máquina, fecha y molde programados
+            programados_bloque = db.session.query(ProgramacionInyeccion).filter(
+                ProgramacionInyeccion.maquina == maquina_upper,
+                ProgramacionInyeccion.fecha == primer_programado.fecha,
+                ProgramacionInyeccion.molde == primer_programado.molde,
+                ProgramacionInyeccion.estado == 'PROGRAMADO'
+            ).all()
+
+            codigos_concatenados = ", ".join([str(r.codigo_sistema or '') for r in programados_bloque])
+            total_cavidades = sum([int(r.cavidades or 0) for r in programados_bloque])
+
+            return jsonify({
                 'estado': 'PROGRAMADO',
-                'id_programacion': programado.id,
-                'producto': programado.codigo_sistema,
-                'molde': str(programado.molde or ''),
-                'cavidades': int(programado.cavidades or 1)
+                'id_programacion': primer_programado.id,
+                'producto': codigos_concatenados,
+                'molde': str(primer_programado.molde or ''),
+                'cavidades': total_cavidades
             }), 200
             
         return jsonify({'estado': 'LIBRE'}), 200
@@ -1248,55 +1268,7 @@ def mes_iniciar():
 
 
 
-@app.route('/api/mes/reportar', methods=['POST'])
-def mes_reportar():
-    """Fase 2b: Operario finaliza el turno. Reporta TODOS los SKUs del mismo Batch (id_inyeccion)."""
-    try:
-        from backend.models.sql_models import ProduccionInyeccion, ProgramacionInyeccion
-        from backend.core.sql_database import db
 
-        data = request.json
-        id_iny = data.get('id_inyeccion')
-        cierres = int(data.get('cierres', 0))
-        
-        # 1. Buscar TODOS los registros bajo este ID de inyección
-        prods_en_lote = db.session.query(ProduccionInyeccion).filter(ProduccionInyeccion.id_inyeccion == id_iny).all()
-        if not prods_en_lote:
-            return jsonify({'success': False, 'error': 'Batch de producción no encontrado'}), 404
-            
-        # 2. Actualizar cada registro del Batch
-        for prod in prods_en_lote:
-            # Sincronizar Horas Reales (si vienen del modal)
-            if hi_str and prod.fecha_inicia:
-                try:
-                    h, m = map(int, hi_str.split(':'))
-                    prod.fecha_inicia = prod.fecha_inicia.replace(hour=h, minute=m, second=0)
-                except: pass
-                
-            if hf_str and prod.fecha_inicia:
-                try:
-                    h, m = map(int, hf_str.split(':'))
-                    # Usamos la misma fecha base del inicio para el fin (Batch del día)
-                    prod.fecha_fin = prod.fecha_inicia.replace(hour=h, minute=m, second=0)
-                except: pass
-
-            prod.cantidad_real = cierres * (prod.cavidades or 1)
-            prod.estado = 'PENDIENTE'
-            
-            # Finalizar Programación asociada para este código en esta máquina (Uso de orden_produccion)
-            db.session.query(ProgramacionInyeccion).filter(
-                ProgramacionInyeccion.codigo_sistema == prod.id_codigo,
-                ProgramacionInyeccion.maquina == prod.maquina,
-                ProgramacionInyeccion.estado == 'EN_PROCESO'
-            ).update({ 'estado': 'COMPLETADO' })
-            
-        db.session.commit()
-        clear_mes_cache()
-        return jsonify({'success': True, 'count': len(prods_en_lote)}), 200
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error en mes_reportar Batch SQL: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 

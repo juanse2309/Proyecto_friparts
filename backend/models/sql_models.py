@@ -347,6 +347,8 @@ class ProgramacionInyeccion(db.Model):
     cavidades       = db.Column(db.Integer, default=1)
     responsable_planta = db.Column(db.String(150), nullable=True)
     observaciones   = db.Column(db.Text, nullable=True)
+    op_world_office = db.Column(db.String(100), index=True, nullable=True)
+
 
 
 class Mezcla(db.Model):
@@ -535,3 +537,22 @@ class ProgramacionEnsamble(db.Model):
     cantidad_realizada = db.Column(db.Integer, default=0)
     fecha_programada   = db.Column(db.Date, nullable=False)
     estado             = db.Column(db.String(20), default='PENDIENTE') # PENDIENTE, EN_PROCESO, COMPLETADO
+class DistribucionOpPedidos(db.Model):
+    """
+    Sistema de cubetas para la Vista Gerencial. 
+    Cruza el progreso de todas las etapas productivas basadas en OP y Pedido.
+    """
+    __tablename__ = 'db_distribucion_op_pedidos'
+    __table_args__ = {'extend_existing': True}
+
+    id_distribucion  = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    op_world_office  = db.Column(db.String(100), index=True, nullable=True) # Nullable para planificación de la tarde anterior
+    id_pedido        = db.Column(db.String(80), index=True, nullable=False)
+    codigo_producto  = db.Column(db.String(100), index=True, nullable=False)
+    cant_requerida   = db.Column(db.Integer, nullable=False, default=0)
+    cant_inyectada   = db.Column(db.Integer, default=0)
+    cant_pulida      = db.Column(db.Integer, default=0)
+    cant_ensamblada  = db.Column(db.Integer, default=0)
+    cant_alistada    = db.Column(db.Integer, default=0)
+
+

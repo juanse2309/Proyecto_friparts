@@ -23,6 +23,7 @@ const ModuloEnsamble = {
         
         // Capturar usuario actual para validaciones de voz
         this.usuarioActual = document.getElementById('current_user_fullname')?.value || '';
+        this.intentarAutoSeleccionarResponsable(); // Sincronizar UI inmediatamente
         
         this.configurarTabs();
         await this.cargarDatos();
@@ -47,7 +48,7 @@ const ModuloEnsamble = {
     },
 
     verificarSesionActiva: async function() {
-        const responsable = document.getElementById('responsable')?.value || localStorage.getItem('ensamble_responsable');
+        const responsable = document.getElementById('current_user_fullname')?.value || document.getElementById('responsable')?.value;
         if (!responsable) return;
 
         try {
@@ -179,17 +180,77 @@ const ModuloEnsamble = {
     cargarDatos: async function () {
         try {
             mostrarLoading(true);
+            
+            // 1. Cargar Productos
             if (window.AppState?.sharedData?.productos?.length > 0) {
                 this.productosData = window.AppState.sharedData.productos;
             } else {
                 const prods = await fetchData('/api/productos/listar');
                 this.productosData = prods?.productos || prods?.items || (Array.isArray(prods) ? prods : []);
             }
+
+            // 2. Cargar Responsables (Operarios) para Datalist e IA
+            const resp = await fetchData('/api/auth/responsables?division=friparts');
+            this.responsablesData = resp?.data || resp || [];
+            this.renderResponsablesDatalist();
+
             mostrarLoading(false);
         } catch (error) {
             console.error('Error cargando datos ensamble:', error);
             mostrarLoading(false);
         }
+    },
+
+    renderResponsablesDatalist: function() {
+        const datalist = document.getElementById('responsables-list');
+        if (!datalist) return;
+        
+        datalist.innerHTML = '';
+        this.responsablesData.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r.nombre;
+            datalist.appendChild(opt);
+        });
+        console.log(`✅ [Ensamble] Datalist poblado con ${this.responsablesData.length} responsables.`);
+    },
+
+    buscarMatchResponsable: function(input) {
+        if (!input || input.trim().length < 3) return input;
+        
+        const search = input.toLowerCase().trim();
+        
+        // 1. Coincidencia exacta
+        const exact = this.responsablesData.find(r => r.nombre.toLowerCase() === search);
+        if (exact) return exact.nombre;
+        
+        // 2. Coincidencia parcial (empieza por...)
+        const partial = this.responsablesData.find(r => r.nombre.toLowerCase().includes(search));
+        if (partial) {
+            console.log(`🎯 [IA] Match inteligente: '${input}' -> '${partial.nombre}'`);
+            return partial.nombre;
+        }
+        
+        return input; // Devolver original si no hay match
+    },
+
+    formatearFechaParaInput: function(fechaStr) {
+        if (!fechaStr) return new Date().toISOString().split('T')[0];
+        
+        // Si ya viene en formato correcto YYYY-MM-DD
+        const regexISO = /^\d{4}-\d{2}-\d{2}$/;
+        if (regexISO.test(fechaStr)) return fechaStr;
+
+        try {
+            // Intentar parsear si viene algo como "15 de mayo" o "hoy"
+            const d = new Date(fechaStr);
+            if (!isNaN(d.getTime())) {
+                return d.toISOString().split('T')[0];
+            }
+        } catch (e) {
+            console.warn("[Ensamble] No se pudo formatear fecha:", fechaStr);
+        }
+
+        return new Date().toISOString().split('T')[0]; // Fallback a hoy
     },
 
     initAutocomplete: function(inputId, suggestionsId, isProduct) {
@@ -756,21 +817,28 @@ const ModuloEnsamble = {
             if (inputCant) inputCant.value = data.cantidad;
         }
         
-        // Cruce de Responsable: Si no coincide con el usuario logueado, mantener el de la sesión
-        if (data.responsable) {
-            const userLogged = this.usuarioActual;
-            if (data.responsable.toLowerCase() === userLogged.toLowerCase()) {
-                const inputResp = document.getElementById('responsable');
-                if (inputResp) {
-                    inputResp.value = data.responsable;
-                    inputResp.readOnly = true;
-                    inputResp.classList.add('bg-light');
-                }
-                const inputDisplay = document.getElementById('responsable-display');
-                if (inputDisplay) inputDisplay.value = data.responsable;
-            } else {
-                console.warn(`[Voz] El responsable '${data.responsable}' no coincide con el usuario '${userLogged}'. Manteniendo usuario de sesión.`);
-            }
+        // 3. Manejo de Responsable Inteligente (Voz o Sesión)
+        const inputResp = document.getElementById('responsable');
+        const inputDisplay = document.getElementById('responsable-display');
+        const userLogged = this.usuarioActual;
+
+        if (data.responsable && data.responsable.trim().length > 2) {
+            // Aplicar búsqueda inteligente (Match parcial -> Nombre completo)
+            const nombreFinal = this.buscarMatchResponsable(data.responsable);
+            console.log(`🎤 [Voz] Responsable procesado: ${data.responsable} -> ${nombreFinal}`);
+            
+            if (inputResp) inputResp.value = nombreFinal;
+            if (inputDisplay) inputDisplay.value = nombreFinal;
+        } else {
+            console.log(`🎤 [Voz] No se detectó responsable. Manteniendo usuario logueado: ${userLogged}`);
+            if (inputResp && !inputResp.value) inputResp.value = userLogged;
+            if (inputDisplay && !inputDisplay.value) inputDisplay.value = userLogged;
+        }
+
+        // Asegurar que sea editable siempre
+        if (inputResp) {
+            inputResp.readOnly = false;
+            inputResp.classList.remove('bg-light');
         }
         
         if (data.op_numero) {
@@ -780,7 +848,7 @@ const ModuloEnsamble = {
         
         if (data.fecha) {
             const inputFecha = document.getElementById('reporte-fecha');
-            if (inputFecha) inputFecha.value = data.fecha;
+            if (inputFecha) inputFecha.value = this.formatearFechaParaInput(data.fecha);
         }
 
         // Mapeo de Horas
@@ -921,17 +989,17 @@ const ModuloEnsamble = {
         const nombreCompleto = hiddenInput.value;
 
         if (nombreCompleto && nombreCompleto.trim().length > 2) {
-            // Asignar al formulario
+            // Asignar al formulario (SIN BLOQUEAR)
             input.value = nombreCompleto;
-            input.readOnly = true;
-            input.classList.add('bg-light');
+            input.readOnly = false;
+            input.classList.remove('bg-light');
             
             // Asignar a la cabecera visual (si existe)
             if (inputDisplay) {
                 inputDisplay.value = nombreCompleto;
             }
             
-            console.log('✅ [Ensamble] Usuario capturado infaliblemente:', nombreCompleto);
+            console.log('✅ [Ensamble] Usuario capturado y asignado (editable):', nombreCompleto);
         }
     },
 

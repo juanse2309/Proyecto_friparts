@@ -527,7 +527,53 @@ def actualizar_alistamiento():
                     else:
                         item.estado = estado_general or 'EN ALISTAMIENTO'
                 
+                # --- Distribución FIFO para Almacén / Empaque (cant_alistada) ---
+                from backend.models.sql_models import DistribucionOpPedidos
+                
+                # Normalizar el código eliminando el prefijo FR- si existe
+                codigo_limpio = str(codigo_front).replace('FR-', '').strip()
+                
+                # Buscar las cubetas por id_pedido y Producto ordenadas de forma ascendente
+                cubetas = db.session.query(DistribucionOpPedidos).filter(
+                    DistribucionOpPedidos.id_pedido == id_pedido,
+                    DistribucionOpPedidos.codigo_producto == codigo_limpio
+                ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+                # Reiniciar cant_alistada en las cubetas para esta referencia del pedido antes de distribuir
+                for cubeta in cubetas:
+                    cubeta.cant_alistada = 0.0
+
+                piezas_por_repartir = cant_segura
+                logger.info(f" 📦 [ALMACEN-FIFO] Distribuyendo {piezas_por_repartir} piezas alistadas FIFO para Pedido: {id_pedido}, Producto: {codigo_limpio} (Original: {codigo_front})")
+
+                for cubeta in cubetas:
+                    if piezas_por_repartir <= 0:
+                        break
+                    
+                    falta = max(0.0, (cubeta.cant_requerida or 0) - (cubeta.cant_alistada or 0))
+                    if falta > 0:
+                        if piezas_por_repartir >= falta:
+                            cubeta.cant_alistada = (cubeta.cant_alistada or 0) + falta
+                            piezas_por_repartir -= falta
+                        else:
+                            cubeta.cant_alistada = (cubeta.cant_alistada or 0) + piezas_por_repartir
+                            piezas_por_repartir = 0.0
+                
                 items_actualizados += 1
+
+        # Validar si el pedido completo quedó 100% alistado en bodega
+        todo_alistado = True
+        for it in items_sql:
+            cant_req_item = _clean_num(it.cantidad)
+            cant_ali_item = _clean_num(it.cant_alistada)
+            if cant_ali_item < cant_req_item:
+                todo_alistado = False
+                break
+
+        if todo_alistado and len(items_sql) > 0:
+            estado_general = "LISTO PARA DESPACHO"
+            progreso_pedido = "100%"
+            logger.info(f" 🏆 [ALISTAMIENTO-COMPLETO] Pedido {id_pedido} completamente alistado. Promocionando a LISTO PARA DESPACHO.")
 
         # Persistir estado/progresos a nivel pedido (en TODAS las filas),
         # porque el listado agrupa tomando el primer item del pedido.

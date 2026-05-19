@@ -285,6 +285,36 @@ def reportar_ensamble_multi():
                             codigo_ensamble=id_codigo_ancla
                         ))
 
+        # --- Propagación de avances a cubetas FIFO (db_distribucion_op_pedidos) ---
+        op_actual = main_reg.get('op_numero')
+        id_prod_final = main_reg.get('id_codigo')
+        cantidad_real = float(main_reg.get('cantidad', 0) or 0)
+
+        if estado_final == 'FINALIZADO' and op_actual and cantidad_real > 0:
+            from backend.models.sql_models import DistribucionOpPedidos
+            # Buscar las cubetas por OP y Referencia ordenadas de forma ascendente
+            cubetas = db.session.query(DistribucionOpPedidos).filter(
+                DistribucionOpPedidos.op_world_office == op_actual,
+                DistribucionOpPedidos.codigo_producto == id_prod_final
+            ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+            piezas_por_repartir = cantidad_real
+            logger.info(f" 📦 [ENSAMBLE-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_actual}, Producto: {id_prod_final}")
+
+            for cubeta in cubetas:
+                if piezas_por_repartir <= 0:
+                    break
+                
+                # Cuánto le falta a esta cubeta en la etapa de ensamble
+                falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_ensamblada or 0))
+                if falta > 0:
+                    if piezas_por_repartir >= falta:
+                        cubeta.cant_ensamblada = (cubeta.cant_ensamblada or 0) + falta
+                        piezas_por_repartir -= falta
+                    else:
+                        cubeta.cant_ensamblada = (cubeta.cant_ensamblada or 0) + piezas_por_repartir
+                        piezas_por_repartir = 0
+
         db.session.commit()
 
         # 4. Sincronizar Programación (Solo si hay id_prog válido)
