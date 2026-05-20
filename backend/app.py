@@ -423,12 +423,21 @@ def actualizar_stock(codigo_sistema, cantidad, almacen, operacion='sumar'):
             nuevo_valor = stock_actual - cantidad
             if nuevo_valor < 0:
                 logger.warning(f"⚠️ Stock negativo detectado en {codigo_norm} ({almacen}): {nuevo_valor}")
-                # En modo normal, podríamos retornar error, pero registrar_salida_resiliente lo ignorará
+
+        tipo_mov = "ENTRADA" if operacion == 'sumar' else "SALIDA"
+        res_dict = {
+            "codigo": codigo_norm,
+            "tipo_movimiento": tipo_mov,
+            "stock_anterior": float(stock_actual),
+            "cantidad_movida": float(cantidad),
+            "stock_nuevo": float(nuevo_valor),
+            "ubicacion": almacen
+        }
 
         setattr(producto, columna, nuevo_valor)
         db.session.flush()
         logger.info(f" ✅ [SQL-STOCK] {codigo_norm} en {almacen}: {stock_actual} -> {nuevo_valor}")
-        return True, "OK"
+        return True, res_dict
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error actualizando stock SQL: {e}")
@@ -471,22 +480,45 @@ def calcular_metricas_semaforo(stock_total, p_min, p_reorden, p_max):
 
 def registrar_entrada(codigo_sistema, cantidad, almacen):
     """Registra una entrada de inventario."""
-    return actualizar_stock(codigo_sistema, cantidad, almacen, 'sumar')
+    exito, res = actualizar_stock(codigo_sistema, cantidad, almacen, 'sumar')
+    if exito:
+        return res
+    return {
+        "codigo": codigo_sistema,
+        "tipo_movimiento": "ENTRADA",
+        "stock_anterior": 0.0,
+        "cantidad_movida": float(cantidad),
+        "stock_nuevo": 0.0,
+        "ubicacion": almacen,
+        "error": res
+    }
 
 def registrar_salida(codigo_sistema, cantidad, almacen):
     """Registra una salida de inventario."""
-    return actualizar_stock(codigo_sistema, cantidad, almacen, 'restar')
+    exito, res = actualizar_stock(codigo_sistema, cantidad, almacen, 'restar')
+    if exito:
+        return res
+    return {
+        "codigo": codigo_sistema,
+        "tipo_movimiento": "SALIDA",
+        "stock_anterior": 0.0,
+        "cantidad_movida": float(cantidad),
+        "stock_nuevo": 0.0,
+        "ubicacion": almacen,
+        "error": res
+    }
 
 def mover_inventario_entre_etapas(codigo_sistema, cantidad, origen, destino):
     """Mueve inventario de un almacen a otro."""
-    exito_resta, mensaje_resta = registrar_salida(codigo_sistema, cantidad, origen)
-    if not exito_resta:
-        return False, mensaje_resta
+    res_salida = registrar_salida(codigo_sistema, cantidad, origen)
+    if "error" in res_salida:
+        return False, res_salida["error"]
     
-    exito_suma, mensaje_suma = registrar_entrada(codigo_sistema, cantidad, destino)
-    if not exito_suma:
+    res_entrada = registrar_entrada(codigo_sistema, cantidad, destino)
+    if "error" in res_entrada:
+        # Revertir
         registrar_entrada(codigo_sistema, cantidad, origen)
-        return False, mensaje_suma
+        return False, res_entrada["error"]
     
     return True, f'Movimiento exitoso: {cantidad} de {origen} a {destino}'
 

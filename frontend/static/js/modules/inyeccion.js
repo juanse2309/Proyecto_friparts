@@ -824,7 +824,7 @@ const ModuloInyeccion = {
         const item = this.items[index];
         if (!item) return;
 
-        const criterios = ['RECHUPE', 'QUEMADO', 'INCOMPLETA', 'REBABA', 'MANCHA ACEITE', 'CONTAMINADO', 'BUJE DE PRUEBA', 'ESCASO'];
+        const criterios = ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"];
         const defectosActuales = item.defectos_pnc || {};
 
         let htmlContent = `
@@ -1129,12 +1129,9 @@ const ModuloInyeccion = {
                     <div style="width: 140px;">
                         <select class="form-select form-select-sm" onchange="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'motivo', this.value)">
                             <option value="">Motivo...</option>
-                            <option value="RECHUPE" ${row.motivo === 'RECHUPE' ? 'selected' : ''}>Rechupe</option>
-                            <option value="QUEMADO" ${row.motivo === 'QUEMADO' ? 'selected' : ''}>Quemado</option>
-                            <option value="INCOMPLETA" ${row.motivo === 'INCOMPLETA' ? 'selected' : ''}>Incompleta</option>
-                            <option value="REBABA" ${row.motivo === 'REBABA' ? 'selected' : ''}>Rebaba</option>
-                            <option value="MANCHA ACEITE" ${row.motivo === 'MANCHA ACEITE' ? 'selected' : ''}>Mancha Aceite</option>
-                            <option value="CONTAMINADO" ${row.motivo === 'CONTAMINADO' ? 'selected' : ''}>Contaminado</option>
+                            ${["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"].map(c => `
+                                <option value="${c}" ${row.motivo === c ? 'selected' : ''}>${c}</option>
+                            `).join('')}
                         </select>
                     </div>
                     <div style="width: 80px;">

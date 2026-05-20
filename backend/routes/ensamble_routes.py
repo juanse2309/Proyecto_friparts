@@ -173,6 +173,8 @@ def reportar_ensamble_multi():
 
         id_ensamble_global = registros_data[0].get('id_ensamble')
         
+        movimientos_inventario = []
+        
         # 1. Identificar el registro principal (es_final = True)
         main_reg = next((r for r in registros_data if r.get('es_final')), registros_data[0])
         estado_final = main_reg.get('estado', 'EN_PROCESO')
@@ -218,36 +220,32 @@ def reportar_ensamble_multi():
 
             # Lógica de Inventario (Basada en el DETALLE: buje_ensamble)
             if estado_final == 'FINALIZADO' or registro.estado == 'CONSUMO':
-                producto_db = Producto.query.filter(
-                    (Producto.codigo_sistema == buje_detalle) | (Producto.id_codigo == buje_detalle)
-                ).with_for_update().first()
+                from backend.app import registrar_entrada, registrar_salida
+                # Descontar si hay origen
+                if registro.almacen_para_descargar:
+                    almacen = registro.almacen_para_descargar.upper()
+                    bodega = "P. TERMINADO" if 'TERMINADO' in almacen else "PRODUCTO ENSAMBLADO"
+                    res_mov = registrar_salida(buje_detalle, cantidad, bodega)
+                    if res_mov and "error" not in res_mov:
+                        movimientos_inventario.append(res_mov)
+                    
+                    db.session.add(OperacionLog(
+                        modulo='ENSAMBLE', operario=responsable, accion='CONSUMO_MULTI',
+                        detalles=f"Descontado {cantidad} de {buje_detalle} para ensamble {id_ensamble_global}"
+                    ))
 
-                if producto_db:
-                    # Descontar si hay origen
-                    if registro.almacen_para_descargar:
-                        almacen = registro.almacen_para_descargar.upper()
-                        if 'TERMINADO' in almacen:
-                            producto_db.p_terminado = float(producto_db.p_terminado or 0) - cantidad
-                        elif 'ENSAMBLADO' in almacen:
-                            producto_db.producto_ensamblado = float(producto_db.producto_ensamblado or 0) - cantidad
-                        
-                        db.session.add(OperacionLog(
-                            modulo='ENSAMBLE', operario=responsable, accion='CONSUMO_MULTI',
-                            detalles=f"Descontado {cantidad} de {buje_detalle} para ensamble {id_ensamble_global}"
-                        ))
+                # Incrementar si hay destino
+                if registro.almacen_destino:
+                    almacen = registro.almacen_destino.upper()
+                    bodega = "PRODUCTO ENSAMBLADO" if 'ENSAMBLADO' in almacen else "P. TERMINADO"
+                    res_mov = registrar_entrada(buje_detalle, cantidad, bodega)
+                    if res_mov and "error" not in res_mov:
+                        movimientos_inventario.append(res_mov)
 
-                    # Incrementar si hay destino
-                    if registro.almacen_destino:
-                        almacen = registro.almacen_destino.upper()
-                        if 'ENSAMBLADO' in almacen:
-                            producto_db.producto_ensamblado = float(producto_db.producto_ensamblado or 0) + cantidad
-                        elif 'TERMINADO' in almacen:
-                            producto_db.p_terminado = float(producto_db.p_terminado or 0) + cantidad
-
-                        db.session.add(OperacionLog(
-                            modulo='ENSAMBLE', operario=responsable, accion='ENTRADA_MULTI',
-                            detalles=f"Ingresado {cantidad} de {buje_detalle} desde ensamble {id_ensamble_global}"
-                        ))
+                    db.session.add(OperacionLog(
+                        modulo='ENSAMBLE', operario=responsable, accion='ENTRADA_MULTI',
+                        detalles=f"Ingresado {cantidad} de {buje_detalle} desde ensamble {id_ensamble_global}"
+                    ))
 
             # Lógica de Tiempos y KPIs (Exclusiva del producto final usando el flag local)
             if es_final_flag:
@@ -290,16 +288,45 @@ def reportar_ensamble_multi():
         id_prod_final = main_reg.get('id_codigo')
         cantidad_real = float(main_reg.get('cantidad', 0) or 0)
 
-        if estado_final == 'FINALIZADO' and op_actual and cantidad_real > 0:
+        if estado_final == 'FINALIZADO' and op_actual and str(op_actual).strip() != 'SIN OP' and cantidad_real > 0:
             from backend.models.sql_models import DistribucionOpPedidos
+            
+            op_limpia = str(op_actual or '').strip()
+            codigo_limpio = str(id_prod_final or '').replace('FR-', '').strip()
+            
             # Buscar las cubetas por OP y Referencia ordenadas de forma ascendente
             cubetas = db.session.query(DistribucionOpPedidos).filter(
-                DistribucionOpPedidos.op_world_office == op_actual,
-                DistribucionOpPedidos.codigo_producto == id_prod_final
+                DistribucionOpPedidos.op_world_office == op_limpia,
+                DistribucionOpPedidos.codigo_producto == codigo_limpio
             ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
 
             piezas_por_repartir = cantidad_real
-            logger.info(f" 📦 [ENSAMBLE-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_actual}, Producto: {id_prod_final}")
+            
+            # Validación y creación de cubeta de contingencia (Nivelación Retroactiva)
+            if not cubetas and piezas_por_repartir > 0:
+                # Intentar buscar el id_pedido de otra cubeta asociada a la misma OP
+                pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
+                    DistribucionOpPedidos.op_world_office == op_limpia
+                ).first()
+                id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
+                
+                logger.info(f" ⚠️ [ENSAMBLE-CONTINGENCIA] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
+                nueva_cubeta = DistribucionOpPedidos(
+                    op_world_office=op_limpia,
+                    id_pedido=id_pedido_final,
+                    codigo_producto=codigo_limpio,
+                    cant_requerida=piezas_por_repartir,
+                    cant_inyectada=piezas_por_repartir,
+                    cant_pulida=piezas_por_repartir,
+                    cant_ensamblada=piezas_por_repartir,
+                    cant_alistada=0
+                )
+                db.session.add(nueva_cubeta)
+                db.session.flush() # Sincronizar temporalmente en sesión
+                cubetas = [nueva_cubeta]
+                piezas_por_repartir = 0.0 # Consumido por completo
+            
+            logger.info(f" 📦 [ENSAMBLE-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
 
             for cubeta in cubetas:
                 if piezas_por_repartir <= 0:
@@ -342,7 +369,8 @@ def reportar_ensamble_multi():
         return jsonify({
             'success': True, 
             'message': f'Se procesaron {len(registros_data)} registros con éxito.',
-            'id_ensamble': id_ensamble_global
+            'id_ensamble': id_ensamble_global,
+            'movimientos_inventario': movimientos_inventario
         })
 
     except Exception as e:

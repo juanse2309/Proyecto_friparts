@@ -775,6 +775,12 @@ const ModuloEnsamble = {
         document.getElementById('btn-cancelar-reporte')?.addEventListener('click', () => this.resetFormulario(true));
         
         document.getElementById('btn-ia-voice-ensamble')?.addEventListener('click', () => this.toggleGrabacionVoz());
+        document.getElementById('btn-cancelar-voz-ensamble')?.addEventListener('click', () => this.cancelarGrabacionVoz());
+        document.getElementById('btn-forzar-relleno-ensamble')?.addEventListener('click', () => {
+            if (this.ultimoJsonVozEnsamble) {
+                this.poblarFormularioDesdeVoz(this.ultimoJsonVozEnsamble);
+            }
+        });
         
         document.getElementById('prog-cantidad')?.addEventListener('input', () => {
             const idCodigo = document.getElementById('prog-producto').value;
@@ -792,6 +798,7 @@ const ModuloEnsamble = {
     },
 
     // --- PUERTO PARA IA DE VOZ ---
+    ultimoJsonVozEnsamble: null,
     poblarFormularioDesdeVoz: async function(data) {
         if (this.sesionActiva) {
             Swal.fire('Sesión Activa', 'Termina el trabajo actual antes de cargar uno por voz.', 'warning');
@@ -803,18 +810,27 @@ const ModuloEnsamble = {
         // 1. Abrir formulario
         this.abrirModalManual();
         
+        // Helper for triggering changes
+        const triggerChange = (el) => {
+            if (el) el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
         // 2. Poblar campos
         if (data.id_codigo) {
             const inputProd = document.getElementById('reporte-producto-manual');
             if (inputProd) {
                 inputProd.value = data.id_codigo.toUpperCase();
+                triggerChange(inputProd);
                 await this.seleccionarProductoManual({codigo_sistema: data.id_codigo.toUpperCase()});
             }
         }
         
         if (data.cantidad) {
             const inputCant = document.getElementById('reporte-cantidad');
-            if (inputCant) inputCant.value = data.cantidad;
+            if (inputCant) {
+                inputCant.value = data.cantidad;
+                triggerChange(inputCant);
+            }
         }
         
         // 3. Manejo de Responsable Inteligente (Voz o Sesión)
@@ -827,11 +843,17 @@ const ModuloEnsamble = {
             const nombreFinal = this.buscarMatchResponsable(data.responsable);
             console.log(`🎤 [Voz] Responsable procesado: ${data.responsable} -> ${nombreFinal}`);
             
-            if (inputResp) inputResp.value = nombreFinal;
+            if (inputResp) {
+                inputResp.value = nombreFinal;
+                triggerChange(inputResp);
+            }
             if (inputDisplay) inputDisplay.value = nombreFinal;
         } else {
             console.log(`🎤 [Voz] No se detectó responsable. Manteniendo usuario logueado: ${userLogged}`);
-            if (inputResp && !inputResp.value) inputResp.value = userLogged;
+            if (inputResp && !inputResp.value) {
+                inputResp.value = userLogged;
+                triggerChange(inputResp);
+            }
             if (inputDisplay && !inputDisplay.value) inputDisplay.value = userLogged;
         }
 
@@ -843,28 +865,43 @@ const ModuloEnsamble = {
         
         if (data.op_numero) {
             const inputOp = document.getElementById('reporte-op');
-            if (inputOp) inputOp.value = data.op_numero;
+            if (inputOp) {
+                inputOp.value = data.op_numero;
+                triggerChange(inputOp);
+            }
         }
         
         if (data.fecha) {
             const inputFecha = document.getElementById('reporte-fecha');
-            if (inputFecha) inputFecha.value = this.formatearFechaParaInput(data.fecha);
+            if (inputFecha) {
+                inputFecha.value = this.formatearFechaParaInput(data.fecha);
+                triggerChange(inputFecha);
+            }
         }
 
         // Mapeo de Horas
         if (data.hora_inicio) {
             const inputHoraIni = document.getElementById('reporte-hora-inicio');
-            if (inputHoraIni) inputHoraIni.value = data.hora_inicio;
+            if (inputHoraIni) {
+                inputHoraIni.value = data.hora_inicio;
+                triggerChange(inputHoraIni);
+            }
         }
         if (data.hora_fin) {
             const inputHoraFin = document.getElementById('reporte-hora-fin');
-            if (inputHoraFin) inputHoraFin.value = data.hora_fin;
+            if (inputHoraFin) {
+                inputHoraFin.value = data.hora_fin;
+                triggerChange(inputHoraFin);
+            }
         }
 
         // Trigger de PNC
         if (data.pnc > 0) {
             const inputPnc = document.getElementById('reporte-pnc');
-            if (inputPnc) inputPnc.value = data.pnc;
+            if (inputPnc) {
+                inputPnc.value = data.pnc;
+                triggerChange(inputPnc);
+            }
             // Ejecutar click en el botón que abre el modal de criterios
             const btnPnc = document.getElementById('btn-detalle-pnc');
             if (btnPnc) btnPnc.click();
@@ -873,7 +910,10 @@ const ModuloEnsamble = {
         // Componentes: Si contiene "TODOS", marcar todos los checkboxes del BOM
         if (data.componentes_seleccionados && data.componentes_seleccionados.toUpperCase().includes("TODOS")) {
             setTimeout(() => {
-                document.querySelectorAll('.bom-checkbox').forEach(chk => chk.checked = true);
+                document.querySelectorAll('.bom-checkbox').forEach(chk => {
+                    chk.checked = true;
+                    triggerChange(chk);
+                });
                 console.log('✅ [Voz] BOM marcado completamente (TODOS).');
             }, 500); // Pequeño delay para asegurar renderizado final
         }
@@ -928,11 +968,38 @@ const ModuloEnsamble = {
                 btn.style.background = ''; // Override gradient
                 btn.innerHTML = '<i class="fas fa-stop-circle pulse"></i> Grabando...';
             }
+            
+            document.getElementById('btn-cancelar-voz-ensamble')?.classList.remove('d-none');
+            document.getElementById('btn-forzar-relleno-ensamble')?.classList.add('d-none');
+            
             mostrarNotificacion('Escuchando...', 'info');
 
         } catch (err) {
             console.error('[Ensamble] Error accediendo al micrófono:', err);
             Swal.fire('Error', 'No se pudo acceder al micrófono. Verifica los permisos de tu navegador.', 'error');
+        }
+    },
+
+    cancelarGrabacionVoz: function() {
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+            // Eliminar el onstop para evitar que se lance el fetch a la API de IA
+            this.mediaRecorder.onstop = null;
+            this.mediaRecorder.stop();
+            
+            // Liberar tracks
+            this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+            this.isRecording = false;
+            this.audioChunks = [];
+            
+            const btn = document.getElementById('btn-ia-voice-ensamble');
+            if (btn) {
+                btn.classList.remove('bg-danger');
+                btn.style.background = 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)';
+                btn.innerHTML = '<i class="fas fa-microphone"></i>';
+            }
+            
+            document.getElementById('btn-cancelar-voz-ensamble')?.classList.add('d-none');
+            mostrarNotificacion('Grabación cancelada', 'warning');
         }
     },
 
@@ -949,6 +1016,7 @@ const ModuloEnsamble = {
                 btn.style.background = 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)';
                 btn.innerHTML = '<i class="fas fa-microphone"></i>';
             }
+            document.getElementById('btn-cancelar-voz-ensamble')?.classList.add('d-none');
         }
     },
 
@@ -966,6 +1034,9 @@ const ModuloEnsamble = {
             mostrarLoading(false);
 
             if (result.success && result.data) {
+                this.ultimoJsonVozEnsamble = result.data;
+                document.getElementById('btn-forzar-relleno-ensamble')?.classList.remove('d-none');
+                
                 this.poblarFormularioDesdeVoz(result.data);
                 mostrarNotificacion('IA: Formulario llenado exitosamente', 'success');
             } else {

@@ -11,6 +11,7 @@ window.ModuloDashboard = (function () {
     let chartMaquinas = null;
     let chartTendencia = null;
     let chartPNC = null;
+    let chartPNCPareto = null;
     let selectedOperators = []; // Para comparativa cara a cara
 
     let chartPulidoBoard = null;
@@ -546,18 +547,307 @@ window.ModuloDashboard = (function () {
         });
     }
 
-    function renderChartPNC(pnc) {
+    async function renderChartPNC(legacyPnc) {
         const ctx = document.getElementById('chartPNCGlobal');
         if (!ctx) return;
-        if (chartPNC) chartPNC.destroy();
-        chartPNC = new Chart(ctx, {
-            type: 'polarArea',
-            data: {
-                labels: ['Inyección', 'Pulido', 'Ensamble', 'Almacén'],
-                datasets: [{ data: [pnc.inyeccion, pnc.pulido, pnc.ensamble, pnc.almacen], backgroundColor: ['#3b82f6cc', '#10b981cc', '#f59e0bcc', '#ef4444cc'] }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
-        });
+
+        try {
+            // Capturar las fechas globales del formulario de filtros
+            const ini = document.getElementById('db-fecha-desde')?.value || '';
+            const fin = document.getElementById('db-fecha-hasta')?.value || '';
+
+            const response = await fetch(`/api/gerencia/metricas-pnc?fecha_inicio=${ini}&fecha_fin=${fin}`);
+            const res = await response.json();
+            if (!res.success) throw new Error(res.error || 'Unknown error');
+
+            const totales = res.totales_area;
+            const modosFalla = res.modos_falla_area;
+            const pareto = res.pareto_referencias;
+
+            // Actualizar el total global en el badge del card de calidad
+            // Orden fijo: flujo secuencial de producción (Inyección → Pulido → Ensamble)
+            const areaKeys = ['inyeccion', 'pulido', 'ensamble'].filter(k => totales[k] !== undefined);
+            const globalPncSum = areaKeys.reduce((sum, key) => sum + (totales[key]?.pnc || 0), 0);
+            const globalPncElement = document.getElementById('pnc-global-val');
+            if (globalPncElement) {
+                globalPncElement.textContent = globalPncSum.toLocaleString();
+            }
+
+            // Actualizar nuevos KPIs (FPY y % PNC Global)
+            const fpyGlobal = res.fpy_global || 0;
+            const pncGlobalPct = res.pnc_global_percentage || 0;
+
+            const fpyElement = document.getElementById('fpy-global-val');
+            if (fpyElement) fpyElement.textContent = fpyGlobal.toFixed(2);
+            
+            const fpyBar = document.getElementById('fpy-global-bar');
+            if (fpyBar) {
+                fpyBar.style.width = `${fpyGlobal}%`;
+                fpyBar.setAttribute('aria-valuenow', fpyGlobal);
+                if (fpyGlobal < 80) {
+                    fpyBar.className = 'progress-bar bg-danger';
+                } else if (fpyGlobal < 90) {
+                    fpyBar.className = 'progress-bar bg-warning';
+                } else {
+                    fpyBar.className = 'progress-bar bg-success';
+                }
+            }
+
+            const pctPncElement = document.getElementById('pnc-porcentaje-val');
+            if (pctPncElement) pctPncElement.textContent = pncGlobalPct.toFixed(2);
+
+            // 1. Gráfico de barras para totales por área
+            if (chartPNC) chartPNC.destroy();
+            
+            const displayNames = {
+                'inyeccion': 'Inyección',
+                'pulido': 'Pulido',
+                'ensamble': 'Ensamble'
+            };
+            
+            // Calcular % NC en etiquetas del X-axis para visualización Lean rápida
+            const areaLabels = areaKeys.map(k => {
+                const name = displayNames[k] || k.charAt(0).toUpperCase() + k.slice(1);
+                const dataArea = totales[k] || { pnc: 0, buenas: 0 };
+                const pnc = dataArea.pnc || 0;
+                const buenas = dataArea.buenas || 0;
+                const total = pnc + buenas;
+                const pct = total > 0 ? ((pnc / total) * 100).toFixed(1) : '0.0';
+                return `${name} (${pct}%)`;
+            });
+            const areaValues = areaKeys.map(k => totales[k]?.pnc || 0);
+
+            // Crear gradiente premium para barras de áreas
+            const chartCtx = ctx.getContext('2d');
+            const gradientAreas = chartCtx.createLinearGradient(0, 0, 0, 300);
+            gradientAreas.addColorStop(0, 'rgba(59, 130, 246, 1)');   // Royal Blue
+            gradientAreas.addColorStop(1, 'rgba(37, 99, 235, 0.8)'); // Deep Blue
+
+            chartPNC = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: areaLabels,
+                    datasets: [{
+                        label: 'Piezas PNC',
+                        data: areaValues,
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.85)', // Inyección: Azul
+                            'rgba(16, 185, 129, 0.85)', // Pulido: Verde
+                            'rgba(245, 158, 11, 0.85)'   // Ensamble: Naranja
+                        ],
+                        borderColor: [
+                            '#3b82f6',
+                            '#10b981',
+                            '#f59e0b'
+                        ],
+                        borderWidth: 1.5,
+                        borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
+                        barPercentage: 0.45,
+                        categoryPercentage: 0.7
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 1200, easing: 'easeOutQuart' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            titleFont: { size: 13, weight: 'bold' },
+                            bodyFont: { size: 12 },
+                            padding: 10,
+                            cornerRadius: 8,
+                            displayColors: true,
+                            callbacks: {
+                                label: (context) => {
+                                    const index = context.dataIndex;
+                                    const areaKey = areaKeys[index];
+                                    const dataArea = totales[areaKey] || { pnc: 0, buenas: 0 };
+                                    const pnc = dataArea.pnc || 0;
+                                    const buenas = dataArea.buenas || 0;
+                                    const total = pnc + buenas;
+                                    const pct = total > 0 ? ((pnc / total) * 100).toFixed(2) : '0.00';
+                                    return [
+                                        `⚠️ Piezas PNC: ${pnc.toLocaleString()}`,
+                                        `⚙️ Prod. Buenas: ${buenas.toLocaleString()}`,
+                                        `📊 Merma (% NC): ${pct}%`
+                                    ];
+                                }
+                            }
+                        }
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const areaKey = areaKeys[index];
+                            const areaLabel = areaLabels[index];
+                            const modos = modosFalla[areaKey] || {};
+
+                            if (Object.keys(modos).length === 0) {
+                                Swal.fire({
+                                    icon: 'info',
+                                    title: `Modos de Falla: ${areaLabel}`,
+                                    text: 'No se encontraron modos de falla registrados para esta área.',
+                                    confirmButtonColor: '#3b82f6'
+                                });
+                                return;
+                            }
+
+                            // Render dynamic SweetAlert Modal with sub-bar-chart
+                            Swal.fire({
+                                title: `Modos de Falla — ${areaLabel}`,
+                                html: `
+                                    <div class="p-2">
+                                        <p class="text-muted small text-start mb-3">Análisis detallado de rechazos para la estación de <strong>${areaLabel}</strong>.</p>
+                                        <div style="height: 300px; width: 100%; position: relative;">
+                                            <canvas id="chartModalPNC"></canvas>
+                                        </div>
+                                    </div>
+                                `,
+                                width: 650,
+                                confirmButtonText: 'Cerrar Análisis',
+                                confirmButtonColor: '#475569',
+                                customClass: {
+                                    popup: 'rounded-4'
+                                },
+                                didOpen: () => {
+                                    const modalCtx = document.getElementById('chartModalPNC').getContext('2d');
+                                    
+                                    // Crear gradiente premium rojo para el modal de fallas
+                                    const modalGrad = modalCtx.createLinearGradient(0, 0, 0, 300);
+                                    modalGrad.addColorStop(0, 'rgba(239, 68, 68, 0.9)');
+                                    modalGrad.addColorStop(1, 'rgba(185, 28, 28, 0.8)');
+
+                                    new Chart(modalCtx, {
+                                        type: 'bar',
+                                        data: {
+                                            labels: Object.keys(modos),
+                                            datasets: [{
+                                                label: 'Cantidad',
+                                                data: Object.values(modos),
+                                                backgroundColor: modalGrad,
+                                                borderColor: '#ef4444',
+                                                borderWidth: 0,
+                                                borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
+                                                barPercentage: 0.5
+                                            }]
+                                        },
+                                        options: {
+                                            responsive: true,
+                                            maintainAspectRatio: false,
+                                            plugins: {
+                                                legend: { display: false },
+                                                tooltip: {
+                                                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                                                    padding: 10,
+                                                    cornerRadius: 8
+                                                }
+                                            },
+                                            scales: {
+                                                y: {
+                                                    beginAtZero: true,
+                                                    grid: { color: 'rgba(226, 232, 240, 0.5)' }
+                                                },
+                                                x: {
+                                                    grid: { display: false },
+                                                    ticks: { font: { weight: 'bold', size: 11 }, color: '#334155' }
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    },
+                    onHover: (event, chartElement) => {
+                        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(226, 232, 240, 0.5)', drawBorder: false },
+                            ticks: { font: { weight: '600' }, color: '#64748b', padding: 8 }
+                        },
+                        x: {
+                            grid: { display: false, drawBorder: false },
+                            ticks: { font: { weight: 'bold', size: 12 }, color: '#1e293b' }
+                        }
+                    }
+                }
+            });
+
+            // 2. Gráfico de Pareto de Referencias (Barras Horizontales)
+            const ctxPareto = document.getElementById('chartPNCPareto');
+            if (ctxPareto) {
+                if (chartPNCPareto) chartPNCPareto.destroy();
+
+                const labelsPareto = pareto.map(p => p.referencia);
+                const valuesPareto = pareto.map(p => p.cantidad);
+
+                const paretoCtx = ctxPareto.getContext('2d');
+                const gradientPareto = paretoCtx.createLinearGradient(0, 0, 400, 0);
+                gradientPareto.addColorStop(0, 'rgba(244, 63, 94, 0.85)'); // Rose
+                gradientPareto.addColorStop(1, 'rgba(225, 29, 72, 0.95)'); // Rose Dark
+
+                chartPNCPareto = new Chart(ctxPareto, {
+                    type: 'bar',
+                    data: {
+                        labels: labelsPareto,
+                        datasets: [{
+                            label: 'PNC Acumulado',
+                            data: valuesPareto,
+                            backgroundColor: gradientPareto,
+                            borderColor: '#e11d48',
+                            borderWidth: 0,
+                            borderRadius: { topRight: 6, bottomRight: 6, topLeft: 0, bottomLeft: 0 },
+                            barPercentage: 0.55
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y', // Convert to Horizontal Bar Chart!
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                                padding: 10,
+                                cornerRadius: 8,
+                                callbacks: {
+                                    label: (context) => `⚙️ Ref: ${context.label} — ${context.raw.toLocaleString()} PNC`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                grid: { color: 'rgba(226, 232, 240, 0.5)', drawBorder: false },
+                                ticks: { font: { weight: '600' }, color: '#64748b' }
+                            },
+                            y: {
+                                grid: { display: false, drawBorder: false },
+                                ticks: { font: { weight: 'bold', size: 11 }, color: '#1e293b' }
+                            }
+                        }
+                    }
+                });
+            }
+
+        } catch (err) {
+            console.error("❌ Error al renderizar métricas PNC con el nuevo API, usando fallback:", err);
+            if (legacyPnc) {
+                if (chartPNC) chartPNC.destroy();
+                chartPNC = new Chart(ctx, {
+                    type: 'polarArea',
+                    data: {
+                        labels: ['Inyección', 'Pulido', 'Ensamble'],
+                        datasets: [{ data: [legacyPnc.inyeccion, legacyPnc.pulido, legacyPnc.ensamble], backgroundColor: ['#3b82f6cc', '#10b981cc', '#f59e0bcc'] }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+                });
+            }
+        }
     }
 
     function renderScrapAlmacenDetalle(desglose) {

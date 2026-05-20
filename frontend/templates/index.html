@@ -1117,24 +1117,72 @@
 
                     <!-- NUEVA FILA: Analítica de Merma (Dual) -->
                     <div class="row g-4 mb-4" id="dashboard-section-merma-analytics" data-role-access="ADMIN,INYECCION,PULIDO">
-                        <!-- 1. Merma Global por Áreas (El Anterior) -->
-                        <div class="col-lg-6">
+                        <!-- 1. Merma Global por Áreas (Lean Manufacturing) -->
+                        <div class="col-12">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
                                 <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
                                     <h5 class="fw-bold mb-0 text-dark">
-                                        <i class="fas fa-trash-alt text-danger me-2"></i> Merma Global por Área (PNC)
-                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Distribución proporcional del scrap acumulado en Inyección, Pulido, Ensamble y Almacén."></i>
+                                        <i class="fas fa-industry text-danger me-2"></i> Control de PNC por Área
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Sumatoria de cantidades PNC agrupada por estación (Inyección, Pulido, Ensamble). Haz clic en una barra para ver detalles."></i>
                                     </h5>
                                     <div>
-                                        <span class="badge bg-danger rounded-pill" style="font-size: 0.9rem;">Total: <span id="pnc-global-val">0</span></span>
+                                        <span class="badge bg-danger rounded-pill" style="font-size: 0.9rem;">Total PNC: <span id="pnc-global-val">0</span></span>
                                     </div>
                                 </div>
                                 <div class="card-body">
-                                    <div style="height: 320px; position: relative;" class="mb-4">
+                                    <div style="height: 250px; position: relative;" class="mb-4">
                                         <canvas id="chartPNCGlobal"></canvas>
                                     </div>
+                                    
+                                    <div class="border-top pt-4 mb-4">
+                                        <div class="row g-4">
+                                            <!-- Columna Izquierda: Pareto -->
+                                            <div class="col-lg-6">
+                                                <h5 class="fw-bold mb-3 text-dark" style="font-size: 1rem;">
+                                                    <i class="fas fa-list-ol text-warning me-2"></i> Pareto de Referencias (Top 10 PNC)
+                                                    <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Las 10 referencias de producto que acumulan mayor cantidad de Producto No Conforme (PNC) en la planta."></i>
+                                                </h5>
+                                                <div style="height: 320px; position: relative;">
+                                                    <canvas id="chartPNCPareto"></canvas>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Columna Derecha: KPIs -->
+                                            <div class="col-lg-6">
+                                                <h5 class="fw-bold mb-3 text-dark" style="font-size: 1rem;">
+                                                    <i class="fas fa-chart-pie text-primary me-2"></i> Indicadores de Planta
+                                                </h5>
+                                                
+                                                <!-- KPI 1: FPY Global -->
+                                                <div class="card border-0 bg-light mb-3" style="border-radius: 12px;">
+                                                    <div class="card-body p-4">
+                                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                                            <span class="fw-bold text-muted text-uppercase small">Eficiencia de Planta (FPY Global)</span>
+                                                            <i class="fas fa-check-circle text-success fs-4"></i>
+                                                        </div>
+                                                        <h2 class="fw-bold text-dark mb-2"><span id="fpy-global-val">0.00</span>%</h2>
+                                                        <div class="progress" style="height: 8px; border-radius: 4px;">
+                                                            <div id="fpy-global-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- KPI 2: % PNC Total -->
+                                                <div class="card border-0 bg-light" style="border-radius: 12px;">
+                                                    <div class="card-body p-4">
+                                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                                            <span class="fw-bold text-muted text-uppercase small">Índice de Desperdicio (% PNC Total)</span>
+                                                            <i class="fas fa-exclamation-triangle text-danger fs-4"></i>
+                                                        </div>
+                                                        <h2 class="fw-bold text-dark mb-0"><span id="pnc-porcentaje-val">0.00</span>%</h2>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="border-top pt-3">
-                                        <h6 class="fw-bold text-muted small text-uppercase mb-2"><i class="fas fa-box-open me-2"></i> Top Scrap Almacén</h6>
+                                        <h6 class="fw-bold text-muted small text-uppercase mb-2"><i class="fas fa-box-open me-2"></i> Top Scrap Almacén (Mermas)</h6>
                                         <div id="pnc-almacen-desglose" class="list-group list-group-flush small overflow-auto" style="max-height: 120px;">
                                             <div class="list-group-item text-muted text-center py-2">Cargando detalle...</div>
                                         </div>
@@ -1581,18 +1629,18 @@
                                             required>
                                     </div>
                                     <div class="form-group"
-                                        style="background: #fff7ed; border-radius: 8px; padding: 5px;">
-                                        <label for="inyeccion-entrada" class="text-warning-emphasis fw-bold"><i
-                                                class="fas fa-sign-in-alt"></i> Entrada (Manual)</label>
-                                        <input type="number" id="inyeccion-entrada" class="form-control"
-                                            placeholder="Cant. Inicial">
-                                    </div>
-                                    <div class="form-group"
                                         style="background: #f0fdf4; border-radius: 8px; padding: 5px;">
                                         <label for="inyeccion-salida" class="text-success-emphasis fw-bold"><i
                                                 class="fas fa-sign-out-alt"></i> Salida (Manual)</label>
                                         <input type="number" id="inyeccion-salida" class="form-control"
                                             placeholder="Cant. Final">
+                                    </div>
+                                    <div class="form-group"
+                                        style="background: #fff7ed; border-radius: 8px; padding: 5px;">
+                                        <label for="inyeccion-entrada" class="text-warning-emphasis fw-bold"><i
+                                                class="fas fa-sign-in-alt"></i> Entrada (Manual)</label>
+                                        <input type="number" id="inyeccion-entrada" class="form-control"
+                                            placeholder="Cant. Inicial">
                                     </div>
                                     <div class="form-group"> <label for="hora-llegada-inyeccion"><i
                                                 class="fas fa-stopwatch"></i> Hora Llegada (24h)</label>
@@ -2060,10 +2108,14 @@
                                             <input type="number" id="manual-pnc-iny" class="form-control input-premium text-center w-100" value="0" min="0" oninput="ModuloPulido.actualizarCalculoManual()">
                                             <select id="manual-criterio-iny" class="form-select input-premium w-100">
                                                 <option value="">- Criterio -</option>
-                                                <option value="RECHUPE">Rechupe</option>
-                                                <option value="FALTA DE MATERIAL">Falta de material</option>
-                                                <option value="QUEMADO">Quemado</option>
-                                                <option value="REBABA">Rebaba</option>
+                                                <option value="Rechupe">Rechupe</option>
+                                                <option value="Quemado">Quemado</option>
+                                                <option value="Retención">Retención</option>
+                                                <option value="Incompleto/Escaso">Incompleto/Escaso</option>
+                                                <option value="Contaminado">Contaminado</option>
+                                                <option value="Mancha">Mancha</option>
+                                                <option value="Deformado">Deformado</option>
+                                                <option value="Otros">Otros</option>
                                             </select>
                                         </div>
                                     </div>
@@ -2077,10 +2129,12 @@
                                             <input type="number" id="manual-pnc-pul" class="form-control input-premium text-center w-100" value="0" min="0" oninput="ModuloPulido.actualizarCalculoManual()">
                                             <select id="manual-criterio-pul" class="form-select input-premium w-100">
                                                 <option value="">- Criterio -</option>
-                                                <option value="MAL CORTE">Mal corte</option>
-                                                <option value="EXCESO DE PULIDO">Exceso de pulido</option>
-                                                <option value="RAYADO">Rayado</option>
-                                                <option value="MAL ACABADO">Mal acabado</option>
+                                                <option value="Rayado">Rayado</option>
+                                                <option value="Porosidad">Porosidad</option>
+                                                <option value="Exceso de Rebaba">Exceso de Rebaba</option>
+                                                <option value="Medida Incorrecta">Medida Incorrecta</option>
+                                                <option value="Mal Acabado">Mal Acabado</option>
+                                                <option value="Otros">Otros</option>
                                             </select>
                                         </div>
                                     </div>
@@ -2433,6 +2487,8 @@
                                 <button class="btn fw-bold shadow-sm" id="btn-ia-voice-ensamble" style="background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%); color: white;" title="Registro por Voz con IA">
                                     <i class="fas fa-microphone"></i>
                                 </button>
+                                <button id="btn-cancelar-voz-ensamble" class="btn btn-danger d-none fw-bold shadow-sm"><i class="fas fa-times"></i> Cancelar</button>
+                                <button id="btn-forzar-relleno-ensamble" class="btn btn-warning d-none fw-bold shadow-sm"><i class="fas fa-redo"></i> Reincorporar Datos de Voz</button>
                                 <button class="btn btn-warning fw-bold shadow-sm" id="btn-manual-mode">
                                     <i class="fas fa-plus-circle me-2"></i> ➕ Registro Manual (Directo)
                                 </button>
@@ -2617,13 +2673,31 @@
                                 Defecto</label>
                             <select id="pnc-manual-criterio" required>
                                 <option value="">Selecciona...</option>
-                                <option value="RECHUPE">Rechupe</option>
-                                <option value="QUEMADO">Quemado</option>
-                                <option value="ESCASO">Escaso</option>
-                                <option value="CONTAMINADO">Contaminado</option>
-                                <option value="MANCHADO">Manchado</option>
-                                <option value="REVENTADO">Reventado</option>
-                                <option value="OTROS">Otros</option>
+                                <optgroup label="Inyección">
+                                    <option value="Rechupe">Rechupe</option>
+                                    <option value="Quemado">Quemado</option>
+                                    <option value="Retención">Retención</option>
+                                    <option value="Incompleto/Escaso">Incompleto/Escaso</option>
+                                    <option value="Contaminado">Contaminado</option>
+                                    <option value="Mancha">Mancha</option>
+                                    <option value="Deformado">Deformado</option>
+                                </optgroup>
+                                <optgroup label="Pulido">
+                                    <option value="Rayado">Rayado</option>
+                                    <option value="Porosidad">Porosidad</option>
+                                    <option value="Exceso de Rebaba">Exceso de Rebaba</option>
+                                    <option value="Medida Incorrecta">Medida Incorrecta</option>
+                                    <option value="Mal Acabado">Mal Acabado</option>
+                                </optgroup>
+                                <optgroup label="Ensamble">
+                                    <option value="Falta de Componente">Falta de Componente</option>
+                                    <option value="Mal Ajuste">Mal Ajuste</option>
+                                    <option value="Inserto Defectuoso">Inserto Defectuoso</option>
+                                    <option value="Daño Físico">Daño Físico</option>
+                                </optgroup>
+                                <optgroup label="Otros">
+                                    <option value="Otros">Otros</option>
+                                </optgroup>
                             </select>
                         </div>
 

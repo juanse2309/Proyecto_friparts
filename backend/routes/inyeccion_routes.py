@@ -12,6 +12,73 @@ from backend.config.settings import Settings
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
 
+# Catálogos oficiales de motivos de rechazo (PNC)
+INYECCION_CRITERIOS = ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"]
+PULIDO_CRITERIOS = ["Rayado", "Porosidad", "Exceso de Rebaba", "Medida Incorrecta", "Mal Acabado", "Otros"]
+ENSAMBLE_CRITERIOS = ["Falta de Componente", "Mal Ajuste", "Inserto Defectuoso", "Daño Físico", "Otros"]
+
+def normalizar_criterio(criterio, area):
+    if not criterio:
+        return "Otros"
+    
+    crit_lower = str(criterio).lower().strip()
+    
+    # Remover cualquier indicio de números entre paréntesis como "(90)"
+    import re
+    crit_lower = re.sub(r'\s*\(\d+\)\s*', '', crit_lower).strip()
+    
+    if area == "inyeccion":
+        if "rechupe" in crit_lower:
+            return "Rechupe"
+        if "quemado" in crit_lower:
+            return "Quemado"
+        if "retencion" in crit_lower or "retención" in crit_lower:
+            return "Retención"
+        if "escaso" in crit_lower or "incompleto" in crit_lower:
+            return "Incompleto/Escaso"
+        if "contamina" in crit_lower:
+            return "Contaminado"
+        if "mancha" in crit_lower:
+            return "Mancha"
+        if "deforma" in crit_lower:
+            return "Deformado"
+        for c in INYECCION_CRITERIOS[:-1]:
+            if c.lower() in crit_lower:
+                return c
+        return "Otros"
+        
+    elif area == "pulido":
+        if "rayado" in crit_lower or "raya" in crit_lower:
+            return "Rayado"
+        if "porosidad" in crit_lower or "poros" in crit_lower:
+            return "Porosidad"
+        if "rebaba" in crit_lower:
+            return "Exceso de Rebaba"
+        if "medida" in crit_lower or "incorrecta" in crit_lower:
+            return "Medida Incorrecta"
+        if "acabado" in crit_lower:
+            return "Mal Acabado"
+        for c in PULIDO_CRITERIOS[:-1]:
+            if c.lower() in crit_lower:
+                return c
+        return "Otros"
+        
+    elif area == "ensamble":
+        if "componente" in crit_lower or "falta" in crit_lower:
+            return "Falta de Componente"
+        if "ajuste" in crit_lower or "mal aju" in crit_lower:
+            return "Mal Ajuste"
+        if "inserto" in crit_lower or "defectuoso" in crit_lower:
+            return "Inserto Defectuoso"
+        if "daño" in crit_lower or "fisico" in crit_lower or "físico" in crit_lower:
+            return "Daño Físico"
+        for c in ENSAMBLE_CRITERIOS[:-1]:
+            if c.lower() in crit_lower:
+                return c
+        return "Otros"
+        
+    return "Otros"
+
 def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=False, items_batch=None):
     """
     Versión interna para generación de PDF y subida a Drive.
@@ -90,6 +157,8 @@ def registrar_inyeccion_lote():
         id_iny_lote = turno.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
         responsable_lote = turno.get('responsable')
         maquina_lote = turno.get('maquina')
+        
+        movimientos_inventario = []
 
         for item in items:
             from backend.utils.formatters import normalizar_codigo, to_float, to_int
@@ -169,7 +238,7 @@ def registrar_inyeccion_lote():
             pnc_val = int(round(float(item.get('pnc') or item.get('pnc_total') or 0)))
             registro.pnc_total   = pnc_val
             pnc_det = item.get('criterio_pnc') or item.get('pnc_detalle')
-            registro.pnc_detalle = pnc_det if pnc_det else None # NULL en DB
+            registro.pnc_detalle = normalizar_criterio(pnc_det, "inyeccion") if pnc_det else None # NULL en DB
             
             # Pesos y Movimientos
             registro.entrada = str(float(item.get('entrada') or turno.get('entrada_manual') or 0))
@@ -181,14 +250,14 @@ def registrar_inyeccion_lote():
 
             if h_inicio and h_fin:
                 try:
-                    colombia_tz = pytz.timezone('America/Bogota')
-                    ahora_col = datetime.now(colombia_tz)
-                    
                     hi_h, hi_m = h_inicio.split(':')
                     hf_h, hf_m = h_fin.split(':')
                     
-                    dt_inicio = ahora_col.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0)
-                    dt_fin = ahora_col.replace(hour=int(hf_h), minute=int(hf_m), second=0, microsecond=0)
+                    # Usar la FECHA del formulario (fecha_dt), NO datetime.now()
+                    dt_inicio = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day,
+                                         int(hi_h), int(hi_m), 0)
+                    dt_fin = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day,
+                                      int(hf_h), int(hf_m), 0)
                     
                     diff = dt_fin - dt_inicio
                     segundos = int(diff.total_seconds())
@@ -202,8 +271,8 @@ def registrar_inyeccion_lote():
                     else:
                         registro.segundos_por_unidad = 0
                         
-                    registro.fecha_inicia = dt_inicio.replace(tzinfo=None)
-                    registro.fecha_fin = dt_fin.replace(tzinfo=None)
+                    registro.fecha_inicia = dt_inicio
+                    registro.fecha_fin = dt_fin
                 except Exception as e_time:
                     logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
 
@@ -229,10 +298,72 @@ def registrar_inyeccion_lote():
                     bom_res = calcular_descuentos_ensamble(id_cod, cant_for_bom)
                     if bom_res.get('success'):
                         for comp in bom_res.get('componentes', []):
-                            registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
-                    registrar_entrada(id_cod, registro.cantidad_real - pnc_val, "POR PULIR")
+                            mov = registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
+                            if mov and "error" not in mov:
+                                movimientos_inventario.append(mov)
+                    mov_ent = registrar_entrada(id_cod, registro.cantidad_real - pnc_val, "POR PULIR")
+                    if mov_ent and "error" not in mov_ent:
+                        movimientos_inventario.append(mov_ent)
                 except Exception as e_stock:
                     logger.error(f"Error stock {id_cod}: {e_stock}")
+
+                # --- Lógica de Cubetas de Contingencia Express para Validación Manual ---
+                op_actual = registro.orden_produccion
+                if op_actual and str(op_actual).strip() != 'SIN OP':
+                    try:
+                        from backend.models.sql_models import DistribucionOpPedidos
+                        
+                        op_limpia = str(op_actual or '').strip()
+                        codigo_limpio = str(id_cod or '').replace('FR-', '').strip()
+                        
+                        # Buscar las cubetas por OP y Referencia
+                        cubetas = db.session.query(DistribucionOpPedidos).filter(
+                            DistribucionOpPedidos.op_world_office == op_limpia,
+                            DistribucionOpPedidos.codigo_producto == codigo_limpio
+                        ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+                        piezas_por_repartir = float(registro.cantidad_real or 0)
+                        
+                        # Validación y creación de cubeta de contingencia
+                        if not cubetas and piezas_por_repartir > 0:
+                            # Intentar buscar el id_pedido de otra cubeta asociada a la misma OP
+                            pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
+                                DistribucionOpPedidos.op_world_office == op_limpia
+                            ).first()
+                            id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
+                            
+                            logger.info(f" ⚠️ [INYECCION-CONTINGENCIA-MANUAL] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
+                            nueva_cubeta = DistribucionOpPedidos(
+                                op_world_office=op_limpia,
+                                id_pedido=id_pedido_final,
+                                codigo_producto=codigo_limpio,
+                                cant_requerida=piezas_por_repartir,
+                                cant_inyectada=piezas_por_repartir,
+                                cant_pulida=0,
+                                cant_ensamblada=0,
+                                cant_alistada=0
+                            )
+                            db.session.add(nueva_cubeta)
+                            db.session.flush() # Sincronizar temporalmente en sesión
+                            cubetas = [nueva_cubeta]
+                            piezas_por_repartir = 0.0 # Consumido por completo
+                        
+                        logger.info(f" 📦 [INYECCION-FIFO-MANUAL] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
+
+                        for cubeta in cubetas:
+                            if piezas_por_repartir <= 0:
+                                break
+                            
+                            falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_inyectada or 0))
+                            if falta > 0:
+                                if piezas_por_repartir >= falta:
+                                    cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + falta
+                                    piezas_por_repartir -= falta
+                                else:
+                                    cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + piezas_por_repartir
+                                    piezas_por_repartir = 0
+                    except Exception as e_dist:
+                        logger.error(f"Error en distribucion FIFO manual {id_cod}: {e_dist}")
 
         # --- PASO 3: Confirmar Transacción SQL ---
         id_prog = turno.get('id_programacion')
@@ -251,7 +382,8 @@ def registrar_inyeccion_lote():
                 cod_raw = pnc_data.get('codigo', '')
                 cod_norm = normalizar_codigo(cod_raw)
                 cant_pnc = float(pnc_data.get('cantidad') or 0)
-                motivo = pnc_data.get('criterio') or pnc_data.get('motivo') or 'SIN ESPECIFICAR'
+                motivo = pnc_data.get('criterio') or pnc_data.get('motivo') or 'Otros'
+                motivo_norm = normalizar_criterio(motivo, "inyeccion")
                 
                 if cant_pnc > 0:
                     nuevo_pnc_row = PncInyeccion(
@@ -259,7 +391,7 @@ def registrar_inyeccion_lote():
                         id_inyeccion=id_iny_lote,
                         id_codigo=cod_norm,
                         cantidad=cant_pnc,
-                        criterio=motivo
+                        criterio=motivo_norm
                     )
                     db.session.add(nuevo_pnc_row)
 
@@ -277,7 +409,8 @@ def registrar_inyeccion_lote():
             'success': True,
             'mensaje': f'Lote {nuevo_estado} exitosamente',
             'pdf_generated': pdf_ok,
-            'pdf_status': "success" if pdf_ok else "failed"
+            'pdf_status': "success" if pdf_ok else "failed",
+            'movimientos_inventario': movimientos_inventario
         }), 200
 
     except Exception as e:
@@ -762,14 +895,46 @@ def mes_reportar():
 
             # 3. Lógica FIFO para cubetas (db_distribucion_op_pedidos)
             op_actual = prod.orden_produccion
-            if op_actual:
+            if op_actual and str(op_actual).strip() != 'SIN OP':
+                from backend.models.sql_models import DistribucionOpPedidos
+                
+                op_limpia = str(op_actual or '').strip()
+                codigo_limpio = str(prod.id_codigo or '').replace('FR-', '').strip()
+                
                 # Buscamos todas las cubetas asociadas a esta OP y producto
                 cubetas = db.session.query(DistribucionOpPedidos).filter(
-                    DistribucionOpPedidos.op_world_office == op_actual,
-                    DistribucionOpPedidos.codigo_producto == prod.id_codigo
+                    DistribucionOpPedidos.op_world_office == op_limpia,
+                    DistribucionOpPedidos.codigo_producto == codigo_limpio
                 ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
 
                 piezas_por_repartir = piezas_inyectadas
+                
+                # Validación y creación de cubeta de contingencia
+                if not cubetas and piezas_por_repartir > 0:
+                    # Intentar buscar el id_pedido de otra cubeta asociada a la misma OP
+                    pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
+                        DistribucionOpPedidos.op_world_office == op_limpia
+                    ).first()
+                    id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
+                    
+                    logger.info(f" ⚠️ [INYECCION-CONTINGENCIA] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
+                    nueva_cubeta = DistribucionOpPedidos(
+                        op_world_office=op_limpia,
+                        id_pedido=id_pedido_final,
+                        codigo_producto=codigo_limpio,
+                        cant_requerida=piezas_por_repartir,
+                        cant_inyectada=piezas_por_repartir,
+                        cant_pulida=0,
+                        cant_ensamblada=0,
+                        cant_alistada=0
+                    )
+                    db.session.add(nueva_cubeta)
+                    db.session.flush() # Sincronizar temporalmente en sesión
+                    cubetas = [nueva_cubeta]
+                    piezas_por_repartir = 0.0 # Consumido por completo
+                
+                logger.info(f" 📦 [INYECCION-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
+
                 for cubeta in cubetas:
                     if piezas_por_repartir <= 0:
                         break

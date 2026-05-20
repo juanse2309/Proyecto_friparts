@@ -22,8 +22,9 @@ const ModuloPulido = {
     pncRows: [],
     revueltosRows: [],
     catalogosPnc: {
-        'INYECCION': ['RECHUPE', 'FALTA DE MATERIAL', 'QUEMADO', 'REBABA', 'MANCHA', 'BURBUJA'],
-        'PULIDO': ['MAL CORTE', 'EXCESO DE PULIDO', 'RAYADO', 'MAL ACABADO', 'GOLPEADO', 'FISURA']
+        'INYECCION': ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"],
+        'PULIDO': ["Rayado", "Porosidad", "Exceso de Rebaba", "Medida Incorrecta", "Mal Acabado", "Otros"],
+        'ENSAMBLE': ["Falta de Componente", "Mal Ajuste", "Inserto Defectuoso", "Daño Físico", "Otros"]
     },
 
     // Helper de Normalización

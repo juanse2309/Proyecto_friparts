@@ -451,6 +451,7 @@ def actualizar_alistamiento():
     from backend.core.sql_database import db
     
     try:
+        movimientos_inventario = []
         data = request.json or {}
         id_pedido = data.get("id_pedido")
         estado_general = data.get("estado")  # ej: "EN ALISTAMIENTO"
@@ -539,11 +540,41 @@ def actualizar_alistamiento():
                     DistribucionOpPedidos.codigo_producto == codigo_limpio
                 ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
 
-                # Reiniciar cant_alistada en las cubetas para esta referencia del pedido antes de distribuir
-                for cubeta in cubetas:
-                    cubeta.cant_alistada = 0.0
-
                 piezas_por_repartir = cant_segura
+                
+                # Validación y creación de cubeta de contingencia (Alistamiento Express)
+                if not cubetas and piezas_por_repartir > 0:
+                    # Buscar OP inteligente
+                    op_asoc = db.session.query(DistribucionOpPedidos.op_world_office).filter(
+                        (DistribucionOpPedidos.id_pedido == id_pedido) & (DistribucionOpPedidos.op_world_office.isnot(None))
+                    ).first()
+                    if not op_asoc:
+                        op_asoc = db.session.query(DistribucionOpPedidos.op_world_office).filter(
+                            (DistribucionOpPedidos.codigo_producto == codigo_limpio) & (DistribucionOpPedidos.op_world_office.isnot(None))
+                        ).first()
+                    
+                    op_final = op_asoc[0] if (op_asoc and op_asoc[0]) else getattr(item, 'wo_consecutivo', None) or f"OP-IMPREVISTA-{id_pedido}"
+                    
+                    logger.info(f" ⚠️ [ALMACEN-CONTINGENCIA] Creando cubeta temporal para Pedido: {id_pedido}, Producto: {codigo_limpio}, OP: {op_final}")
+                    nueva_cubeta = DistribucionOpPedidos(
+                        op_world_office=op_final,
+                        id_pedido=id_pedido,
+                        codigo_producto=codigo_limpio,
+                        cant_requerida=piezas_por_repartir,
+                        cant_inyectada=piezas_por_repartir,
+                        cant_pulida=piezas_por_repartir,
+                        cant_ensamblada=piezas_por_repartir,
+                        cant_alistada=piezas_por_repartir
+                    )
+                    db.session.add(nueva_cubeta)
+                    db.session.flush() # Sincronizar temporalmente en sesión
+                    cubetas = [nueva_cubeta]
+                    piezas_por_repartir = 0.0 # Consumido por completo
+                else:
+                    # Reiniciar cant_alistada en las cubetas para esta referencia del pedido antes de distribuir
+                    for cubeta in cubetas:
+                        cubeta.cant_alistada = 0.0
+
                 logger.info(f" 📦 [ALMACEN-FIFO] Distribuyendo {piezas_por_repartir} piezas alistadas FIFO para Pedido: {id_pedido}, Producto: {codigo_limpio} (Original: {codigo_front})")
 
                 for cubeta in cubetas:
@@ -599,7 +630,8 @@ def actualizar_alistamiento():
 
         return jsonify({
             "success": True, 
-            "message": f"Progreso actualizado en SQL para {items_actualizados} productos"
+            "message": f"Progreso actualizado en SQL para {items_actualizados} productos",
+            "movimientos_inventario": movimientos_inventario
         })
 
     except Exception as e:

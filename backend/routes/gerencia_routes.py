@@ -9,6 +9,73 @@ from backend.services.bom_service import calcular_descuentos_ensamble
 gerencia_bp = Blueprint('gerencia_bp', __name__)
 logger = logging.getLogger(__name__)
 
+# Catálogos oficiales de motivos de rechazo (PNC)
+INYECCION_CRITERIOS = ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"]
+PULIDO_CRITERIOS = ["Rayado", "Porosidad", "Exceso de Rebaba", "Medida Incorrecta", "Mal Acabado", "Otros"]
+ENSAMBLE_CRITERIOS = ["Falta de Componente", "Mal Ajuste", "Inserto Defectuoso", "Daño Físico", "Otros"]
+
+def normalizar_criterio(criterio, area):
+    if not criterio:
+        return "Otros"
+    
+    crit_lower = str(criterio).lower().strip()
+    
+    # Remover cualquier indicio de números entre paréntesis como "(90)"
+    import re
+    crit_lower = re.sub(r'\s*\(\d+\)\s*', '', crit_lower).strip()
+    
+    if area == "inyeccion":
+        if "rechupe" in crit_lower:
+            return "Rechupe"
+        if "quemado" in crit_lower:
+            return "Quemado"
+        if "retencion" in crit_lower or "retención" in crit_lower:
+            return "Retención"
+        if "escaso" in crit_lower or "incompleto" in crit_lower:
+            return "Incompleto/Escaso"
+        if "contamina" in crit_lower:
+            return "Contaminado"
+        if "mancha" in crit_lower:
+            return "Mancha"
+        if "deforma" in crit_lower:
+            return "Deformado"
+        for c in INYECCION_CRITERIOS[:-1]:
+            if c.lower() in crit_lower:
+                return c
+        return "Otros"
+        
+    elif area == "pulido":
+        if "rayado" in crit_lower or "raya" in crit_lower:
+            return "Rayado"
+        if "porosidad" in crit_lower or "poros" in crit_lower:
+            return "Porosidad"
+        if "rebaba" in crit_lower:
+            return "Exceso de Rebaba"
+        if "medida" in crit_lower or "incorrecta" in crit_lower:
+            return "Medida Incorrecta"
+        if "acabado" in crit_lower:
+            return "Mal Acabado"
+        for c in PULIDO_CRITERIOS[:-1]:
+            if c.lower() in crit_lower:
+                return c
+        return "Otros"
+        
+    elif area == "ensamble":
+        if "componente" in crit_lower or "falta" in crit_lower:
+            return "Falta de Componente"
+        if "ajuste" in crit_lower or "mal aju" in crit_lower:
+            return "Mal Ajuste"
+        if "inserto" in crit_lower or "defectuoso" in crit_lower:
+            return "Inserto Defectuoso"
+        if "daño" in crit_lower or "fisico" in crit_lower or "físico" in crit_lower:
+            return "Daño Físico"
+        for c in ENSAMBLE_CRITERIOS[:-1]:
+            if c.lower() in crit_lower:
+                return c
+        return "Otros"
+        
+    return "Otros"
+
 def requiere_ensamble(codigo):
     """
     Determina de forma dinámica si un código de producto requiere ensamble (BOM)
@@ -170,3 +237,179 @@ def obtener_trazabilidad_gerencial():
     except Exception as e:
         logger.error(f"❌ Error en obtener_trazabilidad_gerencial: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": "Error interno al consolidar trazabilidad"}), 500
+
+@gerencia_bp.route('/api/gerencia/metricas-pnc', methods=['GET'])
+def obtener_metricas_pnc():
+    """
+    Dashboard PNC (Lean Manufacturing):
+    Consolida las métricas de producto no conforme en 3 niveles leyendo
+    de las tablas independientes de PNC (Inyección, Pulido, Ensamble)
+    con soporte para rangos de fecha y cálculo de merma contextualizada.
+    """
+    try:
+        from backend.models.sql_models import (
+            PncInyeccion, PncPulido, PncEnsamble,
+            ProduccionInyeccion, ProduccionPulido, Ensamble
+        )
+        from sqlalchemy import func
+        from datetime import datetime
+
+        # Capturar parámetros de fecha
+        fecha_inicio_str = request.args.get('fecha_inicio')
+        fecha_fin_str = request.args.get('fecha_fin')
+
+        start_date = None
+        end_date = None
+        if fecha_inicio_str:
+            try:
+                start_date = datetime.strptime(fecha_inicio_str, '%Y-%m-%d')
+            except Exception as ex:
+                logger.warning(f"Formato incorrecto para fecha_inicio: {fecha_inicio_str}. {ex}")
+        if fecha_fin_str:
+            try:
+                end_date = datetime.strptime(fecha_fin_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            except Exception as ex:
+                logger.warning(f"Formato incorrecto para fecha_fin: {fecha_fin_str}. {ex}")
+
+        # 1. Consultas para PNC (con JOIN condicional para filtrar por rango de fecha)
+        iny_query = db.session.query(PncInyeccion.criterio, PncInyeccion.cantidad, PncInyeccion.id_codigo)
+        if start_date or end_date:
+            iny_query = iny_query.join(ProduccionInyeccion, PncInyeccion.id_inyeccion == ProduccionInyeccion.id_inyeccion)
+            if start_date:
+                iny_query = iny_query.filter(ProduccionInyeccion.fecha_inicia >= start_date)
+            if end_date:
+                iny_query = iny_query.filter(ProduccionInyeccion.fecha_inicia <= end_date)
+        iny_records = iny_query.all()
+
+        pul_query = db.session.query(PncPulido.criterio, PncPulido.cantidad, PncPulido.codigo)
+        if start_date or end_date:
+            pul_query = pul_query.join(ProduccionPulido, PncPulido.id_pulido == ProduccionPulido.id_pulido)
+            if start_date:
+                pul_query = pul_query.filter(ProduccionPulido.fecha >= start_date)
+            if end_date:
+                pul_query = pul_query.filter(ProduccionPulido.fecha <= end_date)
+        pul_records = pul_query.all()
+
+        ens_query = db.session.query(PncEnsamble.criterio, PncEnsamble.cantidad, PncEnsamble.id_codigo)
+        if start_date or end_date:
+            ens_query = ens_query.join(Ensamble, PncEnsamble.id_ensamble == Ensamble.id_ensamble)
+            if start_date:
+                ens_query = ens_query.filter(Ensamble.fecha >= start_date)
+            if end_date:
+                ens_query = ens_query.filter(Ensamble.fecha <= end_date)
+        ens_records = ens_query.all()
+
+        # 2. Consultas para Producción Buenas en el mismo rango de fecha
+        buenas_iny_query = db.session.query(func.sum(ProduccionInyeccion.cantidad_real))
+        if start_date:
+            buenas_iny_query = buenas_iny_query.filter(ProduccionInyeccion.fecha_inicia >= start_date)
+        if end_date:
+            buenas_iny_query = buenas_iny_query.filter(ProduccionInyeccion.fecha_inicia <= end_date)
+        buenas_iny = float(buenas_iny_query.scalar() or 0.0)
+
+        buenas_pul_query = db.session.query(func.sum(ProduccionPulido.cantidad_real))
+        if start_date:
+            buenas_pul_query = buenas_pul_query.filter(ProduccionPulido.fecha >= start_date)
+        if end_date:
+            buenas_pul_query = buenas_pul_query.filter(ProduccionPulido.fecha <= end_date)
+        buenas_pul = float(buenas_pul_query.scalar() or 0.0)
+
+        buenas_ens_query = db.session.query(func.sum(Ensamble.cantidad))
+        if start_date:
+            buenas_ens_query = buenas_ens_query.filter(Ensamble.fecha >= start_date)
+        if end_date:
+            buenas_ens_query = buenas_ens_query.filter(Ensamble.fecha <= end_date)
+        buenas_ens = float(buenas_ens_query.scalar() or 0.0)
+
+        # 3. Totales PNC por área
+        total_iny_pnc = sum(float(r[1] or 0.0) for r in iny_records)
+        total_pul_pnc = sum(float(r[1] or 0.0) for r in pul_records)
+        total_ens_pnc = sum(float(r[1] or 0.0) for r in ens_records)
+
+        totales_area = {
+            "inyeccion": {
+                "pnc": total_iny_pnc,
+                "buenas": buenas_iny
+            },
+            "pulido": {
+                "pnc": total_pul_pnc,
+                "buenas": buenas_pul
+            },
+            "ensamble": {
+                "pnc": total_ens_pnc,
+                "buenas": buenas_ens
+            }
+        }
+
+        # 4. Modos de falla por área
+        modos_falla_area = {
+            "inyeccion": {},
+            "pulido": {},
+            "ensamble": {}
+        }
+        for crit, cant, ref in iny_records:
+            crit_key = normalizar_criterio(crit, "inyeccion")
+            modos_falla_area["inyeccion"][crit_key] = modos_falla_area["inyeccion"].get(crit_key, 0.0) + float(cant or 0.0)
+
+        for crit, cant, ref in pul_records:
+            crit_key = normalizar_criterio(crit, "pulido")
+            modos_falla_area["pulido"][crit_key] = modos_falla_area["pulido"].get(crit_key, 0.0) + float(cant or 0.0)
+
+        for crit, cant, ref in ens_records:
+            crit_key = normalizar_criterio(crit, "ensamble")
+            modos_falla_area["ensamble"][crit_key] = modos_falla_area["ensamble"].get(crit_key, 0.0) + float(cant or 0.0)
+
+        # 5. Pareto de Referencias
+        pareto_dict = {}
+        for crit, cant, ref in iny_records:
+            if ref:
+                ref_key = str(ref).strip().upper()
+                pareto_dict[ref_key] = pareto_dict.get(ref_key, 0.0) + float(cant or 0.0)
+
+        for crit, cant, ref in pul_records:
+            if ref:
+                ref_key = str(ref).strip().upper()
+                pareto_dict[ref_key] = pareto_dict.get(ref_key, 0.0) + float(cant or 0.0)
+
+        for crit, cant, ref in ens_records:
+            if ref:
+                ref_key = str(ref).strip().upper()
+                pareto_dict[ref_key] = pareto_dict.get(ref_key, 0.0) + float(cant or 0.0)
+
+        sorted_pareto = sorted(pareto_dict.items(), key=lambda x: x[1], reverse=True)[:10]
+        pareto_referencias = [{"referencia": ref, "cantidad": val} for ref, val in sorted_pareto]
+
+        # 6. KPIs Globales ─────────────────────────────────────────────
+        total_pnc_global  = total_iny_pnc + total_pul_pnc + total_ens_pnc
+        total_good_global = buenas_iny + buenas_pul + buenas_ens
+        total_output      = total_good_global + total_pnc_global
+
+        pnc_global_percentage = round(
+            (total_pnc_global / total_output * 100) if total_output > 0 else 0.0, 2
+        )
+
+        # FPY = producto de los rendimientos por estación
+        def _yield(buenas, pnc):
+            denom = buenas + pnc
+            return buenas / denom if denom > 0 else 1.0   # sin datos → 100 %
+
+        fpy_global = round(
+            _yield(buenas_iny, total_iny_pnc)
+            * _yield(buenas_pul, total_pul_pnc)
+            * _yield(buenas_ens, total_ens_pnc)
+            * 100, 2
+        )
+
+        return jsonify({
+            "success": True,
+            "totales_area": totales_area,
+            "modos_falla_area": modos_falla_area,
+            "pareto_referencias": pareto_referencias,
+            "pnc_global_percentage": pnc_global_percentage,
+            "fpy_global": fpy_global
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error en obtener_metricas_pnc: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": "Error al calcular métricas de PNC"}), 500
+
