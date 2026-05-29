@@ -559,6 +559,9 @@ def ejecutar_corte():
         p_inicio = res_periodo[0] if res_periodo else None
         p_fin = res_periodo[1] if res_periodo else None
 
+        if not p_inicio or not p_fin:
+            return jsonify({'status': 'error', 'message': 'No hay registros pendientes para procesar.'}), 400
+
         # 2. Histórico
         nuevo_corte = CorteNomina(
             id_corte=f"{id_corte_uuid}-{division.upper()}",
@@ -569,23 +572,22 @@ def ejecutar_corte():
         )
         db.session.add(nuevo_corte)
         
-        # 3. UPDATE Masivo aislado por división
-        try:
-            sql_update = text(f"""
-                UPDATE db_asistencia 
-                SET estado_pago = 'PROCESADO' 
-                FROM db_usuarios u
-                WHERE db_asistencia.colaborador = u.username
-                AND COALESCE(db_asistencia.estado_pago, 'PENDIENTE') = 'PENDIENTE'
-                AND db_asistencia.fecha <= :fecha_limite
-                {condicion_rol}
-            """)
-            db.session.execute(sql_update, {"fecha_limite": p_fin})
-            db.session.commit()
-            logger.info(f"✅ Corte {id_corte_uuid} ({division}) finalizado: Registros hasta {p_fin} marcados como PROCESADO.")
-        except Exception as e_sql:
-            db.session.rollback()
-            raise e_sql
+        # 3. UPDATE Masivo aislado por división garantizando atomicidad
+        sql_update = text(f"""
+            UPDATE db_asistencia 
+            SET estado_pago = 'PROCESADO' 
+            FROM db_usuarios u
+            WHERE db_asistencia.colaborador = u.username
+            AND db_asistencia.fecha >= :p_inicio
+            AND db_asistencia.fecha <= :p_fin
+            AND COALESCE(db_asistencia.estado_pago, 'PENDIENTE') != 'PROCESADO'
+            {condicion_rol}
+        """)
+        db.session.execute(sql_update, {"p_inicio": p_inicio, "p_fin": p_fin})
+        
+        # Se ejecuta commit() único que envuelve tanto la creación del corte como la actualización de los registros.
+        db.session.commit()
+        logger.info(f"✅ Corte {id_corte_uuid} ({division}) finalizado: Registros de {p_inicio} a {p_fin} marcados como PROCESADO.")
 
         return jsonify({
             'status': 'success',
