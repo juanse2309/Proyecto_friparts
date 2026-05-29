@@ -1,4 +1,4 @@
-﻿/* Lazy loading placeholder */
+/* Lazy loading placeholder */
 .producto-imagen {
     transition: opacity 0.3s ease-in-out;
 }
@@ -25,6 +25,18 @@
 
 .producto-imagen[src] {
     opacity: 1;
+}
+
+/* ============================================
+   ENCABEZADOS FIJOS (STICKY) Y DATATABLES
+   ============================================ */
+
+/* 1. Forzar al contenedor de la tabla a comportarse como una ventana con scroll propio */
+.table thead th {
+    position: sticky !important;
+    top: 0 !important;
+    background: #ffffff !important;
+    z-index: 999 !important;
 }
 
 /* ============================================

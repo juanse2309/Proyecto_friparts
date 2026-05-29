@@ -173,6 +173,23 @@ function procesarYRenderizarProductos(listaFinal) {
 }
 
 
+function ordenarProductos(lista) {
+    return lista.sort((a, b) => {
+        const codeA = (a.codigo || a.codigo_sistema || "").toUpperCase();
+        const codeB = (b.codigo || b.codigo_sistema || "").toUpperCase();
+        
+        // Dar máxima prioridad a cualquier código que inicie con Letras (FR-, MT-, CAR-)
+        const isLetraA = /^[A-Z]/.test(codeA);
+        const isLetraB = /^[A-Z]/.test(codeB);
+        
+        if (isLetraA && !isLetraB) return -1; // Letras primero
+        if (!isLetraA && isLetraB) return 1;  // Números/otros después
+        
+        // Orden alfabético/numérico para los que empaten
+        return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+    });
+}
+
 /**
  * Renderizar tabla de productos con paginaciÃ³n
  */
@@ -189,6 +206,9 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
         if (paginationDiv) paginationDiv.innerHTML = '';
         return;
     }
+
+    // APLICAR ORDENAMIENTO PRIORITARIO
+    productos = ordenarProductos(productos);
 
     // Resetear pÃ¡gina si es necesario (por filtros)
     if (resetearPagina) paginaActual = 1;
@@ -348,6 +368,18 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
     // Renderizar controles de paginaciÃ³n
     renderizarPaginacion(totalProductos, totalPaginas, productos);
+
+    const contenedorTabla = document.querySelector('.table-responsive');
+    if (contenedorTabla) {
+        contenedorTabla.addEventListener('scroll', function() {
+            const translate = "translateY(" + this.scrollTop + "px)";
+            const thead = this.querySelector('thead');
+            if (thead) {
+                thead.style.transform = translate;
+                thead.style.zIndex = "1000";
+            }
+        });
+    }
 
     console.log(`âœ… PÃ¡gina ${paginaActual}/${totalPaginas}: Mostrando ${productosPagina.length} de ${totalProductos} productos`);
 }

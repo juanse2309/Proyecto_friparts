@@ -1223,6 +1223,11 @@ const ModuloPulido = {
                 const modal = document.getElementById('modal-reporte-final');
                 if (modal) modal.style.display = 'none';
                 this.limpiarFormulario();
+
+                // Recargar productos reactivamente para actualizar stock
+                if (window.DataReloadHelpers && window.DataReloadHelpers.recargarProductos) {
+                    window.DataReloadHelpers.recargarProductos().catch(err => console.error("[Pulido] Error actualizando stock:", err));
+                }
             } else {
                 console.warn("Servidor rechazó el reporte:", result.error);
                 throw new Error(result.error || 'Error desconocido del servidor');

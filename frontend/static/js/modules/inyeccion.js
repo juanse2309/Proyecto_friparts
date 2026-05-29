@@ -1270,6 +1270,11 @@ const ModuloInyeccion = {
                 this._idSqlActivo = null; // Limpiar ID SQL
                 this.intentarAutoSeleccionarResponsable();
                 this.limpiarFormularioValidacion(true);
+
+                // Recargar productos reactivamente para actualizar stock
+                if (window.DataReloadHelpers && window.DataReloadHelpers.recargarProductos) {
+                    window.DataReloadHelpers.recargarProductos().catch(err => console.error("[Inyeccion] Error actualizando stock:", err));
+                }
             } else {
                 Swal.fire('Error', resultado.error || 'Error procesando reporte', 'error');
             }

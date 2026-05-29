@@ -584,6 +584,11 @@ const ModuloEnsamble = {
                         ModuloMesControl.cargarProgramaciones();
                     }
 
+                    // Recargar productos reactivamente para actualizar stock
+                    if (window.DataReloadHelpers && window.DataReloadHelpers.recargarProductos) {
+                        window.DataReloadHelpers.recargarProductos().catch(err => console.error("[Ensamble] Error actualizando stock:", err));
+                    }
+
                     // 5. Notificación de éxito
                     Swal.fire({
                         icon: 'success',
@@ -597,6 +602,12 @@ const ModuloEnsamble = {
                     this.bloquearFormulario(true);
                     this.actualizarUIBotones();
                     if (!this.timerInterval) this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
+                    
+                    // Recargar productos reactivamente para actualizar stock de avance parcial si aplica
+                    if (window.DataReloadHelpers && window.DataReloadHelpers.recargarProductos) {
+                        window.DataReloadHelpers.recargarProductos().catch(err => console.error("[Ensamble] Error actualizando stock parcial:", err));
+                    }
+
                     mostrarNotificacion('Avance parcial guardado.', 'success');
                 }
             } else {
