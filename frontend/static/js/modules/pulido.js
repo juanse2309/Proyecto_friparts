@@ -1854,7 +1854,7 @@ const ModuloPulido = {
     procesarTranscripcionMasiva: function(texto) {
         if (!texto) return;
 
-        // Función interna de mapeo robusto de texto a dígitos
+        // Función interna de mapeo robusto de texto a dígitos con soporte de acentos
         function palabraANumero(texto) {
             if (!texto) return 0;
             if (!isNaN(texto)) return parseFloat(texto); // Si ya es un dígito, lo devuelve
@@ -1866,6 +1866,9 @@ const ModuloPulido = {
             };
             
             let palabra = texto.toLowerCase().trim();
+            // Normalizar eliminando acentos/tildes de forma universal
+            palabra = palabra.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            
             return diccionario[palabra] !== undefined ? diccionario[palabra] : 0;
         }
 
@@ -1876,8 +1879,16 @@ const ModuloPulido = {
             const cleanPart = part.trim();
             if (!cleanPart) return;
 
-            // CÓDIGO: Tomar la primera palabra/número (o combinación alfanumérica) inmediatamente después de 'referencia'
-            const refMatch = cleanPart.match(/^([a-zA-Z0-9\-]+)/);
+            // NORMALIZACIÓN DE CÓDIGOS CON ESPACIOS:
+            // Cortamos el segmento hasta toparnos con palabras clave de control o comas
+            let segmentoCodigo = cleanPart.split(/\b(op|orden|lote|buenos|buenas|bueno|ok|malos|malas|malo|pnc|descarte)\b/i)[0];
+            segmentoCodigo = segmentoCodigo.split(',')[0].trim();
+            
+            // Eliminar espacios intermedios únicamente si están rodeados de dígitos (ej. "90 04" -> "9004")
+            segmentoCodigo = segmentoCodigo.replace(/(?<=\d)\s+(?=\d)/g, '');
+
+            // CÓDIGO: Tomar la primera combinación alfanumérica (incluyendo guiones) que quedó
+            const refMatch = segmentoCodigo.match(/^([a-zA-Z0-9\-]+)/);
             if (!refMatch) return; // Solo continuar si logramos extraer un código de referencia válido
             
             const refRaw = refMatch[1].replace(/^-+|-+$/g, '').toUpperCase();
