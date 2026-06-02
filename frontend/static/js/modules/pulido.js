@@ -1854,6 +1854,21 @@ const ModuloPulido = {
     procesarTranscripcionMasiva: function(texto) {
         if (!texto) return;
 
+        // Función interna de mapeo robusto de texto a dígitos
+        function palabraANumero(texto) {
+            if (!texto) return 0;
+            if (!isNaN(texto)) return parseFloat(texto); // Si ya es un dígito, lo devuelve
+            
+            const diccionario = {
+                'cero': 0, 'uno': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+                'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15, 'veinte': 20, 'treinta': 30, 'cuarenta': 40, 'cincuenta': 50,
+                'sesenta': 60, 'setenta': 70, 'ochenta': 80, 'noventa': 90, 'cien': 100
+            };
+            
+            let palabra = texto.toLowerCase().trim();
+            return diccionario[palabra] !== undefined ? diccionario[palabra] : 0;
+        }
+
         // Separar estrictamente por la palabra clave 'referencia' e ignorar el texto anterior al primero
         const partes = texto.split(/\breferencia\b/i).slice(1);
         
@@ -1882,13 +1897,29 @@ const ModuloPulido = {
                 }
             }
 
-            // BUENOS: Patrón numérico antes de palabras clave (buenos, buenas, bueno, ok)
-            const buenosMatch = cleanPart.match(/(\d+)\s*(buenos|buenas|bueno|ok)/i);
-            const buenos = buenosMatch ? parseInt(buenosMatch[1], 10) : 0;
+            // BUENOS: Patrón numérico o palabra antes de palabras clave (buenos, buenas, bueno, ok)
+            const buenosMatch = cleanPart.match(/([a-zA-Z0-9_]+)\s*(buenos|buenas|bueno|ok)/i);
+            let buenos = buenosMatch ? palabraANumero(buenosMatch[1]) : 0;
 
-            // MALOS (PNC): Patrón numérico antes de palabras clave (malos, malas, malo, pnc, descarte)
-            const malosMatch = cleanPart.match(/(\d+)\s*(malos|malas|malo|pnc|descarte)/i);
-            const malos = malosMatch ? parseInt(malosMatch[1], 10) : 0;
+            // MALOS (PNC): Patrón numérico o palabra antes de palabras clave (malos, malas, malo, pnc, descarte)
+            const malosMatch = cleanPart.match(/([a-zA-Z0-9_]+)\s*(malos|malas|malo|pnc|descarte)/i);
+            let malos = malosMatch ? palabraANumero(malosMatch[1]) : 0;
+
+            // FALLBACK DE ENTRADA DIRECTA: Si buenos es 0, buscar un número suelto al final del bloque
+            if (buenos === 0) {
+                const palabras = cleanPart.split(/\s+/);
+                // Recorrer de atrás hacia adelante (excluyendo el primer token que es la referencia)
+                for (let idx = palabras.length - 1; idx > 0; idx--) {
+                    const token = palabras[idx].replace(/[,.]/g, '').trim().toUpperCase();
+                    if (token) {
+                        const val = palabraANumero(token);
+                        if (val > 0 && token !== refRaw && token !== op) {
+                            buenos = val;
+                            break;
+                        }
+                    }
+                }
+            }
 
             if (this.loteVoz.length >= 8) {
                 console.warn("⚠️ Se alcanzó el límite máximo de 8 referencias.");
