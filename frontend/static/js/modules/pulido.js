@@ -1777,7 +1777,7 @@ const ModuloPulido = {
             try {
                 this.recognitionMasivo = new SpeechRecognition();
                 this.recognitionMasivo.continuous = true;
-                this.recognitionMasivo.interimResults = false;
+                this.recognitionMasivo.interimResults = true; // Permite ver la cursiva en vivo sin cortar
                 this.recognitionMasivo.lang = 'es-CO';
 
                 this.recognitionMasivo.onstart = () => {
@@ -1793,17 +1793,27 @@ const ModuloPulido = {
                 };
 
                 this.recognitionMasivo.onresult = (event) => {
-                    let transcript = '';
+                    let finalTranscript = '';
+                    let interimTranscript = '';
+                    
                     for (let i = event.resultIndex; i < event.results.length; ++i) {
                         if (event.results[i].isFinal) {
-                            transcript += event.results[i][0].transcript + ' ';
+                            finalTranscript += event.results[i][0].transcript + ' ';
+                        } else {
+                            interimTranscript += event.results[i][0].transcript;
                         }
                     }
-                    if (transcript.trim()) {
-                        console.log('🗣️ Transcripción final capturada:', transcript);
-                        const preview = document.getElementById('preview-transcripcion-masiva');
-                        if (preview) preview.innerText = transcript;
-                        this.procesarTranscripcionMasiva(transcript);
+                    
+                    const preview = document.getElementById('preview-transcripcion-masiva');
+                    if (preview) {
+                        // Muestra el texto final confirmado normal y el interim en cursiva
+                        preview.innerHTML = finalTranscript + '<i style="color: #6b7280;">' + interimTranscript + '</i>';
+                    }
+
+                    if (finalTranscript.trim()) {
+                        console.log('🗣️ Transcripción final capturada:', finalTranscript);
+                        // El procesamiento transaccional se hace en segundo plano
+                        this.procesarTranscripcionMasiva(finalTranscript);
                     }
                 };
 
@@ -1815,12 +1825,16 @@ const ModuloPulido = {
 
                 this.recognitionMasivo.onend = () => {
                     if (this.isEscuchandoMasivo) {
-                        try {
-                            this.recognitionMasivo.start();
-                        } catch (err) {
-                            console.warn("Re-start fallido:", err);
-                        }
+                        // Reinicio controlado con debounce para evitar bloqueos del hardware
+                        setTimeout(() => {
+                            try { 
+                                this.recognitionMasivo.start(); 
+                            } catch (err) {
+                                console.log("Ya estaba corriendo", err);
+                            }
+                        }, 400);
                     } else {
+                        console.log("Grabación detenida por el usuario de forma limpia.");
                         statusLbl.innerText = 'Micrófono inactivo';
                         statusLbl.className = 'badge bg-secondary px-3 py-2 rounded-pill fw-bold';
                         btn.className = 'btn btn-danger px-4 py-2 rounded-pill fw-bold';
