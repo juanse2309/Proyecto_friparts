@@ -3,36 +3,47 @@
  * Gestión de rotación de inventario y prioridades de compra.
  */
 
+if (!window.ModuloRotacionState) {
+    window.ModuloRotacionState = {
+        cargando: false,
+        cargado: false,
+        cache: []
+    };
+}
+
 window.ModuloRotacion = (function () {
-    let datosOriginales = [];
+    let filtroTipoActual = 'TODOS';
+    let filtroClaseActual = 'TODOS';
 
     async function inicializar() {
         console.log('🔄 Inicializando Módulo de Rotación...');
         await cargarPrioridades();
 
         // Evento para limpiar búsqueda al cambiar de pestaña
-        const subTabs = document.querySelectorAll('#rot-sub-tabs button');
-        subTabs.forEach(tab => {
-            tab.addEventListener('shown.bs.tab', () => {
-                const search = document.getElementById('rot-search-global');
-                if (search) {
-                    search.value = '';
-                    renderizarTablas(datosOriginales);
-                }
+        const search = document.getElementById('rot-search-global');
+        if (search) {
+            search.addEventListener('input', () => {
+                filtrarGlobal();
             });
-        });
+        }
     }
 
     async function cargarPrioridades() {
+        if (window.ModuloRotacionState.cargando || window.ModuloRotacionState.cargado) {
+            return;
+        }
+        window.ModuloRotacionState.cargando = true;
         try {
-            mostrarLoading(true);
+            if (typeof window.mostrarLoading === 'function') window.mostrarLoading(true);
             const response = await fetch('/api/procura/rotacion/prioridades');
             const result = await response.json();
 
             if (result.status === 'success') {
-                datosOriginales = result.data;
-                renderizarDashboard(result.data);
-                renderizarTablas(result.data);
+                window.ModuloRotacionState.cache = result.data.prioridades || result.data || [];
+                window.ModuloRotacionState.cargado = true;
+                window.ModuloRotacionState.cargando = false;
+                renderizarDashboard(window.ModuloRotacionState.cache);
+                aplicarFiltrosCruzados();
                 console.log('✅ Prioridades actualizadas');
             } else {
                 console.error('Error al cargar prioridades:', result.message);
@@ -40,7 +51,8 @@ window.ModuloRotacion = (function () {
         } catch (error) {
             console.error('Error fetch rotacion:', error);
         } finally {
-            mostrarLoading(false);
+            window.ModuloRotacionState.cargando = false;
+            if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
         }
     }
 
@@ -63,99 +75,116 @@ window.ModuloRotacion = (function () {
         }
     }
 
-    function renderizarTablas(data) {
-        const tableA = document.getElementById('rot-table-a');
-        const tableBC = document.getElementById('rot-table-bc');
-        if (!tableA || !tableBC) return;
-
-        const itemsA = data.filter(d => d.clase === 'A');
-        const itemsBC = data.filter(d => d.clase !== 'A');
-
-        tableA.innerHTML = itemsA.length > 0 ? itemsA.map(item => createRow(item, true)).join('') : '<tr><td colspan="8" class="text-center py-5 text-muted">No hay items Clase A críticos</td></tr>';
-        tableBC.innerHTML = itemsBC.length > 0 ? itemsBC.map(item => createRow(item, false)).join('') : '<tr><td colspan="8" class="text-center py-5 text-muted">No hay items Clase B/C</td></tr>';
-    }
-
-    function createRow(item, isTop) {
-        const colorMap = {
-            'ROJO': { border: '#dc3545', bg: '#fff5f5' },
-            'AMARILLO': { border: '#f59e0b', bg: '#fffbeb' },
-            'VERDE': { border: '#10b981', bg: 'transparent' }
-        };
-        const colors = colorMap[item.semaforo] || { border: '#e2e8f0', bg: 'transparent' };
-
-        const progressClass = item.semaforo === 'ROJO' ? 'bg-danger' : (item.semaforo === 'AMARILLO' ? 'bg-warning' : 'bg-success');
-
-        const urgencyLabel = item.semaforo === 'ROJO' ? '<span class="badge bg-danger">URGENTE</span>' :
-            (item.semaforo === 'AMARILLO' ? '<span class="badge bg-warning text-dark">ALERTA</span>' :
-                '<span class="badge bg-success">ÓPTIMO</span>');
-
-        // Badge de Tránsito Externo
-        let transitBadge = '';
-        if (item.stock_externo > 0) {
-            const dg = item.desglose_externo || { Zincado: 0, Granallado: 0 };
-            const title = `Zincado: ${dg.Zincado} pz | Granallado: ${dg.Granallado} pz`;
-            transitBadge = `
-                <div class="mt-1" title="${title}">
-                    <span class="badge bg-info text-white px-2 py-1 rounded-pill shadow-sm d-inline-flex align-items-center" style="font-size: 0.75rem; font-weight: 700;">
-                        🚚 <span class="ms-1">${item.stock_externo}</span>
-                    </span>
-                </div>
-            `;
-        }
-
-        return `
-            <tr style="border-left: 5px solid ${colors.border}; background-color: ${colors.bg}; transition: all 0.2s;">
-                <td class="ps-4"><span class="fw-bold text-dark">${item.codigo}</span></td>
-                <td>
-                    <div class="fw-medium text-truncate" style="max-width: 250px;" title="${item.descripcion}">${item.descripcion}</div>
-                    ${isTop ? '<small class="text-muted text-uppercase" style="font-size:0.65rem">Ítem Crítico de Producción</small>' : ''}
-                </td>
-                ${!isTop ? `<td class="text-center"><span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 px-2">${item.clase}</span></td>` : ''}
-                <td class="text-center fw-bold ${item.semaforo === 'ROJO' ? 'text-danger' : ''}">
-                    ${item.stock_actual}
-                </td>
-                <td class="text-center">
-                    ${transitBadge || '<span class="text-muted small">0</span>'}
-                </td>
-                ${isTop ? `<td class="text-center text-muted">${item.minimo}</td>` : ''}
-                <td>
-                    <div class="d-flex align-items-center justify-content-between mb-1">
-                        ${urgencyLabel}
-                        <span class="small fw-bold text-muted">${item.porcentaje}%</span>
-                    </div>
-                    <div class="progress" style="height: 6px; border-radius: 10px; background: rgba(0,0,0,0.05);">
-                        <div class="progress-bar ${progressClass} progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${Math.min(item.porcentaje, 100)}%"></div>
-                    </div>
-                </td>
-                <td class="text-center">
-                    <span class="fw-bold text-secondary" style="font-size: 1rem;">${item.contador_oc}</span>
-                </td>
-                <td class="pe-4 text-end">
-                    <button class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm hover-lift" 
-                            onclick="ModuloRotacion.prepararCompra('${item.codigo}')" title="Comprar Ahora">
-                        <i class="fas fa-shopping-cart me-1"></i> Comprar
-                    </button>
-                </td>
+    function dibujarTablaPrioridades(productosFiltrados, totalCoincidencias = 0) {
+        let htmlCabecera = `
+            <tr style="background-color: #f8f9fa !important;">
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;">Pareto / Código</th>
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;">Descripción</th>
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Stock</th>
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Tránsito</th>
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Mínimo</th>
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Diferencia</th>
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Estado</th>
+                <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Tipo</th>
             </tr>
         `;
+        const tablaPadre = document.querySelector('#contenedor-prioridades-tabla')?.closest('table');
+        if (tablaPadre && tablaPadre.querySelector('thead')) {
+            tablaPadre.querySelector('thead').innerHTML = htmlCabecera;
+        }
+
+        let htmlFilas = '';
+        const contenedor = document.getElementById('contenedor-prioridades-tabla');
+        if (!contenedor) return;
+
+        if (!productosFiltrados || productosFiltrados.length === 0) {
+            contenedor.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">No hay ítems con los filtros seleccionados</td></tr>';
+            return;
+        }
+
+        productosFiltrados.forEach(item => {
+            try {
+                // Construcción segura de variables fallback
+                const codigo = item.codigo || 'S/C';
+                const desc = item.descripcion || 'Sin descripción';
+                const clase = item.clase || 'C';
+                const stock = item.stock_actual !== undefined ? item.stock_actual : 0;
+                const minimo = item.minimo || 0;
+                const diferencia = item.diferencia || 0;
+                const semaforo = item.semaforo || 'VERDE';
+
+                // Determinar color del badge Pareto
+                let badgeColor = 'bg-secondary text-white';
+                if (clase === 'A') badgeColor = 'bg-danger text-white';
+                if (clase === 'B') badgeColor = 'bg-warning text-dark';
+
+                htmlFilas += `
+                    <tr>
+                        <td class="ps-4"><span class="badge ${badgeColor}" title="Unidades vendidas: ${item.unidades_vendidas || 0}">${clase}</span> <strong>${codigo}</strong></td>
+                        <td class="small">${desc}</td>
+                        <td class="text-center">${stock}</td>
+                        <td class="text-center">${item.stock_externo || 0}</td>
+                        <td class="text-center">${minimo}</td>
+                        <td class="text-center font-weight-bold">${diferencia}</td>
+                        <td class="text-center"><span class="badge bg-${semaforo === 'ROJO' ? 'danger' : (semaforo === 'AMARILLO' ? 'warning text-dark' : 'success')}">${semaforo}</span></td>
+                        <td class="text-center">${item.tipo_buen || 'LIMPIO'}</td>
+                    </tr>
+                `;
+            } catch (rowError) {
+                console.error("Error renderizando fila individual de producto:", rowError, item);
+                // Si una fila falla, el bucle continúa con el siguiente producto sin romper la tabla
+            }
+        });
+
+        if (totalCoincidencias > productosFiltrados.length) {
+            htmlFilas += `<tr><td colspan="8" class="text-center text-info small bg-dark py-2 border-0" style="color: #6c757d !important; background-color: #2b3035 !important;">Mostrando los ${productosFiltrados.length} ítems más críticos de ${totalCoincidencias} encontrados. Usa el buscador para encontrar referencias específicas.</td></tr>`;
+        }
+
+        contenedor.innerHTML = htmlFilas;
+    }
+
+    function setFiltroTipo(tipo, btn) {
+        filtroTipoActual = tipo;
+        document.querySelectorAll('.btn-filtro-tipo').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        aplicarFiltrosCruzados();
+    }
+
+    function setFiltroClase(clase, btn) {
+        filtroClaseActual = clase;
+        document.querySelectorAll('.btn-filtro-clase').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        aplicarFiltrosCruzados();
+    }
+
+    function aplicarFiltrosCruzados() {
+        let filtrados = window.ModuloRotacionState.cache || [];
+
+        // 1. Filtrar por Tipo de Buje (LIMPIO / ARMADO)
+        if (filtroTipoActual && filtroTipoActual !== 'TODOS') {
+            filtrados = filtrados.filter(p => String(p.tipo_buen || '').toUpperCase() === String(filtroTipoActual).toUpperCase());
+        }
+
+        // 2. Filtrar por Clasificación Pareto (A / B / C) - CORRECCIÓN CRÍTICA
+        if (filtroClaseActual && filtroClaseActual !== 'TODOS') {
+            filtrados = filtrados.filter(p => String(p.clase || '').toUpperCase().trim() === String(filtroClaseActual).toUpperCase().trim());
+        }
+
+        // 3. Filtrar por el buscador de texto si hay algo escrito
+        const textoBuscador = document.getElementById('rot-search-global')?.value.toUpperCase().trim() || "";
+        if (textoBuscador) {
+            filtrados = filtrados.filter(p => 
+                String(p.codigo || '').toUpperCase().includes(textoBuscador) || 
+                String(p.descripcion || '').toUpperCase().includes(textoBuscador)
+            );
+        }
+
+        const limiteCriticos = filtrados.slice(0, 100);
+        dibujarTablaPrioridades(limiteCriticos, filtrados.length);
     }
 
     function filtrarGlobal() {
-        const term = document.getElementById('rot-search-global').value.toUpperCase();
-        // Detectar tabla activa
-        const isClaseA = document.getElementById('tab-clase-a').classList.contains('active');
-
-        const filtered = datosOriginales.filter(d => {
-            const matchesTab = isClaseA ? d.clase === 'A' : d.clase !== 'A';
-            const matchesTerm = (String(d.codigo).includes(term) || String(d.descripcion).toUpperCase().includes(term));
-            return matchesTab && matchesTerm;
-        });
-
-        const targetTbody = isClaseA ? document.getElementById('rot-table-a') : document.getElementById('rot-table-bc');
-        if (targetTbody) {
-            targetTbody.innerHTML = filtered.length > 0 ? filtered.map(item => createRow(item, isClaseA)).join('') :
-                `<tr><td colspan="8" class="text-center py-5 text-muted">No hay resultados para "${term}"</td></tr>`;
-        }
+        aplicarFiltrosCruzados();
     }
 
     function prepararCompra(codigo) {
@@ -199,6 +228,8 @@ window.ModuloRotacion = (function () {
         inicializar,
         cargarPrioridades,
         filtrarGlobal,
-        prepararCompra
+        prepararCompra,
+        setFiltroTipo,
+        setFiltroClase
     };
 })();

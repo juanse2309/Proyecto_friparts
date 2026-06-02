@@ -500,9 +500,13 @@ const ModuloProcura = {
                            onchange="ModuloProcura.updateItem(${index}, 'fecha_llegada', this.value)">
                 </td>
                 <td>
-                    <input type="number" class="form-control form-control-sm shadow-sm text-center fw-bold text-success border-success" style="border-radius: 4px; font-size:1.05rem;"
-                           value="${item.cantidad_recibida || 0}" 
-                           onchange="ModuloProcura.updateItem(${index}, 'cantidad_recibida', this.value)">
+                    <input type="number" 
+                           class="form-control form-control-sm text-center" 
+                           style="max-width: 120px; font-weight: bold; border-radius: 4px;"
+                           min="0"
+                           placeholder="0"
+                           value="${item.cantidad_recibida_hoy || 0}"
+                           oninput="if(this.value < 0) this.value = 0; ModuloProcura.itemsOC[${index}].cantidad_recibida_hoy = parseFloat(this.value) || 0;">
                 </td>
                 <td class="text-center align-middle bg-light" style="font-size:1.05rem;">
                     <span id="dif-text-${index}" class="${diffClass}">${diferencia}</span>
@@ -719,7 +723,77 @@ const ModuloProcura = {
             if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
         }
     },
+    guardarIngreso: async function (id_orden, btn) {
+        if (!this.itemsOC || this.itemsOC.length === 0) {
+            Swal.fire('Advertencia', 'No hay ítems cargados para recibir.', 'warning');
+            return;
+        }
 
+        // Comprobación si todo está en cero
+        const hasQuantities = this.itemsOC.some(item => parseFloat(item.cantidad_recibida_hoy || 0) > 0);
+        if (!hasQuantities) {
+            Swal.fire({
+                title: 'Atención',
+                text: 'No has ingresado cantidades físicas para recibir en esta orden.',
+                icon: 'warning',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+
+        const payload = this.itemsOC.map(item => ({
+            id_orden: id_orden || item.id_orden || item.n_oc, //Fallback seguro
+            codigo_producto: item.producto,
+            cantidad_solicitada: item.cantidad,
+            cantidad_recibida_hoy: parseFloat(item.cantidad_recibida_hoy || 0)
+        })).filter(i => i.cantidad_recibida_hoy > 0);
+
+        if (payload.length === 0) {
+            Swal.fire('Atención', 'Debes ingresar al menos una cantidad a recibir mayor a cero.', 'info');
+            return;
+        }
+
+        try {
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, true);
+            mostrarLoading(true);
+
+            const response = await fetch('/api/procura/recibir_ingreso', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const resultado = await response.json();
+
+            if (response.ok && resultado.status === 'success') {
+                Swal.fire({
+                    title: '¡Ingreso Guardado!',
+                    text: resultado.message,
+                    icon: 'success',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+
+                // Limpiar caché y refrescar UI
+                if (window.ModuloRotacionState) {
+                    window.ModuloRotacionState.cache = null;
+                    window.ModuloRotacionState.cargado = false;
+                }
+                
+                this.itemsOC = [];
+                this.renderTablaOC();
+                
+            } else {
+                Swal.fire('Error', resultado.message || 'Error procesando el ingreso', 'error');
+            }
+        } catch (e) {
+            console.error('Error procesando ingreso:', e);
+            Swal.fire('Error', 'Fallo de conexión al guardar el ingreso.', 'error');
+        } finally {
+            mostrarLoading(false);
+            if (window.TouchFeedback && btn) TouchFeedback.setButtonLoading(btn, false);
+        }
+    }
 };
 
 window.ModuloProcura = ModuloProcura;

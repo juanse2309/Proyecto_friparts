@@ -557,6 +557,84 @@ const ModuloPedidos = {
         }
 
         window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        // 7. Cargar y renderizar historial de despachos
+        this.cargarHistorialDespachos(pedido.id_pedido);
+    },
+
+    cargarHistorialDespachos: async function (idPedido) {
+        try {
+            const response = await fetch(`/api/pedidos/${idPedido}/despachos`);
+            const data = await response.json();
+            
+            // Buscar contenedor de la tabla de items o el formulario para inyectar después de él
+            let contenedorPadre = document.getElementById('historial-despachos-container');
+            
+            // Si no existe, crearlo dinámicamente y colocarlo al final del formulario
+            if (!contenedorPadre) {
+                const formPedidos = document.getElementById('form-pedidos');
+                if (formPedidos) {
+                    contenedorPadre = document.createElement('div');
+                    contenedorPadre.id = 'historial-despachos-container';
+                    contenedorPadre.className = 'mt-4 w-100';
+                    formPedidos.appendChild(contenedorPadre);
+                } else {
+                    return; // No se encontró dónde inyectar
+                }
+            }
+
+            if (!data.success || !data.despachos || data.despachos.length === 0) {
+                contenedorPadre.innerHTML = `
+                    <div class="card bg-light mt-3 border-0 shadow-sm" id="seccion-historial-despachos">
+                        <div class="card-body text-center text-muted">
+                            <i class="fas fa-box-open fa-2x mb-2 text-secondary"></i>
+                            <h6 class="mb-0">📦 Aún no se registran despachos físicos para este pedido.</h6>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const filasTabla = data.despachos.map(d => `
+                <tr>
+                    <td><span class="badge bg-secondary">${d.fecha}</span></td>
+                    <td class="fw-bold">${d.id_codigo}</td>
+                    <td class="text-end fw-bold text-success">+${d.cantidad_enviada}</td>
+                    <td>${d.transportadora || 'N/A'} ${d.guia ? `<br><small class="text-muted">Guía: ${d.guia}</small>` : ''}</td>
+                    <td>${d.responsable || 'Sistema'}</td>
+                </tr>
+            `).join('');
+
+            contenedorPadre.innerHTML = `
+                <div class="card mt-4 border-0 shadow-sm" id="seccion-historial-despachos">
+                    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="fas fa-truck-loading me-2"></i>Historial de Despachos</h6>
+                        <span class="badge bg-primary rounded-pill">${data.despachos.length} envíos</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Código Producto</th>
+                                        <th class="text-end">Cantidad</th>
+                                        <th>Transportadora</th>
+                                        <th>Responsable</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${filasTabla}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error("Error cargando historial de despachos:", error);
+            // El catch previene que falle el flujo de renderizado principal del pedido
+        }
     },
 
     cancelarEdicion: function () {
@@ -1640,7 +1718,8 @@ const ModuloPedidos = {
             });
     },
 
-    // --- HISTORIAL METALES (Juan Sebastian) ---
+    // Estado de la pestaña actual para metales
+    metalsTabActiva: 'proceso',
 
     cargarHistorialMetals: async function () {
         const container = document.getElementById('metals-historial-container');
@@ -1660,7 +1739,8 @@ const ModuloPedidos = {
             const data = await res.json();
 
             if (data.success) {
-                this.renderizarPedidosMetals(data.pedidos || []);
+                this.pedidosMetalsCache = data.pedidos || [];
+                this.renderizarPedidosMetals(this.pedidosMetalsCache);
             } else {
                 throw new Error(data.error || 'Error desconocido');
             }
@@ -1671,6 +1751,13 @@ const ModuloPedidos = {
         }
     },
 
+    setMetalsTab: function(tabName) {
+        this.metalsTabActiva = tabName;
+        if (this.pedidosMetalsCache) {
+            this.renderizarPedidosMetals(this.pedidosMetalsCache);
+        }
+    },
+
     renderizarPedidosMetals: function (pedidos) {
         console.log('📦 Pedidos recibidos:', pedidos);
         const container = document.getElementById('metals-historial-container');
@@ -1678,66 +1765,150 @@ const ModuloPedidos = {
 
         container.innerHTML = ''; 
 
-        if (!pedidos || pedidos.length === 0) {
-            container.innerHTML = `
+        // 1. Renderizar Nav-Pills
+        const navHtml = `
+            <div class="d-flex justify-content-center w-100 mb-4" style="grid-column: 1 / -1;">
+                <ul class="nav nav-pills p-1 bg-light rounded-pill shadow-sm" style="border: 1px solid #e2e8f0; display: inline-flex;">
+                    <li class="nav-item">
+                        <button class="nav-link rounded-pill fw-bold px-4 py-2 ${this.metalsTabActiva === 'proceso' ? 'active shadow' : 'text-muted'}" 
+                                onclick="ModuloPedidos.setMetalsTab('proceso')"
+                                style="transition: all 0.3s; ${this.metalsTabActiva === 'proceso' ? 'background: #4f46e5; color: white;' : ''}">
+                            <i class="fas fa-box me-2"></i>Pedidos en Proceso
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link rounded-pill fw-bold px-4 py-2 ${this.metalsTabActiva === 'historial' ? 'active shadow' : 'text-muted'}" 
+                                onclick="ModuloPedidos.setMetalsTab('historial')"
+                                style="transition: all 0.3s; ${this.metalsTabActiva === 'historial' ? 'background: #10b981; color: white;' : ''}">
+                            <i class="fas fa-truck me-2"></i>Pedidos Enviados / Historial
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        `;
+
+        let html = navHtml;
+
+        // 2. Filtrar pedidos según pestaña
+        const estadosHistorial = ['DESPACHADO', 'DESPACHADO PARCIAL', 'ENTREGADO'];
+        let pedidosFiltrados = [];
+        
+        if (this.metalsTabActiva === 'historial') {
+            pedidosFiltrados = pedidos.filter(p => estadosHistorial.includes(p.estado?.toUpperCase()));
+        } else {
+            // Proceso (PENDIENTE, PRODUCCION, FINALIZADO, etc.)
+            pedidosFiltrados = pedidos.filter(p => !estadosHistorial.includes(p.estado?.toUpperCase()));
+        }
+
+        if (!pedidosFiltrados || pedidosFiltrados.length === 0) {
+            html += `
                 <div class="text-center py-5 text-muted w-100" style="grid-column: 1 / -1;">
-                    <i class="fas fa-folder-open fa-3x mb-3 opacity-20"></i>
-                    <p class="fs-5">No se encontraron pedidos de metalmecánica</p>
+                    <i class="fas ${this.metalsTabActiva === 'historial' ? 'fa-truck-loading' : 'fa-folder-open'} fa-3x mb-3 opacity-20"></i>
+                    <p class="fs-5">No se encontraron pedidos en esta categoría</p>
                 </div>
             `;
+            container.innerHTML = html;
             return;
         }
 
-        let html = '';
-        pedidos.forEach(ped => {
-            const totalFormatted = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(ped.total || 0);
-            const progresoNum = parseInt(String(ped.progreso || 0).replace('%', '')) || 0;
-            
-            let barColor = 'bg-danger';
-            if (progresoNum >= 70) barColor = 'bg-success';
-            else if (progresoNum >= 30) barColor = 'bg-warning';
+        // 3. Renderizar Tarjetas
+        if (this.metalsTabActiva === 'historial') {
+            // Tarjetas simplificadas para historial
+            pedidosFiltrados.forEach(ped => {
+                const totalFormatted = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(ped.total || 0);
+                const fechaEnvio = ped.fecha_despacho || ped.fecha || 'N/A';
+                
+                let desgloseItems = '';
+                if (ped.productos && ped.productos.length > 0) {
+                    desgloseItems = ped.productos.slice(0, 3).map(p => `<span class="badge bg-light text-dark border me-1 mb-1">${p.cantidad}x ${p.codigo || p.id_codigo || p.descripcion}</span>`).join('');
+                    if (ped.productos.length > 3) desgloseItems += `<span class="badge bg-secondary mb-1">+${ped.productos.length - 3} más</span>`;
+                }
 
-            html += `
-                <div class="pedido-card-metals p-3 bg-white rounded-4 shadow-sm border-start border-4 ${ped.estado === 'PENDIENTE' ? 'border-warning' : 'border-success'}" 
-                     style="transition: all 0.3s ease;">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="mb-0 fw-bold text-primary" style="font-size: 1.1rem;">${ped.id_pedido}</h5>
-                            <small class="text-muted"><i class="fas fa-calendar-alt me-1"></i> ${ped.fecha}</small>
+                html += `
+                    <div class="pedido-card-metals p-3 bg-white rounded-4 shadow-sm border-start border-4 border-success" 
+                         style="transition: all 0.3s ease; display: flex; flex-direction: column;">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <h5 class="mb-0 fw-bold text-success" style="font-size: 1.1rem;">${ped.id_pedido}</h5>
+                                <small class="text-muted"><i class="fas fa-truck-loading me-1"></i> Enviado: ${fechaEnvio}</small>
+                            </div>
+                            <span class="badge bg-success text-uppercase shadow-sm" style="font-size: 0.65rem; padding: 5px 10px; border-radius: 20px;"><i class="fas fa-check-circle me-1"></i>${ped.estado}</span>
                         </div>
-                        <span class="badge ${ped.estado === 'PENDIENTE' ? 'bg-warning text-dark' : 'bg-success'} text-uppercase shadow-sm" style="font-size: 0.65rem; padding: 5px 10px; border-radius: 20px;">${ped.estado}</span>
-                    </div>
-                    
-                    <div class="mb-3" onclick="ModuloPedidos.verDetalleMetals('${ped.id_pedido}', ${JSON.stringify(ped.productos).replace(/"/g, '&quot;')})" style="cursor: pointer;">
-                        <div class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.5px;">Cliente</div>
-                        <div class="text-truncate fw-bold" style="color: #1e293b; font-size: 1rem;" title="${ped.cliente}">${ped.cliente}</div>
-                    </div>
+                        
+                        <div class="mb-3 mt-2 flex-grow-1" onclick="ModuloPedidos.verDetalleMetals('${ped.id_pedido}', ${JSON.stringify(ped.productos).replace(/"/g, '&quot;')})" style="cursor: pointer;">
+                            <div class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.5px;">Cliente Destino</div>
+                            <div class="text-truncate fw-bold" style="color: #1e293b; font-size: 0.95rem;" title="${ped.cliente}">${ped.cliente}</div>
+                        </div>
 
-                    <!-- Barra de Progreso -->
-                    <div class="progress-section mb-4">
-                        <div class="d-flex justify-content-between mb-2 align-items-center">
-                            <span class="fw-bold text-muted" style="font-size: 0.7rem;">PROGRESO DE PRODUCCIÓN</span>
-                            <span class="badge bg-light text-dark border fw-bold" style="font-size: 0.8rem;">${progresoNum}%</span>
+                        <div class="mb-3 bg-light p-2 rounded-3 border" style="font-size: 0.8rem;">
+                            <div class="text-muted mb-1" style="font-size: 0.65rem; font-weight: 600;">RESUMEN DE PRODUCTOS</div>
+                            <div>${desgloseItems || '<span class="text-muted">Sin detalle de items</span>'}</div>
                         </div>
-                        <div class="progress shadow-sm" style="height: 12px; background-color: #f1f5f9; border-radius: 10px; overflow: hidden;">
-                            <div class="progress-bar ${barColor} progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progresoNum}%; border-radius: 10px;"></div>
-                        </div>
-                    </div>
 
-                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
-                        <div class="d-flex flex-column">
-                            <span class="text-muted small" style="font-size: 0.65rem; font-weight: 600;">TOTAL</span>
-                            <span class="fw-bold text-dark" style="font-size: 1.1rem;">${totalFormatted}</span>
-                        </div>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" style="font-size: 0.75rem;" onclick="ModuloPedidos.abrirGestionProgreso('${ped.id_pedido}', ${progresoNum})">
-                                <i class="fas fa-tasks me-1"></i> GESTIONAR
+                        <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                            <div class="d-flex flex-column">
+                                <span class="text-muted small" style="font-size: 0.65rem; font-weight: 600;">VALOR ENVIADO</span>
+                                <span class="fw-bold text-dark" style="font-size: 1rem;">${totalFormatted}</span>
+                            </div>
+                            <button class="btn btn-sm btn-outline-success rounded-pill px-3 fw-bold" style="font-size: 0.75rem;" onclick="ModuloPedidos.verDetalleMetals('${ped.id_pedido}', ${JSON.stringify(ped.productos).replace(/"/g, '&quot;')})">
+                                <i class="fas fa-eye me-1"></i> AUDITAR
                             </button>
                         </div>
                     </div>
-                </div>
-            `;
-        });
+                `;
+            });
+        } else {
+            // Tarjetas normales (En Proceso)
+            pedidosFiltrados.forEach(ped => {
+                const totalFormatted = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(ped.total || 0);
+                const progresoNum = parseInt(String(ped.progreso || 0).replace('%', '')) || 0;
+                
+                let barColor = 'bg-danger';
+                if (progresoNum >= 70) barColor = 'bg-success';
+                else if (progresoNum >= 30) barColor = 'bg-warning';
+
+                html += `
+                    <div class="pedido-card-metals p-3 bg-white rounded-4 shadow-sm border-start border-4 ${ped.estado === 'PENDIENTE' ? 'border-warning' : 'border-primary'}" 
+                         style="transition: all 0.3s ease;">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h5 class="mb-0 fw-bold text-primary" style="font-size: 1.1rem;">${ped.id_pedido}</h5>
+                                <small class="text-muted"><i class="fas fa-calendar-alt me-1"></i> ${ped.fecha}</small>
+                            </div>
+                            <span class="badge ${ped.estado === 'PENDIENTE' ? 'bg-warning text-dark' : 'bg-primary'} text-uppercase shadow-sm" style="font-size: 0.65rem; padding: 5px 10px; border-radius: 20px;">${ped.estado}</span>
+                        </div>
+                        
+                        <div class="mb-3" onclick="ModuloPedidos.verDetalleMetals('${ped.id_pedido}', ${JSON.stringify(ped.productos).replace(/"/g, '&quot;')})" style="cursor: pointer;">
+                            <div class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.5px;">Cliente</div>
+                            <div class="text-truncate fw-bold" style="color: #1e293b; font-size: 1rem;" title="${ped.cliente}">${ped.cliente}</div>
+                        </div>
+
+                        <!-- Barra de Progreso -->
+                        <div class="progress-section mb-4">
+                            <div class="d-flex justify-content-between mb-2 align-items-center">
+                                <span class="fw-bold text-muted" style="font-size: 0.7rem;">PROGRESO DE PRODUCCIÓN</span>
+                                <span class="badge bg-light text-dark border fw-bold" style="font-size: 0.8rem;">${progresoNum}%</span>
+                            </div>
+                            <div class="progress shadow-sm" style="height: 12px; background-color: #f1f5f9; border-radius: 10px; overflow: hidden;">
+                                <div class="progress-bar ${barColor} progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progresoNum}%; border-radius: 10px;"></div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                            <div class="d-flex flex-column">
+                                <span class="text-muted small" style="font-size: 0.65rem; font-weight: 600;">TOTAL</span>
+                                <span class="fw-bold text-dark" style="font-size: 1.1rem;">${totalFormatted}</span>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" style="font-size: 0.75rem;" onclick="ModuloPedidos.abrirGestionProgreso('${ped.id_pedido}', ${progresoNum})">
+                                    <i class="fas fa-tasks me-1"></i> GESTIONAR
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
 
         container.innerHTML = html;
     },
@@ -1840,3 +2011,170 @@ if (!window.initPedidos) {
     window.initPedidos = () => ModuloPedidos.inicializar();
 }
 
+// Hook para compatibilidad (ya cubierto por inicializar pero por seguridad)
+if (!window.initPedidos) {
+    window.initPedidos = () => ModuloPedidos.inicializar();
+}
+
+// --- INYECCIÓN IMPERATIVA: BOTÓN DE HISTORIAL DE ENVIADOS (GESTIÓN DE PEDIDOS) ---
+(function() {
+    // 1. ESTADO DE VISTA: Inicializar la propiedad global en el módulo de Pedidos
+    ModuloPedidos.vistaActual = "activos";
+
+    const inyectarBotonHistorial = () => {
+        // Localizamos la cabecera de la vista Gestión de Pedidos (almacen-page)
+        const topControls = document.querySelector('#almacen-page .top-controls');
+        if (!topControls) return;
+
+        // 2. BLOQUEO DE AUTO-REFRESH / AUTO-UPDATE:
+        // Interceptamos la función cargarPedidos de AlmacenModule
+        if (window.AlmacenModule && typeof window.AlmacenModule.cargarPedidos === 'function' && !window.AlmacenModule._cargarPedidosParcheado) {
+            const originalCargarPedidos = window.AlmacenModule.cargarPedidos;
+            window.AlmacenModule.cargarPedidos = async function(showLoading = true) {
+                if (ModuloPedidos.vistaActual === 'historial') { 
+                    console.log("⏳ [Auto-Update] Congelado porque el usuario está auditando el historial.");
+                    return; 
+                }
+                return originalCargarPedidos.call(this, showLoading);
+            };
+            window.AlmacenModule._cargarPedidosParcheado = true;
+        }
+
+        const btnActualizar = document.getElementById('btn-refrescar-almacen');
+        if (btnActualizar && !document.getElementById('btn-historial-enviados')) {
+            // Crear el botón nuevo
+            const btnHistorial = document.createElement('button');
+            btnHistorial.id = 'btn-historial-enviados';
+            btnHistorial.className = 'btn btn-outline-success me-2';
+            btnHistorial.innerHTML = '<i class="fas fa-history me-1"></i> Ver Historial Enviados';
+
+            // 3. CONTROL DEL BOTÓN "Ver Historial Enviados":
+            btnHistorial.addEventListener('click', () => {
+                const container = document.getElementById('almacen-container');
+
+                if (ModuloPedidos.vistaActual === 'activos') {
+                    // Pasar a Historial
+                    ModuloPedidos.vistaActual = "historial";
+                    btnHistorial.className = 'btn btn-outline-primary me-2';
+                    btnHistorial.innerHTML = '<i class="fas fa-box-open me-1"></i> Ver Pedidos Activos';
+                    
+                    if (container) {
+                        // 4. EVITAR ERROR 500 (Filtrar desde la caché local con espectro ancho):
+                        const pedidosCargados = (window.AlmacenModule && window.AlmacenModule.pedidosPendientes) || ModuloPedidos.pedidosMetalsCache || [];
+
+                        const enviados = pedidosCargados.filter(p => {
+                            const estadoNormalizado = (p.estado || '').toUpperCase();
+                            const estadoInternoNormalizado = (p.estado_interno || '').toUpperCase();
+                            const progreso = String(p.progreso_despacho || '').trim();
+
+                            return estadoNormalizado === 'DESPACHADO' || 
+                                   estadoNormalizado === 'ENTREGADO' || 
+                                   estadoInternoNormalizado === 'DESPACHADO_BODEGA' || 
+                                   estadoInternoNormalizado === 'DESPACHADO' || 
+                                   progreso === '100%' || 
+                                   progreso === '100';
+                        });
+                        
+                        if (enviados.length === 0) {
+                            container.innerHTML = `
+                                <div class="text-center py-5 text-muted empty-state-almacen">
+                                    <i class="fas fa-truck-loading fa-3x mb-3" style="opacity: 0.2; color: #10b981;"></i>
+                                    <p class="fs-5">Aún no hay despachos registrados</p>
+                                </div>
+                            `;
+                            return;
+                        }
+
+                        // Renderizar Tabla Moderna
+                        let tablaHtml = `
+                            <div class="table-responsive bg-white rounded-4 shadow-sm border p-3 mt-3">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr style="background-color: #212529 !important;">
+                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;">Pedido</th>
+                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;">Cliente</th>
+                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;"><i class="fas fa-calendar-alt me-1"></i> F. Ingreso</th>
+                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;"><i class="fas fa-shipping-fast me-1"></i> F. Despacho</th>
+                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;" class="text-center"><i class="fas fa-hourglass-half me-1"></i> Días en Proceso</th>
+                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                        `;
+
+                        enviados.forEach(p => {
+                            // Cálculo del Lead Time (Días en Proceso)
+                            const fIngresoDate = new Date(p.fecha_creacion || p.fecha || new Date());
+                            const fDespachoDate = new Date(p.fecha_despacho || p.fecha_modificacion || new Date());
+                            const diferenciaTiempo = Math.abs(fDespachoDate - fIngresoDate);
+                            const diasProceso = Math.ceil(diferenciaTiempo / (1000 * 60 * 60 * 24)) - 1;
+                            const diasTexto = diasProceso <= 0 ? "Mismo día" : `${diasProceso} ${diasProceso === 1 ? 'día' : 'días'}`;
+                            
+                            // Determinación de colores del badge según demora
+                            let badgeClass = 'bg-light text-success border border-success border-opacity-25';
+                            if (diasProceso >= 5) {
+                                badgeClass = 'bg-warning text-dark border border-warning';
+                            } else if (diasProceso >= 3) {
+                                badgeClass = 'bg-light text-secondary border border-secondary';
+                            }
+
+                            // Formateo seguro de fechas para mostrar (evitando NaN si la fecha es inválida)
+                            const formatFecha = (d) => !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : 'N/A';
+                            const fechaIngresoStr = formatFecha(fIngresoDate);
+                            const fechaDespachoStr = p.fecha_despacho || p.fecha_modificacion ? formatFecha(fDespachoDate) : formatFecha(fIngresoDate);
+
+                            tablaHtml += `
+                                <tr>
+                                    <td class="fw-bold text-primary">${p.id_pedido}</td>
+                                    <td>
+                                        <div class="fw-bold" style="color: #1e293b;">${p.cliente}</div>
+                                    </td>
+                                    <td class="text-muted"><i class="far fa-calendar-plus me-1"></i>${fechaIngresoStr}</td>
+                                    <td class="text-muted"><i class="fas fa-truck-loading me-1"></i>${fechaDespachoStr}</td>
+                                    <td class="text-center">
+                                        <span class="badge ${badgeClass} shadow-sm" style="padding: 6px 10px; border-radius: 20px;">
+                                            <i class="far fa-clock me-1"></i>${diasTexto}
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold" onclick="ModuloPedidos.verDetalleMetals('${p.id_pedido}', ${JSON.stringify(p.productos || []).replace(/"/g, '&quot;')})">
+                                            <i class="fas fa-search me-1"></i> Auditar
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+
+                        tablaHtml += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+                        container.innerHTML = tablaHtml;
+                    }
+                } else {
+                    // Pasar a Activos
+                    ModuloPedidos.vistaActual = "activos";
+                    btnHistorial.className = 'btn btn-outline-success me-2';
+                    btnHistorial.innerHTML = '<i class="fas fa-history me-1"></i> Ver Historial Enviados';
+                    
+                    if (window.AlmacenModule && typeof window.AlmacenModule.cargarPedidos === 'function') {
+                        if (container) container.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-spinner fa-spin fa-3x mb-3"></i><p>Restaurando tarjetas de pedidos activos...</p></div>';
+                        window.AlmacenModule.cargarPedidos();
+                    }
+                }
+            });
+
+            // Inyectar justo a la izquierda del botón 'Actualizar'
+            topControls.insertBefore(btnHistorial, btnActualizar);
+            console.log("✅ Botón de Historial de Enviados inyectado correctamente en Gestión de Pedidos.");
+        }
+    };
+
+    // Asegurar inyección sin importar cuándo cargue este script
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(inyectarBotonHistorial, 100));
+    } else {
+        setTimeout(inyectarBotonHistorial, 500);
+    }
+})();

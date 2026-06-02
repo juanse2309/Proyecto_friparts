@@ -360,6 +360,7 @@ def obtener_pedidos_pendientes():
     """
     try:
         from backend.core.repository_service import repository_service
+        from backend.models.sql_models import Usuario
 
         # 1. Obtener datos desde SQL (JOIN incluido)
         pedidos = repository_service.get_pedidos_pendientes_sql()
@@ -368,15 +369,30 @@ def obtener_pedidos_pendientes():
         tenant = get_tenant_from_request()
 
         # 3. Filtrar por usuario y rol (Lógica RBAC Estricta)
-        # Compatibilidad: Chequear 'rol' (legacy) y 'role' (estándar)
-        user_session = str(session.get('user', '')).strip().upper()
-        rol_session = str(session.get('rol') or session.get('role', '')).lower()
+        # Compatibilidad: Chequear sesión Flask y fallback a query params para robustez en producción
+        user_raw = session.get('user') or request.args.get('usuario', '')
+        rol_session = str(session.get('rol') or session.get('role') or request.args.get('rol', '')).lower().strip()
         
-        # Roles con visibilidad global (Inclusión ampliada para Almacén y Planta)
+        nombre_completo_user = ""
+        username_user = ""
+        
+        if user_raw:
+            user_raw_str = str(user_raw).strip()
+            # Buscar usuario en BD para normalizar su correspondencia entre username y nombre completo
+            usuario_db = Usuario.query.filter(
+                (Usuario.username.ilike(user_raw_str)) |
+                (Usuario.nombre_completo.ilike(user_raw_str))
+            ).first()
+            if usuario_db:
+                nombre_completo_user = str(usuario_db.nombre_completo or '').strip().upper()
+                username_user = str(usuario_db.username or '').strip().upper()
+            else:
+                username_user = user_raw_str.upper()
+
+        # Roles con visibilidad global (Excluyendo 'alistador', 'alistamiento' y 'auxiliar almacen' que son operarias de planta)
         es_admin = any(x in rol_session for x in [
             "admin", "administracion", "administrador", "gerencia", 
-            "jefe almacen", "jefe alistamiento", "jefe de planta", "auxiliar almacen", 
-            "alistador", "alistamiento", "comercial", "metals_staff", "metals_admin"
+            "jefe almacen", "jefe alistamiento", "jefe de planta", "comercial", "metals_staff", "metals_admin"
         ])
 
         filtrados = []
@@ -385,11 +401,12 @@ def obtener_pedidos_pendientes():
                 filtrados.append(p)
             else:
                 # Si no es admin y es Friparts, solo ve lo que tiene asignado
-                if str(p.get("delegado_a", "")).strip().upper() == user_session:
+                delegado = str(p.get("delegado_a", "")).strip().upper()
+                if delegado and (delegado == username_user or (nombre_completo_user and delegado == nombre_completo_user)):
                     filtrados.append(p)
 
         # 4. DEBUG EN TERMINAL (Solicitado por el usuario)
-        print(f"DEBUG ALMACEN: Rol detectado: {rol_session}, Pedidos totales SQL: {len(pedidos)}, Pedidos filtrados: {len(filtrados)}")
+        print(f"DEBUG ALMACEN: Rol detectado: {rol_session}, Usuario normalizado: {username_user} ({nombre_completo_user}), Pedidos totales SQL: {len(pedidos)}, Pedidos filtrados: {len(filtrados)}")
 
         return jsonify({
             "success": True, 
@@ -794,4 +811,105 @@ def actualizar_progreso_pedido():
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error actualizando progreso: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pedidos_bp.route('/api/pedidos/despacho', methods=['POST'])
+def registrar_despacho():
+    """Registra un envío/despacho parcial o total de un pedido."""
+    from backend.models.sql_models import db, Pedido, DespachoPedido
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"success": False, "error": "No se recibieron datos"}), 400
+
+        id_pedido = data.get('id_pedido')
+        responsable = data.get('responsable')
+        transportadora = data.get('transportadora')
+        guia = data.get('guia')
+        items = data.get('items', [])
+
+        if not id_pedido or not items:
+            return jsonify({"success": False, "error": "ID de pedido e items son requeridos"}), 400
+
+        despachos_creados = 0
+        tz_colombia = pytz.timezone('America/Bogota')
+        fecha_actual = datetime.now(tz_colombia)
+
+        for item in items:
+            codigo = item.get('id_codigo')
+            cant = item.get('cantidad_enviada')
+
+            if not codigo:
+                continue
+
+            try:
+                cant_enviada = int(cant)
+            except (ValueError, TypeError):
+                continue
+
+            if cant_enviada > 0:
+                nuevo_despacho = DespachoPedido(
+                    id_pedido=id_pedido,
+                    id_codigo=codigo,
+                    cantidad_enviada=cant_enviada,
+                    fecha=fecha_actual,
+                    transportadora=transportadora,
+                    guia=guia,
+                    responsable=responsable
+                )
+                db.session.add(nuevo_despacho)
+                despachos_creados += 1
+
+        if despachos_creados == 0:
+            return jsonify({"success": False, "error": "No hay cantidades válidas para despachar"}), 400
+
+        # Opcional: Actualizar el progreso/estado del Pedido
+        pedidos_filas = Pedido.query.filter_by(id_pedido=id_pedido).all()
+        if pedidos_filas:
+            for fila in pedidos_filas:
+                if fila.estado not in ('DESPACHADO', 'ENTREGADO'):
+                    fila.estado = 'DESPACHADO PARCIAL'
+        
+        db.session.commit()
+        logger.info(f"🚚 [DESPACHO] Se registraron {despachos_creados} items despachados para el pedido {id_pedido}")
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Se registraron {despachos_creados} despachos exitosamente",
+            "id_pedido": id_pedido
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error registrando despacho: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@pedidos_bp.route('/api/pedidos/<id_pedido>/despachos', methods=['GET'])
+def obtener_despachos_pedido(id_pedido):
+    """Consulta el historial de despachos de un pedido específico."""
+    from backend.models.sql_models import DespachoPedido
+    try:
+        despachos = DespachoPedido.query.filter_by(id_pedido=id_pedido).order_by(DespachoPedido.fecha.desc()).all()
+        
+        resultado = []
+        for d in despachos:
+            resultado.append({
+                "id_despacho": d.id_despacho,
+                "id_pedido": d.id_pedido,
+                "id_codigo": d.id_codigo,
+                "cantidad_enviada": d.cantidad_enviada,
+                "fecha": d.fecha.strftime('%Y-%m-%d %H:%M') if d.fecha else '',
+                "transportadora": d.transportadora or '',
+                "guia": d.guia or '',
+                "responsable": d.responsable or ''
+            })
+
+        return jsonify({
+            "success": True,
+            "despachos": resultado
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo despachos del pedido {id_pedido}: {e}")
         return jsonify({"success": False, "error": str(e)}), 500

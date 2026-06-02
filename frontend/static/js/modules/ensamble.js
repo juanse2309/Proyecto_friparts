@@ -8,7 +8,7 @@ const ModuloEnsamble = {
     responsablesData: [],
     currentTab: 'programacion', 
     isManualMode: false,
-    pncDetalles: '',
+    pncDetalles: [],
     
     // Estado de Sesión Persistente
     sessionId: null,
@@ -640,7 +640,7 @@ const ModuloEnsamble = {
             const bomContainer = document.getElementById('reporte-bom-check-container');
             if (bomContainer) bomContainer.innerHTML = '<div class="col-12 text-center text-muted py-2">Selecciona un producto.</div>';
             
-            this.pncDetalles = '';
+            this.pncDetalles = [];
             this.bloquearFormulario(false);
             this.actualizarUIBotones();
             
@@ -656,14 +656,123 @@ const ModuloEnsamble = {
     },
 
     abrirModalPNC: async function() {
-        // 1. Cargar criterios dinámicos desde la base de datos
-        await this.cargarCriteriosPNC();
+        // 1. Obtener id_codigo actual
+        const rawIdCodigo = document.getElementById('reporte-producto-manual').value;
+        const idCodigo = rawIdCodigo ? rawIdCodigo.replace(/^FR-/i, '').trim() : null;
+        
+        if (!idCodigo) {
+            mostrarNotificacion('Seleccione un producto primero', 'warning');
+            return;
+        }
 
-        // 2. Abrir el modal global usando el destino ENSAMBLE
-        if (typeof window.abrirModalInyeccion === 'function') {
-            window.abrirModalInyeccion('ENSAMBLE');
-        } else {
-            console.error('Modal de PNC global no encontrado');
+        mostrarLoading(true, "Consultando componentes (BOM)...");
+        const bomData = await fetchData(`/api/ensamble/bom_stock/${idCodigo}`);
+        
+        // 2. Cargar criterios dinámicos
+        let opcionesHTML = '<option value="">Seleccione defecto...</option>';
+        let criteriosProcesados = [];
+        try {
+            const respuestaCriterios = await fetchData('/api/obtener_criterios_pnc/ensamble');
+            // Normalizar la respuesta por si viene como lista de objetos o lista de strings
+            criteriosProcesados = Array.isArray(respuestaCriterios) ? respuestaCriterios : (respuestaCriterios.criterios || []);
+            
+            criteriosProcesados.forEach(crit => {
+                // Si el criterio es un objeto, extraer el nombre o valor; si es un string, usarlo directo
+                let valorCriterio = (typeof crit === 'object' && crit !== null) ? (crit.nombre || crit.criterio || crit.descripcion) : crit;
+                
+                if (valorCriterio) {
+                    // --- FIX DE ENCODING ANTIFANTASMA ---
+                    try {
+                        // Forzar la conversión de caracteres rotos de UTF-8 legacy a texto limpio
+                        valorCriterio = decodeURIComponent(escape(valorCriterio));
+                    } catch (e) {
+                        // Si el string ya venía limpio y falla escape(), usar el valor original sin alterar
+                    }
+
+                    opcionesHTML += `<option value="${valorCriterio}">${valorCriterio}</option>`;
+                }
+            });
+        } catch (e) {
+            console.error('Error cargando criterios:', e);
+        }
+        mostrarLoading(false);
+
+        if (!bomData || !bomData.success || !bomData.componentes || bomData.componentes.length === 0) {
+            mostrarNotificacion('No se encontró BOM para este producto. Agregue manualmente.', 'warning');
+            return;
+        }
+
+        // 3. Inyectar dinámicamente HTML por componente
+        let htmlFilas = '<div class="table-responsive"><table class="table table-sm align-middle text-start"><thead><tr><th>Componente</th><th style="width: 100px;">Cantidad</th><th>Motivo de Rechazo</th></tr></thead><tbody>';
+        
+        bomData.componentes.forEach(c => {
+            htmlFilas += `
+                <tr>
+                    <td class="fw-bold small">${c.componente}<br><span class="text-muted" style="font-size:0.75rem">${c.codigo_inventario}</span></td>
+                    <td>
+                        <input type="number" class="form-control form-control-sm pnc-bom-cantidad" data-codigo="${c.codigo_inventario}" min="0" value="0">
+                    </td>
+                    <td>
+                        <select class="form-select form-select-sm pnc-bom-criterio" data-codigo="${c.codigo_inventario}">
+                            ${opcionesHTML}
+                        </select>
+                    </td>
+                </tr>
+            `;
+        });
+        htmlFilas += '</tbody></table></div>';
+
+        console.log("📋 Criterios procesados para el modal PNC:", criteriosProcesados);
+
+        // Modal Estructurado con SweetAlert
+        const { value: formValues } = await Swal.fire({
+            title: 'Reporte Estructurado de PNC',
+            html: htmlFilas,
+            width: '800px',
+            showCancelButton: true,
+            confirmButtonText: '<i class="fas fa-save"></i> Guardar PNC',
+            cancelButtonText: 'Cancelar',
+            preConfirm: () => {
+                const resultados = [];
+                let totalPnc = 0;
+                
+                bomData.componentes.forEach(c => {
+                    const cantInput = document.querySelector(`.pnc-bom-cantidad[data-codigo="${c.codigo_inventario}"]`);
+                    const critSelect = document.querySelector(`.pnc-bom-criterio[data-codigo="${c.codigo_inventario}"]`);
+                    
+                    const cantidad = parseInt(cantInput.value) || 0;
+                    if (cantidad > 0) {
+                        const criterio = critSelect.value;
+                        if (!criterio) {
+                            Swal.showValidationMessage(`Seleccione un motivo de rechazo para ${c.codigo_inventario}`);
+                            return false;
+                        }
+                        resultados.push({
+                            codigo_componente: c.codigo_inventario,
+                            cantidad: cantidad,
+                            criterio: criterio
+                        });
+                        totalPnc += cantidad;
+                    }
+                });
+                return { resultados, totalPnc };
+            }
+        });
+
+        if (formValues) {
+            // 4. Guardar arreglo de objetos
+            this.pncDetalles = formValues.resultados;
+            
+            // Actualizar el valor total en el input del layout global
+            const inputPnc = document.getElementById('reporte-pnc');
+            if (inputPnc) {
+                inputPnc.value = formValues.totalPnc;
+                inputPnc.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            
+            if (formValues.totalPnc > 0) {
+                mostrarNotificacion(`Se registraron ${formValues.totalPnc} PNC desglosados`, 'success');
+            }
         }
     },
 

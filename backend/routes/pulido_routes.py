@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request, send_file
 from sqlalchemy import text
 from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
-from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto
+from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto
 from backend.utils.formatters import normalizar_codigo
 import uuid
 from datetime import datetime
@@ -774,3 +774,169 @@ def exportar_excel_pulido():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500
+
+@pulido_bp.route('/reporte_masivo', methods=['POST'])
+@pulido_bp.route('/api/pulido/reporte_masivo', methods=['POST'])
+def reporte_masivo():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No data provided"}), 400
+
+        hora_inicio_str = data.get('hora_inicio')
+        hora_fin_str = data.get('hora_fin')
+        responsable = data.get('responsable')
+        items = data.get('items', [])
+
+        if not responsable:
+            return jsonify({"success": False, "error": "Falta el responsable"}), 400
+
+        if not items:
+            return jsonify({"success": False, "error": "No hay items para registrar"}), 400
+
+        colombia_tz = pytz.timezone('America/Bogota')
+        ahora = datetime.now(colombia_tz)
+        fecha_actual = ahora.date()
+
+        for item in items:
+            referencia_raw = item.get('referencia')
+            if not referencia_raw:
+                raise ValueError("Se requiere la referencia en todos los registros del lote")
+
+            referencia = normalizar_codigo(referencia_raw)
+            op = item.get('op') or 'SIN OP'
+            lote = item.get('lote') or 'SIN LOTE'
+            buenos = float(item.get('buenos') or 0)
+            malos = float(item.get('malos') or 0)
+
+            id_pulido = f"PUL-VOZ-{uuid.uuid4().hex[:8].upper()}"
+            registro = ProduccionPulido(
+                id_pulido=id_pulido,
+                fecha=fecha_actual,
+                codigo=referencia,
+                responsable=responsable,
+                cantidad_real=int(buenos),
+                pnc_pulido=int(malos),
+                pnc_inyeccion=0,
+                orden_produccion=op,
+                lote=lote,
+                estado='FINALIZADO',
+                departamento='PULIDO',
+                cantidad_recibida=buenos + malos,
+                almacen_destino='P. TERMINADO',
+                observaciones='Reporte Masivo por Voz Fin de Turno'
+            )
+
+            if hora_inicio_str:
+                try:
+                    h_h, h_m = hora_inicio_str.split(':')
+                    dt_ini = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
+                    registro.hora_inicio = dt_ini.replace(tzinfo=None)
+                except Exception as e_ini:
+                    logger.warning(f"Error parseando hora_inicio: {e_ini}")
+
+            if hora_fin_str:
+                try:
+                    h_h, h_m = hora_fin_str.split(':')
+                    dt_fin = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
+                    registro.hora_fin = dt_fin.replace(tzinfo=None)
+                except Exception as e_fin:
+                    logger.warning(f"Error parseando hora_fin: {e_fin}")
+
+            if hora_inicio_str and hora_fin_str:
+                try:
+                    hi_h, hi_m = hora_inicio_str.split(':')
+                    hf_h, hf_m = hora_fin_str.split(':')
+                    t_ini = ahora.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0)
+                    t_fin = ahora.replace(hour=int(hf_h), minute=int(hf_m), second=0, microsecond=0)
+                    diff = t_fin - t_ini
+                    segundos_totales = int(diff.total_seconds())
+                    if segundos_totales < 0: segundos_totales += 86400
+                    registro.duracion_segundos = segundos_totales
+                    registro.tiempo_total_minutos = float(round(segundos_totales / 60.0, 2))
+                    if buenos > 0:
+                        registro.segundos_por_unidad = float(round(segundos_totales / buenos, 2))
+                    else:
+                        registro.segundos_por_unidad = 0.0
+                except Exception as e_met:
+                    logger.warning(f"Error calculando duracion: {e_met}")
+
+            db.session.add(registro)
+
+            # 2. Actualizar Inventario: Sumar 'buenos' a Producto.p_terminado
+            producto_inv = db.session.query(Producto).filter_by(codigo_sistema=referencia).first()
+            if producto_inv:
+                original_terminado = float(producto_inv.p_terminado or 0)
+                producto_inv.p_terminado = original_terminado + buenos
+                
+                # Descontar de Por Pulir
+                original_por_pulir = float(producto_inv.por_pulir or 0)
+                producto_inv.por_pulir = max(0, original_por_pulir - (buenos + malos))
+                logger.info(f"[MASIVO-INVENTARIO] {referencia}: +{buenos} P. Terminado, por_pulir descontado.")
+
+            # 3. Registrar PNC: Si 'malos' > 0, insertar en la tabla de mermas de Pulido
+            if malos > 0:
+                db.session.add(PncPulido(
+                    id_pnc_pulido=uuid.uuid4().hex[:8],
+                    id_pulido=id_pulido,
+                    codigo=referencia,
+                    cantidad=malos,
+                    criterio='PNC Pulido - Reporte Masivo por Voz',
+                    codigo_ensamble='AUDITORIA PULIDO'
+                ))
+
+            # --- Propagación FIFO ---
+            if op and str(op).strip() != 'SIN OP':
+                from backend.models.sql_models import DistribucionOpPedidos
+                op_limpia = str(op).strip()
+                codigo_limpio = str(referencia).replace('FR-', '').strip()
+                
+                cubetas = db.session.query(DistribucionOpPedidos).filter(
+                    DistribucionOpPedidos.op_world_office == op_limpia,
+                    DistribucionOpPedidos.codigo_producto == codigo_limpio
+                ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+                piezas_por_repartir = float(buenos)
+
+                if not cubetas and piezas_por_repartir > 0:
+                    pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
+                        DistribucionOpPedidos.op_world_office == op_limpia
+                    ).first()
+                    id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
+                    
+                    logger.info(f"[PULIDO-MASIVO-CONTINGENCIA] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}")
+                    nueva_cubeta = DistribucionOpPedidos(
+                        op_world_office=op_limpia,
+                        id_pedido=id_pedido_final,
+                        codigo_producto=codigo_limpio,
+                        cant_requerida=piezas_por_repartir,
+                        cant_inyectada=piezas_por_repartir,
+                        cant_pulida=piezas_por_repartir,
+                        cant_ensamblada=0,
+                        cant_alistada=0
+                    )
+                    db.session.add(nueva_cubeta)
+                    db.session.flush()
+                    cubetas = [nueva_cubeta]
+                    piezas_por_repartir = 0.0
+
+                for cubeta in cubetas:
+                    if piezas_por_repartir <= 0:
+                        break
+                    falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_pulida or 0))
+                    if falta > 0:
+                        if piezas_por_repartir >= falta:
+                            cubeta.cant_pulida = (cubeta.cant_pulida or 0) + falta
+                            piezas_por_repartir -= falta
+                        else:
+                            cubeta.cant_pulida = (cubeta.cant_pulida or 0) + piezas_por_repartir
+                            piezas_por_repartir = 0
+
+        db.session.commit()
+        return jsonify({"success": True, "message": f"Se registraron con éxito {len(items)} reportes del lote."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error en reporte_masivo: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+

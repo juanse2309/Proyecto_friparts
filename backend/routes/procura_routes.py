@@ -1,12 +1,18 @@
 import time
 from flask import Blueprint, jsonify, request, session
-from backend.models.sql_models import db, Producto, DbProveedor, OrdenCompra
+from backend.models.sql_models import db, Producto, DbProveedor, OrdenCompra, RawVentas, FichaMaestra
+from sqlalchemy import cast, Integer
 
 import logging
 import uuid
 import collections
 from datetime import datetime
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
+
+# TODO - Siguientes pasos estratégicos:
+# 1. [PENDIENTE] Transformar la pestaña "Órdenes de Compra" en módulo de Tránsito, Ubicación y Recepción de Insumos.
+# 2. [PENDIENTE] Inyectar sumatoria automática al stock de insumos: insertos de carburo, tornillos, alargadores, etc.
+
 
 def safe_int(value, default=0):
     try:
@@ -61,19 +67,19 @@ def listar_parametros():
 def listar_proveedores():
     """Lista los proveedores desde SQL (db_proveedores)."""
     try:
-        rows = DbProveedor.query.order_by(DbProveedor.nombre).all()
+        rows = DbProveedor.query.order_by(DbProveedor.proveedores).all()
         proveedores = []
         for r in rows:
             proveedores.append({
-                "nombre": r.nombre,
+                "nombre": r.proveedores,
                 "nit": r.nit,
                 "direccion": r.direccion,
-                "contacto": r.contacto,
+                "contacto": r.persona_de_contacto,
                 "telefono": r.telefono,
                 "correo": r.correo,
                 "proceso": r.proceso,
-                "forma_pago": r.forma_pago,
-                "evaluacion": r.evaluacion
+                "forma_pago": r.forma_de_pago,
+                "evaluacion": r.ultima_evaluacion
             })
         return jsonify({"status": "success", "data": proveedores}), 200
     except Exception as e:
@@ -109,7 +115,6 @@ def registrar_oc():
                 cantidad_recibida=float(item.get("cantidad_recibida", 0)),
                 diferencia=float(item.get("cantidad", 0)) - float(item.get("cantidad_recibida", 0)),
                 observaciones=item.get("observaciones"),
-                cantidad_enviada=float(item.get("cantidad_enviada", 0)),
                 estado_proceso=item.get("estado_proceso", "Normal")
             )
             db.session.add(nueva_oc)
@@ -164,7 +169,6 @@ def buscar_oc(n_oc):
                 "fecha_llegada": r.fecha_llegada,
                 "cantidad_recibida": float(r.cantidad_recibida),
                 "observaciones": r.observaciones,
-                "cantidad_enviada": float(r.cantidad_enviada),
                 "estado_proceso": r.estado_proceso
             })
         return jsonify({"success": True, "data": {"n_oc": n_oc, "items": items}}), 200
@@ -203,13 +207,83 @@ def rotacion_prioridades():
     try:
         productos = Producto.query.all()
         # Stock en tránsito: Suma de OC con estado Proceso externo y saldo pendiente
-        transit_rows = db.session.query(OrdenCompra.producto, db.func.sum(OrdenCompra.cantidad_enviada - OrdenCompra.cantidad_recibida)).filter(OrdenCompra.estado_proceso.ilike('%ZINCADO%') | OrdenCompra.estado_proceso.ilike('%GRANALLADO%')).group_by(OrdenCompra.producto).all()
-        transit_map = {r[0]: float(r[1]) for r in transit_rows if r[1] > 0}
+        try:
+            transit_rows = db.session.query(
+                OrdenCompra.producto, 
+                db.func.sum(cast(OrdenCompra.cantidad, Integer) - cast(OrdenCompra.cantidad_recibida, Integer))
+            ).filter(OrdenCompra.estado_proceso.ilike('%ZINCADO%') | OrdenCompra.estado_proceso.ilike('%GRANALLADO%')).group_by(OrdenCompra.producto).all()
+            transit_map = {r[0]: float(r[1]) for r in transit_rows if r[1] > 0}
+        except Exception as e:
+            logger.error(f"Error calculando stock en tránsito: {e}")
+            db.session.rollback()
+            transit_map = {}
+
+        # 1. OBTENER CONSUMO HISTÓRICO PARA PARETO
+        ventas_rows = db.session.query(RawVentas.productos, db.func.sum(RawVentas.cantidad)).group_by(RawVentas.productos).all()
+        consumo_map = {r[0]: float(r[1] or 0) for r in ventas_rows if r[0]}
+
+        from sqlalchemy import or_
+        from backend.models.sql_models import FichaMaestra
+        fichas_raw = db.session.query(FichaMaestra.producto, FichaMaestra.subproducto).filter(
+            or_(
+                FichaMaestra.subproducto.ilike('%INT%'),
+                FichaMaestra.subproducto.ilike('%CAR%'),
+                FichaMaestra.subproducto.ilike('%CB%'),
+                FichaMaestra.subproducto.ilike('%TUBO%'),
+                FichaMaestra.subproducto.ilike('%CARCAZA%'),
+                FichaMaestra.subproducto.ilike('%EXTERIOR%'),
+                FichaMaestra.subproducto.ilike('%INTERNO%'),
+                FichaMaestra.subproducto.ilike('%KIT%')
+            )
+        ).all()
+        
+        # Guardamos las cadenas largas de texto en una lista en memoria RAM
+        textos_padres_armados = [str(f[0]).strip().upper() for f in fichas_raw if f[0]]
+
+        # 3. ALGORITMO MATEMÁTICO DE PARETO (ABC) - PRECALCULADO
+        productos_ordenados = sorted(productos, key=lambda p: float(consumo_map.get(str(p.id_codigo or p.codigo_sistema).strip().upper(), 0)), reverse=True)
+        
+        gran_total = sum(float(consumo_map.get(str(p.id_codigo or p.codigo_sistema).strip().upper(), 0)) for p in productos_ordenados)
+        
+        if gran_total == 0:
+            # Fallback si no hay histórico de ventas: ordenar por stock mínimo requerido
+            productos_ordenados = sorted(productos, key=lambda p: float(p.stock_minimo or 0), reverse=True)
+            gran_total = sum(float(p.stock_minimo or 0) for p in productos_ordenados)
+
+        suma_acumulada = 0.0
+        pareto_map = {}
+
+        for p in productos_ordenados:
+            cod_key = str(p.id_codigo or p.codigo_sistema).strip().upper()
+            # Obtener el peso de este ítem (unidades vendidas o stock mínimo en su defecto)
+            valor_item = float(consumo_map.get(cod_key, 0)) if gran_total != sum(float(x.stock_minimo or 0) for x in productos_ordenados) else float(p.stock_minimo or 0)
+            
+            suma_acumulada += valor_item
+            porcentaje_acumulado = (suma_acumulada / gran_total * 100) if gran_total > 0 else 100
+
+            if porcentaje_acumulado <= 80.0:
+                clase = "A"
+            elif porcentaje_acumulado <= 95.0:
+                clase = "B"
+            else:
+                clase = "C"
+                
+            pareto_map[cod_key] = clase
 
         resultado = []
         for p in productos:
             cod = p.id_codigo or p.codigo_sistema
-            stock_fisico = float(p.stock_bodega or 0)
+            # Extraer valores sanitizados de las columnas del modelo Producto (ajusta los nombres exactos si varían en tu modelo)
+            stock_general = float(getattr(p, 'stock_bodega', getattr(p, 'stock', 0)) or 0)
+            prod_terminado = float(getattr(p, 'p_terminado', getattr(p, 'producto_terminado', 0)) or 0)
+            
+            # Unificación inteligente: Si es un buje estándar con producto terminado, priorizamos esa columna.
+            # Si está en 0 o es un componente/insumo de metalmecánica, tomamos el stock general.
+            if prod_terminado > 0:
+                stock_fisico = prod_terminado
+            else:
+                stock_fisico = stock_general if stock_general != 0 else prod_terminado
+                
             stock_transito = transit_map.get(cod, 0)
             stock_total = stock_fisico + stock_transito
             minimo = float(p.stock_minimo or 0)
@@ -221,10 +295,25 @@ def rotacion_prioridades():
             if stock_total < minimo:
                 semaforo = "ROJO" if porcentaje < 20 else "AMARILLO"
 
+            unidades_vendidas = consumo_map.get(cod, 0)
+            # CLASIFICACIÓN INVERSA POR CONTENIDO DE TEXTO
+            cod_buscar = str(p.id_codigo or p.codigo_sistema or "").strip().upper()
+            desc_buscar = str(p.descripcion or "").strip().upper()
+            
+            # Regla Inversa: Si el código limpio de este producto está metido DENTRO de alguna de las cadenas largas de padres armados de la BD
+            es_armado_por_ficha = any(cod_buscar in texto_largo for texto_largo in textos_padres_armados) if cod_buscar else False
+            
+            # Respaldos de seguridad por texto de descripción
+            es_armado_por_desc = any(k in desc_buscar for k in ['TUBO INTERNO', 'CARCAZA', 'CON CARCAZA', 'CON TUBO', 'KIT'])
+            
+            tipo_buen = "ARMADO" if (es_armado_por_ficha or es_armado_por_desc) else "LIMPIO"
+
             resultado.append({
                 "codigo": cod,
                 "descripcion": p.descripcion,
-                "clase": "A", # Simplificado
+                "clase": pareto_map.get(str(p.id_codigo or p.codigo_sistema).strip().upper(), "C"),
+                "tipo_buen": tipo_buen,
+                "unidades_vendidas": unidades_vendidas,
                 "stock_actual": stock_fisico,
                 "stock_externo": stock_transito,
                 "minimo": minimo,
@@ -233,8 +322,64 @@ def rotacion_prioridades():
                 "semaforo": semaforo
             })
         
+        # Ordenamiento por defecto para el cliente (Prioridad de compra)
         resultado.sort(key=lambda x: x["diferencia"], reverse=True)
+
+        total_limpios = sum(1 for x in resultado if x["tipo_buen"] == "LIMPIO")
+        total_armados = sum(1 for x in resultado if x["tipo_buen"] == "ARMADO")
+        
+        print(f"\n=========================================")
+        print(f"[CONTEO DE MOTOR ABC] Universo procesado: {len(resultado)} productos.")
+        print(f" -> Bujes Clasificados como LIMPIOS: {total_limpios}")
+        print(f" -> Bujes Clasificados como ARMADOS: {total_armados}")
+        print(f"=========================================\n")
+
         return jsonify({"status": "success", "data": resultado}), 200
     except Exception as e:
         logger.error(f"Error rotacion SQL: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@procura_bp.route('/recibir_ingreso', methods=['POST'])
+def recibir_ingreso():
+    try:
+        data = request.json
+        if not data or not isinstance(data, list):
+            return jsonify({"status": "error", "message": "Payload inválido, se esperaba una lista de componentes."}), 400
+            
+        for item in data:
+            id_orden = item.get('id_orden')
+            cod = item.get('codigo_producto')
+            cant_hoy = float(item.get('cantidad_recibida_hoy', 0))
+            
+            if cant_hoy <= 0:
+                continue
+
+            # 1. Actualizar el producto en el inventario real (Sumar a bodega)
+            prod_db = db.session.query(Producto).filter(Producto.id_codigo == cod).first()
+            if prod_db:
+                prod_db.stock_bodega = float(prod_db.stock_bodega or 0) + cant_hoy
+                
+            # 2. Descontar o actualizar el saldo en la tabla de órdenes de compra (Bajar el tránsito)
+            orden_item = db.session.query(OrdenCompra).filter(
+                OrdenCompra.id_orden == id_orden, 
+                OrdenCompra.producto == cod
+            ).first()
+            
+            if orden_item:
+                # Sumar lo que acaba de llegar al histórico de lo ya recibido
+                cant_ya_recibida = float(orden_item.cantidad_recibida or 0)
+                orden_item.cantidad_recibida = cant_ya_recibida + cant_hoy
+                
+                # Si ya se completó el pedido, cambiar el estado del proceso a 'RECIBIDO TOTAL'
+                if float(orden_item.cantidad_recibida or 0) >= float(orden_item.cantidad or 0):
+                    orden_item.estado_proceso = 'RECIBIDO'
+                else:
+                    orden_item.estado_proceso = 'PARCIAL'
+                    
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Ingreso registrado correctamente y stock actualizado."}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error en recibir_ingreso: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500

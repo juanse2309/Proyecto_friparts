@@ -2039,12 +2039,15 @@
                 </div>
             </header>
 
-            <div class="mode-selector-container px-4 py-2 bg-light border-bottom d-flex justify-content-center align-items-center gap-3">
+            <div class="mode-selector-container px-4 py-2 bg-light border-bottom d-flex justify-content-center align-items-center gap-3 flex-wrap">
                 <span class="text-muted fw-bold small"><i class="fas fa-satellite me-1"></i> MODO SATÉLITE</span>
                 <div class="form-check form-switch custom-switch-lg">
                     <input class="form-check-input" type="checkbox" id="toggle-pulido-mode" onchange="ModuloPulido.cambiarModo(this.checked)" checked>
                 </div>
                 <span class="text-primary fw-bold small"><i class="fas fa-microchip me-1"></i> MODO PLANTA (PRO)</span>
+                <button type="button" class="btn btn-sm px-3 rounded-pill" id="btn-dictar-voz" onclick="ModuloPulido.abrirDictadoMasivo()" style="margin-left: 20px; background-color: #dc3545 !important; color: #ffffff !important; font-weight: bold; border: none; box-shadow: 0 4px 6px rgba(220, 53, 69, 0.3); display: none; align-items: center; gap: 6px;">
+                    <i class="fas fa-microphone" style="color: #ffffff;"></i> <span style="color: #ffffff;">🎤 Dictar Reporte de Turno</span>
+                </button>
             </div>
 
             <div class="form-container mt-3 px-4" style="max-width: 1000px; margin: 0 auto;">
@@ -2313,6 +2316,105 @@
                         </button>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- MODAL DE REPORTE MASIVO POR VOZ (NUEVO) -->
+        <div id="modal-reporte-masivo-voz" class="modal-voz-overlay" style="display: none;">
+            <div id="caja-modal-voz">
+                
+                <div class="modal-header text-white p-4" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); display: flex; justify-content: space-between; align-items: center; border-bottom: none;">
+                    <h5 class="modal-title fw-bold mb-0" style="font-size: 1.25rem; display: flex; align-items: center; gap: 8px;"><i class="fas fa-microphone-alt"></i> <span>Reporte Masivo por Voz (Fin de Turno)</span></h5>
+                    <button type="button" class="btn-close btn-close-white" onclick="ModuloPulido.cerrarModalVoz()" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; line-height: 1;"><i class="fas fa-times"></i></button>
+                </div>
+
+                <div class="modal-voz-body bg-light p-4">
+                        <!-- Botones de Control de Voz y Estado -->
+                        <div class="voice-controls-section mb-4 p-3 rounded-4 bg-white border shadow-sm d-flex justify-content-between align-items-center flex-wrap gap-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <button type="button" id="btn-iniciar-voz-masiva" class="btn btn-danger px-4 py-2 rounded-pill fw-bold" onclick="ModuloPulido.toggleEscuchaVozMasiva()" style="transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(239, 68, 68, 0.2); display: flex; align-items: center; gap: 8px;">
+                                    <i class="fas fa-play" id="icon-voz-masiva"></i> <span id="lbl-btn-voz-masiva">Iniciar Grabación Continua</span>
+                                </button>
+                                <span id="status-voz-masiva" class="badge bg-secondary px-3 py-2 rounded-pill fw-bold" style="font-size: 0.85rem;">Micrófono inactivo</span>
+                            </div>
+                            <div class="live-transcription-preview text-muted small" id="preview-transcripcion-masiva" style="max-width: 350px; font-style: italic; color: #64748b; font-weight: 500;">
+                                Esperando dictado...
+                            </div>
+                        </div>
+
+                        <!-- GUIÓN DE ENTRENAMIENTO VISUAL -->
+                        <div class="alert alert-info py-2 px-3 mb-4 d-flex align-items-center gap-2 border-0 shadow-sm" style="border-radius: 12px; background-color: #e0f2fe; color: #0369a1; font-size: 0.85rem;">
+                            <i class="fas fa-info-circle" style="font-size: 1.1rem; color: #0284c7;"></i>
+                            <div>
+                                <strong>💡 Forma correcta de dictar:</strong> "Referencia 9304, OP 1020, 50 buenos, 2 malos."
+                            </div>
+                        </div>
+
+                        <!-- CABECERA GLOBAL (inputs de hora) -->
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <div class="card p-3 border-0 shadow-sm" style="border-radius: 12px; background: #ffffff;">
+                                    <label for="hora-inicio-global-masivo" class="form-label fw-bold text-secondary mb-1" style="font-size: 0.85rem;"><i class="fas fa-clock text-primary me-1"></i> Hora de Inicio de Turno</label>
+                                    <input type="time" id="hora-inicio-global-masivo" class="form-control" style="border-radius: 8px;" value="07:00">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card p-3 border-0 shadow-sm" style="border-radius: 12px; background: #ffffff;">
+                                    <label for="hora-fin-global-masivo" class="form-label fw-bold text-secondary mb-1" style="font-size: 0.85rem;"><i class="fas fa-history text-secondary me-1"></i> Hora de Fin de Turno</label>
+                                    <input type="time" id="hora-fin-global-masivo" class="form-control" style="border-radius: 8px;" value="17:00">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CUERPO: Tabla Interactiva -->
+                        <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-3">
+                            <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0 fw-bold text-dark"><i class="fas fa-table text-primary me-2"></i> Lote de Referencias Dictadas (Máx. 8)</h6>
+                                <button type="button" class="btn btn-sm btn-outline-primary px-3 rounded-pill fw-bold" onclick="ModuloPulido.agregarFilaManualMasivo()">
+                                    <i class="fas fa-plus me-1"></i> Agregar Fila Manual
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle mb-0" id="tabla-masivo-voz">
+                                        <thead class="bg-light" style="background-color: #f8fafc;">
+                                            <tr>
+                                                <th style="font-weight: 600; color: #475569; width: 25%;">Referencia</th>
+                                                <th style="font-weight: 600; color: #475569; width: 18%; text-align: center;">OP</th>
+                                                <th style="font-weight: 600; color: #475569; width: 18%; text-align: center;">Lote</th>
+                                                <th style="font-weight: 600; color: #475569; width: 15%; text-align: center;">Buenos</th>
+                                                <th style="font-weight: 600; color: #475569; width: 15%; text-align: center;">PNC (Malos)</th>
+                                                <th style="font-weight: 600; color: #475569; width: 9%; text-align: center;">Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tabla-masivo-voz-body">
+                                            <tr id="row-sin-items-masivo">
+                                                <td colspan="6" class="text-center text-muted py-5" style="color: #94a3b8 !important;">
+                                                    <i class="fas fa-microphone-slash mb-3 d-block" style="font-size: 2.5rem; opacity: 0.4;"></i>
+                                                    <span class="fw-bold">No se han dictado ni agregado referencias</span>
+                                                    <small class="d-block mt-1">Presiona "Iniciar Grabación Continua" y dicta de forma natural: <br><em>"referencia MT-504, OP 905, lote primero de junio, 350 buenos, 12 malos"</em></small>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    
+                    <div class="modal-footer p-4 bg-white border-top d-flex gap-3 justify-content-between align-items-center">
+                        <div class="text-muted small">
+                            <span class="badge bg-info text-white" id="count-items-masivo">0</span> registros listos
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-light py-2 px-4 rounded-3" onclick="ModuloPulido.cerrarModalVoz()">Cancelar</button>
+                            <button type="button" class="btn btn-primary py-2 px-5 rounded-3 fw-bold shadow-lg" id="btn-enviar-masivo-confirmado" onclick="ModuloPulido.enviarLoteMasivo()" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border: none;">
+                                <i class="fas fa-check-circle me-1"></i> Confirmar y Enviar Jornada
+                            </button>
+                        </div>
+                    </div>
+
             </div>
         </div>
 
@@ -3694,18 +3796,8 @@
                             <li class="nav-item" role="presentation">
                                 <button
                                     class="nav-link active fw-bold px-4 py-3 border-0 bg-transparent position-relative text-secondary d-flex align-items-center gap-2"
-                                    id="directorio-tab" data-bs-toggle="tab" data-bs-target="#directorio" type="button"
-                                    role="tab" aria-controls="directorio" aria-selected="true"
-                                    style="transition: all 0.3s;">
-                                    <i class="fas fa-address-book fs-5"></i>
-                                    <span>Directorio de Proveedores</span>
-                                </button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button
-                                    class="nav-link fw-bold px-4 py-3 border-0 bg-transparent position-relative text-secondary d-flex align-items-center gap-2"
                                     id="ordenes-tab" data-bs-toggle="tab" data-bs-target="#ordenes" type="button"
-                                    role="tab" aria-controls="ordenes" aria-selected="false"
+                                    role="tab" aria-controls="ordenes" aria-selected="true"
                                     style="transition: all 0.3s;">
                                     <i class="fas fa-file-invoice-dollar fs-5"></i>
                                     <span>Órdenes de Compra</span>
@@ -3725,7 +3817,7 @@
 
                         <div class="tab-content" id="procuraTabContent">
                             <!-- TAB 1: DIRECTORIO DE PROVEEDORES -->
-                            <div class="tab-pane fade show active" id="directorio" role="tabpanel"
+                            <div class="tab-pane fade" id="directorio" role="tabpanel"
                                 aria-labelledby="directorio-tab">
                                 <!-- SECCIÓN: Directorio Maestro de Proveedores -->
                                 <div class="card border-0 shadow-sm overflow-hidden mb-4">
@@ -3773,7 +3865,7 @@
                             </div>
 
                             <!-- TAB 2: ÓRDENES DE COMPRA -->
-                            <div class="tab-pane fade" id="ordenes" role="tabpanel" aria-labelledby="ordenes-tab">
+                            <div class="tab-pane fade show active" id="ordenes" role="tabpanel" aria-labelledby="ordenes-tab">
                                 <div class="row mb-4">
                                     <div class="col-md-9">
                                         <!-- Panel de Búsqueda OC Existente -->
@@ -3968,27 +4060,28 @@
                                 </div>
 
                                 <!-- Controles de Navegación y Filtros de Tabla -->
+                                <div class="row g-2 mb-3 p-3 bg-dark rounded" style="border: 1px solid #495057;">
+                                    <div class="col-md-6">
+                                        <label class="text-white small mb-1 d-block"><i class="fas fa-filter me-1"></i> Tipo de Buje:</label>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-sm btn-outline-light active btn-filtro-tipo" data-tipo="TODOS" onclick="ModuloRotacion.setFiltroTipo('TODOS', this)">Todos</button>
+                                            <button type="button" class="btn btn-sm btn-outline-success btn-filtro-tipo" data-tipo="LIMPIO" onclick="ModuloRotacion.setFiltroTipo('LIMPIO', this)">Bujes Limpios</button>
+                                            <button type="button" class="btn btn-sm btn-outline-info btn-filtro-tipo" data-tipo="ARMADO" onclick="ModuloRotacion.setFiltroTipo('ARMADO', this)">Bujes Armados</button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="text-white small mb-1 d-block"><i class="fas fa-chart-line me-1"></i> Clasificación Pareto:</label>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-sm btn-outline-light active btn-filtro-clase" data-clase="TODOS" onclick="ModuloRotacion.setFiltroClase('TODOS', this)">Todos</button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger btn-filtro-clase" data-clase="A" onclick="ModuloRotacion.setFiltroClase('A', this)">Clase A (Estrellas)</button>
+                                            <button type="button" class="btn btn-sm btn-outline-warning text-white btn-filtro-clase" data-clase="B" onclick="ModuloRotacion.setFiltroClase('B', this)">Clase B (Medios)</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary text-white btn-filtro-clase" data-clase="C" onclick="ModuloRotacion.setFiltroClase('C', this)">Clase C (Bajos)</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
                                 <div
                                     class="d-flex flex-wrap justify-content-between align-items-center mb-3 mt-4 gap-3">
-                                    <ul class="nav nav-pills bg-white p-1 rounded-pill shadow-sm border"
-                                        id="rot-sub-tabs" role="tablist">
-                                        <li class="nav-item" role="presentation">
-                                            <button
-                                                class="nav-link active rounded-pill px-4 fw-bold d-flex align-items-center gap-2"
-                                                id="tab-clase-a" data-bs-toggle="pill" data-bs-target="#panel-clase-a"
-                                                type="button" role="tab">
-                                                <i class="fas fa-fire-alt text-danger"></i> 🔥 Clase A (Críticos)
-                                            </button>
-                                        </li>
-                                        <li class="nav-item" role="presentation">
-                                            <button
-                                                class="nav-link rounded-pill px-4 fw-bold d-flex align-items-center gap-2"
-                                                id="tab-clase-bc" data-bs-toggle="pill" data-bs-target="#panel-clase-bc"
-                                                type="button" role="tab">
-                                                <i class="fas fa-box text-primary"></i> 📦 Clase B/C (Mantenimiento)
-                                            </button>
-                                        </li>
-                                    </ul>
                                     <div class="search-box position-relative" style="max-width: 400px; width: 100%;">
                                         <i class="fas fa-search position-absolute top-50 translate-middle-y text-muted"
                                             style="left: 15px;"></i>
@@ -3999,87 +4092,31 @@
                                     </div>
                                 </div>
 
-                                <div class="tab-content" id="rot-sub-tabs-content">
-                                    <!-- PANEL CLASE A -->
-                                    <div class="tab-pane fade show active border-0" id="panel-clase-a" role="tabpanel">
-                                        <div class="card border-0 shadow-sm overflow-hidden"
-                                            style="border-radius: 12px;">
-                                            <div class="card-body p-0">
-                                                <div class="table-responsive">
-                                                    <table
-                                                        class="table table-hover align-middle mb-0 custom-table-rotation">
-                                                        <thead class="bg-light text-muted small text-uppercase">
-                                                            <tr>
-                                                                <th class="ps-4" style="width: 15%;">CÓDIGO</th>
-                                                                <th style="width: 25%;">DESCRIPCIÓN</th>
-                                                                <th style="width: 10%; text-align: center;">STOCK
-                                                                </th>
-                                                                <th style="width: 10%; text-align: center;">🚚
-                                                                    TRÁNSITO
-                                                                </th>
-                                                                <th style="width: 10%; text-align: center;">MÍNIMO
-                                                                </th>
-                                                                <th style="width: 20%;">ESTADO / URGENCIA</th>
-                                                                <th style="width: 10%; text-align: center;"
-                                                                    title="Frecuencia Histórica de Compra">🛒FREQ.
-                                                                    OC
-                                                                </th>
-                                                                <th style="width: 5%;" class="pe-4"></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody id="rot-table-a">
-                                                            <tr>
-                                                                <td colspan="7" class="text-center py-5 text-muted">
-                                                                    <i
-                                                                        class="fas fa-spinner fa-spin fa-2x mb-3 text-danger"></i>
-                                                                    <p>Cargando prioridades críticas...</p>
-                                                                </td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- PANEL CLASE B/C -->
-                                    <div class="tab-pane fade border-0" id="panel-clase-bc" role="tabpanel">
-                                        <div class="card border-0 shadow-sm overflow-hidden"
-                                            style="border-radius: 12px;">
-                                            <div class="card-body p-0">
-                                                <div class="table-responsive">
-                                                    <table
-                                                        class="table table-hover align-middle mb-0 custom-table-rotation">
-                                                        <thead class="bg-light text-muted small text-uppercase">
-                                                            <tr>
-                                                                <th class="ps-4" style="width: 15%;">CÓDIGO</th>
-                                                                <th style="width: 20%;">DESCRIPCIÓN</th>
-                                                                <th style="width: 10%; text-align: center;">CLASE
-                                                                </th>
-                                                                <th style="width: 10%; text-align: center;">STOCK
-                                                                </th>
-                                                                <th style="width: 10%; text-align: center;">🚚
-                                                                    TRÁNSITO
-                                                                </th>
-                                                                <th style="width: 20%;">ESTADO / URGENCIA</th>
-                                                                <th style="width: 10%; text-align: center;">🛒FREQ.
-                                                                    OC
-                                                                </th>
-                                                                <th style="width: 5%;" class="pe-4"></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody id="rot-table-bc">
-                                                            <tr>
-                                                                <td colspan="7" class="text-center py-5 text-muted">
-                                                                    <i
-                                                                        class="fas fa-spinner fa-spin fa-2x mb-3 text-primary"></i>
-                                                                    <p>Cargando lista de mantenimiento...</p>
-                                                                </td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
+                                <div class="card border-0 shadow-sm overflow-hidden" style="border-radius: 12px;">
+                                    <div class="card-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-hover align-middle mb-0 custom-table-rotation">
+                                                <thead class="bg-light text-muted small text-uppercase">
+                                                    <tr style="background-color: #f8f9fa !important;">
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;">Pareto / Código</th>
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;">Descripción</th>
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Stock</th>
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Tránsito</th>
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Mínimo</th>
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Diferencia</th>
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Estado</th>
+                                                        <th style="color: #000000 !important; font-weight: bold !important; padding: 12px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Tipo</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="contenedor-prioridades-tabla">
+                                                    <tr>
+                                                        <td colspan="8" class="text-center py-5 text-muted">
+                                                            <i class="fas fa-spinner fa-spin fa-2x mb-3 text-primary"></i>
+                                                            <p>Cargando prioridades y rotación...</p>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>

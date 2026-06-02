@@ -178,14 +178,19 @@ function ordenarProductos(lista) {
         const codeA = (a.codigo || a.codigo_sistema || "").toUpperCase();
         const codeB = (b.codigo || b.codigo_sistema || "").toUpperCase();
         
-        // Dar máxima prioridad a cualquier código que inicie con Letras (FR-, MT-, CAR-)
+        // 1. Prioridad Máxima y Absoluta para FR-
+        const isFR_A = codeA.startsWith('FR-');
+        const isFR_B = codeB.startsWith('FR-');
+        if (isFR_A && !isFR_B) return -1;
+        if (!isFR_A && isFR_B) return 1;
+        
+        // 2. Segunda prioridad: Cualquier otra letra (AL-, CAR-, MT-) frente a números
         const isLetraA = /^[A-Z]/.test(codeA);
         const isLetraB = /^[A-Z]/.test(codeB);
+        if (isLetraA && !isLetraB) return -1;
+        if (!isLetraA && isLetraB) return 1;
         
-        if (isLetraA && !isLetraB) return -1; // Letras primero
-        if (!isLetraA && isLetraB) return 1;  // Números/otros después
-        
-        // Orden alfabético/numérico para los que empaten
+        // 3. Desempate alfabético y numérico natural
         return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
     });
 }
@@ -194,6 +199,7 @@ function ordenarProductos(lista) {
  * Renderizar tabla de productos con paginaciÃ³n
  */
 function renderizarTablaProductos(productos, resetearPagina = false) {
+    console.error("🚨 [AUDITORÍA] 'renderizarTablaProductos' se está ejecutando en vivo!");
     const tbody = document.getElementById('tabla-productos-body');
     if (!tbody) {
         console.error('No se encontrÃ³ tabla-productos-body');
@@ -369,19 +375,58 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
     // Renderizar controles de paginaciÃ³n
     renderizarPaginacion(totalProductos, totalPaginas, productos);
 
-    const contenedorTabla = document.querySelector('.table-responsive');
-    if (contenedorTabla) {
-        contenedorTabla.addEventListener('scroll', function() {
-            const translate = "translateY(" + this.scrollTop + "px)";
-            const thead = this.querySelector('thead');
-            if (thead) {
-                thead.style.transform = translate;
-                thead.style.zIndex = "1000";
-            }
-        });
-    }
-
     console.log(`âœ… PÃ¡gina ${paginaActual}/${totalPaginas}: Mostrando ${productosPagina.length} de ${totalProductos} productos`);
+
+    // --- ENCAPSULACIÓN ESTRUCTURAL FORZADA POR ID ---
+    try {
+        const tablaReal = document.querySelector('#tabla-inventario') || document.querySelector('.table');
+        
+        if (tablaReal) {
+            // 1. Verificar si nuestro contenedor único ya existe, si no, crearlo en caliente
+            let cajaScroll = document.querySelector('#contenedor-scroll-bujes');
+            
+            if (!cajaScroll) {
+                cajaScroll = document.createElement('div');
+                cajaScroll.id = 'contenedor-scroll-bujes';
+                
+                // Inyectar estilos inline atómicos indestructibles
+                cajaScroll.style.cssText = `
+                    max-height: 60vh !important;
+                    overflow-y: auto !important;
+                    overflow-x: auto !important;
+                    position: relative !important;
+                    display: block !important;
+                    margin-bottom: 1rem !important;
+                    border: 1px solid #dee2e6 !important;
+                `;
+                
+                // Mover la tabla adentro del nuevo contenedor exclusivo
+                tablaReal.parentNode.insertBefore(cajaScroll, tablaReal);
+                cajaScroll.appendChild(tablaReal);
+            }
+            
+            // 2. Forzar que la tabla separe sus bordes para permitir el anclaje nativo
+            tablaReal.style.setProperty('border-collapse', 'separate', 'important');
+            tablaReal.style.setProperty('border-spacing', '0', 'important');
+            
+            // 3. Clavar de forma nativa los th al techo de la nueva cajaScroll
+            const headers = tablaReal.querySelectorAll('thead th');
+            headers.forEach(th => {
+                th.style.cssText = `
+                    position: sticky !important;
+                    top: 0 !important;
+                    background-color: #ffffff !important;
+                    z-index: 1050 !important;
+                    box-shadow: inset 0 -1px 0 #dee2e6, 0 2px 4px rgba(0,0,0,0.08) !important;
+                    transform: none !important;
+                `;
+            });
+            
+            console.log("🎯 [EXITO] Tabla encapsulada con éxito en #contenedor-scroll-bujes nativo");
+        }
+    } catch (error) {
+        console.error("❌ Error aplicando la encapsulación forzada:", error);
+    }
 }
 
 /**

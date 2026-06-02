@@ -321,13 +321,16 @@ const ModuloPulido = {
         console.log("🔄 Cambiando a Modo:", isPro ? "PRO (Planta)" : "MANUAL (Satélite)");
         const panelManual = document.getElementById('panel-pulido-manual');
         const panelPro = document.getElementById('panel-pulido-pro');
+        const btnVoz = document.getElementById('btn-dictar-voz');
         
         if (isPro) {
             panelManual.style.display = 'none';
             panelPro.style.display = 'block';
+            if(btnVoz) btnVoz.style.display = 'none';
         } else {
             panelManual.style.display = 'block';
             panelPro.style.display = 'none';
+            if(btnVoz) btnVoz.style.display = 'inline-flex';
         }
     },
 
@@ -1698,6 +1701,432 @@ const ModuloPulido = {
             container.style.display = 'block';
         } else {
             container.style.display = 'none';
+        }
+    },
+
+    // ==========================================
+    // REPORTE MASIVO POR VOZ (NUEVO)
+    // ==========================================
+    loteVoz: [],
+    recognitionMasivo: null,
+    isEscuchandoMasivo: false,
+
+    abrirDictadoMasivo: function() {
+        const resp = this.getOperarioActual();
+        if (!resp) {
+            Swal.fire({
+                title: 'Operario Requerido',
+                text: 'Por favor ingrese o busque un Responsable en el campo principal antes de abrir el dictado masivo.',
+                icon: 'warning',
+                confirmButtonColor: '#3b82f6'
+            });
+            return;
+        }
+
+        this.loteVoz = [];
+        const modal = document.getElementById('modal-reporte-masivo-voz');
+        if (modal) {
+            modal.style.setProperty('display', 'flex', 'important');
+        }
+        this.renderTablaMasivo();
+        
+        const hi = document.getElementById('hora-inicio-pulido')?.value;
+        const hf = document.getElementById('hora-fin-pulido')?.value;
+        if (hi) document.getElementById('hora-inicio-global-masivo').value = hi;
+        if (hf) document.getElementById('hora-fin-global-masivo').value = hf;
+    },
+
+    cerrarDictadoMasivo: function() {
+        this.cerrarModalVoz();
+    },
+
+    cerrarModalVoz: function() {
+        const modal = document.getElementById('modal-reporte-masivo-voz');
+        if (modal) {
+            modal.style.setProperty('display', 'none', 'important');
+        }
+        this.loteVoz = [];
+        
+        if (this.recognitionMasivo) {
+            try { this.recognitionMasivo.stop(); } catch(e){}
+        }
+        this.isEscuchandoMasivo = false;
+        
+        // Quitar latido visual del botón rojo principal
+        const btnDictar = document.getElementById('btn-dictar-voz');
+        if (btnDictar) btnDictar.classList.remove('grabando-activo');
+    },
+
+    toggleEscuchaVozMasiva: function() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            Swal.fire({
+                title: 'API No Soportada',
+                text: 'El reconocimiento de voz no está soportado en este navegador. Por favor use Google Chrome.',
+                icon: 'error'
+            });
+            return;
+        }
+
+        const btn = document.getElementById('btn-iniciar-voz-masiva');
+        const statusLbl = document.getElementById('status-voz-masiva');
+        const icon = document.getElementById('icon-voz-masiva');
+        const lbl = document.getElementById('lbl-btn-voz-masiva');
+
+        if (!this.isEscuchandoMasivo) {
+            try {
+                this.recognitionMasivo = new SpeechRecognition();
+                this.recognitionMasivo.continuous = true;
+                this.recognitionMasivo.interimResults = false;
+                this.recognitionMasivo.lang = 'es-CO';
+
+                this.recognitionMasivo.onstart = () => {
+                    this.isEscuchandoMasivo = true;
+                    statusLbl.innerText = 'Escuchando continuo...';
+                    statusLbl.className = 'badge bg-danger px-3 py-2 rounded-pill fw-bold animate-pulse';
+                    btn.className = 'btn btn-secondary px-4 py-2 rounded-pill fw-bold';
+                    const btnExterno = document.getElementById('btn-dictar-voz');
+                    if (btnExterno) btnExterno.classList.add('grabando-activo');
+                    if (icon) icon.className = 'fas fa-stop';
+                    if (lbl) lbl.innerText = 'Detener Grabación';
+                    console.log('🎙️ Reconocimiento masivo continuo iniciado');
+                };
+
+                this.recognitionMasivo.onresult = (event) => {
+                    let transcript = '';
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        if (event.results[i].isFinal) {
+                            transcript += event.results[i][0].transcript + ' ';
+                        }
+                    }
+                    if (transcript.trim()) {
+                        console.log('🗣️ Transcripción final capturada:', transcript);
+                        const preview = document.getElementById('preview-transcripcion-masiva');
+                        if (preview) preview.innerText = transcript;
+                        this.procesarTranscripcionMasiva(transcript);
+                    }
+                };
+
+                this.recognitionMasivo.onerror = (e) => {
+                    console.error('❌ Error reconocimiento masivo:', e);
+                    statusLbl.innerText = `Error: ${e.error}`;
+                    statusLbl.className = 'badge bg-warning text-dark px-3 py-2 rounded-pill fw-bold';
+                };
+
+                this.recognitionMasivo.onend = () => {
+                    if (this.isEscuchandoMasivo) {
+                        try {
+                            this.recognitionMasivo.start();
+                        } catch (err) {
+                            console.warn("Re-start fallido:", err);
+                        }
+                    } else {
+                        statusLbl.innerText = 'Micrófono inactivo';
+                        statusLbl.className = 'badge bg-secondary px-3 py-2 rounded-pill fw-bold';
+                        btn.className = 'btn btn-danger px-4 py-2 rounded-pill fw-bold';
+                        const btnExterno = document.getElementById('btn-dictar-voz');
+                        if (btnExterno) btnExterno.classList.remove('grabando-activo');
+                        if (icon) icon.className = 'fas fa-play';
+                        if (lbl) lbl.innerText = 'Iniciar Grabación Continua';
+                    }
+                };
+
+                this.recognitionMasivo.start();
+
+            } catch (err) {
+                console.error("Fallo al iniciar recognition:", err);
+            }
+        } else {
+            this.isEscuchandoMasivo = false;
+            if (this.recognitionMasivo) {
+                this.recognitionMasivo.stop();
+            }
+            statusLbl.innerText = 'Micrófono inactivo';
+            statusLbl.className = 'badge bg-secondary px-3 py-2 rounded-pill fw-bold';
+            btn.className = 'btn btn-danger px-4 py-2 rounded-pill fw-bold';
+            const btnExterno = document.getElementById('btn-dictar-voz');
+            if (btnExterno) btnExterno.classList.remove('grabando-activo');
+            if (icon) icon.className = 'fas fa-play';
+            if (lbl) lbl.innerText = 'Iniciar Grabación Continua';
+        }
+    },
+
+    procesarTranscripcionMasiva: function(texto) {
+        if (!texto) return;
+
+        // Separar estrictamente por la palabra clave 'referencia' e ignorar el texto anterior al primero
+        const partes = texto.split(/\breferencia\b/i).slice(1);
+        
+        partes.forEach(part => {
+            const cleanPart = part.trim();
+            if (!cleanPart) return;
+
+            // CÓDIGO: Tomar la primera palabra/número (o combinación alfanumérica) inmediatamente después de 'referencia'
+            const refMatch = cleanPart.match(/^([a-zA-Z0-9\-]+)/);
+            if (!refMatch) return; // Solo continuar si logramos extraer un código de referencia válido
+            
+            const refRaw = refMatch[1].replace(/^-+|-+$/g, '').toUpperCase();
+            if (!refRaw) return;
+
+            // OP: Patrón /op\s*(\d+)/i u /orden\s*(\d+)/i
+            const opMatch = cleanPart.match(/op\s*(\d+)/i) || cleanPart.match(/orden\s*(\d+)/i);
+            const op = opMatch ? opMatch[1] : 'SIN OP';
+
+            // LOTE: Mantener la lógica adaptativa por defecto
+            let lote = new Date().toISOString().split('T')[0];
+            const loteMatch = cleanPart.match(/\blote\s+([^,\n\s]+)/i);
+            if (loteMatch) {
+                lote = loteMatch[1];
+                if (lote.toLowerCase().includes('primero') || lote.toLowerCase().includes('1') || lote.toLowerCase().includes('uno')) {
+                    lote = new Date().toISOString().split('T')[0];
+                }
+            }
+
+            // BUENOS: Patrón numérico antes de palabras clave (buenos, buenas, bueno, ok)
+            const buenosMatch = cleanPart.match(/(\d+)\s*(buenos|buenas|bueno|ok)/i);
+            const buenos = buenosMatch ? parseInt(buenosMatch[1], 10) : 0;
+
+            // MALOS (PNC): Patrón numérico antes de palabras clave (malos, malas, malo, pnc, descarte)
+            const malosMatch = cleanPart.match(/(\d+)\s*(malos|malas|malo|pnc|descarte)/i);
+            const malos = malosMatch ? parseInt(malosMatch[1], 10) : 0;
+
+            if (this.loteVoz.length >= 8) {
+                console.warn("⚠️ Se alcanzó el límite máximo de 8 referencias.");
+                return;
+            }
+
+            // Validar que no se agregue un duplicado exacto en el mismo lote de voz
+            const duplicado = this.loteVoz.some(item => item.referencia === refRaw && item.op === op && item.lote === lote);
+            if (!duplicado) {
+                this.loteVoz.push({
+                    referencia: refRaw,
+                    op: op,
+                    lote: lote,
+                    buenos: buenos,
+                    malos: malos
+                });
+            }
+        });
+
+        this.renderTablaMasivo();
+    },
+
+    renderTablaMasivo: function() {
+        const tbody = document.getElementById('tabla-masivo-voz-body');
+        const countLbl = document.getElementById('count-items-masivo');
+        
+        if (!tbody) return;
+
+        if (this.loteVoz.length === 0) {
+            tbody.innerHTML = `
+                <tr id="row-sin-items-masivo">
+                    <td colspan="6" class="text-center text-muted py-5" style="color: #94a3b8 !important;">
+                        <i class="fas fa-microphone-slash mb-3 d-block" style="font-size: 2.5rem; opacity: 0.4;"></i>
+                        <span class="fw-bold">No se han dictado ni agregado referencias</span>
+                        <small class="d-block mt-1">Presiona "Iniciar Grabación Continua" y dicta de forma natural: <br><em>"referencia MT-504, OP 905, lote primero de junio, 350 buenos, 12 malos"</em></small>
+                    </td>
+                </tr>
+            `;
+            if (countLbl) countLbl.innerText = '0';
+            return;
+        }
+
+        tbody.innerHTML = this.loteVoz.map((item, index) => `
+            <tr class="item-voz-row" data-index="${index}">
+                <td class="position-relative">
+                    <input type="text" class="form-control form-control-sm ref-masivo-input fw-bold" id="masivo-ref-${index}" value="${item.referencia}" placeholder="MT-XXX" oninput="ModuloPulido.updateLoteVozState(${index})">
+                    <div id="masivo-ref-sugg-${index}" class="autocomplete-suggestions" style="top: 100%; left: 0; width: 100%; z-index: 1000;"></div>
+                </td>
+                <td>
+                    <input type="text" class="form-control form-control-sm text-center" id="masivo-op-${index}" value="${item.op}" oninput="ModuloPulido.updateLoteVozState(${index})">
+                </td>
+                <td>
+                    <input type="text" class="form-control form-control-sm text-center" id="masivo-lote-${index}" value="${item.lote}" oninput="ModuloPulido.updateLoteVozState(${index})">
+                </td>
+                <td>
+                    <input type="number" class="form-control form-control-sm text-center text-success fw-bold" id="masivo-buenos-${index}" value="${item.buenos}" min="0" oninput="ModuloPulido.updateLoteVozState(${index})">
+                </td>
+                <td>
+                    <input type="number" class="form-control form-control-sm text-center text-danger fw-bold" id="masivo-malos-${index}" value="${item.malos}" min="0" oninput="ModuloPulido.updateLoteVozState(${index})">
+                </td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="ModuloPulido.eliminarFilaMasivo(${index})">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        if (countLbl) {
+            countLbl.innerText = this.loteVoz.length;
+        }
+
+        this.loteVoz.forEach((item, index) => {
+            this.initMasivoRowAutocomplete(index);
+        });
+    },
+
+    updateLoteVozState: function(index) {
+        const item = this.loteVoz[index];
+        if (item) {
+            item.referencia = document.getElementById(`masivo-ref-${index}`)?.value || '';
+            item.op = document.getElementById(`masivo-op-${index}`)?.value || '';
+            item.lote = document.getElementById(`masivo-lote-${index}`)?.value || '';
+            item.buenos = parseFloat(document.getElementById(`masivo-buenos-${index}`)?.value) || 0;
+            item.malos = parseFloat(document.getElementById(`masivo-malos-${index}`)?.value) || 0;
+        }
+    },
+
+    initMasivoRowAutocomplete: function(index) {
+        const input = document.getElementById(`masivo-ref-${index}`);
+        const suggestions = document.getElementById(`masivo-ref-sugg-${index}`);
+        if (!input || !suggestions) return;
+
+        input.addEventListener('input', (e) => {
+            const query = e.target.value.trim().toUpperCase();
+            if (query.length < 2) {
+                suggestions.classList.remove('active');
+                return;
+            }
+
+            const resultados = this.productosData.filter(p => 
+                (p.codigo_sistema || '').toUpperCase().includes(query) || 
+                (p.descripcion || '').toUpperCase().includes(query)
+            ).slice(0, 5);
+
+            this.renderSuggestions(suggestions, resultados, (p) => {
+                input.value = p.codigo_sistema;
+                this.loteVoz[index].referencia = p.codigo_sistema;
+                suggestions.classList.remove('active');
+            });
+        });
+    },
+
+    agregarFilaManualMasivo: function() {
+        if (this.loteVoz.length >= 8) {
+            Swal.fire({
+                title: 'Límite alcanzado',
+                text: 'El reporte masivo permite registrar un máximo de 8 referencias por lote.',
+                icon: 'warning'
+            });
+            return;
+        }
+        
+        this.loteVoz.push({
+            referencia: '',
+            op: 'SIN OP',
+            lote: new Date().toISOString().split('T')[0],
+            buenos: 0,
+            malos: 0
+        });
+
+        this.renderTablaMasivo();
+    },
+
+    eliminarFilaMasivo: function(index) {
+        this.loteVoz.splice(index, 1);
+        this.renderTablaMasivo();
+    },
+
+    enviarLoteMasivo: async function() {
+        const responsable = this.getOperarioActual();
+        if (!responsable) {
+            Swal.fire({
+                title: 'Falta Responsable',
+                text: 'No se detecta operario responsable asignado.',
+                icon: 'error'
+            });
+            return;
+        }
+
+        if (this.loteVoz.length === 0) {
+            Swal.fire({
+                title: 'Lote Vacío',
+                text: 'No hay referencias en la tabla para registrar.',
+                icon: 'warning'
+            });
+            return;
+        }
+
+        for (let i = 0; i < this.loteVoz.length; i++) {
+            const item = this.loteVoz[i];
+            if (!item.referencia.trim()) {
+                Swal.fire({
+                    title: 'Falta Referencia',
+                    text: `La fila #${i + 1} no tiene una referencia válida.`,
+                    icon: 'warning'
+                });
+                return;
+            }
+            if (item.buenos <= 0 && item.malos <= 0) {
+                Swal.fire({
+                    title: 'Cantidades en Cero',
+                    text: `La fila #${i + 1} (${item.referencia}) debe tener al menos una pieza buena o mala.`,
+                    icon: 'warning'
+                });
+                return;
+            }
+        }
+
+        const horaInicio = document.getElementById('hora-inicio-global-masivo').value;
+        const horaFin = document.getElementById('hora-fin-global-masivo').value;
+
+        const payload = {
+            responsable: responsable,
+            hora_inicio: horaInicio,
+            hora_fin: horaFin,
+            items: this.loteVoz
+        };
+
+        if (typeof window.mostrarLoading === 'function') {
+            window.mostrarLoading(true, 'Registrando lote transaccional masivo...');
+        }
+
+        try {
+            const res = await fetch('/api/pulido/reporte_masivo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+            if (typeof window.mostrarLoading === 'function') {
+                window.mostrarLoading(false);
+            }
+
+            if (data.success) {
+                Swal.fire({
+                    title: '¡Registro Exitoso!',
+                    text: data.message || 'Se registraron con éxito los reportes del lote.',
+                    icon: 'success',
+                    confirmButtonColor: '#10b981'
+                });
+
+                this.loteVoz = [];
+                this.cerrarDictadoMasivo();
+                
+                if (typeof window.cargarHistorialCompleto === 'function') {
+                    window.cargarHistorialCompleto();
+                } else if (typeof ModuloPulido.renderCola === 'function') {
+                    ModuloPulido.renderCola();
+                }
+            } else {
+                Swal.fire({
+                    title: 'Error de Servidor',
+                    text: data.error || 'Ocurrió un error inesperado al procesar el lote.',
+                    icon: 'error'
+                });
+            }
+        } catch (err) {
+            if (typeof window.mostrarLoading === 'function') {
+                window.mostrarLoading(false);
+            }
+            console.error("Error al enviar lote masivo:", err);
+            Swal.fire({
+                title: 'Fallo de Conexión',
+                text: 'No se pudo conectar con el servidor. Por favor intente más tarde.',
+                icon: 'error'
+            });
         }
     }
 };

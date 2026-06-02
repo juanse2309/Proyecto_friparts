@@ -459,16 +459,15 @@ class DbProveedor(db.Model):
     __tablename__ = 'db_proveedores'
     __table_args__ = {'extend_existing': True}
 
-    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    nombre          = db.Column(db.String(200), index=True)
-    nit             = db.Column(db.String(50))
+    proveedores     = db.Column(db.String(200), index=True)
+    nit             = db.Column(db.String(50), primary_key=True)
     direccion       = db.Column(db.String(300))
-    contacto        = db.Column(db.String(150))
+    persona_de_contacto = db.Column(db.String(150))
     telefono        = db.Column(db.String(100))
     correo          = db.Column(db.String(150))
     proceso         = db.Column(db.String(100))
-    forma_pago      = db.Column(db.String(100))
-    evaluacion      = db.Column(db.String(50))
+    forma_de_pago   = db.Column(db.String(100))
+    ultima_evaluacion = db.Column(db.String(50))
 
 
 class OrdenCompra(db.Model):
@@ -488,7 +487,6 @@ class OrdenCompra(db.Model):
     cantidad_recibida = db.Column(db.Numeric(18, 2), default=0)
     diferencia      = db.Column(db.Numeric(18, 2), default=0)
     observaciones   = db.Column(db.Text)
-    cantidad_enviada = db.Column(db.Numeric(18, 2), default=0)
     estado_proceso  = db.Column(db.String(100))
 
 
@@ -554,5 +552,21 @@ class DistribucionOpPedidos(db.Model):
     cant_pulida      = db.Column(db.Integer, default=0)
     cant_ensamblada  = db.Column(db.Integer, default=0)
     cant_alistada    = db.Column(db.Integer, default=0)
+
+class DespachoPedido(db.Model):
+    """
+    Modelo para registrar el historial de envíos/despachos parciales o totales de un pedido.
+    """
+    __tablename__ = 'db_despachos_pedido'
+    __table_args__ = {'extend_existing': True}
+
+    id_despacho      = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    id_pedido        = db.Column(db.String(80), index=True, nullable=False)
+    id_codigo        = db.Column(db.String(100), index=True, nullable=False)
+    cantidad_enviada = db.Column(db.Integer, nullable=False, default=0)
+    fecha            = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    transportadora   = db.Column(db.String(100), nullable=True)
+    guia             = db.Column(db.String(100), nullable=True)
+    responsable      = db.Column(db.String(150), nullable=True)
 
 

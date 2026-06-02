@@ -177,3 +177,87 @@
     border-color: #3b82f6 !important;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
 }
+
+/* Animación de latido para grabación de voz */
+@keyframes pulse-rojo {
+    0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+    70% { box-shadow: 0 0 0 15px rgba(220, 53, 69, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+}
+
+.grabando-activo {
+    animation: pulse-rojo 1.5s infinite !important;
+    background-color: #c82333 !important; /* Rojo oscuro para resaltar estado activo */
+}
+
+/* =========================================
+   ESTRUCTURA DEL MODAL MASIVO POR VOZ
+   ========================================= */
+
+.modal-voz-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background-color: rgba(15, 23, 42, 0.7) !important;
+    backdrop-filter: blur(8px);
+    display: flex; /* Se inyectará desde JS al abrir, pero por default flex para centrar */
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 99999 !important;
+}
+
+#caja-modal-voz {
+    position: relative !important;
+    width: 95% !important; /* Para que deje un margen en la tablet */
+    max-width: 900px !important; /* No crecerá más de esto en PC */
+    max-height: 90vh !important; /* Nunca se cortará por abajo */
+    background: #ffffff;
+    border-radius: 16px;
+    display: flex !important;
+    flex-direction: column !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    overflow: hidden !important; /* Oculta bordes feos */
+    margin: 0 !important; /* Limpia cualquier margin auto */
+}
+
+.modal-voz-body {
+    overflow-y: auto !important;
+    padding: 1.5rem !important;
+    flex-grow: 1; /* Toma el espacio disponible */
+}
+
+/* =========================================
+   CONTRASTE DEL BOTÓN DE DICTADO INTERNO
+   ========================================= */
+
+#btn-iniciar-voz-masiva {
+    background-color: #dc3545 !important; /* Rojo vibrante */
+    color: #ffffff !important; /* TEXTO BLANCO OBLIGATORIO */
+    font-weight: bold !important;
+    border: none !important;
+    text-shadow: none !important; /* Quita sombras extrañas */
+    opacity: 1 !important;
+    box-shadow: 0 4px 6px rgba(220, 53, 69, 0.3) !important;
+}
+
+/* Forzar que los elementos hijos (iconos y spans) hereden el blanco puro */
+#btn-iniciar-voz-masiva *,
+#btn-iniciar-voz-masiva i,
+#btn-iniciar-voz-masiva span {
+    color: #ffffff !important;
+}
+
+/* Asegurar que el estado hover mantenga el alto contraste blanco */
+#btn-iniciar-voz-masiva:hover,
+#btn-iniciar-voz-masiva:focus,
+#btn-iniciar-voz-masiva:active {
+    background-color: #c82333 !important; /* Rojo ligeramente más oscuro */
+    color: #ffffff !important;
+    box-shadow: 0 6px 8px rgba(220, 53, 69, 0.4) !important;
+}
+
+#btn-iniciar-voz-masiva:hover * {
+    color: #ffffff !important;
+}

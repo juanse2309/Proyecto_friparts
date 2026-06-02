@@ -229,7 +229,28 @@ const ModuloUX = (() => {
     return {
         init: () => {
             console.log("🎨 Modulo UX Inicializado");
-            // Esperar a que el usuario cargue en AppState
+
+            // 1. Monkey Patching para Swal (Interceptor de Sonido Global)
+            if (typeof Swal !== 'undefined') {
+                const originalSwalFire = Swal.fire;
+                Swal.fire = function (...args) {
+                    const config = args[0];
+
+                    // Determinar si es éxito o error analizando los argumentos
+                    const isSuccess = (typeof config === 'object' && config.icon === 'success') || (typeof args[1] === 'string' && args[1] === 'success');
+                    const isError = (typeof config === 'object' && (config.icon === 'error' || config.icon === 'warning')) || (typeof args[1] === 'string' && (args[1] === 'error' || args[1] === 'warning'));
+
+                    if (isSuccess && typeof ModuloUX !== 'undefined') {
+                        ModuloUX.reproducirExito();
+                    } else if (isError && typeof ModuloUX !== 'undefined') {
+                        ModuloUX.reproducirError();
+                    }
+
+                    return originalSwalFire.apply(this, args);
+                };
+            }
+
+            // 2. Esperar a que el usuario cargue en AppState
             const checkUser = setInterval(() => {
                 if (window.AppState && window.AppState.user) {
                     actualizarPerfil();
@@ -239,6 +260,10 @@ const ModuloUX = (() => {
         },
         getSoundTheme,
         setSoundTheme,
+        playSound,
+        reproducirExito: () => playSound('success'),
+        reproducirError: () => playSound('error'),
+        reproducirNotificacionPedido: () => playSound('new_order'),
 
         /**
          * Configura el comportamiento de la tecla Enter en un formulario

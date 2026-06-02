@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import logging
 import uuid
+import json
 from backend.core.sql_database import db
 from backend.models.sql_models import ProgramacionEnsamble, Ensamble, Producto, OperacionLog, PncEnsamble
 from backend.services.bom_service import calcular_descuentos_ensamble
@@ -274,14 +275,45 @@ def reportar_ensamble_multi():
                         if cantidad > 0:
                             registro.segundos_por_unidad = round(duracion / cantidad, 2)
 
-                    # Registro de PNC
+                    # --- PROCESAMIENTO AVANZADO DE PNC POR COMPONENTE (BOM) ---
                     pnc_cant = int(reg_data.get('pnc', 0) or 0)
                     if pnc_cant > 0:
-                        db.session.add(PncEnsamble(
-                            id_ensamble=id_ensamble_global, id_codigo=id_codigo_ancla, 
-                            cantidad=pnc_cant, criterio=reg_data.get('pnc_detalles', ''),
-                            codigo_ensamble=id_codigo_ancla
-                        ))
+                        pnc_detalles_raw = reg_data.get('pnc_detalles', [])
+                        
+                        # Si viene como string debido al formateo del payload, parsearlo de forma segura
+                        if isinstance(pnc_detalles_raw, str):
+                            try:
+                                pnc_detalles_list = json.loads(pnc_detalles_raw)
+                            except Exception:
+                                pnc_detalles_list = []
+                        else:
+                            pnc_detalles_list = pnc_detalles_raw
+
+                        # Si logramos extraer la lista desglosada del BOM
+                        if pnc_detalles_list and isinstance(pnc_detalles_list, list):
+                            for item in pnc_detalles_list:
+                                comp_codigo = item.get('codigo_componente')
+                                comp_cant = int(item.get('cantidad', 0) or 0)
+                                comp_criterio = item.get('criterio', 'NO ESPECIFICADO')
+                                
+                                if comp_cant > 0:
+                                    nuevo_pnc_comp = PncEnsamble(
+                                        id_ensamble=id_ensamble_global, 
+                                        id_codigo=id_codigo_ancla,       # El producto padre original
+                                        cantidad=comp_cant, 
+                                        criterio=comp_criterio,
+                                        codigo_ensamble=comp_codigo       # <--- ¡ESTE ES EL CAMBIO CLAVE! Guardamos el código del componente hijo (BOM)
+                                    )
+                                    db.session.add(nuevo_pnc_comp)
+                        else:
+                            # Lógica de respaldo (Fallback) si por alguna razón el array llegó vacío pero marcaron cantidad general
+                            db.session.add(PncEnsamble(
+                                id_ensamble=id_ensamble_global, 
+                                id_codigo=id_codigo_ancla, 
+                                cantidad=pnc_cant, 
+                                criterio=str(pnc_detalles_raw) or "Defecto general sin desglose",
+                                codigo_ensamble=id_codigo_ancla
+                            ))
 
         # --- Propagación de avances a cubetas FIFO (db_distribucion_op_pedidos) ---
         op_actual = main_reg.get('op_numero')

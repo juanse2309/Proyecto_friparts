@@ -223,18 +223,20 @@ const AlmacenModule = {
             });
 
             if (data.success) {
-                // TV MODE: Detectar nuevos pedidos para sonido
-                if (this.isTVMode && this.pedidosPendientes.length > 0) {
+                // DETECTAR NUEVOS PEDIDOS (Notificación auditiva global para planta)
+                if (this.pedidosPendientes && this.pedidosPendientes.length > 0) {
                     const nuevosCount = data.pedidos.length;
                     const anterioresCount = this.pedidosPendientes.length;
 
                     if (nuevosCount > anterioresCount) {
                         try {
-                            if (window.ModuloUX && window.ModuloUX.playSound) {
+                            if (window.ModuloUX && typeof window.ModuloUX.reproducirNotificacionPedido === 'function') {
+                                window.ModuloUX.reproducirNotificacionPedido();
+                            } else if (window.ModuloUX && window.ModuloUX.playSound) {
                                 window.ModuloUX.playSound('new_order');
                             }
                         } catch (e) {
-                            console.warn('Error reproduciendo sonido TV', e);
+                            console.warn('Error reproduciendo sonido de nuevo pedido', e);
                         }
                     }
                 }
@@ -984,6 +986,44 @@ const AlmacenModule = {
 
             const data = await response.json();
             if (data.success) {
+                // --- INICIO INYECCIÓN: REGISTRO HISTÓRICO EN db_despachos_pedido ---
+                const itemsDespachados = this.pedidoActual.productos
+                    .filter(p => p.despachado) // Solo ítems que el operario marcó explícitamente como salida/despachados
+                    .map(p => ({
+                        id_codigo: p.codigo,
+                        cantidad_enviada: parseFloat(p.cantidad) || 0 // Usamos la cantidad total del ítem
+                    }))
+                    .filter(item => item.cantidad_enviada > 0);
+
+                if (itemsDespachados.length > 0) {
+                    try {
+                        const usuarioLocal = window.AppState?.user?.name || window.AppState?.user?.nombre || sessionStorage.getItem('friparts_user_name') || 'Almacén';
+                        
+                        // Fuego y olvido (no bloquea el flujo principal si falla)
+                        fetch('/api/pedidos/despacho', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                id_pedido: this.pedidoActual.id_pedido,
+                                responsable: usuarioLocal,
+                                transportadora: "Gestión Interna",
+                                guia: "N/A",
+                                items: itemsDespachados
+                            })
+                        }).then(res => res.json())
+                          .then(resData => {
+                              if(resData.success) {
+                                  console.log("✅ Auditoría relacional guardada en db_despachos_pedido.");
+                              } else {
+                                  console.warn("⚠️ Auditoría de despacho rechazada:", resData.error);
+                              }
+                          }).catch(err => console.error("❌ Error en fetch de auditoría:", err));
+                    } catch (e) {
+                        console.error("❌ Error guardando el histórico en db_despachos_pedido", e);
+                    }
+                }
+                // --- FIN INYECCIÓN ---
+
                 mostrarNotificacion('¡Seguimiento actualizado!', 'success');
                 this.cerrarModal();
                 this.cargarPedidos();
