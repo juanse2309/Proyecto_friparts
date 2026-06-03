@@ -300,8 +300,8 @@ def registrar_pulido():
                     codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
                 ).first()
                 if prod_wip:
-                    prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
-                    logger.info(f" [WIP] Agregando {wip} piezas a por_pulir del producto {registro.codigo}")
+                    prod_wip.stock_por_pulir = float(prod_wip.stock_por_pulir or 0) + wip
+                    logger.info(f" [WIP] Agregando {wip} piezas a stock_por_pulir del producto {registro.codigo}")
 
         db.session.commit()
         return jsonify({
@@ -864,14 +864,21 @@ def reporte_masivo():
             if not referencia_raw:
                 raise ValueError("Se requiere la referencia en todos los registros del lote")
 
+            buenos = float(item.get('buenos') or 0)
+            malos = float(item.get('malos') or 0)
+            rev_total = sum(float(r.get('cantidad', 0)) for r in item.get('revueltos', []))
+            
+            # Filtro de Seguridad Backend (Anti-Basura)
+            if (buenos + malos + rev_total) <= 0:
+                logger.info(f"Omitiendo registro de {referencia_raw} porque la cantidad total es cero.")
+                continue
+
             # ── Blindaje Dual: guardar con prefijo correcto en db_pulido ──
             referencia = preservar_o_normalizar_prefijo(referencia_raw)
             # referencia_sin_prefijo sólo se usa para los cruces con db_distribucion_op_pedidos
             referencia_sin_prefijo = normalizar_codigo(referencia_raw)
             op = item.get('op') or 'SIN OP'
             lote = item.get('lote') or 'SIN LOTE'
-            buenos = float(item.get('buenos') or 0)
-            malos = float(item.get('malos') or 0)
 
             id_pulido = f"PUL-VOZ-{uuid.uuid4().hex[:8].upper()}"
             registro = ProduccionPulido(
@@ -891,39 +898,50 @@ def reporte_masivo():
                 observaciones='Reporte Masivo por Voz Fin de Turno'
             )
 
-            if hora_inicio_str:
-                try:
-                    h_h, h_m = hora_inicio_str.split(':')
-                    dt_ini = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
-                    registro.hora_inicio = dt_ini.replace(tzinfo=None)
-                except Exception as e_ini:
-                    logger.warning(f"Error parseando hora_inicio: {e_ini}")
+            item_hora_inicio = item.get('hora_inicio')
+            item_hora_fin = item.get('hora_fin')
 
-            if hora_fin_str:
+            # Fallback de Tiempo
+            if not item_hora_inicio or not item_hora_fin:
+                registro.hora_inicio = ahora.replace(tzinfo=None)
+                registro.hora_fin = ahora.replace(tzinfo=None)
+                registro.duracion_segundos = 60
+                registro.tiempo_total_minutos = 1.0
+                registro.segundos_por_unidad = float(round(60 / buenos, 2)) if buenos > 0 else 0.0
+            else:
                 try:
-                    h_h, h_m = hora_fin_str.split(':')
-                    dt_fin = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
-                    registro.hora_fin = dt_fin.replace(tzinfo=None)
-                except Exception as e_fin:
-                    logger.warning(f"Error parseando hora_fin: {e_fin}")
-
-            if hora_inicio_str and hora_fin_str:
-                try:
-                    hi_h, hi_m = hora_inicio_str.split(':')
-                    hf_h, hf_m = hora_fin_str.split(':')
-                    t_ini = ahora.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0)
-                    t_fin = ahora.replace(hour=int(hf_h), minute=int(hf_m), second=0, microsecond=0)
+                    hi_h, hi_m = map(int, item_hora_inicio.split(':'))
+                    hf_h, hf_m = map(int, item_hora_fin.split(':'))
+                    
+                    t_ini = ahora.replace(hour=hi_h, minute=hi_m, second=0, microsecond=0)
+                    t_fin = ahora.replace(hour=hf_h, minute=hf_m, second=0, microsecond=0)
+                    
+                    registro.hora_inicio = t_ini.replace(tzinfo=None)
+                    
+                    # Bugfix de Medianoche
+                    if t_fin < t_ini:
+                        from datetime import timedelta
+                        t_fin += timedelta(days=1)
+                    
+                    registro.hora_fin = t_fin.replace(tzinfo=None)
+                    
                     diff = t_fin - t_ini
                     segundos_totales = int(diff.total_seconds())
-                    if segundos_totales < 0: segundos_totales += 86400
+                    
+                    if segundos_totales < 60:
+                        segundos_totales = 60 # Contingencia mínima
+                        
                     registro.duracion_segundos = segundos_totales
                     registro.tiempo_total_minutos = float(round(segundos_totales / 60.0, 2))
-                    if buenos > 0:
-                        registro.segundos_por_unidad = float(round(segundos_totales / buenos, 2))
-                    else:
-                        registro.segundos_por_unidad = 0.0
+                    registro.segundos_por_unidad = float(round(segundos_totales / buenos, 2)) if buenos > 0 else 0.0
+                    
                 except Exception as e_met:
                     logger.warning(f"Error calculando duracion: {e_met}")
+                    registro.hora_inicio = ahora.replace(tzinfo=None)
+                    registro.hora_fin = ahora.replace(tzinfo=None)
+                    registro.duracion_segundos = 60
+                    registro.tiempo_total_minutos = 1.0
+                    registro.segundos_por_unidad = float(round(60 / buenos, 2)) if buenos > 0 else 0.0
 
             db.session.add(registro)
 
@@ -950,8 +968,8 @@ def reporte_masivo():
                             codigo_sistema=preservar_o_normalizar_prefijo(referencia)
                         ).first()
                         if prod:
-                            prod.por_pulir = (prod.por_pulir or 0) + int(wip)
-                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a por_pulir para {referencia}")
+                            prod.stock_por_pulir = (prod.stock_por_pulir or 0) + int(wip)
+                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a stock_por_pulir para {referencia}")
 
                     # Solo avanzar si no está ya cerrado (idempotente)
                     if lote_traz.estado_actual == 'ABIERTO_PRODUCCION':

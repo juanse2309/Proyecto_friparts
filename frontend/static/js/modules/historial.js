@@ -182,6 +182,12 @@
         const registrosVisibles = h_datos.slice(inicio, fin);
         const totalPaginas = Math.ceil(h_datos.length / h_registrosPorPagina);
 
+        // RBAC: Validación centralizada de permisos
+        const rolActual = (window.AppState?.user?.rol || window.AppState?.user?.departamento || '').toUpperCase().trim();
+        console.log('DEBUG Permisos - Rol/Depto actual:', rolActual);
+        const rolesPermitidos = ['AUXILIAR INVENTARIO', 'ADMINISTRACION', 'ADMIN'];
+        const puedeEditar = rolesPermitidos.includes(rolActual);
+
         // Detectar modo vista (Móvil vs Escritorio)
         const esMovil = window.innerWidth < 992;
 
@@ -225,7 +231,7 @@
                                 <span class="badge ${badgeClass}">${r.Tipo}</span>
                                 <div class="d-flex align-items-center gap-2">
                                     <small class="text-muted fw-bold">${r.Fecha}</small>
-                                    ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.nombre?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.rol === 'Administración') ?
+                                    ${puedeEditar ?
                         `<button class="btn btn-sm btn-outline-primary p-1" onclick="window.ModuloHistorial.editarRegistro(${h_datos.indexOf(r)})" style="line-height: 1;">
                                             <i class="fas fa-pencil-alt" style="font-size: 0.8rem;"></i>
                                         </button>` : ''}
@@ -279,7 +285,7 @@
                                 <th style="width: 100px;">Máquina</th>
                                 <th>Detalle</th>
                                 <th class="text-center" style="width: 80px;">Cant.</th>
-                                ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.rol === 'Administración') ? '<th class="text-center" style="width: 50px;"></th>' : ''}
+                                ${puedeEditar ? '<th class="text-center" style="width: 50px;"></th>' : ''}
                             </tr>
                         </thead>
                         <tbody>
@@ -331,7 +337,7 @@
                         </td>
 
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
-                        ${(window.AppState?.user?.nombre?.toUpperCase().includes('PAOLA') || window.AppState?.user?.nombre?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.name?.toUpperCase().includes('PAOLA') || window.AppState?.user?.name?.toUpperCase().includes('ZOENIA') || window.AppState?.user?.rol === 'Administración') ?
+                        ${puedeEditar ?
                         `<td class="text-center">
                                 ${r.Tipo === 'INYECCION' && r.Estado === 'PENDIENTE' ? `
                                 <button class="btn btn-sm btn-link text-success p-0 me-2" onclick="if(window.ModuloInyeccion) window.ModuloInyeccion.validarRegistro('${r.id}')" title="Validar Lote">

@@ -2019,9 +2019,7 @@
                     <input class="form-check-input" type="checkbox" id="toggle-pulido-mode" onchange="ModuloPulido.cambiarModo(this.checked)" checked>
                 </div>
                 <span class="text-primary fw-bold small"><i class="fas fa-microchip me-1"></i> MODO PLANTA (PRO)</span>
-                <button type="button" class="btn btn-sm px-3 rounded-pill" id="btn-dictar-voz" onclick="ModuloPulido.abrirDictadoMasivo()" style="margin-left: 20px; background-color: #dc3545 !important; color: #ffffff !important; font-weight: bold; border: none; box-shadow: 0 4px 6px rgba(220, 53, 69, 0.3); display: none; align-items: center; gap: 6px;">
-                    <i class="fas fa-microphone" style="color: #ffffff;"></i> <span style="color: #ffffff;">🎤 Dictar Reporte de Turno</span>
-                </button>
+
 
                 <!-- MODO LOTES EN VIVO (MES - Paso 2) -->
                 <div class="vr mx-1 d-none d-md-block" style="opacity:0.25;"></div>
@@ -2323,28 +2321,6 @@
 
                             <!-- Contenedor dinámico de referencias y cantidades -->
                             <div id="lote-modo-referencias-container" class="mb-4"></div>
-
-                            <!-- Dictado numérico por voz (motor exclusivo) -->
-                            <div class="p-3 rounded-4 mb-4"
-                                 style="background:#f0fdf4;border:1px dashed #86efac;">
-                                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                                    <div>
-                                        <div class="fw-bold text-success small text-uppercase mb-1">
-                                            <i class="fas fa-microphone me-1"></i>Dictado Numérico (Opcional)
-                                        </div>
-                                        <small class="text-muted">
-                                            Di: <em>&ldquo;350 buenos, 12 malos&rdquo;</em> y los campos se autollenan.
-                                        </small>
-                                    </div>
-                                    <button type="button" id="btn-voz-lote"
-                                            class="btn btn-danger rounded-pill px-4 py-2 fw-bold"
-                                            onclick="ModuloPulido.toggleVozLote()">
-                                        <i class="fas fa-microphone me-2"></i>Dictar Cantidades
-                                    </button>
-                                </div>
-                                <div id="status-voz-lote" class="mt-2 text-muted small fst-italic"
-                                     style="min-height:1.4em;"></div>
-                            </div>
 
                             <!-- Botón de envío final -->
                             <div class="d-grid">

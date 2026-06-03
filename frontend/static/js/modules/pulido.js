@@ -1918,6 +1918,17 @@ const ModuloPulido = {
                                    style="color:#16a34a; border:2px solid #86efac; border-radius:8px;">
                         </div>
                     </div>
+
+                    <div class="row g-3 align-items-center mt-1">
+                        <div class="col-6">
+                            <label class="form-label fw-bold text-muted small text-uppercase mb-1">Hora Inicio</label>
+                            <input type="time" class="form-control item-hora-inicio" style="border-radius:8px;">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-bold text-muted small text-uppercase mb-1">Hora Fin</label>
+                            <input type="time" class="form-control item-hora-fin" style="border-radius:8px;">
+                        </div>
+                    </div>
                     
                     <div class="defectos-container mt-3 pt-2 border-top" id="defects-container-${lote.id_lote.replace(/[^a-zA-Z0-9]/g, '_')}">
                         <!-- Sub-filas de defectos -->
@@ -2084,117 +2095,7 @@ const ModuloPulido = {
         });
     },
 
-    toggleVozLote: function() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            Swal.fire({ title: 'Navegador no soportado', text: 'Use Google Chrome.', icon: 'error' });
-            return;
-        }
-        if (!this.grupoLoteSeleccionado) {
-            Swal.fire({ title: 'Sin Grupo Seleccionado', text: 'Primero toca un lote de la lista.', icon: 'warning' });
-            return;
-        }
 
-        const btn     = document.getElementById('btn-voz-lote');
-        const statusEl = document.getElementById('status-voz-lote');
-
-        if (this.isEscuchandoLote) {
-            this.isEscuchandoLote = false;
-            try { this.recognitionLote.stop(); } catch(e) {}
-            if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
-            if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
-            if (statusEl) statusEl.textContent = '';
-            return;
-        }
-
-        this.recognitionLote = new SpeechRecognition();
-        this.recognitionLote.lang = 'es-CO';
-        this.recognitionLote.continuous = false;
-        this.recognitionLote.interimResults = true;
-
-        this.recognitionLote.onstart = () => {
-            this.isEscuchandoLote = true;
-            if (btn) btn.innerHTML = '<i class="fas fa-stop me-2"></i>Detener Escucha';
-            if (btn) btn.classList.replace('btn-danger', 'btn-secondary');
-            if (statusEl) statusEl.textContent = '🎙️ Escuchando...';
-        };
-
-        this.recognitionLote.onresult = (event) => {
-            let transcript = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                transcript += event.results[i][0].transcript;
-            }
-            if (statusEl) statusEl.textContent = transcript;
-
-            if (event.results[event.results.length - 1].isFinal) {
-                this._parsearCantidadesVoz(transcript.toLowerCase());
-                this.isEscuchandoLote = false;
-                if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
-                if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
-            }
-        };
-
-        this.recognitionLote.onerror = (e) => {
-            console.error('[Voz Lote] Error:', e.error);
-            this.isEscuchandoLote = false;
-            if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
-            if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
-            if (statusEl) statusEl.textContent = `Error: ${e.error}`;
-        };
-
-        this.recognitionLote.onend = () => {
-            if (this.isEscuchandoLote) {
-                this.isEscuchandoLote = false;
-                if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
-                if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
-            }
-        };
-
-        this.recognitionLote.start();
-    },
-
-    _parsearCantidadesVoz: function(texto) {
-        function toNum(t) {
-            if (!t) return 0;
-            const n = parseFloat(t);
-            if (!isNaN(n)) return n;
-            const dic = { cero:0, uno:1, dos:2, tres:3, cuatro:4, cinco:5, seis:6, siete:7,
-                ocho:8, nueve:9, diez:10, once:11, doce:12, trece:13, catorce:14, quince:15,
-                veinte:20, treinta:30, cuarenta:40, cincuenta:50, sesenta:60, setenta:70,
-                ochenta:80, noventa:90, cien:100 };
-            const norm = t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-            return dic[norm] ?? 0;
-        }
-
-        const firstBlock = document.querySelector('.reference-row-block');
-        if (!firstBlock) return;
-        
-        const idLote = firstBlock.getAttribute('data-lote-id');
-        const bEl = firstBlock.querySelector('.lote-buenos-input');
-
-        const bM = texto.match(/([\w]+)\s*(buenos|buenas|bueno|ok)/i);
-        if (bM && bEl) bEl.value = toNum(bM[1]);
-
-        const mM = texto.match(/([\w]+)\s*(malos|malas|malo|pnc|descarte|defecto)/i);
-        let qtyMalos = 0;
-        if (mM) {
-            qtyMalos = toNum(mM[1]);
-        }
-
-        if (qtyMalos > 0) {
-            this.agregarDefectoFila(idLote, 'Rebaba', qtyMalos);
-        }
-
-        if (!bM) {
-            const soloNum = texto.match(/(\d+)/);
-            if (soloNum && bEl) bEl.value = parseInt(soloNum[1]);
-        }
-
-        const statusEl = document.getElementById('status-voz-lote');
-        if (statusEl) {
-            statusEl.textContent = `✅ Captado: ${bEl?.value || 0} buenos` + (qtyMalos > 0 ? ` | ${qtyMalos} malos (Rebaba)` : '');
-        }
-    },
 
     enviarReporteLote: async function() {
         if (!this.grupoLoteSeleccionado) {
@@ -2254,6 +2155,10 @@ const ModuloPulido = {
                 }
             });
 
+            const item_hora_inicio = block.querySelector('.item-hora-inicio')?.value || '';
+            const item_hora_fin = block.querySelector('.item-hora-fin')?.value || '';
+
+            // Anti-Basura: Si todo es cero, se ignora por completo
             if (buenos === 0 && totalMalos === 0 && totalRevueltos === 0) {
                 return;
             }
@@ -2266,12 +2171,14 @@ const ModuloPulido = {
                 buenos: buenos,
                 malos: totalMalos,
                 pnc_detail: pnc_detail,
-                revueltos: revueltos
+                revueltos: revueltos,
+                hora_inicio: item_hora_inicio,
+                hora_fin: item_hora_fin
             });
         });
 
         if (items.length === 0) {
-            Swal.fire({ title: 'Sin Movimiento', text: 'Reporta al menos un buje bueno o defectuoso.', icon: 'warning' });
+            Swal.fire({ title: 'Sin Movimiento', text: 'No hay piezas para reportar', icon: 'warning' });
             return;
         }
 
@@ -2320,254 +2227,7 @@ const ModuloPulido = {
         }
     },
 
-    cerrarDictadoMasivo: function() {
-        this.cerrarModalVoz();
-    },
 
-    cerrarModalVoz: function() {
-        const modal = document.getElementById('modal-reporte-masivo-voz');
-        if (modal) {
-            modal.style.setProperty('display', 'none', 'important');
-        }
-        this.loteVoz = [];
-        this.transcripcionCompleta = '';
-        
-        if (this.recognitionMasivo) {
-            try { this.recognitionMasivo.stop(); } catch(e){}
-        }
-        this.isEscuchandoMasivo = false;
-        
-        // Quitar latido visual del botón rojo principal
-        const btnDictar = document.getElementById('btn-dictar-voz');
-        if (btnDictar) btnDictar.classList.remove('grabando-activo');
-    },
-
-    toggleEscuchaVozMasiva: function() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            Swal.fire({
-                title: 'API No Soportada',
-                text: 'El reconocimiento de voz no está soportado en este navegador. Por favor use Google Chrome.',
-                icon: 'error'
-            });
-            return;
-        }
-
-        const btn = document.getElementById('btn-iniciar-voz-masiva');
-        const statusLbl = document.getElementById('status-voz-masiva');
-        const icon = document.getElementById('icon-voz-masiva');
-        const lbl = document.getElementById('lbl-btn-voz-masiva');
-
-        if (!this.isEscuchandoMasivo) {
-            // Limpieza de memoria para nueva grabación
-            this.transcripcionCompleta = '';
-            this.loteVoz = [];
-            this.renderTablaMasivo();
-            const preview = document.getElementById('preview-transcripcion-masiva');
-            if (preview) preview.innerHTML = '';
-
-            try {
-                this.recognitionMasivo = new SpeechRecognition();
-                this.recognitionMasivo.continuous = true;
-                this.recognitionMasivo.interimResults = true; // Permite ver la cursiva en vivo sin cortar
-                this.recognitionMasivo.lang = 'es-CO';
-
-                this.recognitionMasivo.onstart = () => {
-                    this.isEscuchandoMasivo = true;
-                    statusLbl.innerText = 'Escuchando continuo...';
-                    statusLbl.className = 'badge bg-danger px-3 py-2 rounded-pill fw-bold animate-pulse';
-                    btn.className = 'btn btn-secondary px-4 py-2 rounded-pill fw-bold';
-                    const btnExterno = document.getElementById('btn-dictar-voz');
-                    if (btnExterno) btnExterno.classList.add('grabando-activo');
-                    if (icon) icon.className = 'fas fa-stop';
-                    if (lbl) lbl.innerText = 'Detener Grabación';
-                    console.log('🎙️ Reconocimiento masivo continuo iniciado');
-                };
-
-                this.recognitionMasivo.onresult = (event) => {
-                    let finalTranscript = '';
-                    let interimTranscript = '';
-                    
-                    for (let i = event.resultIndex; i < event.results.length; ++i) {
-                        if (event.results[i].isFinal) {
-                            finalTranscript += event.results[i][0].transcript + ' ';
-                        } else {
-                            interimTranscript += event.results[i][0].transcript;
-                        }
-                    }
-                    
-                    if (finalTranscript.trim()) {
-                        this.transcripcionCompleta = (this.transcripcionCompleta || '') + finalTranscript;
-                        console.log('🗣️ Transcripción global acumulada (Solo previsualización en vivo):', this.transcripcionCompleta);
-                        // No llamamos a procesarTranscripcionMasiva aquí. Procesamiento diferido.
-                    }
-                    
-                    const preview = document.getElementById('preview-transcripcion-masiva');
-                    if (preview) {
-                        // Muestra la transcripción histórica completa + el interim en cursiva en vivo
-                        preview.innerHTML = (this.transcripcionCompleta || '') + '<i style="color: #6b7280;">' + interimTranscript + '</i>';
-                    }
-                };
-
-                this.recognitionMasivo.onerror = (e) => {
-                    console.error('❌ Error reconocimiento masivo:', e);
-                    statusLbl.innerText = `Error: ${e.error}`;
-                    statusLbl.className = 'badge bg-warning text-dark px-3 py-2 rounded-pill fw-bold';
-                };
-
-                this.recognitionMasivo.onend = () => {
-                    if (this.isEscuchandoMasivo) {
-                        // Reinicio controlado con debounce para evitar bloqueos del hardware
-                        setTimeout(() => {
-                            try { 
-                                this.recognitionMasivo.start(); 
-                            } catch (err) {
-                                console.log("Ya estaba corriendo", err);
-                            }
-                        }, 400);
-                    } else {
-                        console.log("Grabación detenida por el usuario de forma limpia.");
-                        statusLbl.innerText = 'Micrófono inactivo';
-                        statusLbl.className = 'badge bg-secondary px-3 py-2 rounded-pill fw-bold';
-                        btn.className = 'btn btn-danger px-4 py-2 rounded-pill fw-bold';
-                        const btnExterno = document.getElementById('btn-dictar-voz');
-                        if (btnExterno) btnExterno.classList.remove('grabando-activo');
-                        if (icon) icon.className = 'fas fa-play';
-                        if (lbl) lbl.innerText = 'Iniciar Grabación Continua';
-                    }
-                };
-
-                this.recognitionMasivo.start();
-
-            } catch (err) {
-                console.error("Fallo al iniciar recognition:", err);
-            }
-        } else {
-            this.isEscuchandoMasivo = false;
-            if (this.recognitionMasivo) {
-                this.recognitionMasivo.stop();
-            }
-
-            // PROCESAMIENTO DISPARADO POR EL BOTÓN AL DETENER
-            if (this.transcripcionCompleta && this.transcripcionCompleta.trim() !== '') {
-                console.log('🛠️ Procesando dictado diferido al detener...');
-                this.procesarTranscripcionMasiva(this.transcripcionCompleta.toLowerCase());
-            }
-
-            statusLbl.innerText = 'Micrófono inactivo';
-            statusLbl.className = 'badge bg-secondary px-3 py-2 rounded-pill fw-bold';
-            btn.className = 'btn btn-danger px-4 py-2 rounded-pill fw-bold';
-            const btnExterno = document.getElementById('btn-dictar-voz');
-            if (btnExterno) btnExterno.classList.remove('grabando-activo');
-            if (icon) icon.className = 'fas fa-play';
-            if (lbl) lbl.innerText = 'Iniciar Grabación Continua';
-        }
-    },
-
-    procesarTranscripcionMasiva: function(texto) {
-        if (!texto) return;
-
-        // Reiniciar la tabla de forma pasiva, ya que reestructuraremos toda la cadena global de cero
-        this.loteVoz = [];
-
-        // Función interna de mapeo robusto de texto a dígitos con soporte de acentos
-        function palabraANumero(texto) {
-            if (!texto) return 0;
-            if (!isNaN(texto)) return parseFloat(texto); // Si ya es un dígito, lo devuelve
-            
-            const diccionario = {
-                'cero': 0, 'uno': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
-                'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15, 'veinte': 20, 'treinta': 30, 'cuarenta': 40, 'cincuenta': 50,
-                'sesenta': 60, 'setenta': 70, 'ochenta': 80, 'noventa': 90, 'cien': 100
-            };
-            
-            let palabra = texto.toLowerCase().trim();
-            // Normalizar eliminando acentos/tildes de forma universal
-            palabra = palabra.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            
-            return diccionario[palabra] !== undefined ? diccionario[palabra] : 0;
-        }
-
-        // Separar estrictamente por la palabra clave 'referencia' e ignorar el texto anterior al primero
-        const partes = texto.split(/\breferencia\b/i).slice(1);
-        
-        partes.forEach(part => {
-            const cleanPart = part.trim();
-            if (!cleanPart) return;
-
-            // NORMALIZACIÓN DE CÓDIGOS CON ESPACIOS:
-            // Cortamos el segmento hasta toparnos con palabras clave de control o comas
-            let segmentoCodigo = cleanPart.split(/\b(op|orden|lote|buenos|buenas|bueno|ok|malos|malas|malo|pnc|descarte)\b/i)[0];
-            segmentoCodigo = segmentoCodigo.split(',')[0].trim();
-            
-            // Eliminar espacios intermedios únicamente si están rodeados de dígitos (ej. "90 04" -> "9004")
-            segmentoCodigo = segmentoCodigo.replace(/(?<=\d)\s+(?=\d)/g, '');
-
-            // CÓDIGO: Tomar la primera combinación alfanumérica (incluyendo guiones) que quedó
-            const refMatch = segmentoCodigo.match(/^([a-zA-Z0-9\-]+)/);
-            if (!refMatch) return; // Solo continuar si logramos extraer un código de referencia válido
-            
-            const refRaw = refMatch[1].replace(/^-+|-+$/g, '').toUpperCase();
-            if (!refRaw) return;
-
-            // OP: Patrón /op\s*(\d+)/i u /orden\s*(\d+)/i
-            const opMatch = cleanPart.match(/op\s*(\d+)/i) || cleanPart.match(/orden\s*(\d+)/i);
-            const op = opMatch ? opMatch[1] : 'SIN OP';
-
-            // LOTE: Mantener la lógica adaptativa por defecto
-            let lote = new Date().toISOString().split('T')[0];
-            const loteMatch = cleanPart.match(/\blote\s+([^,\n\s]+)/i);
-            if (loteMatch) {
-                lote = loteMatch[1];
-                if (lote.toLowerCase().includes('primero') || lote.toLowerCase().includes('1') || lote.toLowerCase().includes('uno')) {
-                    lote = new Date().toISOString().split('T')[0];
-                }
-            }
-
-            // BUENOS: Patrón numérico o palabra antes de palabras clave (buenos, buenas, bueno, ok)
-            const buenosMatch = cleanPart.match(/([a-zA-Z0-9_]+)\s*(buenos|buenas|bueno|ok)/i);
-            let buenos = buenosMatch ? palabraANumero(buenosMatch[1]) : 0;
-
-            // MALOS (PNC): Patrón numérico o palabra antes de palabras clave (malos, malas, malo, pnc, descarte)
-            const malosMatch = cleanPart.match(/([a-zA-Z0-9_]+)\s*(malos|malas|malo|pnc|descarte)/i);
-            let malos = malosMatch ? palabraANumero(malosMatch[1]) : 0;
-
-            // FALLBACK DE ENTRADA DIRECTA: Si buenos es 0, buscar un número suelto al final del bloque
-            if (buenos === 0) {
-                const palabras = cleanPart.split(/\s+/);
-                // Recorrer de atrás hacia adelante (excluyendo el primer token que es la referencia)
-                for (let idx = palabras.length - 1; idx > 0; idx--) {
-                    const token = palabras[idx].replace(/[,.]/g, '').trim().toUpperCase();
-                    if (token) {
-                        const val = palabraANumero(token);
-                        if (val > 0 && token !== refRaw && token !== op) {
-                            buenos = val;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (this.loteVoz.length >= 8) {
-                console.warn("⚠️ Se alcanzó el límite máximo de 8 referencias.");
-                return;
-            }
-
-            // Validar que no se agregue un duplicado exacto en el mismo lote de voz
-            const duplicado = this.loteVoz.some(item => item.referencia === refRaw && item.op === op && item.lote === lote);
-            if (!duplicado) {
-                this.loteVoz.push({
-                    referencia: refRaw,
-                    op: op,
-                    lote: lote,
-                    buenos: buenos,
-                    malos: malos
-                });
-            }
-        });
-
-        this.renderTablaMasivo();
-    },
 
     renderTablaMasivo: function() {
         const tbody = document.getElementById('tabla-masivo-voz-body');

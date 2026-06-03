@@ -258,6 +258,19 @@
     box-shadow: 0 6px 8px rgba(220, 53, 69, 0.4) !important;
 }
 
-#btn-iniciar-voz-masiva:hover * {
-    color: #ffffff !important;
+}
+
+/* =========================================
+   COMPATIBILIDAD MÓVIL PARA INPUTS DE TIEMPO
+   ========================================= */
+input[type="time"] {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    font-size: 16px; /* Evita auto-zoom en iOS */
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    -webkit-appearance: none; /* Fuerza la UI nativa en Safari/Chrome mobile */
+    background-color: #fff;
+    min-height: 45px; /* Asegura un área táctil lo suficientemente grande (Touch Target) */
 }

@@ -48,8 +48,9 @@ def normalizar_codigo(codigo: str) -> str:
 def preservar_o_normalizar_prefijo(codigo: str, prefijo_defecto: str = "FR-") -> str:
     """
     Garantiza que el código tenga un prefijo válido para db_productos.
-    Si el código ya tiene un prefijo (ej. MT-, CAR-), lo respeta intacto.
-    Si viene numérico limpio (ej. 9890), le inyecta el prefijo_defecto.
+    Regla estricta:
+    - Si el código YA contiene CUALQUIER prefijo (ej. MT-, CB-, CAR-), se retorna intacto.
+    - SOLO si el código es un número puro y huérfano (ej. '7008'), se le inyecta el prefijo_defecto.
     """
     if codigo is None:
         return ""
@@ -57,12 +58,12 @@ def preservar_o_normalizar_prefijo(codigo: str, prefijo_defecto: str = "FR-") ->
     if not cod:
         return ""
     
-    # Si ya comienza con letras seguidas de guion (ej. MT-7008, FR-9890)
-    if re.match(r'^[A-Z]+-', cod):
-        return cod
+    # Si el código es un número puro (ej. "7008")
+    if cod.isdigit():
+        return f"{prefijo_defecto}{cod}"
         
-    # Si es un número sin prefijo, aplicamos el default
-    return f"{prefijo_defecto}{cod}"
+    # Si ya tiene letras, guiones, o cualquier otro prefijo, lo retornamos exactamente igual
+    return cod
 
 
 def limpiar_cadena(texto: str) -> str:
