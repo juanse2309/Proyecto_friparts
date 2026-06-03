@@ -3,7 +3,7 @@ from sqlalchemy import text
 from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
-from backend.utils.formatters import normalizar_codigo, con_prefijo_fr
+from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo
 import uuid
 from datetime import datetime
 import pytz
@@ -49,8 +49,8 @@ def registrar_pulido():
 
         # Mapeo y Estandarización
         registro.fecha = datetime.strptime(data.get('fecha_inicio', ahora.strftime('%Y-%m-%d')), '%Y-%m-%d').date()
-        # ── Blindaje Dual: db_pulido.codigo con prefijo FR- (espejo de db_productos) ──
-        registro.codigo = con_prefijo_fr(data.get('codigo_producto'))
+        # ── Blindaje Dual: preservar prefijo MT-/CAR- o agregar FR- por defecto ──
+        registro.codigo = preservar_o_normalizar_prefijo(data.get('codigo_producto'))
         registro.responsable = data.get('responsable')
         registro.cantidad_real = float(data.get('cantidad_real') or 0)
         registro.pnc_inyeccion = int(data.get('pnc_inyeccion') or 0)
@@ -202,7 +202,7 @@ def registrar_pulido():
         db.session.query(BujeRevuelto).filter_by(id_pulido=registro.id_pulido).delete()
 
         for rev_item in revueltos_list:
-            cod_rev = con_prefijo_fr(rev_item.get('id_codigo'))  # FR- obligatorio: espejo de db_productos
+            cod_rev = preservar_o_normalizar_prefijo(rev_item.get('id_codigo'))  # Prefijo obligatorio
             cant_rev = float(rev_item.get('cantidad') or 0)
             logger.info(f" [REVUELTOS] Intentando agregar: {cod_rev} | Cant: {cant_rev}")
             
@@ -295,13 +295,13 @@ def registrar_pulido():
             wip = cant_inyectada - (buenas + pnc_total + rev_total)
             
             if wip > 0:
-                # ── WIP: buscar en db_productos CON prefijo FR- (maestro de inventario) ──
+                # ── WIP: buscar en db_productos respetando prefijo ──
                 prod_wip = db.session.query(Producto).filter_by(
-                    codigo_sistema=con_prefijo_fr(registro.codigo)
+                    codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
                 ).first()
                 if prod_wip:
-                    prod_wip.stock_por_pulir = float(prod_wip.stock_por_pulir or 0) + wip
-                    logger.info(f" [WIP] Agregando {wip} piezas a stock_por_pulir del producto {registro.codigo}")
+                    prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
+                    logger.info(f" [WIP] Agregando {wip} piezas a por_pulir del producto {registro.codigo}")
 
         db.session.commit()
         return jsonify({
@@ -864,8 +864,8 @@ def reporte_masivo():
             if not referencia_raw:
                 raise ValueError("Se requiere la referencia en todos los registros del lote")
 
-            # ── Blindaje Dual: guardar con FR- en db_pulido (espejo de db_productos) ──
-            referencia = con_prefijo_fr(referencia_raw)
+            # ── Blindaje Dual: guardar con prefijo correcto en db_pulido ──
+            referencia = preservar_o_normalizar_prefijo(referencia_raw)
             # referencia_sin_prefijo sólo se usa para los cruces con db_distribucion_op_pedidos
             referencia_sin_prefijo = normalizar_codigo(referencia_raw)
             op = item.get('op') or 'SIN OP'
@@ -947,11 +947,11 @@ def reporte_masivo():
                     
                     if wip > 0:
                         prod = db.session.query(Producto).filter_by(
-                            codigo_sistema=con_prefijo_fr(referencia)  # db_productos usa FR-
+                            codigo_sistema=preservar_o_normalizar_prefijo(referencia)
                         ).first()
                         if prod:
-                            prod.stock_por_pulir = (prod.stock_por_pulir or 0) + int(wip)
-                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a stock_por_pulir para {referencia}")
+                            prod.por_pulir = (prod.por_pulir or 0) + int(wip)
+                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a por_pulir para {referencia}")
 
                     # Solo avanzar si no está ya cerrado (idempotente)
                     if lote_traz.estado_actual == 'ABIERTO_PRODUCCION':
@@ -991,7 +991,7 @@ def reporte_masivo():
             revueltos_items = item.get('revueltos', [])
             if revueltos_items and id_lote_ref:
                 for r_item in revueltos_items:
-                    r_cod_con_fr = con_prefijo_fr(r_item.get('id_codigo'))  # FR- para db_bujes_revueltos
+                    r_cod_con_fr = preservar_o_normalizar_prefijo(r_item.get('id_codigo'))
                     r_cant = float(r_item.get('cantidad') or 0)
                     if r_cod_con_fr and r_cant > 0:
                         db.session.add(BujeRevuelto(

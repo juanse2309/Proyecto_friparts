@@ -389,7 +389,8 @@ def registrar_inyeccion_lote():
                         from backend.models.sql_models import DistribucionOpPedidos
                         
                         op_limpia = str(op_actual or '').strip()
-                        codigo_limpio = str(id_cod or '').replace('FR-', '').strip()
+                        from backend.utils.formatters import normalizar_codigo
+                        codigo_limpio = normalizar_codigo(id_cod)
                         
                         # Buscar las cubetas por OP y Referencia
                         cubetas = db.session.query(DistribucionOpPedidos).filter(
@@ -1105,7 +1106,8 @@ def mes_reportar():
                 from backend.models.sql_models import DistribucionOpPedidos
                 
                 op_limpia = str(op_actual or '').strip()
-                codigo_limpio = str(prod.id_codigo or '').replace('FR-', '').strip()
+                from backend.utils.formatters import normalizar_codigo
+                codigo_limpio = normalizar_codigo(prod.id_codigo)
                 
                 # Buscamos todas las cubetas asociadas a esta OP y producto
                 cubetas = db.session.query(DistribucionOpPedidos).filter(

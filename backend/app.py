@@ -1992,8 +1992,8 @@ def obtener_producto(codigo):
     try:
         logger.debug(f" Buscando producto: {codigo}")
         
-        # Normalizar codigo (quitar FR- si lo tiene)
-        codigo_limpio = codigo.replace('FR-', '').strip()
+        from backend.utils.formatters import normalizar_codigo
+        codigo_limpio = normalizar_codigo(codigo)
         
         # Usar funcion existente para buscar producto
         resultado = buscar_producto_en_inventario(codigo_limpio)

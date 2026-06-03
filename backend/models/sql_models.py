@@ -30,7 +30,6 @@ class Producto(db.Model):
     oem             = db.Column(db.String(200),  nullable=True)
     dolares         = db.Column(db.Numeric(18, 2), default=0)
     stock_bodega    = db.Column(db.Numeric(18, 2), default=0)
-    stock_por_pulir = db.Column(db.Numeric(18, 2), default=0)
 
 
 class ProduccionInyeccion(db.Model):
