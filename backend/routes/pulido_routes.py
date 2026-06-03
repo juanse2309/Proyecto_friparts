@@ -276,8 +276,27 @@ def registrar_pulido():
                         cubeta.cant_pulida = (cubeta.cant_pulida or 0) + piezas_por_repartir
                         piezas_por_repartir = 0
 
-        db.session.commit()
+        # ---------------------------------------------------------
+        # Cierre de Lote con Saldo a WIP "Por Pulir"
+        # ---------------------------------------------------------
+        lote_traz = db.session.get(TrazabilidadLote, registro.id_pulido)
+        if lote_traz:
+            lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
+            
+            cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
+            buenas = float(registro.cantidad_real or 0)
+            pnc_total = float(registro.pnc_inyeccion or 0) + float(registro.pnc_pulido or 0)
+            rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_list)
+            
+            wip = cant_inyectada - (buenas + pnc_total + rev_total)
+            
+            if wip > 0:
+                prod_wip = db.session.query(Producto).filter_by(codigo_sistema=registro.codigo).first()
+                if prod_wip:
+                    prod_wip.stock_por_pulir = float(prod_wip.stock_por_pulir or 0) + wip
+                    logger.info(f" [WIP] Agregando {wip} piezas a stock_por_pulir del producto {registro.codigo}")
 
+        db.session.commit()
         return jsonify({
             "success": True, 
             "message": "Registro de pulido sincronizado",
@@ -907,6 +926,21 @@ def reporte_masivo():
             if id_lote_ref:
                 lote_traz = db.session.get(TrazabilidadLote, id_lote_ref)
                 if lote_traz:
+                    # ---------------------------------------------------------
+                    # Cierre de Lote con Saldo a WIP "Por Pulir" (MODO MASIVO)
+                    # ---------------------------------------------------------
+                    revueltos_items = item.get('revueltos', [])
+                    cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
+                    rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_items)
+                    
+                    wip = cant_inyectada - (buenos + malos + rev_total)
+                    
+                    if wip > 0:
+                        prod = db.session.get(Producto, referencia)
+                        if prod:
+                            prod.stock_por_pulir = (prod.stock_por_pulir or 0) + int(wip)
+                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a stock_por_pulir para {referencia}")
+
                     # Solo avanzar si no está ya cerrado (idempotente)
                     if lote_traz.estado_actual == 'ABIERTO_PRODUCCION':
                         lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
@@ -940,6 +974,20 @@ def reporte_masivo():
                     criterio='PNC Pulido - Reporte Masivo por Voz',
                     codigo_ensamble='AUDITORIA PULIDO'
                 ))
+
+            # 4. Registrar Revueltos Masivos
+            revueltos_items = item.get('revueltos', [])
+            if revueltos_items and id_lote_ref:
+                for r_item in revueltos_items:
+                    r_cod = r_item.get('id_codigo')
+                    r_cant = float(r_item.get('cantidad') or 0)
+                    if r_cod and r_cant > 0:
+                        db.session.add(BujeRevuelto(
+                            id_lote=id_lote_ref,
+                            id_codigo=normalizar_codigo(r_cod),
+                            cantidad=int(r_cant),
+                            registrado_por=responsable
+                        ))
 
             # --- Propagación FIFO ---
             if op and str(op).strip() != 'SIN OP':

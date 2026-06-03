@@ -35,7 +35,7 @@ const ModuloInyeccion = {
         if (window.ModuloUX && window.ModuloUX.setupSmartEnter) {
             window.ModuloUX.setupSmartEnter({
                 inputIds: [
-                    'fecha-inyeccion', 'maquina-inyeccion', 'responsable-inyeccion',
+                    'fecha-inyeccion', 'maquina-inyeccion', 
                     'hora-llegada-inyeccion', 'hora-inicio-inyeccion', 'hora-termina-inyeccion',
                     'peso-vela-inyeccion', 'orden-produccion-inyeccion',
                     'codigo-producto-inyeccion', 'cavidades-inyeccion', 'cantidad-inyeccion',
@@ -45,15 +45,6 @@ const ModuloInyeccion = {
                 autocomplete: {
                     inputId: 'codigo-producto-inyeccion',
                     suggestionsId: 'inyeccion-producto-suggestions'
-                }
-            });
-
-            // Autocomplete para responsable
-            window.ModuloUX.setupSmartEnter({
-                inputIds: ['responsable-inyeccion'],
-                autocomplete: {
-                    inputId: 'responsable-inyeccion',
-                    suggestionsId: 'inyeccion-responsable-suggestions'
                 }
             });
         }
@@ -289,8 +280,8 @@ const ModuloInyeccion = {
             const dispCalc = Math.ceil(cantReal / cavs);
             
             // Ajuste de Bruto vs Buenas Juan Sebastian Request
-            // Si el backend envía cantReal (Buenas), el Bruto real es cantReal + pncVal
-            const brutoReal = cantReal + pncVal;
+            // Inyectadas = Buenas + PNC + Revueltos + WIP
+            const brutoReal = cantReal + pncVal + (reg.revueltos || 0) + (reg.wip || 0);
 
             const nuevoItem = {
                 id_item: Date.now().toString() + Math.random().toString(36).substr(2, 5),
@@ -303,7 +294,9 @@ const ModuloInyeccion = {
                 piezasBuenas: cantReal,
                 observaciones: reg.molde || '',
                 id_inyeccion: reg.id_inyeccion,
-                id_sql: reg.id_sql // <--- CAPTURAR ID PARA EVITAR SOBRESCRITURA
+                id_sql: reg.id_sql, // <--- CAPTURAR ID PARA EVITAR SOBRESCRITURA
+                wip: reg.wip || 0,
+                revueltos: reg.revueltos || 0
             };
             
             this.items.push(nuevoItem);
@@ -947,6 +940,11 @@ const ModuloInyeccion = {
                     <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">Cant. Real</small>
                         <input type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 85px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
+                        ${ModuloInyeccion.esValidacionMode ? `
+                        <div class="mt-1 w-100" style="font-size: 0.7rem; display:flex; flex-direction:column; gap:2px;">
+                            <span class="badge bg-warning text-dark w-100 text-truncate" title="Revueltos (Pulido)">Rev: ${item.revueltos || 0}</span>
+                            <span class="badge bg-info text-dark w-100 text-truncate" title="WIP (Por Pulir)">WIP: ${item.wip || 0}</span>
+                        </div>` : ''}
                     </div>
                 </td>
                 <td class="text-center align-middle">

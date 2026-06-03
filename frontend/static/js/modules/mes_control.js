@@ -700,24 +700,29 @@ window.ModuloMes = {
             return;
         }
 
-        const porMaquina = {};
-        this.maquinas.forEach(m => {
-            const mKey = (typeof m === 'string' ? m : String(m)).toUpperCase();
-            porMaquina[mKey] = [];
-        });
-
+        const porBloque = {};
+        
         this.programacionesActivas.forEach(p => {
             const maq = (p.maquina || '').toUpperCase();
-            if (porMaquina[maq] !== undefined) {
-                porMaquina[maq].push(p);
+            const op = p.orden_produccion || 'SIN_OP';
+            const molde = p.molde || '0';
+            const fecha = p.fecha || 'N/A';
+            // Clave única por máquina, OP, molde y fecha (representa un bloque)
+            const bKey = `${maq}|${op}|${molde}|${fecha}`;
+            if (!porBloque[bKey]) porBloque[bKey] = [];
+            porBloque[bKey].push(p);
+        });
+
+        // Asegurar que las máquinas vacías se muestren como disponibles
+        this.maquinas.forEach(m => {
+            const mKey = (typeof m === 'string' ? m : String(m)).toUpperCase();
+            const keysDeMaquina = Object.keys(porBloque).filter(k => k.startsWith(mKey + '|'));
+            if (keysDeMaquina.length === 0) {
+                porBloque[`${mKey}|VACIA|0|N/A`] = [];
             }
         });
 
-        // Agrupamos nombres de máquinas de forma única
-        const todasMaquinas = [...new Set([
-            ...this.maquinas.map(m => (typeof m === 'string' ? m : String(m)).toUpperCase()),
-            ...Object.keys(porMaquina)
-        ])];
+        const todasClaves = Object.keys(porBloque);
 
         // Paleta de colores...
         const paletas = [
@@ -727,14 +732,21 @@ window.ModuloMes = {
             { grad: 'linear-gradient(135deg,#c2410c,#f97316)', light: '#fff7ed', accent: '#c2410c' },
         ];
 
-        container.innerHTML = todasMaquinas.map((m, idx) => {
-            const items = porMaquina[m] || [];
+        container.innerHTML = todasClaves.map((bKey, idx) => {
+            const items = porBloque[bKey] || [];
+            const m = bKey.split('|')[0]; // Extraer nombre real de máquina
+            const op = bKey.split('|')[1];
             const tieneTrabajo = items.length > 0;
             const pal = paletas[idx % paletas.length];
 
             // Determinar si hay algo en proceso
             const esEnProceso = items.some(i => i.estado === 'EN_PROCESO');
-            const statusLabel = esEnProceso ? `EN USO - Molde ${items[0].molde}` : 'PROGRAMADA';
+            let statusLabel = 'PROGRAMADA';
+            if (esEnProceso) {
+                statusLabel = `EN USO - Molde ${items[0].molde}`;
+            } else if (op !== 'SIN_OP' && op !== 'VACIA') {
+                statusLabel = `OP: ${op}`;
+            }
 
             if (!tieneTrabajo) {
                 return `
@@ -848,16 +860,9 @@ window.ModuloMes = {
             }
         }
 
-        // NUEVO: Control de Concurrencia (Máquina Ocupada)
-        const maquinaData = (this.dashboardData || []).find(m => m.nombre === maquina);
-        if (maquinaData && maquinaData.estado !== 'LIBRE') {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Máquina Ocupada',
-                text: `La ${maquina} ya tiene una programación activa (${maquinaData.estado}). Libérala o espera a que termine antes de programar de nuevo.`
-            });
-            return;
-        }
+        // REGLA RELAJADA: Se permite el encolamiento de múltiples OPs para la misma máquina.
+        // La validación de "Máquina Ocupada" ya no bloquea la creación (programación)
+        // de la orden. Se bloqueará únicamente al "Iniciar Turno" operativo.
 
         if (productosParaEnviar.length === 0) {
             Swal.fire('Error', 'Añade al menos un producto a la lista', 'error');
@@ -1113,25 +1118,22 @@ window.ModuloMes = {
     iniciarTrabajo: async function () {
         if (!this.trabajoActivo) return;
 
-        const operario = window.AuthModule?.currentUser?.nombre || 'OPERARIO_MES';
-
-        const result = await Swal.fire({
+        const { isConfirmed } = await Swal.fire({
             title: '¿Confirmar Inicio?',
-            text: `Vas a iniciar la producción de ${this.trabajoActivo.producto} en la ${this.maquinaSeleccionada}. Operador: ${operario}`,
+            html: `Vas a iniciar la producción de <b>${this.trabajoActivo.producto}</b> en la <b>${this.maquinaSeleccionada}</b>.`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonText: 'Sí, iniciar'
         });
 
-        if (result.isConfirmed) {
+        if (isConfirmed) {
             try {
                 mostrarLoading(true);
                 const res = await fetchData('/api/mes/iniciar', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        id_programacion: this.trabajoActivo.id_programacion,
-                        operario: operario
+                        id_programacion: this.trabajoActivo.id_programacion
                     })
                 });
                 mostrarLoading(false);

@@ -138,7 +138,8 @@ def registrar_inyeccion_lote():
         if not items:
             return jsonify({'success': False, 'error': 'No hay items para registrar'}), 400
 
-        responsable = str(turno.get('responsable', '')).strip()
+        from flask import session
+        responsable = session.get('user', str(turno.get('responsable', '')).strip() or 'SISTEMA')
         maquina = str(turno.get('maquina', '')).strip()
         fecha_str = turno.get('fecha_inicio', '')
         
@@ -206,6 +207,10 @@ def registrar_inyeccion_lote():
             registro.fecha_inicia   = fecha_dt
             registro.estado         = nuevo_estado
             registro.departamento   = 'Inyeccion'
+            if es_validacion:
+                registro.validado_por = session.get('user', 'SISTEMA')
+            else:
+                registro.finalizado_por = session.get('user', 'SISTEMA')
             
             # --- BLINDAJE DE DATOS (int(round(float)) para BigInt/Integer) ---
             disparos      = float(item.get('cantidad') or item.get('contador_maq') or 0)
@@ -531,6 +536,17 @@ def iniciar_turno_inyeccion():
         if existente:
             return jsonify({"success": True, "message": "Turno ya registrado", "id_inyeccion": id_inyeccion}), 200
 
+        # Validar Máquina Ocupada
+        maquina_ocupada = db.session.query(ProduccionInyeccion).filter(
+            ProduccionInyeccion.maquina == maquina,
+            ProduccionInyeccion.estado.in_(['ABIERTO', 'EN_PROCESO'])
+        ).first()
+        if maquina_ocupada:
+            return jsonify({
+                "success": False, 
+                "error": f"Máquina Ocupada: La máquina {maquina} ya tiene una orden activa. Finalice la orden actual antes de iniciar una nueva."
+            }), 400
+
         # Crear registro PENDIENTE (visible inmediatamente en el PC)
         h_inicio = data.get('hora_inicio')
         dt_inicio = None
@@ -812,15 +828,6 @@ def guardar_programacion_diaria():
         logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": "Error interno del servidor al guardar la programación"}), 500
 
-    except ValueError as val_err:
-        db.session.rollback()
-        logger.warning(f"⚠️ Error de validación en guardar_programacion_diaria: {val_err}")
-        return jsonify({"success": False, "error": str(val_err)}), 400
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}\n{traceback.format_exc()}")
-        return jsonify({"success": False, "error": "Error interno del servidor al guardar la programación"}), 500
-
 
 @inyeccion_bp.route('/api/pedidos/pendientes/<codigo>', methods=['GET'])
 def obtener_pedidos_pendientes(codigo):
@@ -931,6 +938,9 @@ def mes_iniciar_trabajo():
         ahora = datetime.now(colombia_tz).replace(tzinfo=None)
 
         logger.info(f"⚡ Iniciando bloque de {len(programaciones_bloque)} programaciones para la máquina {prog_inicial.maquina}")
+        
+        from flask import session
+        operario_inicia = session.get('user', prog_inicial.responsable_planta or "SISTEMA")
 
         # 4. Procesar en bloque de forma atómica
         for prog in programaciones_bloque:
@@ -945,17 +955,27 @@ def mes_iniciar_trabajo():
             ).update({DistribucionOpPedidos.op_world_office: op_world_office}, synchronize_session=False)
 
             # Crear lote en ProduccionInyeccion (db_inyeccion)
+            # Capturar hora_inicio_real del servidor en ese instante exacto
+            hora_inicio_str = ahora.strftime('%H:%M')
             nueva_prod = ProduccionInyeccion(
                 id_inyeccion=id_inyeccion_bloque,
                 fecha_inicia=ahora,
                 id_codigo=prog.codigo_sistema,
-                responsable=prog.responsable_planta or "Supervisor",
+                responsable=operario_inicia,
                 maquina=prog.maquina,
                 molde=prog.molde,
                 cavidades=prog.cavidades,
                 estado='EN_PROCESO',
                 orden_produccion=op_world_office,
-                observaciones=prog.observaciones
+                observaciones=prog.observaciones,
+                programado_por=prog.responsable_planta,
+                iniciado_por=operario_inicia,
+                # ── Tiempos del servidor (no dependen del frontend) ──
+                hora_inicio=hora_inicio_str,
+                cantidad_real=0,
+                cant_contador=0,
+                almacen_destino='POR PULIR',
+                departamento='Inyeccion'
             )
             db.session.add(nueva_prod)
 
@@ -1025,38 +1045,59 @@ def mes_reportar():
             return jsonify({"success": False, "error": "Lote de producción no encontrado"}), 404
 
         # 2. Procesar cada producto en el lote físicamente
+        colombia_tz_rep = pytz.timezone('America/Bogota')
+        ahora_rep = datetime.now(colombia_tz_rep).replace(tzinfo=None)
         total_teorica = 0
+
         for prod in prods_en_lote:
             cavidades = prod.cavidades or 1
             piezas_inyectadas = cierres * cavidades
             total_teorica += piezas_inyectadas
 
-            # Sincronizar fecha de finalización
-            if hf_str and prod.fecha_inicia:
-                try:
-                    h, m = map(int, hf_str.split(':'))
-                    # Preservamos la fecha local naive del inicio para el fin (Batch del día)
-                    prod.fecha_fin = prod.fecha_inicia.replace(hour=h, minute=m, second=0, microsecond=0)
-                    
-                    # Calcular duración y métricas
-                    delta = prod.fecha_fin - prod.fecha_inicia
-                    prod.duracion_segundos = max(0, int(delta.total_seconds()))
-                    prod.tiempo_total_minutos = prod.duracion_segundos / 60.0
-                except Exception as ex:
-                    logger.warning(f"⚠️ Error al formatear hora_fin: {ex}")
+            # ── Hora fin: primero la del frontend (si viene), sino timestamp del servidor ──
+            hora_fin_resuelta = hf_str or ahora_rep.strftime('%H:%M')
+            prod.hora_termina = hora_fin_resuelta
+
+            # Sincronizar fecha de finalización con timestamp real
+            fecha_base = prod.fecha_inicia or ahora_rep
+            try:
+                h, m = map(int, hora_fin_resuelta.split(':'))
+                prod.fecha_fin = fecha_base.replace(hour=h, minute=m, second=0, microsecond=0)
+
+                # Calcular duración y métricas
+                delta = prod.fecha_fin - fecha_base
+                prod.duracion_segundos = max(0, int(delta.total_seconds()))
+                prod.tiempo_total_minutos = round(prod.duracion_segundos / 60.0, 2)
+                if piezas_inyectadas > 0:
+                    prod.segundos_por_unidad = int(round(prod.duracion_segundos / piezas_inyectadas))
+                else:
+                    prod.segundos_por_unidad = 0
+            except Exception as ex:
+                logger.warning(f"⚠️ Error al calcular tiempos en reportar: {ex}")
+                prod.fecha_fin = ahora_rep
 
             # Guardar la cantidad producida y actualizar estado a PENDIENTE
             prod.cantidad_real = piezas_inyectadas
+            prod.cant_contador = piezas_inyectadas
+            prod.produccion_teorica = piezas_inyectadas
             prod.estado = 'PENDIENTE'
 
-            # --- MES PASO 1: Actualizar cantidad_inyectada en el lote de trazabilidad ---
-            # Pulido y Validacion necesitan este valor para calcular el WIP al cierre
-            lote_cierre = db.session.query(TrazabilidadLote).filter_by(
-                id_inyeccion=id_iny
-            ).first()
-            if lote_cierre:
-                lote_cierre.cantidad_inyectada = piezas_inyectadas
-                logger.info(f"🔄 [Trazabilidad] Lote {lote_cierre.id_lote} actualizado: {piezas_inyectadas} piezas inyectadas")
+            # ── MES PASO 2: Actualizar cantidad_inyectada en TODOS los lotes de trazabilidad
+            # (un montaje multi-referencia genera un lote por referencia, no solo el primero)
+            lotes_cierre = db.session.query(TrazabilidadLote).filter_by(
+                id_inyeccion=id_iny,
+                id_codigo=prod.id_codigo
+            ).all()
+            if lotes_cierre:
+                for lote_cierre in lotes_cierre:
+                    lote_cierre.cantidad_inyectada = piezas_inyectadas
+                    logger.info(f"🔄 [Trazabilidad] Lote {lote_cierre.id_lote} ({prod.id_codigo}) → {piezas_inyectadas} piezas")
+            else:
+                # Fallback: buscar cualquier lote vinculado al id_inyeccion
+                lote_generico = db.session.query(TrazabilidadLote).filter_by(id_inyeccion=id_iny).first()
+                if lote_generico:
+                    lote_generico.cantidad_inyectada = piezas_inyectadas
+                    logger.warning(f"⚠️ [Trazabilidad] Fallback – lote {lote_generico.id_lote} actualizado con {piezas_inyectadas} piezas")
 
             # 3. Lógica FIFO para cubetas (db_distribucion_op_pedidos)
             op_actual = prod.orden_produccion

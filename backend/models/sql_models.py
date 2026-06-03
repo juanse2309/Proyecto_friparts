@@ -30,6 +30,7 @@ class Producto(db.Model):
     oem             = db.Column(db.String(200),  nullable=True)
     dolares         = db.Column(db.Numeric(18, 2), default=0)
     stock_bodega    = db.Column(db.Numeric(18, 2), default=0)
+    stock_por_pulir = db.Column(db.Numeric(18, 2), default=0)
 
 
 class ProduccionInyeccion(db.Model):
@@ -47,6 +48,12 @@ class ProduccionInyeccion(db.Model):
     estado          = db.Column(db.String(50),  nullable=True)
     molde           = db.Column(db.Integer,     nullable=True)
     cavidades       = db.Column(db.Integer,     default=1) # Columna principal (int4)
+    
+    # --- Audit Trail 3 Firmas ---
+    programado_por  = db.Column(db.String(150), nullable=True)
+    iniciado_por    = db.Column(db.String(150), nullable=True)
+    finalizado_por  = db.Column(db.String(150), nullable=True)
+    validado_por    = db.Column(db.String(150), nullable=True)
     
     # --- Columnas Operativas ---
     hora_llegada         = db.Column(db.String(20),  nullable=True)

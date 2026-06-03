@@ -1112,8 +1112,18 @@ const ModuloPulido = {
                 totalPnc += row.cantidad;
             }
         });
+
+        // Sincronizar revueltosRows desde el DOM
+        let totalRevueltos = 0;
+        this.revueltosRows.forEach(row => {
+            const input = document.getElementById(`rev-cant-${row.id}`);
+            if (input) {
+                row.cantidad = parseFloat(input.value) || 0;
+                totalRevueltos += row.cantidad;
+            }
+        });
         
-        const totalBruto = buenos + totalPnc;
+        const totalBruto = buenos + totalPnc + totalRevueltos;
         
         if (display) display.innerText = totalBruto;
     },
@@ -1149,7 +1159,7 @@ const ModuloPulido = {
             responsable: document.getElementById('responsable-pulido-input').value,
             codigo_producto: this.normalizarCodigo(document.getElementById('buscador-productos').value),
             
-            // NUEVA LÓGICA: cantidad_real son las buenas, cantidad_recibida es el total (bruto)
+            // NUEVA LÓGICA: cantidad_real son las buenas, cantidad_recibida es el total (bruto reportado)
             cantidad_real: parseFloat(document.getElementById('cantidad-recibida-pro')?.value || 0),
             cantidad_recibida: parseFloat(document.getElementById('resultado-buenas-pro')?.innerText || 0),
             
@@ -1179,10 +1189,12 @@ const ModuloPulido = {
         }
 
         // Validación de consistencia
-        const totalCalculado = data.cantidad_real + pncData.reduce((s, r) => s + r.cantidad, 0);
+        const totalPnc = pncData.reduce((s, r) => s + r.cantidad, 0);
+        const totalRevueltos = revueltosData.reduce((s, r) => s + r.cantidad, 0);
+        const totalCalculado = data.cantidad_real + totalPnc + totalRevueltos;
         
         if (totalCalculado !== data.cantidad_recibida) {
-            Swal.fire('Error de Consistencia', 'La suma de piezas buenas y PNC no coincide con el total. Por favor revise los datos.', 'error');
+            Swal.fire('Error de Consistencia', 'La suma de piezas buenas, PNC y revueltos no coincide con el total (' + totalCalculado + ' vs ' + data.cantidad_recibida + ').', 'error');
             return;
         }
 
@@ -1911,7 +1923,15 @@ const ModuloPulido = {
                         <!-- Sub-filas de defectos -->
                     </div>
                     
-                    <div class="mt-2 text-end">
+                    <div class="revueltos-container mt-3 pt-2 border-top" id="revueltos-container-${lote.id_lote.replace(/[^a-zA-Z0-9]/g, '_')}">
+                        <!-- Sub-filas de revueltos -->
+                    </div>
+                    
+                    <div class="mt-2 text-end d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary fw-bold rounded-pill px-3"
+                                onclick="ModuloPulido.agregarRevueltoFilaMasiva('${lote.id_lote}')">
+                            <i class="fas fa-layer-group me-1"></i>+ Añadir Revuelto
+                        </button>
                         <button type="button" class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3"
                                 onclick="ModuloPulido.agregarDefectoFila('${lote.id_lote}')">
                             <i class="fas fa-plus me-1"></i>+ Añadir Defecto
@@ -2000,6 +2020,67 @@ const ModuloPulido = {
             } else {
                 inputOtro.style.display = 'none';
             }
+        });
+    },
+
+    agregarRevueltoFilaMasiva: function(idLote) {
+        const containerId = `revueltos-container-${idLote.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        const rowId = Math.random().toString(36).substring(2, 9);
+        const subRowId = 'revuelto-row-' + rowId;
+        const subRow = document.createElement('div');
+        subRow.className = 'row g-2 mb-2 align-items-center revuelto-sub-row';
+        subRow.id = subRowId;
+
+        subRow.innerHTML = `
+            <div class="col-6 col-md-7 mb-2 position-relative">
+                <input type="text" class="form-control form-control-sm rev-codigo" 
+                       id="rev-cod-masivo-${rowId}"
+                       placeholder="Buscar referencia revuelta..." 
+                       autocomplete="off" style="border-radius:8px;">
+                <div id="rev-sugg-masivo-${rowId}" class="autocomplete-suggestions" style="top: 100%; left: 0; width: 100%; z-index: 1000;"></div>
+            </div>
+            <div class="col-4 col-md-3">
+                <input type="number" class="form-control form-control-sm text-center fw-bold rev-cantidad" 
+                       min="1" placeholder="Cant" value="1" 
+                       style="color:#0284c7; border:1px solid #bae6fd; border-radius:8px;">
+            </div>
+            <div class="col-2 col-md-2 text-end">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0" 
+                        onclick="document.getElementById('${subRowId}').remove()">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+        `;
+        container.appendChild(subRow);
+
+        this.initAutocompleteRevueltoMasivo(rowId);
+    },
+
+    initAutocompleteRevueltoMasivo: function(rowId) {
+        const input = document.getElementById(`rev-cod-masivo-${rowId}`);
+        const suggestions = document.getElementById(`rev-sugg-masivo-${rowId}`);
+        if (!input || !suggestions) return;
+
+        input.addEventListener('input', (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            if (query.length < 2) {
+                suggestions.classList.remove('active');
+                return;
+            }
+
+            const resultados = this.productosData.filter(p => 
+                String(p.codigo_sistema || '').toLowerCase().includes(query) || 
+                String(p.descripcion || '').toLowerCase().includes(query)
+            ).slice(0, 10);
+
+            this.renderSuggestions(suggestions, resultados, (p) => {
+                input.value = p.codigo_sistema;
+                suggestions.classList.remove('active');
+                input.dispatchEvent(new Event('input'));
+            });
         });
     },
 
@@ -2155,6 +2236,25 @@ const ModuloPulido = {
             });
 
             if (buenos === 0 && totalMalos === 0) {
+                // Si no hay nada, pasamos al siguiente (solo si no hay revueltos tampoco)
+            }
+
+            const revueltoRows = block.querySelectorAll('.revuelto-sub-row');
+            const revueltos = [];
+            let totalRevueltos = 0;
+            revueltoRows.forEach(row => {
+                const cod = row.querySelector('.rev-codigo').value;
+                const cant = parseFloat(row.querySelector('.rev-cantidad').value) || 0;
+                if (cod && cant > 0) {
+                    totalRevueltos += cant;
+                    revueltos.push({
+                        id_codigo: cod,
+                        cantidad: cant
+                    });
+                }
+            });
+
+            if (buenos === 0 && totalMalos === 0 && totalRevueltos === 0) {
                 return;
             }
 
@@ -2165,7 +2265,8 @@ const ModuloPulido = {
                 id_lote: idLote,
                 buenos: buenos,
                 malos: totalMalos,
-                pnc_detail: pnc_detail
+                pnc_detail: pnc_detail,
+                revueltos: revueltos
             });
         });
 

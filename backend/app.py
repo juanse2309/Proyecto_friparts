@@ -922,7 +922,7 @@ def mes_programar():
         maquina = data.get('maquina')
         fecha_str = data.get('fecha')
         productos = data.get('productos', []) 
-        responsable = data.get('responsable_planta', 'ADMIN')
+        responsable = session.get('user', 'SISTEMA')
         observaciones = data.get('observaciones', '')
         molde_capacidad = int(data.get('molde') or 0)
         
@@ -1047,7 +1047,8 @@ def mes_get_programaciones(maquina):
                 'molde':         r.molde,
                 'cavidades':     r.cavidades,
                 'cantidad':      float(r.cantidad or 0),
-                'estado':        (r.estado or 'PENDIENTE').upper()
+                'estado':        (r.estado or 'PENDIENTE').upper(),
+                'orden_produccion': r.op_world_office or 'SIN_OP'
             })
 
         return jsonify(data), 200
@@ -1188,10 +1189,10 @@ def mes_get_status_maquina(maquina):
         from backend.models.sql_models import ProduccionInyeccion, ProgramacionInyeccion
         maquina_upper = str(maquina).strip().upper()
         
-        # 1. Buscar en INYECCION si hay algo EN_PROCESO (Consultar todas las referencias activas de la máquina)
+        # 1. Buscar en INYECCION si hay algo EN_PROCESO o ABIERTO
         activos = db.session.query(ProduccionInyeccion).filter(
             ProduccionInyeccion.maquina == maquina_upper,
-            ProduccionInyeccion.estado == 'EN_PROCESO'
+            ProduccionInyeccion.estado.in_(['EN_PROCESO', 'ABIERTO'])
         ).all()
         
         if activos:
@@ -1201,7 +1202,7 @@ def mes_get_status_maquina(maquina):
             total_cavidades = sum([int(r.cavidades or 0) for r in activos])
             
             return jsonify({
-                'estado': 'EN_PROCESO',
+                'estado': primer.estado,
                 'id_inyeccion': primer.id_inyeccion,
                 'id_programacion': primer.id_inyeccion,
                 'producto': codigos_concatenados,
@@ -1215,7 +1216,7 @@ def mes_get_status_maquina(maquina):
         primer_programado = db.session.query(ProgramacionInyeccion).filter(
             ProgramacionInyeccion.maquina == maquina_upper,
             ProgramacionInyeccion.estado == 'PROGRAMADO'
-        ).first()
+        ).order_by(ProgramacionInyeccion.id.asc()).first()
         
         if primer_programado:
             # Buscar todas las programaciones que compartan la misma máquina, fecha y molde programados
@@ -1223,6 +1224,7 @@ def mes_get_status_maquina(maquina):
                 ProgramacionInyeccion.maquina == maquina_upper,
                 ProgramacionInyeccion.fecha == primer_programado.fecha,
                 ProgramacionInyeccion.molde == primer_programado.molde,
+                ProgramacionInyeccion.op_world_office == primer_programado.op_world_office,
                 ProgramacionInyeccion.estado == 'PROGRAMADO'
             ).all()
 
@@ -1255,7 +1257,7 @@ def mes_iniciar():
         from backend.models.sql_models import ProduccionInyeccion, ProgramacionInyeccion
         data = request.json
         id_prog_trigger = data.get('id_programacion')
-        operario = data.get('operario', 'OPERARIO')
+        operario = session.get('user', 'SISTEMA')
 
         prog_trigger = db.session.get(ProgramacionInyeccion, id_prog_trigger)
         if not prog_trigger:
@@ -1263,9 +1265,22 @@ def mes_iniciar():
             
         maquina_nom = prog_trigger.maquina
         
-        # 2. Buscar TODOS los SKUs programados para esa mÃ¡quina que no estÃ©n cancelados ni terminados
+        # 1.5 Validar que la máquina no esté ocupada
+        activos = db.session.query(ProduccionInyeccion).filter(
+            ProduccionInyeccion.maquina == maquina_nom,
+            ProduccionInyeccion.estado.in_(['ABIERTO', 'EN_PROCESO'])
+        ).first()
+        if activos:
+            return jsonify({
+                'success': False, 
+                'error': f'Máquina Ocupada: La {maquina_nom} ya tiene una orden activa. Finalice la orden actual antes de iniciar una nueva.'
+            }), 400
+        
+        # 2. Buscar TODOS los SKUs programados para esa máquina que compartan el mismo bloque (fecha y molde)
         progs_en_cola = db.session.query(ProgramacionInyeccion).filter(
             ProgramacionInyeccion.maquina == maquina_nom,
+            ProgramacionInyeccion.fecha == prog_trigger.fecha,
+            ProgramacionInyeccion.molde == prog_trigger.molde,
             ProgramacionInyeccion.estado == 'PROGRAMADO'
         ).all()
 
@@ -1286,7 +1301,9 @@ def mes_iniciar():
                 maquina=p.maquina,
                 molde=p.molde,
                 cavidades=p.cavidades,
-                estado='EN_PROCESO'
+                estado='EN_PROCESO',
+                programado_por=p.responsable_planta,
+                iniciado_por=operario
             )
             db.session.add(nueva_prod)
             
@@ -1324,13 +1341,15 @@ def mes_pendientes_validacion():
                 i.id as id_sql, t.id_inyeccion, i.fecha_inicia as fecha, i.fecha_fin as fecha_fin, 
                 t.id_codigo, i.responsable, t.maquina, i.molde, i.cavidades, 
                 i.estado, 
+                t.cantidad_inyectada,
                 COALESCE(pul.total_buenos, 0) as cantidad_real,
                 i.hora_inicio, i.hora_termina as hora_fin,
                 i.cant_contador, i.almacen_destino, t.orden_produccion,
-                i.observaciones, i.pnc_total,
+                i.observaciones, COALESCE(i.pnc_total, 0) as pnc_total,
                 i.pnc_detalle, i.peso_lote,
                 i.entrada, i.salida,
-                COALESCE(pnc_pul.total_pnc, 0) as total_pnc_sql
+                COALESCE(pnc_pul.total_pnc, 0) as total_pnc_sql,
+                COALESCE(rev.total_rev, 0) as total_revueltos
             FROM db_trazabilidad_lotes t
             LEFT JOIN db_inyeccion i ON t.id_inyeccion = i.id_inyeccion AND t.id_codigo = i.id_codigo
             LEFT JOIN (
@@ -1344,6 +1363,12 @@ def mes_pendientes_validacion():
                 INNER JOIN db_pulido pu ON p.id_pulido = pu.id_pulido
                 GROUP BY pu.lote
             ) pnc_pul ON t.id_lote = pnc_pul.lote
+            LEFT JOIN (
+                SELECT pu.lote, SUM(COALESCE(NULLIF(regexp_replace(r.cantidad::text, '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as total_rev
+                FROM db_bujes_revueltos r
+                INNER JOIN db_pulido pu ON r.id_pulido = pu.id_pulido
+                GROUP BY pu.lote
+            ) rev ON t.id_lote = rev.lote
             WHERE t.estado_actual = 'PENDIENTE_VALIDACION'
         """
         pendientes = db.session.execute(text(sql)).mappings().all()
@@ -1358,6 +1383,12 @@ def mes_pendientes_validacion():
             return float(clean) if clean else 0
 
         for p in pendientes:
+            cant_inyectada = _clean_num(p['cantidad_inyectada'])
+            buenas = _clean_num(p['cantidad_real'])
+            pnc = _clean_num(p['pnc_total'] or p['total_pnc_sql'])
+            revueltos = _clean_num(p['total_revueltos'])
+            wip = max(0, cant_inyectada - (buenas + pnc + revueltos))
+            
             data.append({
                 'id_sql': p['id_sql'],
                 'id_inyeccion': p['id_inyeccion'],
@@ -1366,8 +1397,11 @@ def mes_pendientes_validacion():
                 'hora_fin': p['hora_fin'] or (p['fecha_fin'].strftime('%H:%M') if p.get('fecha_fin') else ''),
                 'id_codigo': p['id_codigo'], 
                 'responsable': p['responsable'],
-                'cantidad_real': _clean_num(p['cantidad_real']),
-                'pnc': _clean_num(p['pnc_total'] or p['total_pnc_sql']),
+                'cantidad_inyectada': cant_inyectada,
+                'cantidad_real': buenas,
+                'pnc': pnc,
+                'revueltos': revueltos,
+                'wip': wip,
                 'maquina': p['maquina'],
                 'molde': p['molde'],
                 'cavidades': p['cavidades'],
