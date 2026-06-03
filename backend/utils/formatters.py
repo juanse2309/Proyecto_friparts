@@ -34,18 +34,29 @@ import re
 
 def normalizar_codigo(codigo: str) -> str:
     """
-    Normaliza un código de producto eliminando prefijos de sistema.
+    Normaliza un código de producto SIN prefijo.
+    Uso: consultas contra db_programacion y db_distribucion_op_pedidos
+    donde los códigos se almacenan como '9890' (sin FR-).
     """
     if codigo is None:
         return ""
-    
-    # Limpieza estándar: espacios y mayúsculas
     cod = str(codigo).strip().upper()
-    
-    # Eliminación obligatoria de prefijo FR- (exigido para trazabilidad limpia)
     cod = cod.replace("FR-", "")
-    
     return cod.strip()
+
+
+def con_prefijo_fr(codigo: str) -> str:
+    """
+    Garantiza que el código tenga el prefijo 'FR-'.
+    Uso: campos que apuntan a db_productos (maestro con prefijo), db_pulido.codigo
+    y db_bujes_revueltos.id_codigo. Asegura coherencia con el inventario.
+    """
+    if codigo is None:
+        return ""
+    cod = str(codigo).strip().upper()
+    if not cod.startswith("FR-"):
+        cod = f"FR-{cod}"
+    return cod
 
 
 def limpiar_cadena(texto: str) -> str:

@@ -3,7 +3,7 @@ from sqlalchemy import text
 from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
-from backend.utils.formatters import normalizar_codigo
+from backend.utils.formatters import normalizar_codigo, con_prefijo_fr
 import uuid
 from datetime import datetime
 import pytz
@@ -49,7 +49,8 @@ def registrar_pulido():
 
         # Mapeo y Estandarización
         registro.fecha = datetime.strptime(data.get('fecha_inicio', ahora.strftime('%Y-%m-%d')), '%Y-%m-%d').date()
-        registro.codigo = normalizar_codigo(data.get('codigo_producto'))
+        # ── Blindaje Dual: db_pulido.codigo con prefijo FR- (espejo de db_productos) ──
+        registro.codigo = con_prefijo_fr(data.get('codigo_producto'))
         registro.responsable = data.get('responsable')
         registro.cantidad_real = float(data.get('cantidad_real') or 0)
         registro.pnc_inyeccion = int(data.get('pnc_inyeccion') or 0)
@@ -201,7 +202,7 @@ def registrar_pulido():
         db.session.query(BujeRevuelto).filter_by(id_pulido=registro.id_pulido).delete()
 
         for rev_item in revueltos_list:
-            cod_rev = normalizar_codigo(rev_item.get('id_codigo'))
+            cod_rev = con_prefijo_fr(rev_item.get('id_codigo'))  # FR- obligatorio: espejo de db_productos
             cant_rev = float(rev_item.get('cantidad') or 0)
             logger.info(f" [REVUELTOS] Intentando agregar: {cod_rev} | Cant: {cant_rev}")
             
@@ -224,9 +225,12 @@ def registrar_pulido():
         if op_actual and str(op_actual).strip() != 'SIN OP':
             from backend.models.sql_models import DistribucionOpPedidos
             
-            # Normalizar la OP y el código eliminando prefijos y espacios de forma defensiva
+            # ── Blindaje Dual ──
+            # op_limpia   → tal cual (db_distribucion_op_pedidos no usa prefijo)
+            # codigo_limpio → SIN prefijo (db_distribucion_op_pedidos guarda '9890')
+            # registro.codigo ya tiene FR- (escrito arriba con con_prefijo_fr)
             op_limpia = str(registro.orden_produccion or '').strip()
-            codigo_limpio = str(registro.codigo or '').replace('FR-', '').strip()
+            codigo_limpio = normalizar_codigo(registro.codigo)  # quita FR- para el cruce
             
             # Buscar las cubetas por OP y Referencia ordenadas de forma ascendente
             cubetas = db.session.query(DistribucionOpPedidos).filter(
@@ -291,7 +295,10 @@ def registrar_pulido():
             wip = cant_inyectada - (buenas + pnc_total + rev_total)
             
             if wip > 0:
-                prod_wip = db.session.query(Producto).filter_by(codigo_sistema=registro.codigo).first()
+                # ── WIP: buscar en db_productos CON prefijo FR- (maestro de inventario) ──
+                prod_wip = db.session.query(Producto).filter_by(
+                    codigo_sistema=con_prefijo_fr(registro.codigo)
+                ).first()
                 if prod_wip:
                     prod_wip.stock_por_pulir = float(prod_wip.stock_por_pulir or 0) + wip
                     logger.info(f" [WIP] Agregando {wip} piezas a stock_por_pulir del producto {registro.codigo}")
@@ -857,7 +864,10 @@ def reporte_masivo():
             if not referencia_raw:
                 raise ValueError("Se requiere la referencia en todos los registros del lote")
 
-            referencia = normalizar_codigo(referencia_raw)
+            # ── Blindaje Dual: guardar con FR- en db_pulido (espejo de db_productos) ──
+            referencia = con_prefijo_fr(referencia_raw)
+            # referencia_sin_prefijo sólo se usa para los cruces con db_distribucion_op_pedidos
+            referencia_sin_prefijo = normalizar_codigo(referencia_raw)
             op = item.get('op') or 'SIN OP'
             lote = item.get('lote') or 'SIN LOTE'
             buenos = float(item.get('buenos') or 0)
@@ -936,7 +946,9 @@ def reporte_masivo():
                     wip = cant_inyectada - (buenos + malos + rev_total)
                     
                     if wip > 0:
-                        prod = db.session.get(Producto, referencia)
+                        prod = db.session.query(Producto).filter_by(
+                            codigo_sistema=con_prefijo_fr(referencia)  # db_productos usa FR-
+                        ).first()
                         if prod:
                             prod.stock_por_pulir = (prod.stock_por_pulir or 0) + int(wip)
                             logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a stock_por_pulir para {referencia}")
@@ -979,21 +991,24 @@ def reporte_masivo():
             revueltos_items = item.get('revueltos', [])
             if revueltos_items and id_lote_ref:
                 for r_item in revueltos_items:
-                    r_cod = r_item.get('id_codigo')
+                    r_cod_con_fr = con_prefijo_fr(r_item.get('id_codigo'))  # FR- para db_bujes_revueltos
                     r_cant = float(r_item.get('cantidad') or 0)
-                    if r_cod and r_cant > 0:
+                    if r_cod_con_fr and r_cant > 0:
                         db.session.add(BujeRevuelto(
+                            id_bujes_revueltos=uuid.uuid4().hex[:8],
+                            id_pulido=id_pulido,
                             id_lote=id_lote_ref,
-                            id_codigo=normalizar_codigo(r_cod),
+                            id_codigo=r_cod_con_fr,
                             cantidad=int(r_cant),
-                            registrado_por=responsable
+                            responsable=responsable
                         ))
 
             # --- Propagación FIFO ---
             if op and str(op).strip() != 'SIN OP':
                 from backend.models.sql_models import DistribucionOpPedidos
+                # ── Blindaje Dual: cruce FIFO con db_distribucion_op_pedidos usa SIN prefijo ──
                 op_limpia = str(op).strip()
-                codigo_limpio = str(referencia).replace('FR-', '').strip()
+                codigo_limpio = referencia_sin_prefijo  # normalizado arriba, sin FR-
                 
                 cubetas = db.session.query(DistribucionOpPedidos).filter(
                     DistribucionOpPedidos.op_world_office == op_limpia,
