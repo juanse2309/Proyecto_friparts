@@ -38,16 +38,25 @@ def resolver_ruta_imagen(imagen_db, codigo_sistema):
 def detalle_producto(codigo_sistema):
     """Obtiene el detalle completo de un producto con auditoría de stock detallada."""
     try:
-        codigo_norm = normalizar_codigo(codigo_sistema).strip().upper()
-        # Intentar búsqueda con código limpio (fallback) por si el catálogo usa el corto
-        codigo_limpio = codigo_norm.replace('FR-', '').replace('CB-', '').replace('ENS-', '').strip()
+        import re
+        codigo_raw = str(codigo_sistema).strip().upper()
+        # Eliminar CUALQUIER prefijo de letras seguido de guión (FR-, MT-, CAR-, INT-, ENS-, etc.)
+        codigo_numerico = re.sub(r'^[A-Z]+-', '', codigo_raw).strip()
         
-        # Búsqueda Robusta: Primero por el normalizado, luego por el limpio
+        # Búsqueda Robusta: exacta por el código tal cual, por el numérico limpio, o flexible con ILIKE
         p_sql = Producto.query.filter(
-            (Producto.id_codigo == codigo_norm) | 
-            (Producto.codigo_sistema == codigo_norm) |
-            (Producto.id_codigo == codigo_limpio)
+            (Producto.id_codigo == codigo_raw) | 
+            (Producto.codigo_sistema == codigo_raw) |
+            (Producto.id_codigo == codigo_numerico) |
+            (Producto.codigo_sistema == codigo_numerico)
         ).first()
+        
+        # Fallback ILIKE si la búsqueda exacta no dio resultados
+        if not p_sql:
+            p_sql = Producto.query.filter(
+                (Producto.id_codigo.ilike(f'%{codigo_numerico}')) |
+                (Producto.codigo_sistema.ilike(f'%{codigo_numerico}'))
+            ).first()
         
         if p_sql:
             # MÉTRICA MATEMÁTICA PURA

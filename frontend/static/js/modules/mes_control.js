@@ -479,19 +479,22 @@ window.ModuloMes = {
         }
 
         const q = query.toLowerCase();
-        // Filtrar del cache de productos
+        // Filtrar del cache de productos — buscar en TODOS los campos de código
         const filtrados = (this.productos || []).filter(p =>
             (p.codigo && p.codigo.toLowerCase().includes(q)) ||
+            (p.codigo_sistema && p.codigo_sistema.toLowerCase().includes(q)) ||
             (p.descripcion && p.descripcion.toLowerCase().includes(q))
         ).slice(0, 8);
 
         if (filtrados.length > 0) {
-            suggestions.innerHTML = filtrados.map(p => `
-                <div class="suggestion-item p-2 border-bottom pointer" onclick="ModuloMes.seleccionarProducto('${p.codigo}')">
-                    <div class="fw-bold">${p.codigo}</div>
+            suggestions.innerHTML = filtrados.map(p => {
+                const codigoDisplay = p.codigo_sistema || p.codigo;
+                return `
+                <div class="suggestion-item p-2 border-bottom pointer" onclick="ModuloMes.seleccionarProducto('${codigoDisplay}')">
+                    <div class="fw-bold">${codigoDisplay}</div>
                     <div class="text-xs text-muted text-truncate">${p.descripcion}</div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
             suggestions.classList.add('active');
         } else {
             suggestions.classList.remove('active');
