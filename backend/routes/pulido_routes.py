@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request, send_file
 from sqlalchemy import text
 from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
-from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto
+from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo
 import uuid
 from datetime import datetime
@@ -775,6 +775,41 @@ def exportar_excel_pulido():
         logger.error(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500
 
+# =============================================================
+# NUEVO: Endpoint GET — Lotes Activos para Modo Lotes en Vivo
+# Devuelve todos los lotes en estado ABIERTO_PRODUCCION.
+# Sin locks: cualquier número de operarias puede consultarlo
+# simultáneamente sin colisiones (solo lectura).
+# =============================================================
+@pulido_bp.route('/api/pulido/lotes_activos', methods=['GET'])
+def get_lotes_activos():
+    """
+    Retorna los lotes de db_trazabilidad_lotes con estado ABIERTO_PRODUCCION.
+    Pulido lo consulta al entrar al Modo Lotes en Vivo para mostrar la lista táctil.
+    """
+    try:
+        lotes = db.session.query(TrazabilidadLote).filter(
+            TrazabilidadLote.estado_actual == 'ABIERTO_PRODUCCION'
+        ).order_by(TrazabilidadLote.fecha_creacion.desc()).all()
+
+        resultado = [{
+            'id_lote'          : l.id_lote,
+            'orden_produccion' : l.orden_produccion or 'SIN OP',
+            'id_codigo'        : l.id_codigo,
+            'maquina'          : l.maquina or '',
+            'responsable'      : l.responsable or '',
+            'fecha_creacion'   : l.fecha_creacion.strftime('%d/%m/%Y %H:%M') if l.fecha_creacion else '',
+            'estado_actual'    : l.estado_actual,
+            'cantidad_inyectada': l.cantidad_inyectada or 0
+        } for l in lotes]
+
+        return jsonify({'success': True, 'lotes': resultado}), 200
+
+    except Exception as e:
+        logger.error(f'❌ [Lotes Activos] Error: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @pulido_bp.route('/reporte_masivo', methods=['POST'])
 @pulido_bp.route('/api/pulido/reporte_masivo', methods=['POST'])
 def reporte_masivo():
@@ -863,24 +898,45 @@ def reporte_masivo():
 
             db.session.add(registro)
 
-            # 2. Actualizar Inventario: Sumar 'buenos' a Producto.p_terminado
-            producto_inv = db.session.query(Producto).filter_by(codigo_sistema=referencia).first()
-            if producto_inv:
-                original_terminado = float(producto_inv.p_terminado or 0)
-                producto_inv.p_terminado = original_terminado + buenos
-                
-                # Descontar de Por Pulir
-                original_por_pulir = float(producto_inv.por_pulir or 0)
-                producto_inv.por_pulir = max(0, original_por_pulir - (buenos + malos))
-                logger.info(f"[MASIVO-INVENTARIO] {referencia}: +{buenos} P. Terminado, por_pulir descontado.")
+            # --- MES PASO 2: db_productos NO se toca aquí. ---
+            # La mutación de inventario ocurre EXCLUSIVAMENTE en el módulo de Validación (Paso 3).
+            # Esta función solo persiste el reporte físico (db_pulido) y propaga al lote de trazabilidad.
 
-            # 3. Registrar PNC: Si 'malos' > 0, insertar en la tabla de mermas de Pulido
-            if malos > 0:
+            # --- MES PASO 2: Propagar al Lote de Trazabilidad (si viene en Modo Lotes en Vivo) ---
+            id_lote_ref = item.get('id_lote')
+            if id_lote_ref:
+                lote_traz = db.session.get(TrazabilidadLote, id_lote_ref)
+                if lote_traz:
+                    # Solo avanzar si no está ya cerrado (idempotente)
+                    if lote_traz.estado_actual == 'ABIERTO_PRODUCCION':
+                        lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
+                        logger.info(f'🟡 [Trazabilidad] Lote {id_lote_ref} → PENDIENTE_VALIDACION por operaria {responsable}')
+                    else:
+                        logger.info(f'ℹ️ [Trazabilidad] Lote {id_lote_ref} ya en estado: {lote_traz.estado_actual} (sin cambio)')
+                else:
+                    logger.warning(f'⚠️ [Trazabilidad] id_lote {id_lote_ref} no encontrado en db_trazabilidad_lotes')
+
+            # 3. Registrar PNC detallado o resumido
+            pnc_items = item.get('pnc_detail', [])
+            if pnc_items:
+                for p_item in pnc_items:
+                    criterio_desc = p_item.get('criterio') or 'PNC Pulido - Desconocido'
+                    cantidad_pnc = float(p_item.get('cantidad') or 0)
+                    if cantidad_pnc > 0:
+                        db.session.add(PncPulido(
+                            id_pnc_pulido=uuid.uuid4().hex[:8],
+                            id_pulido=id_pulido,
+                            codigo=referencia,
+                            cantidad=int(cantidad_pnc),
+                            criterio=criterio_desc,
+                            codigo_ensamble='AUDITORIA PULIDO'
+                        ))
+            elif malos > 0:
                 db.session.add(PncPulido(
                     id_pnc_pulido=uuid.uuid4().hex[:8],
                     id_pulido=id_pulido,
                     codigo=referencia,
-                    cantidad=malos,
+                    cantidad=int(malos),
                     criterio='PNC Pulido - Reporte Masivo por Voz',
                     codigo_ensamble='AUDITORIA PULIDO'
                 ))

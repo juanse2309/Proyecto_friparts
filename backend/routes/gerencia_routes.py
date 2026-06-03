@@ -10,13 +10,13 @@ gerencia_bp = Blueprint('gerencia_bp', __name__)
 logger = logging.getLogger(__name__)
 
 # Catálogos oficiales de motivos de rechazo (PNC)
-INYECCION_CRITERIOS = ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"]
+INYECCION_CRITERIOS = ["Incompleto", "Chupado", "Manchas", "Deformado", "Burbujas", "Quemado", "Hundido", "Líneas de Flujo", "Rebaba", "Material Contaminado", "Otro"]
 PULIDO_CRITERIOS = ["Rayado", "Porosidad", "Exceso de Rebaba", "Medida Incorrecta", "Mal Acabado", "Otros"]
 ENSAMBLE_CRITERIOS = ["Falta de Componente", "Mal Ajuste", "Inserto Defectuoso", "Daño Físico", "Otros"]
 
 def normalizar_criterio(criterio, area):
     if not criterio:
-        return "Otros"
+        return "Otro"
     
     crit_lower = str(criterio).lower().strip()
     
@@ -25,24 +25,31 @@ def normalizar_criterio(criterio, area):
     crit_lower = re.sub(r'\s*\(\d+\)\s*', '', crit_lower).strip()
     
     if area == "inyeccion":
-        if "rechupe" in crit_lower:
-            return "Rechupe"
-        if "quemado" in crit_lower:
-            return "Quemado"
-        if "retencion" in crit_lower or "retención" in crit_lower:
-            return "Retención"
-        if "escaso" in crit_lower or "incompleto" in crit_lower:
-            return "Incompleto/Escaso"
-        if "contamina" in crit_lower:
-            return "Contaminado"
+        if "incompleto" in crit_lower:
+            return "Incompleto"
+        if "chupa" in crit_lower:
+            return "Chupado"
         if "mancha" in crit_lower:
-            return "Mancha"
+            return "Manchas"
         if "deforma" in crit_lower:
             return "Deformado"
+        if "burbuja" in crit_lower:
+            return "Burbujas"
+        if "quemado" in crit_lower:
+            return "Quemado"
+        if "hundido" in crit_lower:
+            return "Hundido"
+        if "flujo" in crit_lower:
+            return "Líneas de Flujo"
+        if "rebaba" in crit_lower:
+            return "Rebaba"
+        if "contamina" in crit_lower:
+            return "Material Contaminado"
+        
         for c in INYECCION_CRITERIOS[:-1]:
             if c.lower() in crit_lower:
                 return c
-        return "Otros"
+        return "Otro"
         
     elif area == "pulido":
         if "rayado" in crit_lower or "raya" in crit_lower:

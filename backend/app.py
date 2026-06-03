@@ -52,8 +52,16 @@ DATABASE_URL = os.environ.get(
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
-logger.info("ðŸ“¡ [DB] SQLAlchemy inicializado con Ã©xito")
-# -----------------------------------
+logger.info("📡 [DB] SQLAlchemy inicializado con éxito")
+
+with app.app_context():
+    try:
+        from backend.models.sql_models import TrazabilidadLote
+        db.create_all()
+        logger.info("✅ [DB] Tablas verificadas/creadas con éxito")
+    except Exception as e_db:
+        logger.error(f"❌ Error creando tablas de base de datos: {e_db}")
+# ---------------------------------------------
 
 # Login Blueprints
 from backend.routes.auth_routes import auth_bp
@@ -1307,29 +1315,36 @@ def mes_iniciar():
 
 @app.route('/api/mes/pendientes_validacion', methods=['GET'])
 def mes_pendientes_validacion():
-    """Obtiene todos los lotes en estado PENDIENTE desde SQL para validación."""
+    """Obtiene todos los lotes en estado PENDIENTE_VALIDACION desde trazabilidad para validación."""
     try:
         # Consulta robusta 100% SQL para evitar problemas de metadatos de SQLAlchemy
         from sqlalchemy import text
         sql = """
             SELECT 
-                i.id, i.id_inyeccion, i.fecha_inicia as fecha, i.fecha_fin as fecha_fin, 
-                i.id_codigo, i.responsable, i.maquina, i.molde, i.cavidades, 
-                i.estado, i.cantidad_real,
-                i.hora_inicio, i.hora_termina,
-                i.cant_contador, i.almacen_destino, i.orden_produccion,
+                i.id as id_sql, t.id_inyeccion, i.fecha_inicia as fecha, i.fecha_fin as fecha_fin, 
+                t.id_codigo, i.responsable, t.maquina, i.molde, i.cavidades, 
+                i.estado, 
+                COALESCE(pul.total_buenos, 0) as cantidad_real,
+                i.hora_inicio, i.hora_termina as hora_fin,
+                i.cant_contador, i.almacen_destino, t.orden_produccion,
                 i.observaciones, i.pnc_total,
                 i.pnc_detalle, i.peso_lote,
                 i.entrada, i.salida,
-                COALESCE(pnc.total_pnc, 0) as total_pnc_sql
-            FROM db_inyeccion i
+                COALESCE(pnc_pul.total_pnc, 0) as total_pnc_sql
+            FROM db_trazabilidad_lotes t
+            LEFT JOIN db_inyeccion i ON t.id_inyeccion = i.id_inyeccion AND t.id_codigo = i.id_codigo
             LEFT JOIN (
-                SELECT id_inyeccion, id_codigo,
-                       SUM(COALESCE(NULLIF(regexp_replace(cantidad::text, '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as total_pnc
-                FROM db_pnc_inyeccion
-                GROUP BY id_inyeccion, id_codigo
-            ) pnc ON i.id_inyeccion = pnc.id_inyeccion AND i.id_codigo = pnc.id_codigo
-            WHERE i.estado = 'PENDIENTE'
+                SELECT lote, SUM(COALESCE(cantidad_real, 0)) as total_buenos
+                FROM db_pulido
+                GROUP BY lote
+            ) pul ON t.id_lote = pul.lote
+            LEFT JOIN (
+                SELECT pu.lote, SUM(COALESCE(NULLIF(regexp_replace(p.cantidad::text, '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as total_pnc
+                FROM db_pnc_pulido p
+                INNER JOIN db_pulido pu ON p.id_pulido = pu.id_pulido
+                GROUP BY pu.lote
+            ) pnc_pul ON t.id_lote = pnc_pul.lote
+            WHERE t.estado_actual = 'PENDIENTE_VALIDACION'
         """
         pendientes = db.session.execute(text(sql)).mappings().all()
 
@@ -1344,11 +1359,11 @@ def mes_pendientes_validacion():
 
         for p in pendientes:
             data.append({
-                'id_sql': p['id'],
+                'id_sql': p['id_sql'],
                 'id_inyeccion': p['id_inyeccion'],
                 'fecha': p['fecha'].isoformat() if p['fecha'] else '',
                 'hora_inicio': p['hora_inicio'] or (p['fecha'].strftime('%H:%M') if p['fecha'] else ''),
-                'hora_fin': p['hora_termina'] or (p['fecha_fin'].strftime('%H:%M') if p.get('fecha_fin') else ''),
+                'hora_fin': p['hora_fin'] or (p['fecha_fin'].strftime('%H:%M') if p.get('fecha_fin') else ''),
                 'id_codigo': p['id_codigo'], 
                 'responsable': p['responsable'],
                 'cantidad_real': _clean_num(p['cantidad_real']),
@@ -2893,7 +2908,7 @@ def obtener_criterios_pnc(tipo):
         "ensamble": [
             "Rayado",
             "Contaminado",
-            "DimensiÃ³n incorrecta",
+            "Dimensión Incorrecta",
             "Prueba",
             "Otro"
         ]

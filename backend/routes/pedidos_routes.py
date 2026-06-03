@@ -815,8 +815,9 @@ def actualizar_progreso_pedido():
 
 @pedidos_bp.route('/api/pedidos/despacho', methods=['POST'])
 def registrar_despacho():
-    """Registra un envío/despacho parcial o total de un pedido."""
+    """Registra un envío/despacho parcial o total de un pedido y descuenta stock."""
     from backend.models.sql_models import db, Pedido, DespachoPedido
+    from backend.app import registrar_salida
     try:
         data = request.json
         if not data:
@@ -848,6 +849,7 @@ def registrar_despacho():
                 continue
 
             if cant_enviada > 0:
+                # 1. Registrar despacho en base de datos
                 nuevo_despacho = DespachoPedido(
                     id_pedido=id_pedido,
                     id_codigo=codigo,
@@ -858,6 +860,12 @@ def registrar_despacho():
                     responsable=responsable
                 )
                 db.session.add(nuevo_despacho)
+
+                # 2. Descontar stock de p_terminado (único punto de entrada/salida)
+                res_salida = registrar_salida(codigo, cant_enviada, 'P. TERMINADO')
+                if isinstance(res_salida, dict) and "error" in res_salida:
+                    raise Exception(f"No se pudo actualizar stock de p_terminado para {codigo}: {res_salida['error']}")
+
                 despachos_creados += 1
 
         if despachos_creados == 0:
@@ -866,13 +874,38 @@ def registrar_despacho():
         # Opcional: Actualizar el progreso/estado del Pedido
         pedidos_filas = Pedido.query.filter_by(id_pedido=id_pedido).all()
         if pedidos_filas:
+            # Calcular despachos totales históricos para este pedido (incluidos los recién agregados)
+            from sqlalchemy import func
+            despachos_totales = db.session.query(
+                DespachoPedido.id_codigo,
+                func.sum(DespachoPedido.cantidad_enviada).label('total_enviado')
+            ).filter(DespachoPedido.id_pedido == id_pedido).group_by(DespachoPedido.id_codigo).all()
+            
+            despachos_map = {d.id_codigo: float(d.total_enviado or 0) for d in despachos_totales}
+            
+            todos_despachados = True
             for fila in pedidos_filas:
-                if fila.estado not in ('DESPACHADO', 'ENTREGADO'):
-                    fila.estado = 'DESPACHADO PARCIAL'
+                cant_pedida = float(fila.cantidad or 0)
+                cant_enviada_total = despachos_map.get(fila.id_codigo, 0.0)
+                
+                # Si algún ítem no ha sido enviado completamente, entonces no está 100% despachado
+                if cant_enviada_total < cant_pedida:
+                    todos_despachados = False
+            
+            nuevo_estado = 'DESPACHADO' if todos_despachados else 'DESPACHADO PARCIAL'
+            for fila in pedidos_filas:
+                fila.estado = nuevo_estado
         
         db.session.commit()
         logger.info(f"🚚 [DESPACHO] Se registraron {despachos_creados} items despachados para el pedido {id_pedido}")
         
+        # Invalidar caché de pedidos para refrescar vistas comerciales/bodega
+        try:
+            from backend.app import invalidar_cache_pedidos
+            invalidar_cache_pedidos()
+        except:
+            pass
+
         return jsonify({
             "success": True, 
             "message": f"Se registraron {despachos_creados} despachos exitosamente",

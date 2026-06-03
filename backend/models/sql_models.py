@@ -569,4 +569,39 @@ class DespachoPedido(db.Model):
     guia             = db.Column(db.String(100), nullable=True)
     responsable      = db.Column(db.String(150), nullable=True)
 
+class TrazabilidadLote(db.Model):
+    """
+    Tabla pivote de estado del lote (Cabecera MES).
+    Creada por Inyeccion al iniciar turno. Pulido la consume en Modo Lotes en Vivo.
+    Validacion es el unico punto de escritura hacia db_productos (Paso 3).
+    Sin FK -- patron SQL-First del proyecto.
+
+    Ciclo de vida de estado_actual:
+      ABIERTO_PRODUCCION -> EN_PULIDO -> PENDIENTE_VALIDACION -> APROBADO_CERRADO
+    """
+    __tablename__ = 'db_trazabilidad_lotes'
+    __table_args__ = {'extend_existing': True}
+
+    # PK textual -- formato: YYYYMMDD-Maquina-OP (ej: 20260602-MAQ1-OP12345)
+    # Permite lookup natural desde Pulido sin JOIN.
+    id_lote            = db.Column(db.String(120), primary_key=True)
+
+    # Datos de la Orden de Produccion
+    orden_produccion   = db.Column(db.String(100), index=True, nullable=True)
+    id_codigo          = db.Column(db.String(50),  index=True, nullable=False)
+    maquina            = db.Column(db.String(80),  nullable=True)
+
+    # Referencia al registro padre en db_inyeccion (sin FK declarado)
+    id_inyeccion       = db.Column(db.String(80),  index=True, nullable=True)
+
+    # Estado del ciclo de vida del lote
+    estado_actual      = db.Column(db.String(30),  nullable=False, default='ABIERTO_PRODUCCION')
+
+    # Auditoria
+    fecha_creacion     = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    responsable        = db.Column(db.String(150), nullable=True)
+
+    # Cantidad total inyectada -- actualizada al cierre del turno por mes_reportar.
+    # Validacion la usa para calcular WIP: WIP = cantidad_inyectada - SUM(db_pulido.cantidad_real)
+    cantidad_inyectada = db.Column(db.Integer, default=0)
 

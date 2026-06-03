@@ -321,8 +321,12 @@ const ModuloPulido = {
         console.log("🔄 Cambiando a Modo:", isPro ? "PRO (Planta)" : "MANUAL (Satélite)");
         const panelManual = document.getElementById('panel-pulido-manual');
         const panelPro = document.getElementById('panel-pulido-pro');
+        const panelLotes = document.getElementById('panel-pulido-lotes');
         const btnVoz = document.getElementById('btn-dictar-voz');
-        
+
+        // Ocultar Panel C cuando se usa el toggle legacy
+        if (panelLotes) panelLotes.style.display = 'none';
+
         if (isPro) {
             panelManual.style.display = 'none';
             panelPro.style.display = 'block';
@@ -333,6 +337,32 @@ const ModuloPulido = {
             if(btnVoz) btnVoz.style.display = 'inline-flex';
         }
     },
+
+    /**
+     * Activa el Modo Lotes en Vivo (Panel C MES).
+     * Oculta los paneles A y B, muestra el Panel C
+     * y carga automáticamente la lista de lotes activos.
+     */
+    activarModoLotes: function() {
+        const panelManual = document.getElementById('panel-pulido-manual');
+        const panelPro    = document.getElementById('panel-pulido-pro');
+        const panelLotes  = document.getElementById('panel-pulido-lotes');
+        const btnVoz      = document.getElementById('btn-dictar-voz');
+
+        if (panelManual) panelManual.style.display = 'none';
+        if (panelPro)    panelPro.style.display    = 'none';
+        if (panelLotes)  panelLotes.style.display  = 'block';
+        if (btnVoz)      btnVoz.style.display      = 'none';
+
+        // Asegurarse de que el toggle quede en posición correcta visualmente
+        const toggleEl = document.getElementById('toggle-pulido-mode');
+        if (toggleEl) toggleEl.checked = true;
+
+        // Cargar lotes en tiempo real inmediatamente
+        this.cargarLotesActivos();
+        console.log('🟢 [Modo Lotes] Panel C activado — cargando lotes activos...');
+    },
+
 
     verificarTrabajoActivo: async function(idEspecifico = null) {
         const resp = document.getElementById('responsable-pulido-input')?.value || localStorage.getItem(this.getLastResponsableKey());
@@ -1705,11 +1735,22 @@ const ModuloPulido = {
     },
 
     // ==========================================
-    // REPORTE MASIVO POR VOZ (NUEVO)
+    // REPORTE MASIVO POR VOZ (MODO LEGADO)
     // ==========================================
     loteVoz: [],
+    transcripcionCompleta: '',
     recognitionMasivo: null,
     isEscuchandoMasivo: false,
+
+    // ==========================================
+    // MODO LOTES EN VIVO (MODO 3 — MES)
+    // Estado del lote seleccionado táctilmente.
+    // Voz solo dicta cantidades numéricas.
+    // ==========================================
+    lotesActivosData: [],          // Caché de lotes devueltos por GET /api/pulido/lotes_activos
+    loteSeleccionado: null,        // { id_lote, id_codigo, orden_produccion } del lote tocado en pantalla
+    recognitionLote: null,         // Instancia SpeechRecognition del Modo Lotes
+    isEscuchandoLote: false,       // Flag para controlar el toggle de voz del Modo Lotes
 
     abrirDictadoMasivo: function() {
         const resp = this.getOperarioActual();
@@ -1724,6 +1765,7 @@ const ModuloPulido = {
         }
 
         this.loteVoz = [];
+        this.transcripcionCompleta = '';
         const modal = document.getElementById('modal-reporte-masivo-voz');
         if (modal) {
             modal.style.setProperty('display', 'flex', 'important');
@@ -1736,6 +1778,447 @@ const ModuloPulido = {
         if (hf) document.getElementById('hora-fin-global-masivo').value = hf;
     },
 
+    // ==============================================================
+    // MODO LOTES EN VIVO — FUNCIONES PRINCIPALES
+    // ==============================================================
+    gruposLotesActivos: [],
+    grupoLoteSeleccionado: null,
+
+    cargarLotesActivos: async function() {
+        const contenedor = document.getElementById('lista-lotes-activos');
+        const spinnerLotes = document.getElementById('spinner-lotes-activos');
+        if (!contenedor) return;
+
+        if (spinnerLotes) spinnerLotes.style.display = 'flex';
+        contenedor.innerHTML = '';
+
+        try {
+            const res = await fetch('/api/pulido/lotes_activos');
+            const data = await res.json();
+
+            if (spinnerLotes) spinnerLotes.style.display = 'none';
+
+            if (!data.success || data.lotes.length === 0) {
+                contenedor.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-layer-group mb-3 d-block" style="font-size:2.5rem;opacity:0.35"></i>
+                        <span class="fw-bold d-block">No hay lotes abiertos en producción</span>
+                        <small>El Jefe de Máquinas debe iniciar el turno primero.</small>
+                    </div>`;
+                this.lotesActivosData = [];
+                this.gruposLotesActivos = [];
+                return;
+            }
+
+            this.lotesActivosData = data.lotes;
+
+            const grupos = [];
+            data.lotes.forEach(l => {
+                const maq = l.maquina || 'Sin Máquina';
+                const op = l.orden_produccion || 'Sin OP';
+                let g = grupos.find(x => x.maquina === maq && x.orden_produccion === op);
+                if (!g) {
+                    g = {
+                        maquina: maq,
+                        orden_produccion: op,
+                        referencias: []
+                    };
+                    grupos.push(g);
+                }
+                g.referencias.push(l);
+            });
+
+            this.gruposLotesActivos = grupos;
+
+            contenedor.innerHTML = grupos.map((g, index) => {
+                const codigosHTML = g.referencias.map(l => `<span class="badge bg-light text-dark border me-1">${l.id_codigo}</span>`).join('');
+                return `
+                    <div class="card lote-card-activo mb-2 border-start border-4 border-success shadow-sm"
+                         id="lote-grupo-card-${index}"
+                         onclick="ModuloPulido.seleccionarGrupoLote(${index})"
+                         style="cursor:pointer; transition: all .15s; user-select:none;">
+                        <div class="card-body py-2 px-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="fw-bold text-dark d-block mb-1" style="font-size:1.1rem">MÁQUINA: ${g.maquina}</span>
+                                    <div class="mb-1"><small class="text-muted">OP: <strong>${g.orden_produccion}</strong></small></div>
+                                    <div class="d-flex flex-wrap mt-1">${codigosHTML}</div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge bg-success-subtle text-success">${g.referencias.length} Ref(s)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+        } catch (err) {
+            if (spinnerLotes) spinnerLotes.style.display = 'none';
+            console.error('[Modo Lotes] Error:', err);
+            contenedor.innerHTML = '<p class="text-danger text-center mt-3">Error al cargar lotes.</p>';
+        }
+    },
+
+    seleccionarGrupoLote: function(index) {
+        const grupo = this.gruposLotesActivos[index];
+        if (!grupo) return;
+
+        this.grupoLoteSeleccionado = grupo;
+        this.loteSeleccionado = grupo.referencias[0];
+
+        document.querySelectorAll('.lote-card-activo').forEach(c => {
+            c.style.background = '';
+            c.style.boxShadow = '';
+        });
+        const card = document.getElementById(`lote-grupo-card-${index}`);
+        if (card) {
+            card.style.background = '#d1fae5';
+            card.style.boxShadow = '0 0 0 3px #10b981';
+        }
+
+        const panelCant = document.getElementById('panel-lote-cantidades');
+        if (panelCant) panelCant.style.display = 'block';
+
+        const opEl = document.getElementById('lote-modo-op');
+        const maqEl = document.getElementById('lote-modo-maquina');
+        if (opEl) opEl.value = grupo.orden_produccion;
+        if (maqEl) maqEl.value = grupo.maquina;
+
+        const container = document.getElementById('lote-modo-referencias-container');
+        if (container) {
+            let html = '';
+            grupo.referencias.forEach(lote => {
+                html += `
+                <div class="card p-3 mb-3 border rounded-3 bg-white shadow-sm reference-row-block" 
+                     data-lote-id="${lote.id_lote}" data-codigo="${lote.id_codigo}">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-md-6 col-12">
+                            <label class="form-label fw-bold text-muted small text-uppercase mb-1">Referencia</label>
+                            <input type="text" class="form-control fw-bold text-dark bg-light" readonly value="${lote.id_codigo}" style="border-radius:8px;">
+                        </div>
+                        <div class="col-md-6 col-12">
+                            <label class="form-label fw-bold text-success small text-uppercase mb-1">
+                                <i class="fas fa-check-circle me-1"></i>Bujes Buenos (OK)
+                            </label>
+                            <input type="number" class="form-control text-center fw-bold lote-buenos-input" 
+                                   min="0" value="0" data-lote-id="${lote.id_lote}"
+                                   style="color:#16a34a; border:2px solid #86efac; border-radius:8px;">
+                        </div>
+                    </div>
+                    
+                    <div class="defectos-container mt-3 pt-2 border-top" id="defects-container-${lote.id_lote.replace(/[^a-zA-Z0-9]/g, '_')}">
+                        <!-- Sub-filas de defectos -->
+                    </div>
+                    
+                    <div class="mt-2 text-end">
+                        <button type="button" class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3"
+                                onclick="ModuloPulido.agregarDefectoFila('${lote.id_lote}')">
+                            <i class="fas fa-plus me-1"></i>+ Añadir Defecto
+                        </button>
+                    </div>
+                </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        const statusEl = document.getElementById('status-voz-lote');
+        if (statusEl) statusEl.textContent = '';
+    },
+
+    seleccionarLote: function(idLote) {
+        if (!this.gruposLotesActivos) return;
+        const index = this.gruposLotesActivos.findIndex(g => g.referencias.some(l => l.id_lote === idLote));
+        if (index !== -1) {
+            this.seleccionarGrupoLote(index);
+        }
+    },
+
+    agregarDefectoFila: function(idLote, criterioDef = '', cantDef = '') {
+        const containerId = `defects-container-${idLote.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        const subRowId = 'defect-row-' + Math.random().toString(36).substring(2, 9);
+        const subRow = document.createElement('div');
+        subRow.className = 'row g-2 mb-2 align-items-center defect-sub-row';
+        subRow.id = subRowId;
+        
+        const opcionesDefinidas = [
+            'Chupado Interno', 'Porosidad / Burbujas', 'Falta Material / Incompleto', 
+            'Material Contaminado', 'Manchas',
+            'Rayado por Cuchilla', 'Mal Cortado / Medida Incorrecta', 'Exceso de Rebaba', 
+            'Mal Acabado', 'Otro (Manipulación)'
+        ];
+        const isOtro = criterioDef && !opcionesDefinidas.includes(criterioDef);
+
+        subRow.innerHTML = `
+            <div class="col-6 col-md-5 mb-2">
+                <select class="form-select form-select-sm defect-criterio" style="border-radius:8px;">
+                    <optgroup label="Defectos de Inyección (Ocultos)">
+                        <option value="Chupado Interno" ${criterioDef === 'Chupado Interno' ? 'selected' : ''}>Chupado Interno</option>
+                        <option value="Porosidad / Burbujas" ${criterioDef === 'Porosidad / Burbujas' ? 'selected' : ''}>Porosidad / Burbujas</option>
+                        <option value="Falta Material / Incompleto" ${criterioDef === 'Falta Material / Incompleto' ? 'selected' : ''}>Falta Material / Incompleto</option>
+                        <option value="Material Contaminado" ${criterioDef === 'Material Contaminado' ? 'selected' : ''}>Material Contaminado</option>
+                        <option value="Manchas" ${criterioDef === 'Manchas' ? 'selected' : ''}>Manchas</option>
+                    </optgroup>
+                    <optgroup label="Errores de Pulido (Manipulación)">
+                        <option value="Rayado por Cuchilla" ${criterioDef === 'Rayado por Cuchilla' ? 'selected' : ''}>Rayado por Cuchilla</option>
+                        <option value="Mal Cortado / Medida Incorrecta" ${criterioDef === 'Mal Cortado / Medida Incorrecta' ? 'selected' : ''}>Mal Cortado / Medida Incorrecta</option>
+                        <option value="Exceso de Rebaba" ${criterioDef === 'Exceso de Rebaba' ? 'selected' : ''}>Exceso de Rebaba</option>
+                        <option value="Mal Acabado" ${criterioDef === 'Mal Acabado' ? 'selected' : ''}>Mal Acabado</option>
+                        <option value="Otro (Manipulación)" ${isOtro || criterioDef === 'Otro (Manipulación)' ? 'selected' : ''}>Otro (Manipulación)</option>
+                    </optgroup>
+                </select>
+                <input type="text" class="form-control form-control-sm mt-1 defect-criterio-otro" 
+                       placeholder="Escribe el defecto..." 
+                       value="${isOtro ? criterioDef : ''}" 
+                       style="display: ${isOtro ? 'block' : 'none'}; border-radius:8px;">
+            </div>
+            <div class="col-4 col-md-3">
+                <input type="number" class="form-control form-control-sm text-center fw-bold defect-cantidad" 
+                       min="1" placeholder="Cant" value="${cantDef || 1}" 
+                       style="color:#dc2626; border:1px solid #fca5a5; border-radius:8px;">
+            </div>
+            <div class="col-2 col-md-2 text-end">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0" 
+                        onclick="document.getElementById('${subRowId}').remove()">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+        `;
+        container.appendChild(subRow);
+
+        const selectEl = subRow.querySelector('.defect-criterio');
+        const inputOtro = subRow.querySelector('.defect-criterio-otro');
+        selectEl.addEventListener('change', function() {
+            if (this.value === 'Otro (Manipulación)') {
+                inputOtro.style.display = 'block';
+                inputOtro.value = '';
+                inputOtro.focus();
+            } else {
+                inputOtro.style.display = 'none';
+            }
+        });
+    },
+
+    toggleVozLote: function() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            Swal.fire({ title: 'Navegador no soportado', text: 'Use Google Chrome.', icon: 'error' });
+            return;
+        }
+        if (!this.grupoLoteSeleccionado) {
+            Swal.fire({ title: 'Sin Grupo Seleccionado', text: 'Primero toca un lote de la lista.', icon: 'warning' });
+            return;
+        }
+
+        const btn     = document.getElementById('btn-voz-lote');
+        const statusEl = document.getElementById('status-voz-lote');
+
+        if (this.isEscuchandoLote) {
+            this.isEscuchandoLote = false;
+            try { this.recognitionLote.stop(); } catch(e) {}
+            if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
+            if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
+            if (statusEl) statusEl.textContent = '';
+            return;
+        }
+
+        this.recognitionLote = new SpeechRecognition();
+        this.recognitionLote.lang = 'es-CO';
+        this.recognitionLote.continuous = false;
+        this.recognitionLote.interimResults = true;
+
+        this.recognitionLote.onstart = () => {
+            this.isEscuchandoLote = true;
+            if (btn) btn.innerHTML = '<i class="fas fa-stop me-2"></i>Detener Escucha';
+            if (btn) btn.classList.replace('btn-danger', 'btn-secondary');
+            if (statusEl) statusEl.textContent = '🎙️ Escuchando...';
+        };
+
+        this.recognitionLote.onresult = (event) => {
+            let transcript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+            if (statusEl) statusEl.textContent = transcript;
+
+            if (event.results[event.results.length - 1].isFinal) {
+                this._parsearCantidadesVoz(transcript.toLowerCase());
+                this.isEscuchandoLote = false;
+                if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
+                if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
+            }
+        };
+
+        this.recognitionLote.onerror = (e) => {
+            console.error('[Voz Lote] Error:', e.error);
+            this.isEscuchandoLote = false;
+            if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
+            if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
+            if (statusEl) statusEl.textContent = `Error: ${e.error}`;
+        };
+
+        this.recognitionLote.onend = () => {
+            if (this.isEscuchandoLote) {
+                this.isEscuchandoLote = false;
+                if (btn) btn.innerHTML = '<i class="fas fa-microphone me-2"></i>Dictar Cantidades';
+                if (btn) btn.classList.replace('btn-secondary', 'btn-danger');
+            }
+        };
+
+        this.recognitionLote.start();
+    },
+
+    _parsearCantidadesVoz: function(texto) {
+        function toNum(t) {
+            if (!t) return 0;
+            const n = parseFloat(t);
+            if (!isNaN(n)) return n;
+            const dic = { cero:0, uno:1, dos:2, tres:3, cuatro:4, cinco:5, seis:6, siete:7,
+                ocho:8, nueve:9, diez:10, once:11, doce:12, trece:13, catorce:14, quince:15,
+                veinte:20, treinta:30, cuarenta:40, cincuenta:50, sesenta:60, setenta:70,
+                ochenta:80, noventa:90, cien:100 };
+            const norm = t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+            return dic[norm] ?? 0;
+        }
+
+        const firstBlock = document.querySelector('.reference-row-block');
+        if (!firstBlock) return;
+        
+        const idLote = firstBlock.getAttribute('data-lote-id');
+        const bEl = firstBlock.querySelector('.lote-buenos-input');
+
+        const bM = texto.match(/([\w]+)\s*(buenos|buenas|bueno|ok)/i);
+        if (bM && bEl) bEl.value = toNum(bM[1]);
+
+        const mM = texto.match(/([\w]+)\s*(malos|malas|malo|pnc|descarte|defecto)/i);
+        let qtyMalos = 0;
+        if (mM) {
+            qtyMalos = toNum(mM[1]);
+        }
+
+        if (qtyMalos > 0) {
+            this.agregarDefectoFila(idLote, 'Rebaba', qtyMalos);
+        }
+
+        if (!bM) {
+            const soloNum = texto.match(/(\d+)/);
+            if (soloNum && bEl) bEl.value = parseInt(soloNum[1]);
+        }
+
+        const statusEl = document.getElementById('status-voz-lote');
+        if (statusEl) {
+            statusEl.textContent = `✅ Captado: ${bEl?.value || 0} buenos` + (qtyMalos > 0 ? ` | ${qtyMalos} malos (Rebaba)` : '');
+        }
+    },
+
+    enviarReporteLote: async function() {
+        if (!this.grupoLoteSeleccionado) {
+            Swal.fire({ title: 'Sin Selección', text: 'Selecciona un lote de la lista primero.', icon: 'warning' }); return;
+        }
+        const responsable = this.getOperarioActual();
+        if (!responsable) {
+            Swal.fire({ title: 'Sin Operario', text: 'Inicia sesión o ingresa tu nombre.', icon: 'warning' }); return;
+        }
+
+        const blocks = document.querySelectorAll('.reference-row-block');
+        const items = [];
+
+        blocks.forEach(block => {
+            const idLote = block.getAttribute('data-lote-id');
+            const referencia = block.getAttribute('data-codigo');
+            const op = this.grupoLoteSeleccionado.orden_produccion;
+
+            const buenos = parseFloat(block.querySelector('.lote-buenos-input')?.value) || 0;
+
+            let totalMalos = 0;
+            const pnc_detail = [];
+
+            const defectRows = block.querySelectorAll('.defect-sub-row');
+            defectRows.forEach(row => {
+                const selectVal = row.querySelector('.defect-criterio').value;
+                const inputVal = row.querySelector('.defect-criterio-otro').value;
+                const criterio = selectVal === 'Otro (Manipulación)' ? (inputVal.trim() || 'Otro (Manipulación)') : selectVal;
+                const cantidad = parseFloat(row.querySelector('.defect-cantidad').value) || 0;
+
+                if (cantidad > 0) {
+                    totalMalos += cantidad;
+                    pnc_detail.push({
+                        criterio: criterio,
+                        cantidad: cantidad,
+                        proceso: 'PULIDO'
+                    });
+                }
+            });
+
+            if (buenos === 0 && totalMalos === 0) {
+                return;
+            }
+
+            items.push({
+                referencia: referencia,
+                op: op,
+                lote: idLote,
+                id_lote: idLote,
+                buenos: buenos,
+                malos: totalMalos,
+                pnc_detail: pnc_detail
+            });
+        });
+
+        if (items.length === 0) {
+            Swal.fire({ title: 'Sin Movimiento', text: 'Reporta al menos un buje bueno o defectuoso.', icon: 'warning' });
+            return;
+        }
+
+        const hi = document.getElementById('hora-inicio-pulido')?.value || '';
+        const hf = document.getElementById('hora-fin-pulido')?.value   || '';
+
+        const payload = {
+            responsable,
+            hora_inicio: hi,
+            hora_fin   : hf,
+            items: items
+        };
+
+        if (typeof window.mostrarLoading === 'function') window.mostrarLoading(true, 'Registrando...');
+
+        try {
+            const res = await fetch('/api/pulido/reporte_masivo', {
+                method : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body   : JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
+
+            if (data.success) {
+                const totalBuenos = items.reduce((sum, item) => sum + item.buenos, 0);
+                const totalMalos = items.reduce((sum, item) => sum + item.malos, 0);
+
+                Swal.fire({
+                    title: '¡Registrado!',
+                    html: `Reporte registrado con éxito:<br><b>${totalBuenos}</b> buenos y <b>${totalMalos}</b> malos para la máquina <code>${this.grupoLoteSeleccionado.maquina}</code>`,
+                    icon: 'success', confirmButtonColor: '#10b981'
+                });
+
+                this.grupoLoteSeleccionado = null;
+                this.loteSeleccionado = null;
+                const panelCant = document.getElementById('panel-lote-cantidades');
+                if (panelCant) panelCant.style.display = 'none';
+                await this.cargarLotesActivos();
+            } else {
+                Swal.fire({ title: 'Error', text: data.error || 'Error inesperado.', icon: 'error' });
+            }
+        } catch (err) {
+            if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
+            Swal.fire({ title: 'Fallo de Conexión', text: 'No se pudo conectar.', icon: 'error' });
+        }
+    },
+
     cerrarDictadoMasivo: function() {
         this.cerrarModalVoz();
     },
@@ -1746,6 +2229,7 @@ const ModuloPulido = {
             modal.style.setProperty('display', 'none', 'important');
         }
         this.loteVoz = [];
+        this.transcripcionCompleta = '';
         
         if (this.recognitionMasivo) {
             try { this.recognitionMasivo.stop(); } catch(e){}
@@ -1774,6 +2258,13 @@ const ModuloPulido = {
         const lbl = document.getElementById('lbl-btn-voz-masiva');
 
         if (!this.isEscuchandoMasivo) {
+            // Limpieza de memoria para nueva grabación
+            this.transcripcionCompleta = '';
+            this.loteVoz = [];
+            this.renderTablaMasivo();
+            const preview = document.getElementById('preview-transcripcion-masiva');
+            if (preview) preview.innerHTML = '';
+
             try {
                 this.recognitionMasivo = new SpeechRecognition();
                 this.recognitionMasivo.continuous = true;
@@ -1804,16 +2295,16 @@ const ModuloPulido = {
                         }
                     }
                     
+                    if (finalTranscript.trim()) {
+                        this.transcripcionCompleta = (this.transcripcionCompleta || '') + finalTranscript;
+                        console.log('🗣️ Transcripción global acumulada (Solo previsualización en vivo):', this.transcripcionCompleta);
+                        // No llamamos a procesarTranscripcionMasiva aquí. Procesamiento diferido.
+                    }
+                    
                     const preview = document.getElementById('preview-transcripcion-masiva');
                     if (preview) {
-                        // Muestra el texto final confirmado normal y el interim en cursiva
-                        preview.innerHTML = finalTranscript + '<i style="color: #6b7280;">' + interimTranscript + '</i>';
-                    }
-
-                    if (finalTranscript.trim()) {
-                        console.log('🗣️ Transcripción final capturada:', finalTranscript);
-                        // El procesamiento transaccional se hace en segundo plano
-                        this.procesarTranscripcionMasiva(finalTranscript);
+                        // Muestra la transcripción histórica completa + el interim en cursiva en vivo
+                        preview.innerHTML = (this.transcripcionCompleta || '') + '<i style="color: #6b7280;">' + interimTranscript + '</i>';
                     }
                 };
 
@@ -1855,6 +2346,13 @@ const ModuloPulido = {
             if (this.recognitionMasivo) {
                 this.recognitionMasivo.stop();
             }
+
+            // PROCESAMIENTO DISPARADO POR EL BOTÓN AL DETENER
+            if (this.transcripcionCompleta && this.transcripcionCompleta.trim() !== '') {
+                console.log('🛠️ Procesando dictado diferido al detener...');
+                this.procesarTranscripcionMasiva(this.transcripcionCompleta.toLowerCase());
+            }
+
             statusLbl.innerText = 'Micrófono inactivo';
             statusLbl.className = 'badge bg-secondary px-3 py-2 rounded-pill fw-bold';
             btn.className = 'btn btn-danger px-4 py-2 rounded-pill fw-bold';
@@ -1867,6 +2365,9 @@ const ModuloPulido = {
 
     procesarTranscripcionMasiva: function(texto) {
         if (!texto) return;
+
+        // Reiniciar la tabla de forma pasiva, ya que reestructuraremos toda la cadena global de cero
+        this.loteVoz = [];
 
         // Función interna de mapeo robusto de texto a dígitos con soporte de acentos
         function palabraANumero(texto) {

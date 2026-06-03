@@ -946,14 +946,14 @@ const ModuloInyeccion = {
                 <td class="text-center align-middle">
                     <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">Cant. Real</small>
-                        <input type="number" min="0" class="form-control form-control-sm text-center mx-auto fw-bold text-success border-success" style="width: 85px;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
+                        <input type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 85px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
                     </div>
                 </td>
                 <td class="text-center align-middle">
                     <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">PNC</small>
                         <div class="d-flex justify-content-center align-items-center gap-1">
-                            <input type="number" min="0" class="form-control form-control-sm text-center text-danger fw-bold border-danger" style="width: 65px;" value="${item.pnc}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc', this.value)">
+                            <input type="number" min="0" class="form-control form-control-sm text-center" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.pnc}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc', this.value)">
                             <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
                         </div>
                     </div>
@@ -1090,6 +1090,26 @@ const ModuloInyeccion = {
         }
     },
 
+    manejarCambioMotivo: function(id, valor) {
+        const row = this.pncRows.find(r => r.id === id);
+        if (row) {
+            const inputOtro = document.getElementById(`otro-motivo-${id}`);
+            if (valor === 'Otro...') {
+                row.esOtro = true;
+                row.motivo = '';
+                if (inputOtro) {
+                    inputOtro.style.display = 'block';
+                    inputOtro.value = '';
+                    inputOtro.focus();
+                }
+            } else {
+                row.esOtro = false;
+                row.motivo = valor;
+                if (inputOtro) inputOtro.style.display = 'none';
+            }
+        }
+    },
+
     actualizarTotalesResumen: function () {
         const totalPnc = this.pncRows.reduce((sum, row) => sum + row.cantidad, 0);
         const display = document.getElementById('resumen-pnc-inyeccion');
@@ -1126,13 +1146,17 @@ const ModuloInyeccion = {
                         <input type="text" class="form-control form-control-sm pnc-codigo-input" placeholder="Referencia..." value="${row.codigo}" oninput="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'codigo', this.value)">
                         <div class="autocomplete-suggestions pnc-suggestions" id="suggestions-${row.id}"></div>
                     </div>
-                    <div style="width: 140px;">
-                        <select class="form-select form-select-sm" onchange="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'motivo', this.value)">
+                    <div style="width: 160px;" class="d-flex flex-column gap-1">
+                        <select class="form-select form-select-sm" onchange="ModuloInyeccion.manejarCambioMotivo(${row.id}, this.value)">
                             <option value="">Motivo...</option>
-                            ${["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"].map(c => `
-                                <option value="${c}" ${row.motivo === c ? 'selected' : ''}>${c}</option>
+                            ${["Incompleto", "Chupado", "Manchas", "Deformado", "Burbujas", "Quemado", "Hundido", "Líneas de Flujo", "Rebaba", "Material Contaminado", "Otro..."].map(c => `
+                                <option value="${c}" ${(row.motivo === c && !row.esOtro) || (row.esOtro && c === 'Otro...') ? 'selected' : ''}>${c}</option>
                             `).join('')}
                         </select>
+                        <input type="text" id="otro-motivo-${row.id}" class="form-control form-control-sm" placeholder="Especifique..." 
+                               value="${row.esOtro ? row.motivo : ''}" 
+                               style="display: ${row.esOtro ? 'block' : 'none'};" 
+                               oninput="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'motivo', this.value)">
                     </div>
                     <div style="width: 80px;">
                         <input type="number" class="form-control form-control-sm text-center" placeholder="Cant" value="${row.cantidad}" oninput="ModuloInyeccion.actualizarDatoPnc(${row.id}, 'cantidad', this.value)">
