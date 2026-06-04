@@ -281,27 +281,26 @@ def registrar_pulido():
                         piezas_por_repartir = 0
 
         # ---------------------------------------------------------
-        # Cierre de Lote con Saldo a WIP "Por Pulir"
+        # Consumo de Inventario "Por Pulir" (Saldo Flotante)
         # ---------------------------------------------------------
         lote_traz = db.session.get(TrazabilidadLote, registro.id_pulido)
         if lote_traz:
             lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
             
-            cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
-            buenas = float(registro.cantidad_real or 0)
-            pnc_total = float(registro.pnc_inyeccion or 0) + float(registro.pnc_pulido or 0)
-            rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_list)
-            
-            wip = cant_inyectada - (buenas + pnc_total + rev_total)
-            
-            if wip > 0:
-                # ── WIP: buscar en db_productos respetando prefijo ──
-                prod_wip = db.session.query(Producto).filter_by(
-                    codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
-                ).first()
-                if prod_wip:
-                    prod_wip.stock_por_pulir = float(prod_wip.stock_por_pulir or 0) + wip
-                    logger.info(f" [WIP] Agregando {wip} piezas a stock_por_pulir del producto {registro.codigo}")
+        buenas = float(registro.cantidad_real or 0)
+        pnc_total = float(registro.pnc_inyeccion or 0) + float(registro.pnc_pulido or 0)
+        rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_list)
+        
+        consumido = buenas + pnc_total + rev_total
+        
+        if consumido > 0:
+            prod_wip = db.session.query(Producto).filter_by(
+                codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
+            ).first()
+            if prod_wip:
+                # Saldo Flotante: Permitimos que baje de cero
+                prod_wip.por_pulir = float(prod_wip.por_pulir or 0) - consumido
+                logger.info(f" [Saldo Flotante] Descontando {consumido} piezas a por_pulir del producto {registro.codigo}. Nuevo saldo: {prod_wip.por_pulir}")
 
         db.session.commit()
         return jsonify({
@@ -955,21 +954,21 @@ def reporte_masivo():
                 lote_traz = db.session.get(TrazabilidadLote, id_lote_ref)
                 if lote_traz:
                     # ---------------------------------------------------------
-                    # Cierre de Lote con Saldo a WIP "Por Pulir" (MODO MASIVO)
+                    # Consumo de Inventario "Por Pulir" (Saldo Flotante MODO MASIVO)
                     # ---------------------------------------------------------
                     revueltos_items = item.get('revueltos', [])
-                    cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
                     rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_items)
                     
-                    wip = cant_inyectada - (buenos + malos + rev_total)
+                    consumido = float(buenos) + float(malos) + rev_total
                     
-                    if wip > 0:
+                    if consumido > 0:
                         prod = db.session.query(Producto).filter_by(
                             codigo_sistema=preservar_o_normalizar_prefijo(referencia)
                         ).first()
                         if prod:
-                            prod.stock_por_pulir = (prod.stock_por_pulir or 0) + int(wip)
-                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a stock_por_pulir para {referencia}")
+                            # Saldo Flotante: Permitimos que baje de cero
+                            prod.por_pulir = float(prod.por_pulir or 0) - consumido
+                            logger.info(f"✅ [Saldo Flotante Masivo] Descontadas {consumido} piezas de por_pulir para {referencia}. Nuevo saldo: {prod.por_pulir}")
 
                     # Solo avanzar si no está ya cerrado (idempotente)
                     if lote_traz.estado_actual == 'ABIERTO_PRODUCCION':

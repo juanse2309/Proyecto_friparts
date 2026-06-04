@@ -1091,8 +1091,11 @@ def mes_dashboard():
                     'cavidades':          sum([int(r.cavidades or 0) for r in activos_maq]),
                     'productos_activos': [
                         {
+                            'id_inyeccion': r.id_inyeccion,
                             'codigo_sistema': r.id_codigo,
-                            'cavidades':      r.cavidades
+                            'cavidades':      r.cavidades,
+                            'molde':          r.molde,
+                            'hora_inicio':    r.hora_inicio or (r.fecha_inicia.strftime('%H:%M') if r.fecha_inicia else '')
                         } for r in activos_maq
                     ]
                 }

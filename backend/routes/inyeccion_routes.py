@@ -901,10 +901,9 @@ def obtener_pedidos_pendientes(codigo):
 def mes_iniciar_trabajo():
     """
     Fase 4: Inicia el trabajo en la máquina a partir de una programación vespertina.
-    Registra la OP de World Office, actualiza estado a EN_PROCESO en bloque para todas
-    las referencias programadas en el mismo montaje (máquina, molde, fecha),
-    propaga la OP a las cubetas de pedidos y crea los lotes de inyección correspondientes
-    bajo el mismo identificador de lote inyeccion compartido.
+    Registra la OP de World Office, actualiza estado a EN_PROCESO para la
+    referencia programada seleccionada,
+    propaga la OP a las cubetas de pedidos y crea el lote de inyección correspondiente.
     """
     try:
         data = request.get_json()
@@ -918,85 +917,73 @@ def mes_iniciar_trabajo():
         op_world_office = str(op_world_office).strip().upper()
 
         # 1. Buscar la programación vespertina de referencia en db_programacion
-        prog_inicial = db.session.query(ProgramacionInyeccion).get(id_prog)
-        if not prog_inicial:
+        prog = db.session.query(ProgramacionInyeccion).get(id_prog)
+        if not prog:
             return jsonify({"success": False, "error": "Programación no encontrada"}), 404
 
-        # 2. Buscar todas las programaciones que compartan máquina, molde y fecha en estado PROGRAMADO
-        programaciones_bloque = db.session.query(ProgramacionInyeccion).filter(
-            ProgramacionInyeccion.maquina == prog_inicial.maquina,
-            ProgramacionInyeccion.fecha == prog_inicial.fecha,
-            ProgramacionInyeccion.molde == prog_inicial.molde,
-            ProgramacionInyeccion.estado == 'PROGRAMADO'
-        ).all()
-
-        if prog_inicial not in programaciones_bloque:
-            programaciones_bloque.append(prog_inicial)
-
         # 3. Generar un lote ID_INYECCION compartido para el lote físico del montaje
-        id_inyeccion_bloque = f"INY-{uuid.uuid4().hex[:8].upper()}"
+        id_inyeccion = f"INY-{uuid.uuid4().hex[:8].upper()}"
         colombia_tz = pytz.timezone('America/Bogota')
         ahora = datetime.now(colombia_tz).replace(tzinfo=None)
 
-        logger.info(f"⚡ Iniciando bloque de {len(programaciones_bloque)} programaciones para la máquina {prog_inicial.maquina}")
+        logger.info(f"⚡ Iniciando trabajo para la máquina {prog.maquina}, Referencia: {prog.codigo_sistema}")
         
         from flask import session
-        operario_inicia = session.get('user', prog_inicial.responsable_planta or "SISTEMA")
+        operario_inicia = session.get('user', prog.responsable_planta or "SISTEMA")
 
         # 4. Procesar en bloque de forma atómica
-        for prog in programaciones_bloque:
-            # Actualizar estado de la programación diaria
-            prog.estado = 'EN_PROCESO'
-            prog.op_world_office = op_world_office
+        # Actualizar estado de la programación diaria
+        prog.estado = 'EN_PROCESO'
+        prog.op_world_office = op_world_office
 
-            # Propagar la OP a las cubetas de pedidos correspondientes
-            db.session.query(DistribucionOpPedidos).filter(
-                DistribucionOpPedidos.codigo_producto == prog.codigo_sistema,
-                DistribucionOpPedidos.op_world_office.is_(None)
-            ).update({DistribucionOpPedidos.op_world_office: op_world_office}, synchronize_session=False)
+        # Propagar la OP a las cubetas de pedidos correspondientes
+        db.session.query(DistribucionOpPedidos).filter(
+            DistribucionOpPedidos.codigo_producto == prog.codigo_sistema,
+            DistribucionOpPedidos.op_world_office.is_(None)
+        ).update({DistribucionOpPedidos.op_world_office: op_world_office}, synchronize_session=False)
 
-            # Crear lote en ProduccionInyeccion (db_inyeccion)
-            # Capturar hora_inicio_real del servidor en ese instante exacto
-            hora_inicio_str = ahora.strftime('%H:%M')
-            nueva_prod = ProduccionInyeccion(
-                id_inyeccion=id_inyeccion_bloque,
-                fecha_inicia=ahora,
-                id_codigo=prog.codigo_sistema,
-                responsable=operario_inicia,
-                maquina=prog.maquina,
-                molde=prog.molde,
-                cavidades=prog.cavidades,
-                estado='EN_PROCESO',
+        # Crear lote en ProduccionInyeccion (db_inyeccion)
+        # Capturar hora_inicio_real del servidor en ese instante exacto
+        hora_inicio_str = ahora.strftime('%H:%M')
+        nueva_prod = ProduccionInyeccion(
+            id_inyeccion=id_inyeccion,
+            fecha_inicia=ahora,
+            id_codigo=prog.codigo_sistema,
+            responsable=operario_inicia,
+            maquina=prog.maquina,
+            molde=prog.molde,
+            cavidades=prog.cavidades,
+            estado='EN_PROCESO',
+            orden_produccion=op_world_office,
+            observaciones=prog.observaciones,
+            programado_por=prog.responsable_planta,
+            iniciado_por=operario_inicia,
+            # ── Tiempos del servidor (no dependen del frontend) ──
+            hora_inicio=hora_inicio_str,
+            cantidad_real=0,
+            cant_contador=0,
+            almacen_destino='POR PULIR',
+            departamento='Inyeccion'
+        )
+        db.session.add(nueva_prod)
+
+        # --- MES PASO 1: Crear Lote de Trazabilidad por cada referencia del montaje ---
+        # El id_lote incluye la OP y la referencia para evitar colisión de PK en multi-cavidad
+        id_lote_mes = f"{prog.fecha.strftime('%Y%m%d')}-{prog.maquina.replace(' ', '')}-{op_world_office}-{prog.codigo_sistema}"
+        if not db.session.get(TrazabilidadLote, id_lote_mes):
+            lote_traz = TrazabilidadLote(
+                id_lote=id_lote_mes,
                 orden_produccion=op_world_office,
-                observaciones=prog.observaciones,
-                programado_por=prog.responsable_planta,
-                iniciado_por=operario_inicia,
-                # ── Tiempos del servidor (no dependen del frontend) ──
-                hora_inicio=hora_inicio_str,
-                cantidad_real=0,
-                cant_contador=0,
-                almacen_destino='POR PULIR',
-                departamento='Inyeccion'
+                id_codigo=prog.codigo_sistema,
+                maquina=prog.maquina,
+                id_inyeccion=id_inyeccion,
+                estado_actual='ABIERTO_PRODUCCION',
+                fecha_creacion=ahora,
+                responsable=prog.responsable_planta or "Supervisor",
+                cantidad_inyectada=0
             )
-            db.session.add(nueva_prod)
-
-            # --- MES PASO 1: Crear Lote de Trazabilidad por cada referencia del montaje ---
-            # El id_lote incluye la OP y la referencia para evitar colisión de PK en multi-cavidad
-            id_lote_mes = f"{prog_inicial.fecha.strftime('%Y%m%d')}-{prog.maquina.replace(' ', '')}-{op_world_office}-{prog.codigo_sistema}"
-            if not db.session.get(TrazabilidadLote, id_lote_mes):
-                lote_traz = TrazabilidadLote(
-                    id_lote=id_lote_mes,
-                    orden_produccion=op_world_office,
-                    id_codigo=prog.codigo_sistema,
-                    maquina=prog.maquina,
-                    id_inyeccion=id_inyeccion_bloque,
-                    estado_actual='ABIERTO_PRODUCCION',
-                    fecha_creacion=ahora,
-                    responsable=prog.responsable_planta or "Supervisor",
-                    cantidad_inyectada=0
-                )
-                db.session.add(lote_traz)
-                logger.info(f"🟢 [Trazabilidad] Lote MES creado: {id_lote_mes} | OP: {op_world_office} | Ref: {prog.codigo_sistema}")
+            db.session.add(lote_traz)
+            logger.info(f"🟢 [Trazabilidad] Lote MES creado: {id_lote_mes} | OP: {op_world_office} | Ref: {prog.codigo_sistema}")
 
         db.session.commit()
         
@@ -1033,6 +1020,7 @@ def mes_reportar():
         id_iny = data.get('id_inyeccion')
         cierres = int(data.get('cierres', 0))
         hf_str = data.get('hora_fin')
+        hi_str = data.get('hora_inicio')
 
         if not id_iny:
             return jsonify({"success": False, "error": "El campo id_inyeccion es obligatorio"}), 400
@@ -1055,15 +1043,25 @@ def mes_reportar():
             piezas_inyectadas = cierres * cavidades
             total_teorica += piezas_inyectadas
 
-            # ── Hora fin: primero la del frontend (si viene), sino timestamp del servidor ──
+            # ── Hora inicio y fin: primero la del frontend (si viene), sino timestamp del servidor ──
+            if hi_str:
+                prod.hora_inicio = hi_str
+            
             hora_fin_resuelta = hf_str or ahora_rep.strftime('%H:%M')
             prod.hora_termina = hora_fin_resuelta
 
-            # Sincronizar fecha de finalización con timestamp real
+            # Sincronizar fechas con los valores ingresados (o servidor)
             fecha_base = prod.fecha_inicia or ahora_rep
             try:
-                h, m = map(int, hora_fin_resuelta.split(':'))
-                prod.fecha_fin = fecha_base.replace(hour=h, minute=m, second=0, microsecond=0)
+                # Ajustar inicio si el operario lo editó en el popup
+                if hi_str:
+                    h_i, m_i = map(int, hi_str.split(':'))
+                    fecha_base = fecha_base.replace(hour=h_i, minute=m_i, second=0, microsecond=0)
+                    prod.fecha_inicia = fecha_base
+                    
+                h_f, m_f = map(int, hora_fin_resuelta.split(':'))
+                prod.fecha_fin = fecha_base.replace(hour=h_f, minute=m_f, second=0, microsecond=0)
+
 
                 # Calcular duración y métricas
                 delta = prod.fecha_fin - fecha_base

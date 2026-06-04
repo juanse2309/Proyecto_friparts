@@ -143,45 +143,47 @@ window.ModuloMes = {
             const horaInicio = (m.estado === 'EN_PROCESO' && activo?.hora_inicio)
                 ? `<small class="text-muted"><i class="fas fa-clock me-1"></i>Inicio: ${activo.hora_inicio}</small>` : '';
 
-            // Lista de SKUs del molde (desde la cola o el activo)
-            let productosDelMontaje = [];
-            if (m.estado === 'EN_PROCESO' && activo) {
-                productosDelMontaje = activo.productos_activos || [{
-                    codigo_sistema: activo.codigo_sistema,
-                    cavidades: activo.cavidades
-                }];
-            } else {
-                productosDelMontaje = cola.map(c => ({
-                    codigo_sistema: c.codigo_sistema,
-                    cavidades: c.cavidades
-                }));
+            // Productos activos HTML
+            let productosActivosHTML = '';
+            if (activo && activo.productos_activos && activo.productos_activos.length > 0) {
+                productosActivosHTML = activo.productos_activos.map(p => `
+                    <div class="d-flex justify-content-between align-items-center py-2 mb-2"
+                        style="border-bottom:1px solid #e2e8f0;font-size:.78rem">
+                        <div>
+                            <div class="fw-bold" style="color:#1e293b">${p.codigo_sistema || '-'}</div>
+                            <span class="badge" style="background:#eff6ff;color:#2563eb;font-size:.65rem">${p.cavidades} cav.</span>
+                        </div>
+                        <button class="btn btn-warning btn-sm fw-bold"
+                            onclick="ModuloMes.clickFinalizarDesdeCard('${p.id_inyeccion || activo.id_inyeccion}', ${p.cavidades}, '${p.molde || capacidadMolde}', '${p.codigo_sistema}', '${p.hora_inicio || activo.hora_inicio || '06:00'}')">
+                            <i class="fas fa-stop-circle me-1"></i> Pausar/Finalizar
+                        </button>
+                    </div>
+                `).join('');
             }
 
-            const skuList = productosDelMontaje.length > 0
-                ? productosDelMontaje.map(p => `
-                    <div class="d-flex justify-content-between align-items-center py-1"
-                        style="border-bottom:1px solid #f1f5f9;font-size:.78rem">
-                        <span class="fw-bold" style="color:#1e293b">${p.codigo_sistema || '-'}</span>
-                        <span class="badge" style="background:${pal.border}22;color:${pal.border};font-size:.65rem">${p.cavidades} cav.</span>
-                    </div>`).join('')
-                : `<div class="text-muted" style="font-size:.75rem">Sin productos.</div>`;
+            // Productos en cola HTML
+            let productosColaHTML = '';
+            if (cola && cola.length > 0) {
+                productosColaHTML = cola.map(c => `
+                    <div class="d-flex justify-content-between align-items-center py-2 mb-2"
+                        style="border-bottom:1px solid #e2e8f0;font-size:.78rem">
+                        <div>
+                            <div class="fw-bold" style="color:#1e293b">${c.codigo_sistema || '-'}</div>
+                            <span class="badge" style="background:#f0fdf4;color:#16a34a;font-size:.65rem">${c.cavidades} cav.</span>
+                        </div>
+                        <button class="btn btn-success btn-sm fw-bold"
+                            onclick="ModuloMes.clickIniciarDesdeCard('${c.id_programacion}')">
+                            <i class="fas fa-play me-1"></i> Iniciar
+                        </button>
+                    </div>
+                `).join('');
+            }
 
-            const totalCavMalla = productosDelMontaje.reduce((s, p) => s + (p.cavidades || 0), 0);
-            const codigosMalla = productosDelMontaje.map(p => p.codigo_sistema).join(', ');
-
-            // Botón principal
-            const btn = m.estado === 'EN_PROCESO'
-                ? `<button class="btn btn-warning fw-bold w-100 py-2"
-                       onclick="ModuloMes.clickFinalizarDesdeCard('${activo?.id_inyeccion}', ${totalCavMalla}, '${item.molde || 'N/A'}', '${codigosMalla}', '${activo?.hora_inicio || '06:00'}')">
-                       <i class="fas fa-stop-circle me-1"></i> Finalizar Turno
-                   </button>`
-                : `<button class="btn btn-success fw-bold w-100 py-2"
-                       onclick="ModuloMes.clickIniciarDesdeCard('${cola[0]?.id_programacion}')">
-                       <i class="fas fa-play me-1"></i> Iniciar Trabajo
-                   </button>`;
+            const skuList = (productosActivosHTML + productosColaHTML) || `<div class="text-muted" style="font-size:.75rem">Sin productos.</div>`;
+            const btn = '';
 
             // Botón liberar (solo PROGRAMADO)
-            const btnLiberar = (m.estado === 'PROGRAMADO' && productosDelMontaje.length > 0)
+            const btnLiberar = (m.estado === 'PROGRAMADO' && cola && cola.length > 0)
                 ? `<button class="btn btn-outline-danger btn-sm w-100 mt-2"
                        onclick="ModuloMes.cancelarBatch('${m.nombre}')">
                        <i class="fas fa-ban me-1"></i> Liberar M\u00e1quina
