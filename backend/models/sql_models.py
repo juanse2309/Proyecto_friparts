@@ -89,6 +89,13 @@ class PncInyeccion(db.Model):
     cantidad         = db.Column(db.Numeric(18, 2), default=0)
     criterio         = db.Column(db.String(200), nullable=True)
     codigo_ensamble  = db.Column(db.String(50), nullable=True)
+    
+    # --- Desglose de Defectos ---
+    quemado_manchado         = db.Column(db.Numeric(18, 2), default=0)
+    incompleto_falta_llenado = db.Column(db.Numeric(18, 2), default=0)
+    rebaba_excesiva          = db.Column(db.Numeric(18, 2), default=0)
+    burbuja_porosidad        = db.Column(db.Numeric(18, 2), default=0)
+    deformacion_rechupado    = db.Column(db.Numeric(18, 2), default=0)
 
 
 class PncPulido(db.Model):

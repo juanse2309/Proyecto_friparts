@@ -1077,3 +1077,86 @@ def reporte_masivo():
         logger.error(f"Error en reporte_masivo: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+
+@pulido_bp.route('/api/pnc/registrar_pulido', methods=['POST'])
+def registrar_pnc_pulido():
+    """
+    Registra (o limpia) el desglose de PNC de Pulido en db_pnc_pulido
+    y sincroniza pnc_pulido + cantidad_real en db_pulido.
+    Body JSON:
+      id_pulido - ID de la sesión de pulido
+      id_codigo - Código del producto
+      defectos  - {
+          "Porosidad / Burbujas": N,
+          "Marcas de Lijado / Rayones": N,
+          "Desgaste Excesivo / Deformación": N,
+          "Brillo Insuficiente": N
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        id_pulido = data.get('id_pulido')
+        id_codigo = data.get('id_codigo')
+        defectos  = data.get('defectos', {})
+
+        if not id_pulido or not id_codigo:
+            return jsonify({"success": False, "error": "id_pulido e id_codigo son obligatorios"}), 400
+
+        id_cod = normalizar_codigo(id_codigo)
+
+        # Eliminar registro previo para este turno + producto
+        db.session.query(PncPulido).filter_by(id_pulido=id_pulido, codigo=id_cod).delete()
+
+        # Mapear los 4 criterios específicos de Pulido
+        porosidad = float(defectos.get("Porosidad / Burbujas", 0) or 0)
+        rayones   = float(defectos.get("Marcas de Lijado / Rayones", 0) or 0)
+        desgaste  = float(defectos.get("Desgaste Excesivo / Deformación", 0) or 0)
+        brillo    = float(defectos.get("Brillo Insuficiente", 0) or 0)
+        total_pnc = porosidad + rayones + desgaste + brillo
+
+        prod_pul = db.session.query(ProduccionPulido).filter_by(id_pulido=id_pulido).first()
+
+        if total_pnc > 0:
+            criterio_str = (
+                f"Porosidad/Burbujas: {int(porosidad)}, "
+                f"Rayones: {int(rayones)}, "
+                f"Desgaste/Deformación: {int(desgaste)}, "
+                f"Brillo Insuficiente: {int(brillo)}"
+            )
+            nuevo_pnc = PncPulido(
+                id_pnc_pulido=uuid.uuid4().hex[:8],
+                id_pulido=id_pulido,
+                codigo=id_cod,
+                cantidad=total_pnc,
+                criterio=criterio_str
+            )
+            db.session.add(nuevo_pnc)
+
+            if prod_pul:
+                prod_pul.pnc_pulido = int(round(total_pnc))
+                prod_pul.criterio_pnc_pulido = criterio_str
+                cant_bruta = float(prod_pul.cantidad_recibida or prod_pul.cantidad_real or 0)
+                prod_pul.cantidad_real = max(0, int(round(cant_bruta - total_pnc)))
+
+            db.session.commit()
+            logger.info(f"✅ PNC Pulido registrado para {id_cod} en {id_pulido}: Total={total_pnc}")
+            return jsonify({
+                "success": True,
+                "message": "PNC de Pulido registrado en db_pnc_pulido",
+                "total_pnc": total_pnc
+            }), 200
+        else:
+            if prod_pul:
+                prod_pul.pnc_pulido = 0
+                prod_pul.criterio_pnc_pulido = ""
+            db.session.commit()
+            return jsonify({
+                "success": True,
+                "message": "Sin defectos de PNC para Pulido",
+                "total_pnc": 0
+            }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error registrando PNC Pulido: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

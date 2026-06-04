@@ -158,7 +158,7 @@ window.ModuloMes = {
                         <div class="fw-bold mb-2 text-primary" style="font-size:.8rem">Lote Activo (Molde: ${activo.molde || capacidadMolde})</div>
                         ${skuList}
                         <button class="btn btn-warning btn-sm fw-bold w-100 mt-2"
-                            onclick="ModuloMes.clickFinalizarDesdeCard('${activo.id_inyeccion}', ${activo.cavidades}, '${activo.molde || capacidadMolde}', 'LOTE MÚLTIPLE', '${activo.hora_inicio || '06:00'}')">
+                            onclick="ModuloMes.clickFinalizarDesdeCard('${activo.id_inyeccion}', ${activo.cavidades}, '${activo.molde || capacidadMolde}', '${activo.producto || 'LOTE MÚLTIPLE'}', '${activo.hora_inicio || '06:00'}')">
                             <i class="fas fa-stop-circle me-1"></i> Pausar/Finalizar Montaje
                         </button>
                     </div>
@@ -318,6 +318,46 @@ window.ModuloMes = {
         const mm = String(now.getMinutes()).padStart(2, '0');
         const horaSugerida = `${hh}:${mm}`;
 
+        // Extraer los códigos de producto individuales
+        const productos = (codigo || '').split(',').map(p => p.trim()).filter(Boolean);
+        let pncHtml = '';
+        if (productos.length > 0) {
+            pncHtml = `
+                <div class="mt-4 border-top pt-3 text-start">
+                    <h6 class="fw-bold text-danger mb-3"><i class="fas fa-exclamation-triangle me-1"></i> Reportar Defectos (PNC) Obligatorio</h6>
+            `;
+            productos.forEach((prod, index) => {
+                pncHtml += `
+                    <div class="card p-3 mb-3 border-0 shadow-sm" style="border-radius: 12px; background: #fffafb; border: 1px solid #fee2e2 !important;">
+                        <div class="fw-bold text-danger mb-2" style="font-size: 0.9rem;"><i class="fas fa-cog me-1"></i> Producto: ${prod}</div>
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <label class="form-label small fw-bold text-muted mb-0">Quemado</label>
+                                <input type="number" id="swal-pnc-quemado-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small fw-bold text-muted mb-0">Falta Llenado</label>
+                                <input type="number" id="swal-pnc-incompleto-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small fw-bold text-muted mb-0">Rebaba</label>
+                                <input type="number" id="swal-pnc-rebaba-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6 mt-2">
+                                <label class="form-label small fw-bold text-muted mb-0">Burbujas/Porosidad</label>
+                                <input type="number" id="swal-pnc-burbuja-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6 mt-2">
+                                <label class="form-label small fw-bold text-muted mb-0">Deformación</label>
+                                <input type="number" id="swal-pnc-deformacion-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            pncHtml += `</div>`;
+        }
+
         const { value: formValues } = await Swal.fire({
             title: '\u00bfFinalizar Turno?',
             html: `
@@ -344,6 +384,7 @@ window.ModuloMes = {
                         <input type="time" id="swal-hora-fin" class="form-control" value="${horaSugerida}">
                     </div>
                 </div>
+                ${pncHtml}
             `,
             focusConfirm: false,
             showCancelButton: true,
@@ -363,7 +404,31 @@ window.ModuloMes = {
                     Swal.showValidationMessage('Ambas horas son obligatorias');
                     return false;
                 }
-                return { cierres: parseInt(cierres), hora_inicio: hi, hora_fin: hf };
+
+                // Extraer PNC para cada producto
+                const pncList = [];
+                productos.forEach((prod, index) => {
+                    const q = parseInt(document.getElementById(`swal-pnc-quemado-${index}`).value) || 0;
+                    const inc = parseInt(document.getElementById(`swal-pnc-incompleto-${index}`).value) || 0;
+                    const r = parseInt(document.getElementById(`swal-pnc-rebaba-${index}`).value) || 0;
+                    const b = parseInt(document.getElementById(`swal-pnc-burbuja-${index}`).value) || 0;
+                    const d = parseInt(document.getElementById(`swal-pnc-deformacion-${index}`).value) || 0;
+
+                    if (q > 0 || inc > 0 || r > 0 || b > 0 || d > 0) {
+                        pncList.push({
+                            codigo: prod,
+                            defectos: {
+                                "Quemado / Manchado": q,
+                                "Falta de Llenado": inc,
+                                "Rebaba": r,
+                                "Burbujas": b,
+                                "Deformación": d
+                            }
+                        });
+                    }
+                });
+
+                return { cierres: parseInt(cierres), hora_inicio: hi, hora_fin: hf, pncList: pncList };
             }
         });
 
@@ -380,8 +445,28 @@ window.ModuloMes = {
                         hora_fin: formValues.hora_fin
                     })
                 });
-                mostrarLoading(false);
+
                 if (res?.success) {
+                    // Registrar o limpiar PNC para cada producto en db_pnc_inyeccion
+                    for (const prod of productos) {
+                        const foundPnc = formValues.pncList.find(p => p.codigo === prod);
+                        const defectsPayload = foundPnc ? foundPnc.defectos : {};
+                        try {
+                            await fetchData('/api/pnc/registrar_inyeccion', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    id_inyeccion: idInyeccion,
+                                    id_codigo: prod,
+                                    defectos: defectsPayload
+                                })
+                            });
+                        } catch (errPnc) {
+                            console.error(`[MES] Error registrando PNC para ${prod}:`, errPnc);
+                        }
+                    }
+
+                    mostrarLoading(false);
                     Swal.fire({
                         icon: 'success',
                         title: 'Turno Reportado',
@@ -390,11 +475,13 @@ window.ModuloMes = {
                     });
                     await this.cargarDashboard();
                 } else {
+                    mostrarLoading(false);
                     Swal.fire('Error', res?.error || 'No se pudo reportar', 'error');
                 }
             } catch (e) {
                 mostrarLoading(false);
                 console.error('[MES] Error finalizando:', e);
+                Swal.fire('Error', 'Error de red al intentar reportar', 'error');
             }
         }
     },
@@ -639,20 +726,39 @@ window.ModuloMes = {
                     this.buscarPedidosPendientes(p.codigo);
                 }
 
-                if (preview) {
-                    let badgeAlerta = '';
-                    if (p.pedidos_pendientes && p.pedidos_pendientes > 0) {
-                        badgeAlerta = `
-                            <div class="alert alert-danger d-flex align-items-center mt-2 mb-0 p-2 border-0" style="background-color: #fee2e2; color: #b91c1c; border-radius: 8px;">
-                                <i class="fas fa-exclamation-triangle me-2 fs-6"></i>
-                                <div>
-                                    <strong class="d-block" style="font-size: 0.85rem;">Atención: Backorder</strong>
-                                    <span style="font-size: 0.75rem;">Hay ${p.pedidos_pendientes} piezas en Pedido Pendiente. ¡Priorizar!</span>
+                // NUEVO: Consultar cruce de demanda B2B vs stock
+                let alertDemandHTML = '';
+                try {
+                    const checkRes = await fetchData(`/api/produccion/verificar_demanda/${p.codigo_sistema || p.id_codigo || codigo}`);
+                    if (checkRes && checkRes.success) {
+                        const { unidades_pedidas_b2b, stock_actual_disponible, stock_terminado, stock_bodega } = checkRes;
+                        // Diseño UX/UI: Cuadrícula limpia de 3 Indicadores Clave
+                        const disponible_calc = stock_terminado - unidades_pedidas_b2b;
+                        
+                        alertDemandHTML = `
+                            <div class="mt-3 p-3 shadow-sm" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                                <div class="row text-center g-2" style="font-size: 0.8rem;">
+                                    <div class="col-4 border-end">
+                                        <div class="text-muted fw-bold mb-1" style="font-size: 0.75rem; text-transform: uppercase;">P. Terminado</div>
+                                        <div class="fs-5 fw-bold text-dark">${stock_terminado}</div>
+                                    </div>
+                                    <div class="col-4 border-end">
+                                        <div class="text-muted fw-bold mb-1" style="font-size: 0.75rem; text-transform: uppercase;">Demanda Activa</div>
+                                        <div class="fs-5 fw-bold text-dark">${unidades_pedidas_b2b}</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="text-muted fw-bold mb-1" style="font-size: 0.75rem; text-transform: uppercase;">Disponible</div>
+                                        <div class="fs-5 fw-bold text-dark">${disponible_calc}</div>
+                                    </div>
                                 </div>
                             </div>
                         `;
                     }
-                    
+                } catch (errCheck) {
+                    console.error('[MES] Error al verificar demanda:', errCheck);
+                }
+
+                if (preview) {
                     preview.innerHTML = `
                         <div class="alert alert-success d-flex align-items-center mb-0 p-2 border-0" style="background-color: #d1fae5; color: #065f46; border-radius: 8px;">
                             <i class="fas fa-check-circle me-2 fs-5"></i>
@@ -661,7 +767,7 @@ window.ModuloMes = {
                                 <span style="font-size: 0.75rem;">${p.descripcion || p.codigo_sistema}</span>
                             </div>
                         </div>
-                        ${badgeAlerta}
+                        ${alertDemandHTML}
                     `;
                 }
 
@@ -923,6 +1029,49 @@ window.ModuloMes = {
                 text: `El montaje suma ${totalCav} cavidades pero el molde es de ${moldeCapacidad}. Debe coincidir exactamente.`
             });
             return;
+        }
+
+        // --- NUEVO: Crucial Check de Demanda B2B (Fase 2) ---
+        // Verificar demanda de cada producto para lanzar Alerta de Desperdicio si tienen stock y 0 pedidos
+        const warnings = [];
+        for (const p of productosParaEnviar) {
+            try {
+                const checkRes = await fetchData(`/api/produccion/verificar_demanda/${p.codigo}`);
+                if (checkRes && checkRes.success) {
+                    const { unidades_pedidas_b2b, stock_actual_disponible } = checkRes;
+                    if (stock_actual_disponible > 0 && unidades_pedidas_b2b === 0) {
+                        warnings.push(`La referencia <strong>${p.codigo}</strong> tiene suficiente stock (${stock_actual_disponible} piezas) y <strong>0 pedidos B2B activos</strong>.`);
+                    }
+                }
+            } catch (errCheck) {
+                console.warn('[MES Check] Error al verificar demanda de pre-programación:', errCheck);
+            }
+        }
+
+        if (warnings.length > 0) {
+            const warningHtml = `
+                <div class="text-start">
+                    <p class="mb-2">Se detectó stock suficiente para referencias sin pedidos activos:</p>
+                    <ul class="mb-0 text-danger fw-bold" style="font-size: 0.9rem;">
+                        ${warnings.map(w => `<li class="mb-1">${w}</li>`).join('')}
+                    </ul>
+                    <p class="mt-3 mb-0 text-muted small"><i class="fas fa-info-circle me-1"></i> Se recomienda priorizar referencias con backorder para evitar desperdicio y optimizar la capacidad de las máquinas.</p>
+                </div>
+            `;
+
+            const { isConfirmed } = await Swal.fire({
+                title: 'Alerta de Desperdicio de Capacidad',
+                html: warningHtml,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#eab308',
+                confirmButtonText: 'Sí, programar de todas formas',
+                cancelButtonText: 'Cancelar y revisar'
+            });
+
+            if (!isConfirmed) {
+                return; // Detener la programación
+            }
         }
 
         // RECOPILAR PEDIDOS ASIGNADOS (TRAZABILIDAD VESPERTINA):
@@ -1203,6 +1352,50 @@ window.ModuloMes = {
         const mm = String(now.getMinutes()).padStart(2, '0');
         const horaSugerida = `${hh}:${mm}`;
 
+        // Extraer los códigos de producto individuales de la máquina activa
+        const codigo = this.trabajoActivo.producto || '';
+        const idInyeccion = this.trabajoActivo.id_inyeccion;
+        const horaInicio = this.trabajoActivo.inicio || '06:00';
+        const productos = codigo.split(',').map(p => p.trim()).filter(Boolean);
+        
+        let pncHtml = '';
+        if (productos.length > 0) {
+            pncHtml = `
+                <div class="mt-4 border-top pt-3 text-start">
+                    <h6 class="fw-bold text-danger mb-3"><i class="fas fa-exclamation-triangle me-1"></i> Reportar Defectos (PNC) Obligatorio</h6>
+            `;
+            productos.forEach((prod, index) => {
+                pncHtml += `
+                    <div class="card p-3 mb-3 border-0 shadow-sm" style="border-radius: 12px; background: #fffafb; border: 1px solid #fee2e2 !important;">
+                        <div class="fw-bold text-danger mb-2" style="font-size: 0.9rem;"><i class="fas fa-cog me-1"></i> Producto: ${prod}</div>
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <label class="form-label small fw-bold text-muted mb-0">Quemado</label>
+                                <input type="number" id="swal-pnc-quemado-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small fw-bold text-muted mb-0">Falta Llenado</label>
+                                <input type="number" id="swal-pnc-incompleto-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small fw-bold text-muted mb-0">Rebaba</label>
+                                <input type="number" id="swal-pnc-rebaba-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6 mt-2">
+                                <label class="form-label small fw-bold text-muted mb-0">Burbujas/Porosidad</label>
+                                <input type="number" id="swal-pnc-burbuja-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6 mt-2">
+                                <label class="form-label small fw-bold text-muted mb-0">Deformación</label>
+                                <input type="number" id="swal-pnc-deformacion-${index}" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            pncHtml += `</div>`;
+        }
+
         const { value: formValues } = await Swal.fire({
             title: '\u00bfFinalizar Turno?',
             html: `
@@ -1210,14 +1403,15 @@ window.ModuloMes = {
                 <div class="row text-start p-2 g-3">
                     <div class="col-6">
                         <label class="form-label fw-bold small text-uppercase text-muted mb-1">Hora Inicio Real</label>
-                        <input type="time" id="swal-hora-inicio" class="form-control" value="06:00">
+                        <input type="time" id="swal-hora-inicio" class="form-control" value="${horaInicio}">
                     </div>
                     <div class="col-6">
                         <label class="form-label fw-bold small text-uppercase text-muted mb-1">Hora Fin Real</label>
                         <input type="time" id="swal-hora-fin" class="form-control" value="${horaSugerida}">
                     </div>
                 </div>
-                <div class="mt-2 small text-muted text-start ps-2"><i class="fas fa-info-circle me-1"></i>La hora de llegada se registrar\u00e1 como 6:00 AM autom\u00e1ticamente.</div>
+                <div class="mt-2 small text-muted text-start ps-2 mb-3"><i class="fas fa-info-circle me-1"></i>La hora de inicio sugerida es la hora en que inici\u00f3 el lote.</div>
+                ${pncHtml}
             `,
             focusConfirm: false,
             showCancelButton: true,
@@ -1231,7 +1425,31 @@ window.ModuloMes = {
                     Swal.showValidationMessage('Ambas horas son obligatorias');
                     return false;
                 }
-                return { hora_inicio: hi, hora_fin: hf };
+
+                // Extraer PNC para cada producto
+                const pncList = [];
+                productos.forEach((prod, index) => {
+                    const q = parseInt(document.getElementById(`swal-pnc-quemado-${index}`).value) || 0;
+                    const inc = parseInt(document.getElementById(`swal-pnc-incompleto-${index}`).value) || 0;
+                    const r = parseInt(document.getElementById(`swal-pnc-rebaba-${index}`).value) || 0;
+                    const b = parseInt(document.getElementById(`swal-pnc-burbuja-${index}`).value) || 0;
+                    const d = parseInt(document.getElementById(`swal-pnc-deformacion-${index}`).value) || 0;
+
+                    if (q > 0 || inc > 0 || r > 0 || b > 0 || d > 0) {
+                        pncList.push({
+                            codigo: prod,
+                            defectos: {
+                                "Quemado / Manchado": q,
+                                "Falta de Llenado": inc,
+                                "Rebaba": r,
+                                "Burbujas": b,
+                                "Deformación": d
+                            }
+                        });
+                    }
+                });
+
+                return { hora_inicio: hi, hora_fin: hf, pncList: pncList };
             }
         });
 
@@ -1242,19 +1460,40 @@ window.ModuloMes = {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        id_inyeccion: this.trabajoActivo.id_inyeccion,
+                        id_inyeccion: idInyeccion,
                         cierres: cierres,
                         hora_inicio: formValues.hora_inicio,
                         hora_fin: formValues.hora_fin
                     })
                 });
-                mostrarLoading(false);
+
                 if (res && res.success) {
-                    Swal.fire('Reportado', 'El trabajo ha finalizado y pasado a Validación de Paola', 'success');
+                    // Registrar o limpiar PNC para cada producto en db_pnc_inyeccion
+                    for (const prod of productos) {
+                        const foundPnc = formValues.pncList.find(p => p.codigo === prod);
+                        const defectsPayload = foundPnc ? foundPnc.defectos : {};
+                        try {
+                            await fetchData('/api/pnc/registrar_inyeccion', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    id_inyeccion: idInyeccion,
+                                    id_codigo: prod,
+                                    defectos: defectsPayload
+                                })
+                            });
+                        } catch (errPnc) {
+                            console.error(`[MES] Error registrando PNC para ${prod}:`, errPnc);
+                        }
+                    }
+
+                    mostrarLoading(false);
+                    Swal.fire('Reportado', 'El trabajo ha finalizado y pasado a Validaci\u00f3n de Paola', 'success');
                     document.getElementById('mes-op-cierres').value = '';
                     await this.actualizarEstadoMaquina();
                     await this.cargarDashboard(); // Refrescar tarjetas de la izquierda
                 } else {
+                    mostrarLoading(false);
                     Swal.fire('Error', res?.error || 'No se pudo reportar', 'error');
                 }
             } catch (error) {
@@ -1323,10 +1562,8 @@ window.ModuloMes = {
             if (res && res.success && res.pedidos && res.pedidos.length > 0) {
                 this.renderizarTablaPedidos(res.pedidos, codigo);
             } else {
-                contenedor.innerHTML = `
-                    <div class="alert alert-info py-2 px-3 border-0 small text-center mt-3" style="background:#e0f2fe; color:#0369a1; border-radius:12px;">
-                        <i class="fas fa-info-circle me-1"></i> No hay pedidos pendientes de alistamiento abiertos para <strong>${codigo}</strong>.
-                    </div>`;
+                // Eliminado a petición de UX: No mostrar alert-info cuando la demanda es 0
+                contenedor.innerHTML = '';
             }
         } catch (error) {
             console.error('[TRAZABILIDAD] Error al buscar pedidos:', error);

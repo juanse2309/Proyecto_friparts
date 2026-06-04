@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // facturacion.js - Lógica de Exportación World Office - NAMESPACED
 // ============================================
 
@@ -240,14 +240,40 @@ const ModuloFacturacion = {
             console.log("DEBUG: [cargarPreviewWO] Respuesta servidor:", result);
 
             if (result.success && result.data.length > 0) {
-                // Render Headers
+                // Render Headers (Excluyendo columnas auxiliares de auditoría)
                 const firstRow = result.data[0];
-                const columns = Object.keys(firstRow);
+                const columns = Object.keys(firstRow).filter(col => col !== 'precio_historico' && col !== 'precio_maestro');
                 thead.innerHTML = '<tr>' + columns.map(col => `<th>${col}</th>`).join('') + '</tr>';
 
                 // Render Rows
                 tbody.innerHTML = result.data.map(row => {
-                    return '<tr>' + columns.map(col => `<td>${row[col] !== null ? row[col] : ''}</td>`).join('') + '</tr>';
+                    const precioHist = row.precio_historico !== undefined && row.precio_historico !== null ? parseFloat(row.precio_historico) : null;
+                    const precioMaest = row.precio_maestro !== undefined && row.precio_maestro !== null ? parseFloat(row.precio_maestro) : null;
+                    const hasPriceDiff = precioHist !== null && precioMaest !== null && Math.abs(precioHist - precioMaest) > 0.01;
+
+                    const rowStyle = hasPriceDiff 
+                        ? 'style="background-color: #fff3cd !important; border-left: 4px solid #fd7e14;" class="table-warning"' 
+                        : '';
+
+                    return `<tr ${rowStyle}>` + columns.map(col => {
+                        let cellVal = row[col] !== null ? row[col] : '';
+                        
+                        if (col === 'Detalle: Valor Unitario' && hasPriceDiff) {
+                            const tooltip = `Desfase detectado: El cliente pidió a $${precioHist.toLocaleString('es-CO')}, pero el precio maestro actual es $${precioMaest.toLocaleString('es-CO')}`;
+                            let displayVal = cellVal;
+                            try {
+                                const parsedVal = parseFloat(cellVal);
+                                if (!isNaN(parsedVal)) {
+                                    displayVal = `$ ${parsedVal.toLocaleString('es-CO')}`;
+                                }
+                            } catch (e) {}
+                            cellVal = `<span class="text-danger fw-bold d-inline-flex align-items-center gap-1" title="${tooltip}" style="cursor: help;">
+                                ${displayVal} <span style="font-size: 1.1rem;">⚠️</span>
+                            </span>`;
+                        }
+                        
+                        return `<td>${cellVal}</td>`;
+                    }).join('') + '</tr>';
                 }).join('');
 
             } else {

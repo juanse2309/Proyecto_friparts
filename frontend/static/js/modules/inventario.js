@@ -959,7 +959,177 @@ async function registrarConteo(data) {
 window.ModuloInventario = {
     inicializar: inicializarInventario,
     cambiarPagina: cambiarPagina,
-    cerrarModalConteo: cerrarModalConteo
+    cerrarModalConteo: cerrarModalConteo,
+    abrirModalConteo: abrirModalConteo,
+
+    // ── Sincronización de Precios WO ────────────────────────────────────
+
+    _archivoPreciosWO: null,
+
+    abrirModalSincronizarPrecios: function () {
+        const modal = document.getElementById('modalSincronizarPreciosWO');
+        if (!modal) { console.error('[WO] Modal no encontrado'); return; }
+        // Resetear estado
+        this._archivoPreciosWO = null;
+        const fileNameEl = document.getElementById('wo-file-name');
+        if (fileNameEl) fileNameEl.textContent = '';
+        const fileInput = document.getElementById('wo-file-input');
+        if (fileInput) fileInput.value = '';
+        const btnConfirmar = document.getElementById('btn-confirmar-sync-wo');
+        if (btnConfirmar) btnConfirmar.disabled = true;
+        const progressEl = document.getElementById('wo-progress-container');
+        if (progressEl) progressEl.classList.add('d-none');
+        modal.style.display = 'flex';
+    },
+
+    cerrarModalSincronizarPrecios: function () {
+        const modal = document.getElementById('modalSincronizarPreciosWO');
+        if (modal) modal.style.display = 'none';
+        this._archivoPreciosWO = null;
+    },
+
+    manejarArchivoWO: function (file) {
+        if (!file) return;
+        const ext = file.name.toLowerCase().split('.').pop();
+        if (!['csv', 'xlsx', 'xls'].includes(ext)) {
+            Swal.fire('Formato Inválido', 'Por favor selecciona un archivo .csv, .xlsx o .xls exportado de World Office.', 'warning');
+            return;
+        }
+        this._archivoPreciosWO = file;
+        const fileNameEl = document.getElementById('wo-file-name');
+        if (fileNameEl) fileNameEl.textContent = `✅ ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        const btnConfirmar = document.getElementById('btn-confirmar-sync-wo');
+        if (btnConfirmar) btnConfirmar.disabled = false;
+    },
+
+    ejecutarSincronizarPrecios: async function () {
+        if (!this._archivoPreciosWO) {
+            Swal.fire('Sin Archivo', 'Primero selecciona un archivo válido de World Office.', 'warning');
+            return;
+        }
+
+        const progressEl = document.getElementById('wo-progress-container');
+        const btnConfirmar = document.getElementById('btn-confirmar-sync-wo');
+        if (progressEl) progressEl.classList.remove('d-none');
+        if (btnConfirmar) btnConfirmar.disabled = true;
+
+        try {
+            const formData = new FormData();
+            formData.append('archivo', this._archivoPreciosWO);
+
+            const response = await fetch('/api/productos/sincronizar_precios', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (progressEl) progressEl.classList.add('d-none');
+            this.cerrarModalSincronizarPrecios();
+
+            if (result.success) {
+                // Almacenar el reporte detallado en memoria global para su descarga
+                window._ultimoReporteWO = result;
+
+                await Swal.fire({
+                    icon: 'success',
+                    title: '¡Sincronización Completada!',
+                    html: `
+                        <p class="mb-2">El archivo se ha procesado con los siguientes resultados:</p>
+                        <div class="d-flex justify-content-center gap-2 mt-2 mb-3 flex-wrap">
+                            <span class="badge bg-success px-3 py-2">✅ ${result.actualizados_count} actualizados</span>
+                            <span class="badge bg-secondary px-3 py-2">⏭ ${result.omitidos_count} no encontrados</span>
+                            ${result.errores_count > 0 ? `<span class="badge bg-danger px-3 py-2">⚠️ ${result.errores_count} errores</span>` : ''}
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100 py-2 border-dashed"
+                            style="border-style: dashed;"
+                            onclick="ModuloInventario.descargarReporteWO()">
+                            <i class="fas fa-download me-1"></i> Descargar Reporte Detallado (.txt)
+                        </button>
+                    `,
+                    confirmButtonText: 'Entendido',
+                    confirmButtonColor: '#6366f1'
+                });
+                // Refrescar tabla de inventario
+                if (typeof cargarProductos === 'function') cargarProductos(true);
+            } else {
+                Swal.fire('Error en la Sincronización', result.error || 'No se pudo procesar el archivo.', 'error');
+                if (btnConfirmar) btnConfirmar.disabled = false;
+            }
+        } catch (e) {
+            if (progressEl) progressEl.classList.add('d-none');
+            if (btnConfirmar) btnConfirmar.disabled = false;
+            console.error('[WO Sync] Error de red:', e);
+            Swal.fire('Error de Conexión', 'No se pudo comunicar con el servidor. Revisa tu conexión.', 'error');
+        }
+    },
+
+    descargarReporteWO: function () {
+        const report = window._ultimoReporteWO;
+        if (!report || !report.detalles) {
+            Swal.fire('Atención', 'No hay datos de reporte disponibles para descargar.', 'warning');
+            return;
+        }
+
+        let txt = "=========================================================\n";
+        txt += "     REPORTE DE SINCRONIZACIÓN DE PRECIOS WORLD OFFICE\n";
+        txt += "=========================================================\n";
+        txt += `Fecha y Hora:   ${new Date().toLocaleString()}\n`;
+        txt += `Archivo:        ${this._archivoPreciosWO ? this._archivoPreciosWO.name : 'Desconocido'}\n`;
+        txt += `Actualizados:   ${report.actualizados_count}\n`;
+        txt += `No encontrados: ${report.omitidos_count}\n`;
+        txt += `Errores:        ${report.errores_count}\n`;
+        txt += "=========================================================\n\n";
+
+        const actualizados = report.detalles.filter(d => d.status === 'Actualizado');
+        const noEncontrados = report.detalles.filter(d => d.status.includes('No encontrado'));
+        const errores = report.detalles.filter(d => d.status === 'Error');
+
+        txt += "---------------------------------------------------------\n";
+        txt += `1. PRECIOS ACTUALIZADOS CON ÉXITO (${actualizados.length})\n`;
+        txt += "---------------------------------------------------------\n";
+        if (actualizados.length === 0) {
+            txt += "(Ninguno)\n";
+        } else {
+            actualizados.forEach(d => {
+                txt += `- Código: ${d.codigo} | Nuevo Precio: $${d.precio_archivo}\n`;
+            });
+        }
+        txt += "\n";
+
+        txt += "---------------------------------------------------------\n";
+        txt += `2. NO ENCONTRADOS EN BASE DE DATOS (${noEncontrados.length})\n`;
+        txt += "---------------------------------------------------------\n";
+        if (noEncontrados.length === 0) {
+            txt += "(Ninguno)\n";
+        } else {
+            noEncontrados.forEach(d => {
+                txt += `- Código: ${d.codigo} | Precio en Archivo: $${d.precio_archivo || 'N/A'} | Motivo: ${d.status}\n`;
+            });
+        }
+        txt += "\n";
+
+        txt += "---------------------------------------------------------\n";
+        txt += `3. REGISTROS CON ERROR EN LA OPERACIÓN (${errores.length})\n`;
+        txt += "---------------------------------------------------------\n";
+        if (errores.length === 0) {
+            txt += "(Ninguno)\n";
+        } else {
+            errores.forEach(d => {
+                txt += `- Código: ${d.codigo} | Motivo: ${d.motivo || 'Error desconocido'}\n`;
+            });
+        }
+
+        const blob = new Blob([txt], { type: 'text/plain;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `reporte_sincronizacion_precios_wo_${new Date().toISOString().slice(0, 10)}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
 };
 
 /**

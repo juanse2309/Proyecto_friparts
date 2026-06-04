@@ -409,3 +409,79 @@ def reportar_ensamble_multi():
         db.session.rollback()
         logger.error(f"❌ ERROR REPORTE MULTI-ENSAMBLE: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ensamble_bp.route('/api/pnc/registrar_ensamble', methods=['POST'])
+def registrar_pnc_ensamble():
+    """
+    Registra (o limpia) el desglose de PNC de Ensamble en db_pnc_ensamble.
+    Body JSON:
+      id_ensamble - ID de la sesión de ensamble
+      id_codigo   - Código del producto final
+      defectos    - {
+          "Mal Ajuste / Pieza Suelta": N,
+          "Componente Faltante": N,
+          "Daño en Empaque / Fisura": N
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        id_ensamble = data.get('id_ensamble')
+        id_codigo   = data.get('id_codigo')
+        defectos    = data.get('defectos', {})
+
+        if not id_ensamble or not id_codigo:
+            return jsonify({"success": False, "error": "id_ensamble e id_codigo son obligatorios"}), 400
+
+        # Eliminar registro previo para esta sesión + producto
+        db.session.query(PncEnsamble).filter_by(id_ensamble=id_ensamble, id_codigo=id_codigo).delete()
+
+        # Mapear los 3 criterios específicos de Ensamble
+        mal_ajuste  = float(defectos.get("Mal Ajuste / Pieza Suelta", 0) or 0)
+        faltante    = float(defectos.get("Componente Faltante", 0) or 0)
+        dano_emp    = float(defectos.get("Daño en Empaque / Fisura", 0) or 0)
+        total_pnc   = mal_ajuste + faltante + dano_emp
+
+        if total_pnc > 0:
+            criterio_str = (
+                f"Mal Ajuste: {int(mal_ajuste)}, "
+                f"Comp. Faltante: {int(faltante)}, "
+                f"Daño/Fisura: {int(dano_emp)}"
+            )
+            nuevo_pnc = PncEnsamble(
+                id_pnc_ensamble=uuid.uuid4().hex[:8],
+                id_ensamble=id_ensamble,
+                id_codigo=id_codigo,
+                cantidad=total_pnc,
+                criterio=criterio_str,
+                codigo_ensamble=id_codigo
+            )
+            db.session.add(nuevo_pnc)
+
+            # Sync pnc on the parent Ensamble record
+            registro_ens = Ensamble.query.filter_by(
+                id_ensamble=id_ensamble,
+                buje_ensamble=id_codigo
+            ).first()
+            if registro_ens:
+                registro_ens.pnc = int(round(total_pnc))
+
+            db.session.commit()
+            logger.info(f"✅ PNC Ensamble registrado para {id_codigo} en {id_ensamble}: Total={total_pnc}")
+            return jsonify({
+                "success": True,
+                "message": "PNC de Ensamble registrado en db_pnc_ensamble",
+                "total_pnc": total_pnc
+            }), 200
+        else:
+            db.session.commit()
+            return jsonify({
+                "success": True,
+                "message": "Sin defectos de PNC para Ensamble",
+                "total_pnc": 0
+            }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error registrando PNC Ensamble: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

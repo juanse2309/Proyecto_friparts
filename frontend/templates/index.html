@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 
 <head>
@@ -1317,6 +1317,11 @@
                 <div class="top-controls">
                     <button class="btn btn-warning" id="btn-conteo-inventario">
                         <i class="fas fa-clipboard-check"></i> Auditoría / Conteo
+                    </button>
+                    <button class="btn btn-info text-white fw-bold" id="btn-sincronizar-precios-wo"
+                        style="background: linear-gradient(135deg,#0ea5e9,#6366f1); border:none;"
+                        onclick="ModuloInventario.abrirModalSincronizarPrecios()">
+                        <i class="fas fa-sync-alt me-1"></i> Sincronizar Precios WO
                     </button>
                     <button class="btn btn-primary" id="btn-actualizar-productos"> <i class="fas fa-sync-alt"></i>
                         Actualizar </button>
@@ -5375,6 +5380,42 @@
         </div>
     </div>
 
+
+    <!-- ======================================================== -->
+    <!-- MODAL SINCRONIZAR PRECIOS WORLD OFFICE -->
+    <!-- ======================================================== -->
+    <div id="modalSincronizarPreciosWO" class="modal-overlay" style="display:none; z-index:15000;">
+        <div class="modal-content" style="max-width:540px; border-radius:20px; overflow:hidden; box-shadow:0 25px 60px rgba(0,0,0,0.3);">
+            <div class="modal-header border-0 text-white" style="background:linear-gradient(135deg,#0ea5e9,#6366f1); padding:20px 24px;">
+                <h5 class="mb-0 fw-bold"><i class="fas fa-sync-alt me-2"></i> Sincronizar Precios &mdash; World Office</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="ModuloInventario.cerrarModalSincronizarPrecios()"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="alert alert-info border-0 small mb-4" style="border-radius:12px; background:#e0f2fe; color:#0369a1;">
+                    <i class="fas fa-info-circle me-1"></i> Importa el archivo <strong>.xlsx</strong> o <strong>.csv</strong> exportado de World Office. El sistema buscar&aacute; las columnas <strong>"C&oacute;digo"</strong> y <strong>"Precio 1"</strong> y actualizar&aacute; los precios existentes en la base de datos.
+                </div>
+                <div id="wo-drop-zone" style="border:2.5px dashed #6366f1; border-radius:16px; padding:40px 20px; text-align:center; background:#f5f3ff; cursor:pointer; transition:background 0.2s;" onclick="document.getElementById('wo-file-input').click()" ondragover="event.preventDefault(); this.style.background='#ede9fe';" ondragleave="this.style.background='#f5f3ff';" ondrop="event.preventDefault(); ModuloInventario.manejarArchivoWO(event.dataTransfer.files[0]); this.style.background='#f5f3ff';">
+                    <i class="fas fa-file-excel fa-3x mb-3" style="color:#6366f1;"></i>
+                    <p class="fw-bold mb-1" style="color:#4338ca;">Arrastra aqu&iacute; tu archivo WO</p>
+                    <p class="text-muted small mb-0">o haz clic para buscar</p>
+                    <div id="wo-file-name" class="mt-3 fw-bold text-success small"></div>
+                </div>
+                <input type="file" id="wo-file-input" accept=".csv,.xlsx,.xls" class="d-none" onchange="ModuloInventario.manejarArchivoWO(this.files[0])">
+                <div id="wo-progress-container" class="mt-3 d-none">
+                    <div class="progress" style="height:8px; border-radius:8px;">
+                        <div id="wo-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%; background:linear-gradient(135deg,#0ea5e9,#6366f1);"></div>
+                    </div>
+                    <p class="text-center small text-muted mt-2"><i class="fas fa-spinner fa-spin me-1"></i> Procesando archivo&hellip;</p>
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0 px-4 pb-4 gap-2">
+                <button class="btn btn-secondary px-4 rounded-pill" onclick="ModuloInventario.cerrarModalSincronizarPrecios()">Cancelar</button>
+                <button id="btn-confirmar-sync-wo" class="btn text-white fw-bold px-4 rounded-pill" style="background:linear-gradient(135deg,#0ea5e9,#6366f1); border:none;" onclick="ModuloInventario.ejecutarSincronizarPrecios()" disabled>
+                    <i class="fas fa-upload me-1"></i> Importar y Sincronizar
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

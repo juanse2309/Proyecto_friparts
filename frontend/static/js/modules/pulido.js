@@ -706,22 +706,49 @@ const ModuloPulido = {
 
     pausarCiclo: async function () {
         const btn = document.getElementById('btn-pausar-pulido');
-        const horaPausa = new Date().toLocaleTimeString('es-CO', { 
-            timeZone: 'America/Bogota', 
-            hour12: false, 
-            hour: '2-digit', 
-            minute: '2-digit' 
+        const horaPausa = new Date().toLocaleTimeString('es-CO', {
+            timeZone: 'America/Bogota',
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit'
         });
-        
+
         if (!this.enPausa) {
+            // ── PAUSA: Mostrar formulario obligatorio de PNC antes de pausar ──
+            const pncData = await this._mostrarModalPncPulido('Reportar PNC antes de Pausar');
+            if (pncData === null) return; // Usuario canceló
+
             console.log(`⏸️ [Pulido] Pausando a las ${horaPausa}...`);
-            // Acción: Pausar en Servidor
+
+            // 1. Registrar PNC en db_pnc_pulido
+            try {
+                const pncRes = await fetch('/api/pnc/registrar_pulido', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id_pulido: this.sessionId,
+                        id_codigo: this.normalizarCodigo(document.getElementById('buscador-productos')?.value || ''),
+                        defectos: pncData
+                    })
+                });
+                const pncResult = await pncRes.json();
+                if (!pncResult.success) {
+                    Swal.fire('Error PNC', pncResult.error || 'No se pudo registrar el PNC', 'error');
+                    return; // BLOQUEAR pausa si PNC falla
+                }
+            } catch (errPnc) {
+                console.error('[Pulido] Error registrando PNC:', errPnc);
+                Swal.fire('Error de Conexión', 'No se pudo registrar el PNC. La pausa fue cancelada.', 'error');
+                return;
+            }
+
+            // 2. Ejecutar la pausa en el servidor
             const res = await fetch('/api/pulido/pausar', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
                     id_pulido: this.sessionId,
-                    hora_pausa: horaPausa 
+                    hora_pausa: horaPausa
                 })
             });
             if (res.ok) {
@@ -732,13 +759,12 @@ const ModuloPulido = {
             }
         } else {
             console.log(`▶️ [Pulido] Reanudando a las ${horaPausa}...`);
-            // Acción: Reanudar en Servidor
             const res = await fetch('/api/pulido/reanudar', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
                     id_pulido: this.sessionId,
-                    hora_reanudar: horaPausa 
+                    hora_reanudar: horaPausa
                 })
             });
             const data = await res.json();
@@ -751,6 +777,61 @@ const ModuloPulido = {
             }
         }
         this.guardarEstadoLocal();
+    },
+
+    /**
+     * Muestra el modal obligatorio de PNC para Pulido.
+     * Retorna un objeto con los defectos { criterio: cantidad } o null si canceló.
+     */
+    _mostrarModalPncPulido: async function(titulo) {
+        const { value: formValues } = await Swal.fire({
+            title: titulo || 'Reporte de PNC - Pulido',
+            html: `
+                <div class="text-start mb-3">
+                    <p class="text-muted small mb-3">
+                        <i class="fas fa-info-circle me-1 text-primary"></i>
+                        Registra los defectos encontrados (ingresa 0 si no hay defectos del tipo).
+                    </p>
+                    <div class="card p-3 border-0 shadow-sm" style="border-radius:12px; background:#fffafb; border:1px solid #fee2e2!important;">
+                        <div class="fw-bold text-danger mb-3" style="font-size:0.9rem">
+                            <i class="fas fa-exclamation-triangle me-1"></i> Criterios de Defecto - Área Pulido
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-bold text-muted mb-1">Porosidad / Burbujas residuales</label>
+                                <input type="number" id="pnc-pulido-porosidad" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold text-muted mb-1">Marcas de Lijado / Rayones</label>
+                                <input type="number" id="pnc-pulido-rayones" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold text-muted mb-1">Desgaste Excesivo / Deformación</label>
+                                <input type="number" id="pnc-pulido-desgaste" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold text-muted mb-1">Brillo Insuficiente</label>
+                                <input type="number" id="pnc-pulido-brillo" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: '<i class="fas fa-check me-1"></i> Confirmar PNC',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#16a34a',
+            focusConfirm: false,
+            preConfirm: () => {
+                return {
+                    "Porosidad / Burbujas":              parseInt(document.getElementById('pnc-pulido-porosidad').value) || 0,
+                    "Marcas de Lijado / Rayones":        parseInt(document.getElementById('pnc-pulido-rayones').value) || 0,
+                    "Desgaste Excesivo / Deformación":   parseInt(document.getElementById('pnc-pulido-desgaste').value) || 0,
+                    "Brillo Insuficiente":               parseInt(document.getElementById('pnc-pulido-brillo').value) || 0
+                };
+            }
+        });
+        return formValues ?? null;
     },
 
     habilitarCambioReferencia: function() {
@@ -1200,6 +1281,31 @@ const ModuloPulido = {
 
         if (!data.responsable || !data.codigo_producto || data.cantidad_real < 0) {
             Swal.fire('Atención', 'Faltan campos obligatorios o hay valores negativos', 'warning');
+            return;
+        }
+
+        // ── BLOQUEO OBLIGATORIO DE PNC antes de finalizar (Pulido) ──
+        const pncFinal = await this._mostrarModalPncPulido('Reporte Final de PNC - Pulido');
+        if (pncFinal === null) return; // Usuario canceló
+
+        try {
+            const pncRes = await fetch('/api/pnc/registrar_pulido', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id_pulido: this.sessionId,
+                    id_codigo: data.codigo_producto,
+                    defectos: pncFinal
+                })
+            });
+            const pncResult = await pncRes.json();
+            if (!pncResult.success) {
+                Swal.fire('Error PNC', pncResult.error || 'No se pudo registrar el PNC de cierre', 'error');
+                return;
+            }
+        } catch (errPnc) {
+            console.error('[Pulido] Error PNC cierre:', errPnc);
+            Swal.fire('Error de Conexión', 'No se pudo registrar el PNC. El cierre fue cancelado.', 'error');
             return;
         }
 

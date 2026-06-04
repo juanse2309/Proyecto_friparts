@@ -11,6 +11,7 @@ import time # Juan Sebastian: Para manejo de caché
 import os
 from backend.utils.formatters import normalizar_codigo
 from backend.models.sql_models import Producto
+from backend.core.sql_database import db as sql_db
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def detalle_producto(codigo_sistema):
             
             # Cálculo de Backorder (Pedidos Pendientes)
             from backend.models.sql_models import Pedido
-            pedidos_activos = db.session.query(Pedido).filter(
+            pedidos_activos = sql_db.session.query(Pedido).filter(
                 Pedido.id_codigo == p_sql.id_codigo,
                 Pedido.estado.in_(['PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO'])
             ).all()
@@ -118,7 +119,6 @@ def buscar_productos(query):
     Si division=frimetals, busca en metals_productos.
     """
     try:
-        from backend.core.sql_database import db
         from sqlalchemy import text
         from backend.models.sql_models import MetalsProducto
 
@@ -199,7 +199,7 @@ def buscar_productos(query):
             LIMIT :l
         """
         
-        result_query = db.session.execute(text(sql), {"t": termino, "l": limite}).mappings().all()
+        result_query = sql_db.session.execute(text(sql), {"t": termino, "l": limite}).mappings().all()
         
         def limpiar_precio(p_str):
             if not p_str or str(p_str).strip() in ['', 'None']: return 0
@@ -249,7 +249,6 @@ def listar_productos():
     Si division=frimetals, retorna desde metals_productos.
     """
     try:
-        from backend.core.sql_database import db
         from sqlalchemy import text
         from backend.models.sql_models import MetalsProducto
 
@@ -317,7 +316,7 @@ def listar_productos():
             ORDER BY p.codigo_sistema
         """
         
-        result_query = db.session.execute(text(sql)).mappings().all()
+        result_query = sql_db.session.execute(text(sql)).mappings().all()
         
         def limpiar_precio(val):
             if val is None or str(val).strip() in ['', 'None']: return 0
@@ -371,7 +370,6 @@ def historial_producto(codigo):
     """
     try:
         from sqlalchemy import text, or_
-        from backend.core.sql_database import db
         from backend.models.sql_models import (
             ProduccionInyeccion, ProduccionPulido, Ensamble, 
             Pedido, Pnc, RawVentas
@@ -406,7 +404,7 @@ def historial_producto(codigo):
                     'detalle': f"Máquina: {r.maquina or ''} | Molde: {r.molde or ''}"
                 })
         except Exception as e:
-            db.session.rollback()
+            sql_db.session.rollback()
             logger.error(f"Falla bloque Inyección para {codigo}: {e}")
 
         # 2. BARRIDO DE PULIDO
@@ -428,7 +426,7 @@ def historial_producto(codigo):
                     'fecha_dt': r.fecha if hasattr(r.fecha, 'year') else datetime.now()
                 })
         except Exception as e:
-            db.session.rollback()
+            sql_db.session.rollback()
             logger.error(f"Falla bloque Pulido para {codigo}: {e}")
 
         # 3. BARRIDO DE ENSAMBLE
@@ -438,7 +436,7 @@ def historial_producto(codigo):
                 FROM db_ensambles 
                 WHERE id_codigo ILIKE :o OR id_codigo ILIKE :l
             """)
-            res_ens = db.session.execute(sql_ens, {"o": f"%{codigo_norm}%", "l": f"%{codigo_limpio}%"}).mappings().all()
+            res_ens = sql_db.session.execute(sql_ens, {"o": f"%{codigo_norm}%", "l": f"%{codigo_limpio}%"}).mappings().all()
             radar['ENSAMBLE'] = len(res_ens)
             for r in res_ens:
                 f_dt = r['fecha'] if hasattr(r['fecha'], 'year') else None
@@ -451,7 +449,7 @@ def historial_producto(codigo):
                     'detalle': f"OP: {r['op_numero'] or ''} | {r['buje_ensamble'] or ''}"
                 })
         except Exception as e:
-            db.session.rollback()
+            sql_db.session.rollback()
             logger.error(f"Falla bloque Ensamble para {codigo}: {e}")
 
         # 4. BARRIDO DE VENTAS / PEDIDOS
@@ -475,7 +473,7 @@ def historial_producto(codigo):
                 FROM db_ventas 
                 WHERE productos ILIKE :o
             """)
-            res_ven = db.session.execute(sql_ven, {"o": f"%{codigo_norm}%"}).mappings().all()
+            res_ven = sql_db.session.execute(sql_ven, {"o": f"%{codigo_norm}%"}).mappings().all()
             radar['COMERCIAL'] += len(res_ven)
             for r in res_ven:
                 f_dt = r['fecha'] if hasattr(r['fecha'], 'year') else None
@@ -488,7 +486,7 @@ def historial_producto(codigo):
                     'detalle': f"Doc: {r['documento'] or ''} | Clasif: {r['clasificacion'] or ''}"
                 })
         except Exception as e:
-            db.session.rollback()
+            sql_db.session.rollback()
             logger.error(f"Falla bloque Ventas/Pedidos para {codigo}: {e}")
 
         # 5. BARRIDO DE PNC
@@ -505,7 +503,7 @@ def historial_producto(codigo):
                     'detalle': f"Criterio: {r.criterio or ''} | Ref: {r.codigo_ensamble or ''}"
                 })
         except Exception as e:
-            db.session.rollback()
+            sql_db.session.rollback()
             logger.error(f"Falla bloque PNC para {codigo}: {e}")
 
         eventos.sort(key=lambda x: x['fecha_dt'] if x['fecha_dt'] else datetime.min, reverse=True)
@@ -536,3 +534,217 @@ def historial_producto(codigo):
     except Exception as e:
         logger.error(f"❌ Error crítico en Timeline 360 (SQL Final): {str(e)}")
         return jsonify({'status': 'error', 'message': f"Error interno: {str(e)}"}), 500
+
+
+@productos_bp.route('/sincronizar_precios', methods=['POST'])
+def sincronizar_precios_wo():
+    """
+    Fase 1 - Sincronización de Precios con World Office.
+    Recibe un archivo .csv o .xlsx exportado de WO.
+    Busca columnas 'Código' y 'Precio 1'.
+    SOLO actualiza registros existentes en db_productos (sin insertar nuevos).
+    """
+    import re as _re
+    try:
+        if 'archivo' not in request.files:
+            return jsonify({'success': False, 'error': 'No se recibió ningún archivo'}), 400
+
+        archivo = request.files['archivo']
+        nombre = archivo.filename.lower() if archivo.filename else ''
+
+        # ── Leer el archivo con pandas ──────────────────────────────────────
+        try:
+            import pandas as pd
+            import io
+
+            contenido = archivo.read()
+
+            if nombre.endswith('.csv'):
+                # Resiliencia de codificación y separador
+                try:
+                    df = pd.read_csv(io.BytesIO(contenido), sep=None, engine='python', dtype=str, encoding='utf-8-sig')
+                except Exception:
+                    df = pd.read_csv(io.BytesIO(contenido), sep=None, engine='python', dtype=str, encoding='latin-1')
+            elif nombre.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(io.BytesIO(contenido), dtype=str)
+            else:
+                return jsonify({'success': False, 'error': 'Formato de archivo no soportado. Use .csv o .xlsx'}), 400
+
+        except ImportError:
+            return jsonify({'success': False, 'error': 'Librería pandas no instalada en el servidor'}), 500
+        except Exception as e_read:
+            logger.error(f"❌ [SincronizarPrecios] Error leyendo archivo: {e_read}")
+            return jsonify({'success': False, 'error': f'No se pudo leer el archivo: {str(e_read)}'}), 400
+
+        # ── Normalizar nombres de columnas ─────────────────────────────────
+        try:
+            df.columns = df.columns.astype(str).str.strip().str.lower() \
+                .str.replace('ó', 'o') \
+                .str.replace('á', 'a') \
+                .str.replace('é', 'e') \
+                .str.replace('í', 'i') \
+                .str.replace('ú', 'u')
+        except Exception as e_cols:
+            logger.error(f"❌ [SincronizarPrecios] Error normalizando columnas: {e_cols}")
+            return jsonify({'success': False, 'error': f'Error al procesar columnas del archivo: {str(e_cols)}'}), 400
+
+        # Buscar columnas flexiblemente
+        col_codigo = None
+        col_precio = None
+        for col in df.columns:
+            if 'codigo' in col or col == 'code' or col == 'referencia' or col == 'ref':
+                col_codigo = col
+            if 'precio 1' in col or 'precio1' in col or col == 'precio':
+                col_precio = col
+
+        if not col_codigo or not col_precio:
+            return jsonify({
+                'success': False,
+                'error': f'Columnas requeridas no encontradas. Se encontraron: {list(df.columns)}. Se necesitan "Código" (o similar) y "Precio 1".'
+            }), 400
+
+        # ── Procesar renglón por renglón ───────────────────────────────────
+        from sqlalchemy import text
+        from backend.core.sql_database import db as sql_db
+        from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo
+
+        # Detección defensiva de columnas en db_productos en tiempo de ejecución
+        try:
+            columns_result = sql_db.session.execute(text("SELECT * FROM db_productos LIMIT 1"))
+            table_columns = [col.lower() for col in columns_result.keys()]
+        except Exception as e_schema:
+            logger.error(f"❌ [SincronizarPrecios] Error obteniendo esquema: {e_schema}")
+            table_columns = ['id_codigo', 'codigo_sistema']  # Fallback histórico
+
+        actualizados = 0
+        omitidos = 0
+        errores = 0
+        detalles = []
+        detalles_sincronizacion = {
+            "exitosos": [],
+            "no_encontrados": [],
+            "errores": []
+        }
+
+        # Mapeo defensivo de columnas en base de datos
+        col_id_codigo = 'id_codigo' if 'id_codigo' in table_columns else None
+        col_codigo_sistema = 'codigo_sistema' if 'codigo_sistema' in table_columns else None
+        col_código = 'código' if 'código' in table_columns else ('codigo' if 'codigo' in table_columns else None)
+
+        for _, row in df.iterrows():
+            codigo_raw = ""
+            try:
+                codigo_raw = str(row[col_codigo] or '').strip()
+                precio_raw = str(row[col_precio] or '').strip()
+
+                if not codigo_raw or not precio_raw or codigo_raw.lower() in ('nan', 'none', ''):
+                    omitidos += 1
+                    detalles.append({
+                        "codigo": codigo_raw or "(Vacío)",
+                        "precio_archivo": precio_raw,
+                        "status": "No encontrado en DB (código o precio inválido/vacío)"
+                    })
+                    detalles_sincronizacion["no_encontrados"].append(codigo_raw or "(Vacío)")
+                    continue
+
+                # Limpieza de Precios Ultra-Simple y directa (Fuerza float)
+                try:
+                    precio_final = float(precio_raw)
+                except Exception:
+                    omitidos += 1
+                    detalles.append({
+                        "codigo": codigo_raw,
+                        "precio_archivo": precio_raw,
+                        "status": "No encontrado en DB (formato de número inválido al castear)"
+                    })
+                    detalles_sincronizacion["no_encontrados"].append(codigo_raw)
+                    continue
+
+                # Normalizar códigos para búsqueda flexible
+                codigo_sin_prefijo = normalizar_codigo(codigo_raw)
+                codigo_con_prefijo = preservar_o_normalizar_prefijo(codigo_raw)
+
+                # Query de alta precisión contra codigo_sistema
+                query = """
+                    UPDATE db_productos
+                    SET precio = :precio_archivo
+                    WHERE LOWER(TRIM(codigo_sistema)) = LOWER(TRIM(:codigo_raw))
+                       OR LOWER(TRIM(codigo_sistema)) = LOWER(TRIM(:codigo_con_prefijo))
+                       OR LOWER(TRIM(codigo_sistema)) = LOWER(TRIM(:codigo_sin_prefijo))
+                """
+                bind_params = {
+                    'precio_archivo': precio_final,
+                    'codigo_raw': codigo_raw,
+                    'codigo_con_prefijo': codigo_con_prefijo,
+                    'codigo_sin_prefijo': codigo_sin_prefijo
+                }
+
+                # Transacción por fila (Rollback Obligatorio o Commit Inmediato)
+                try:
+                    result = sql_db.session.execute(text(query), bind_params)
+                    if result.rowcount > 0:
+                        sql_db.session.commit()
+                        actualizados += 1
+                        detalles.append({
+                            "codigo": codigo_raw,
+                            "precio_archivo": precio_final,
+                            "status": "Actualizado"
+                        })
+                        detalles_sincronizacion["exitosos"].append(codigo_raw)
+                        print(f"¡CAMBIO REAL: {codigo_raw}!")
+                    else:
+                        sql_db.session.rollback()
+                        omitidos += 1
+                        detalles.append({
+                            "codigo": codigo_raw,
+                            "precio_archivo": precio_final,
+                            "status": "No encontrado en DB (0 filas afectadas)"
+                        })
+                        detalles_sincronizacion["no_encontrados"].append(codigo_raw)
+                except Exception as e_sql:
+                    sql_db.session.rollback()
+                    errores += 1
+                    detalles.append({
+                        "codigo": codigo_raw,
+                        "precio_archivo": precio_final,
+                        "status": "Error",
+                        "motivo": str(e_sql)
+                    })
+                    detalles_sincronizacion["errores"].append({
+                        "codigo": codigo_raw,
+                        "motivo": str(e_sql)
+                    })
+                    logger.warning(f"⚠️ [SincronizarPrecios] Error ejecutando SQL para código ({codigo_raw}): {e_sql}")
+                    continue
+
+            except Exception as e_row:
+                errores += 1
+                detalles.append({
+                    "codigo": codigo_raw or "Desconocido",
+                    "status": "Error",
+                    "motivo": str(e_row)
+                })
+                detalles_sincronizacion["errores"].append({
+                    "codigo": codigo_raw or "Desconocido",
+                    "motivo": str(e_row)
+                })
+                logger.warning(f"⚠️ [SincronizarPrecios] Error general en fila ({codigo_raw}): {e_row}")
+                continue
+
+        logger.info(f"✅ [SincronizarPrecios] Completado: {actualizados} actualizados, {omitidos} no encontrados, {errores} errores.")
+        return jsonify({
+            'success': True,
+            'actualizados_count': actualizados,
+            'omitidos_count': omitidos,
+            'errores_count': errores,
+            'detalles': detalles,
+            'detalles_sincronizacion': detalles_sincronizacion,
+            'exitosos': detalles_sincronizacion["exitosos"],
+            'no_encontrados': detalles_sincronizacion["no_encontrados"],
+            'errores': detalles_sincronizacion["errores"],
+            'mensaje': f'Sincronización exitosa: {actualizados} precios actualizados.'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ [SincronizarPrecios] Error crítico: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

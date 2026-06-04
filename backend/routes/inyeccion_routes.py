@@ -281,29 +281,56 @@ def registrar_inyeccion_lote():
                 except Exception as e_time:
                     logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
 
-            # Registro de PNC detallado (Desglose Misión 1)
+            # Registro de PNC detallado (Desglose Misión 1) - Modificado para el nuevo diseño de columnas
             db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).delete()
             
             pnc_list_global = data.get('pnc_list', [])
             pnc_items_para_este_codigo = [p for p in pnc_list_global if p.get('codigo') == codigo_raw or normalizar_codigo(p.get('codigo')) == id_cod]
-            total_pnc_detallado = 0
             
+            quemado_manchado = 0
+            incompleto_falta_llenado = 0
+            rebaba_excesiva = 0
+            burbuja_porosidad = 0
+            deformacion_rechupado = 0
+
             for p_def in pnc_items_para_este_codigo:
-                c_pnc = int(round(float(p_def.get('cantidad') or 0)))
-                if c_pnc > 0:
-                    total_pnc_detallado += c_pnc
-                    nuevo_pnc = PncInyeccion(
-                        id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                        id_inyeccion=id_iny,
-                        id_codigo=id_cod,
-                        cantidad=c_pnc,
-                        criterio=p_def.get('criterio') or 'Otro',
-                        codigo_ensamble=registro.codigo_ensamble
-                    )
-                    db.session.add(nuevo_pnc)
+                c_pnc = float(p_def.get('cantidad') or 0)
+                if c_pnc <= 0:
+                    continue
+                crit = str(p_def.get('criterio') or 'Otro').lower().strip()
+                
+                if any(x in crit for x in ["quemado", "mancha", "contaminado"]):
+                    quemado_manchado += c_pnc
+                elif any(x in crit for x in ["incompleto", "escaso", "falta", "llenado"]):
+                    incompleto_falta_llenado += c_pnc
+                elif "rebaba" in crit:
+                    rebaba_excesiva += c_pnc
+                elif any(x in crit for x in ["burbuja", "porosidad"]):
+                    burbuja_porosidad += c_pnc
+                elif any(x in crit for x in ["deform", "rechupe", "chupado", "hundido", "flujo"]):
+                    deformacion_rechupado += c_pnc
+                else:
+                    deformacion_rechupado += c_pnc
+
+            total_pnc_detallado = quemado_manchado + incompleto_falta_llenado + rebaba_excesiva + burbuja_porosidad + deformacion_rechupado
             
             if total_pnc_detallado > 0:
-                registro.pnc_total = total_pnc_detallado
+                nuevo_pnc = PncInyeccion(
+                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                    id_inyeccion=id_iny,
+                    id_codigo=id_cod,
+                    cantidad=total_pnc_detallado,
+                    criterio=f"Quemado: {int(quemado_manchado)}, Falta Llenado: {int(incompleto_falta_llenado)}, Rebaba: {int(rebaba_excesiva)}, Burbujas: {int(burbuja_porosidad)}, Deformacion: {int(deformacion_rechupado)}",
+                    codigo_ensamble=registro.codigo_ensamble,
+                    quemado_manchado=quemado_manchado,
+                    incompleto_falta_llenado=incompleto_falta_llenado,
+                    rebaba_excesiva=rebaba_excesiva,
+                    burbuja_porosidad=burbuja_porosidad,
+                    deformacion_rechupado=deformacion_rechupado
+                )
+                db.session.add(nuevo_pnc)
+                registro.pnc_total = int(round(total_pnc_detallado))
+                registro.pnc_detalle = nuevo_pnc.criterio
             elif pnc_val > 0:
                 # Fallback por si usan el formulario viejo
                 nuevo_pnc = PncInyeccion(
@@ -312,7 +339,8 @@ def registrar_inyeccion_lote():
                     id_codigo=id_cod,
                     cantidad=float(pnc_val),
                     criterio=registro.pnc_detalle or 'Otro',
-                    codigo_ensamble=registro.codigo_ensamble
+                    codigo_ensamble=registro.codigo_ensamble,
+                    deformacion_rechupado=float(pnc_val)
                 )
                 db.session.add(nuevo_pnc)
 
@@ -840,18 +868,9 @@ def obtener_pedidos_pendientes(codigo):
         if not codigo:
             return jsonify({"success": False, "error": "Código de producto es requerido"}), 400
 
-        # Limpiar y normalizar el código recibido (por compatibilidad con el sistema)
-        from backend.utils.formatters import normalizar_codigo
-        codigo_norm = normalizar_codigo(codigo)
-
-        # Asegurar que comience con el prefijo 'FR-'
-        if not codigo_norm.startswith('FR-'):
-            codigo_norm = f"FR-{codigo_norm}"
-
-        # Consultar pedidos asociados al código de producto
-        # Filtramos por estados no finalizados y activos de alistamiento
+        # Consultar pedidos usando coincidencia por contenedor ilike
         pedidos_activos = db.session.query(Pedido).filter(
-            Pedido.id_codigo == codigo_norm,
+            Pedido.id_codigo.ilike(f"%{codigo}%"),
             Pedido.estado.in_(['PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO'])
         ).all()
 
@@ -859,7 +878,6 @@ def obtener_pedidos_pendientes(codigo):
         for p in pedidos_activos:
             try:
                 cant_solicitada = float(p.cantidad or 0)
-                # cant_alistada viene como VARCHAR en db_pedidos, controlamos conversión resiliente
                 cant_alistada = float(p.cant_alistada or 0)
             except (ValueError, TypeError):
                 cant_solicitada = 0.0
@@ -876,14 +894,14 @@ def obtener_pedidos_pendientes(codigo):
                     "cantidad_pendiente": int(cant_pendiente)
                 })
 
-        # Evitar duplicados de pedidos por el mismo ID (en caso de inconsistencia de datos)
+        # Evitar duplicados agrupando por ID de pedido (Consolidación Real)
         pedidos_unicos = {}
         for res in resultados:
             id_ped = res["id_pedido"]
             if id_ped not in pedidos_unicos:
                 pedidos_unicos[id_ped] = res
             else:
-                # Si está duplicado en BD, sumamos cantidades
+                # Sumamos cantidades en caso de duplicidad física en BD
                 pedidos_unicos[id_ped]["cantidad_solicitada"] += res["cantidad_solicitada"]
                 pedidos_unicos[id_ped]["cantidad_pendiente"] += res["cantidad_pendiente"]
 
@@ -895,6 +913,71 @@ def obtener_pedidos_pendientes(codigo):
     except Exception as e:
         logger.error(f"❌ Error en obtener_pedidos_pendientes para el código {codigo}: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": "Error interno del servidor al consultar pedidos"}), 500
+
+
+@inyeccion_bp.route('/api/produccion/verificar_demanda/<codigo>', methods=['GET'])
+def verificar_demanda_b2b(codigo):
+    """
+    Agrega las unidades de pedidos B2B pendientes contra el stock actual en bodega.
+    Suma las cantidades directamente para evitar falsas duplicaciones.
+    """
+    try:
+        if not codigo:
+            return jsonify({"success": False, "error": "El código es requerido"}), 400
+
+        from backend.models.sql_models import Pedido, Producto
+
+        # 1. Consultar pedidos con normalización flexible ILIKE
+        pedidos_activos = db.session.query(Pedido).filter(
+            Pedido.id_codigo.ilike(f"%{codigo}%"),
+            Pedido.estado.in_(['PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO', 'EXPORTADO_WO'])
+        ).all()
+
+        unidades_pedidas_b2b = 0.0
+        for p in pedidos_activos:
+            try:
+                cant_solicitada = float(p.cantidad or 0)
+                cant_alistada = float(p.cant_alistada or 0)
+            except (ValueError, TypeError):
+                cant_solicitada = 0.0
+                cant_alistada = 0.0
+
+            cant_pendiente = max(0.0, cant_solicitada - cant_alistada)
+            unidades_pedidas_b2b += cant_pendiente
+
+        # 2. Consultar el stock actual en bodega del producto
+        prod = db.session.query(Producto).filter(
+            (Producto.codigo_sistema.ilike(f"%{codigo}%")) |
+            (Producto.id_codigo.ilike(f"%{codigo}%"))
+        ).first()
+
+        stock_terminado = 0.0
+        stock_bodega = 0.0
+
+        if prod:
+            stock_terminado = float(prod.p_terminado or 0)
+            stock_bodega = float(prod.stock_bodega or 0)
+
+        stock_actual_disponible = stock_terminado + stock_bodega
+
+        # --- AUDITORÍA DE DEMANDA ---
+        print(f"--- AUDITORÍA DE DEMANDA PARA: {codigo} ---")
+        print(f"Unidades calculadas B2B: {unidades_pedidas_b2b}")
+        print(f"Stock Disponible: {stock_actual_disponible}")
+
+        return jsonify({
+            "success": True,
+            "codigo": codigo,
+            "unidades_pedidas_b2b": int(round(unidades_pedidas_b2b)),
+            "stock_actual_disponible": int(round(stock_actual_disponible)),
+            "stock_terminado": int(round(stock_terminado)),
+            "stock_bodega": int(round(stock_bodega))
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error en verificar_demanda para {codigo}: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": "Error interno al verificar la demanda"}), 500
+
 
 
 @inyeccion_bp.route('/api/mes/iniciar_trabajo', methods=['POST'])
@@ -1192,5 +1275,130 @@ def mes_reportar():
         db.session.rollback()
         logger.error(f"❌ Error al reportar turno en el MES: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": "Error interno al finalizar el turno"}), 500
+
+
+@inyeccion_bp.route('/api/pnc/registrar_inyeccion', methods=['POST'])
+def registrar_pnc_inyeccion():
+    """
+    Registra el reporte de PNC para un lote de inyección, mapeando los defectos
+    a columnas numéricas específicas de la tabla db_pnc_inyeccion.
+    """
+    try:
+        data = request.get_json() or {}
+        id_iny = data.get('id_inyeccion')
+        id_codigo = data.get('id_codigo') or data.get('codigo')
+        defectos = data.get('defectos') or {}
+        
+        if not id_iny:
+            return jsonify({"success": False, "error": "El campo id_inyeccion es obligatorio"}), 400
+
+        # Normalizar el código de producto
+        from backend.utils.formatters import normalizar_codigo
+        id_cod = normalizar_codigo(id_codigo) if id_codigo else None
+
+        # Fallback de producto si no se recibe
+        if not id_cod:
+            first_prod = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_iny).first()
+            if first_prod:
+                id_cod = first_prod.id_codigo
+
+        if not id_cod:
+            return jsonify({"success": False, "error": "El campo id_codigo es obligatorio"}), 400
+
+        # Limpiar registros previos de PNC de este código en esta inyección
+        db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).delete()
+
+        # Acumular cantidades por defecto
+        quemado_manchado = 0
+        incompleto_falta_llenado = 0
+        rebaba_excesiva = 0
+        burbuja_porosidad = 0
+        deformacion_rechupado = 0
+
+        # Si viene en formato de lista
+        if isinstance(defectos, list):
+            defectos_dict = {}
+            for item in defectos:
+                crit = item.get('criterio') or item.get('motivo')
+                cant = float(item.get('cantidad') or 0)
+                if crit and cant > 0:
+                    defectos_dict[crit] = defectos_dict.get(crit, 0) + cant
+            defectos = defectos_dict
+
+        for key, val in defectos.items():
+            cant = float(val or 0)
+            if cant <= 0:
+                continue
+            
+            key_lower = str(key).lower().strip()
+            # Mapeo:
+            if any(x in key_lower for x in ["quemado", "mancha", "contaminado"]):
+                quemado_manchado += cant
+            elif any(x in key_lower for x in ["incompleto", "escaso", "falta", "llenado"]):
+                incompleto_falta_llenado += cant
+            elif "rebaba" in key_lower:
+                rebaba_excesiva += cant
+            elif any(x in key_lower for x in ["burbuja", "porosidad"]):
+                burbuja_porosidad += cant
+            elif any(x in key_lower for x in ["deform", "rechupe", "chupado", "hundido", "flujo"]):
+                deformacion_rechupado += cant
+            else:
+                deformacion_rechupado += cant
+
+        total_cantidad = quemado_manchado + incompleto_falta_llenado + rebaba_excesiva + burbuja_porosidad + deformacion_rechupado
+
+        # Guardar en base de datos si el total es mayor a cero
+        prod_iny = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).first()
+        
+        if total_cantidad > 0:
+            codigo_ensamble = prod_iny.codigo_ensamble if prod_iny else None
+
+            nuevo_pnc = PncInyeccion(
+                id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                id_inyeccion=id_iny,
+                id_codigo=id_cod,
+                cantidad=total_cantidad,
+                criterio=f"Quemado: {int(quemado_manchado)}, Falta Llenado: {int(incompleto_falta_llenado)}, Rebaba: {int(rebaba_excesiva)}, Burbujas: {int(burbuja_porosidad)}, Deformacion: {int(deformacion_rechupado)}",
+                codigo_ensamble=codigo_ensamble,
+                quemado_manchado=quemado_manchado,
+                incompleto_falta_llenado=incompleto_falta_llenado,
+                rebaba_excesiva=rebaba_excesiva,
+                burbuja_porosidad=burbuja_porosidad,
+                deformacion_rechupado=deformacion_rechupado
+            )
+            db.session.add(nuevo_pnc)
+
+            # Sincronizar pnc_total, pnc_detalle y cantidad_real en el registro de ProduccionInyeccion correspondiente
+            if prod_iny:
+                prod_iny.pnc_total = int(round(total_cantidad))
+                prod_iny.pnc_detalle = nuevo_pnc.criterio
+                cant_bruta = prod_iny.cant_contador or prod_iny.cantidad_real or 0
+                prod_iny.cantidad_real = max(0, int(round(cant_bruta - total_cantidad)))
+
+            db.session.commit()
+            logger.info(f"✅ PNC registrado para {id_cod} en {id_iny}: Total: {total_cantidad}")
+            return jsonify({
+                "success": True,
+                "message": "PNC registrado correctamente en db_pnc_inyeccion",
+                "total_pnc": total_cantidad
+            }), 200
+        else:
+            if prod_iny:
+                prod_iny.pnc_total = 0
+                prod_iny.pnc_detalle = ""
+                cant_bruta = prod_iny.cant_contador or prod_iny.cantidad_real or 0
+                prod_iny.cantidad_real = int(round(cant_bruta))
+            db.session.commit()
+            return jsonify({
+                "success": True,
+                "message": "No se reportaron defectos de PNC",
+                "total_pnc": 0
+            }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        logger.error(f"❌ Error en registrar_pnc_inyeccion: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 

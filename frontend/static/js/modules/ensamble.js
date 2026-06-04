@@ -537,6 +537,35 @@ const ModuloEnsamble = {
 
         try {
             console.log(`📤 [Ensamble] Enviando ${registrosPayload.length} registros`, registrosPayload);
+
+            // ── BLOQUEO OBLIGATORIO DE PNC para PAUSADO y FINALIZADO ──
+            if (estado === 'PAUSADO' || estado === 'FINALIZADO') {
+                const pncData = await this._mostrarModalPncEnsamble(estado);
+                if (pncData === null) return; // Usuario canceló — bloquea el cambio de estado
+
+                // Persistir PNC en db_pnc_ensamble ANTES del cambio de estado
+                try {
+                    const pncRes = await fetch('/api/pnc/registrar_ensamble', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id_ensamble: this.sessionId,
+                            id_codigo: idCodigo,
+                            defectos: pncData
+                        })
+                    });
+                    const pncResult = await pncRes.json();
+                    if (!pncResult.success) {
+                        mostrarNotificacion(pncResult.error || 'Error al registrar PNC de Ensamble', 'error');
+                        return; // Bloquear cambio de estado
+                    }
+                } catch (errPnc) {
+                    console.error('[Ensamble] Error PNC:', errPnc);
+                    mostrarNotificacion('Error de conexión al registrar PNC. Operación cancelada.', 'error');
+                    return;
+                }
+            }
+
             mostrarLoading(true, estado === 'FINALIZADO' ? 'Procesando multi-registro e inventario...' : 'Guardando avance...');
             const res = await fetch('/api/ensamble/reportar', {
                 method: 'POST',
@@ -626,6 +655,62 @@ const ModuloEnsamble = {
         this.enPausa = !this.enPausa;
         this.actualizarUIBotones();
     },
+
+    /**
+     * Muestra el modal obligatorio de PNC para Ensamble.
+     * Retorna un objeto con los defectos { criterio: cantidad } o null si canceló.
+     * @param {string} estado - 'PAUSADO' o 'FINALIZADO'
+     */
+    _mostrarModalPncEnsamble: async function(estado) {
+        const titulo = estado === 'FINALIZADO'
+            ? 'Reporte Final de PNC — Ensamble'
+            : 'Reportar PNC antes de Pausar — Ensamble';
+
+        const { value: formValues } = await Swal.fire({
+            title: titulo,
+            html: `
+                <div class="text-start mb-3">
+                    <p class="text-muted small mb-3">
+                        <i class="fas fa-info-circle me-1 text-primary"></i>
+                        Registra los defectos encontrados. Ingresa 0 si no hay defectos de ese tipo.
+                    </p>
+                    <div class="card p-3 border-0 shadow-sm" style="border-radius:12px; background:#fffafb; border:1px solid #fee2e2!important;">
+                        <div class="fw-bold text-danger mb-3" style="font-size:0.9rem">
+                            <i class="fas fa-exclamation-triangle me-1"></i> Criterios de Defecto - Área Ensamble
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-bold text-muted mb-1">Mal Ajuste / Pieza Suelta</label>
+                                <input type="number" id="pnc-ens-mal-ajuste" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold text-muted mb-1">Componente Faltante</label>
+                                <input type="number" id="pnc-ens-faltante" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-bold text-muted mb-1">Daño en Empaque / Fisura</label>
+                                <input type="number" id="pnc-ens-dano" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: '<i class="fas fa-check me-1"></i> Confirmar PNC',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#16a34a',
+            focusConfirm: false,
+            preConfirm: () => {
+                return {
+                    "Mal Ajuste / Pieza Suelta":  parseInt(document.getElementById('pnc-ens-mal-ajuste').value) || 0,
+                    "Componente Faltante":         parseInt(document.getElementById('pnc-ens-faltante').value) || 0,
+                    "Daño en Empaque / Fisura":    parseInt(document.getElementById('pnc-ens-dano').value) || 0
+                };
+            }
+        });
+        return formValues ?? null;
+    },
+
     resetFormulario: function(fullReset = true) {
         if (fullReset) {
             const form = document.getElementById('form-reporte-ensamble');

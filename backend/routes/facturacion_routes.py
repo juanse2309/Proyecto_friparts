@@ -13,7 +13,7 @@ facturacion_bp = Blueprint('facturacion_bp', __name__)
 logger = logging.getLogger(__name__)
 
 
-def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
+def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None, incluir_auditoria=False):
     """Lógica centralizada: Genera Excel y Actualiza SQL simultáneamente."""
     
     # 1. Obtener ítems originales de SQL
@@ -32,6 +32,22 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
     except:
         mapa_clientes = {}
 
+    # 2b. Preparar Precios Maestros (para corrección automática)
+    mapa_precios = {}
+    try:
+        codigos = [str(item.id_codigo).strip().upper() for item in items_sql if item.id_codigo]
+        if codigos:
+            productos = Producto.query.filter(
+                (Producto.codigo_sistema.in_(codigos)) |
+                (Producto.id_codigo.in_(codigos))
+            ).all()
+            for p in productos:
+                if p.codigo_sistema:
+                    mapa_precios[str(p.codigo_sistema).strip().upper()] = float(p.precio or 0)
+                if p.id_codigo:
+                    mapa_precios[str(p.id_codigo).strip().upper()] = float(p.precio or 0)
+    except Exception as pe:
+        logger.error(f"[WO] Error consultando precios maestros: {pe}")
 
     # 3. Mapeo WO Estricto (57 columnas)
     columnas_wo = [
@@ -90,6 +106,21 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
         logger.info(f"🔄 ID de pedido actualizado: {old_id} -> {doc_nro}")
         items_con_exito += 1
 
+        # --- CORRECCIÓN AUTOMÁTICA DE PRECIO Y FINANZAS ---
+        prod_cod = str(item.id_codigo or '').strip().upper()
+        precio_hist = float(item.precio_unitario or 0)
+        precio_maest = mapa_precios.get(prod_cod, precio_hist)
+        
+        precio_final = precio_maest
+        cant = float(item.cantidad or 0)
+        total_recalculado = cant * precio_final
+        
+        # Actualizamos en el objeto de la base de datos (se persistirá en commit)
+        if abs(precio_hist - precio_final) > 0.01:
+            logger.info(f"💲 Corrección automática de precio para {prod_cod}: {precio_hist} -> {precio_final}")
+            item.precio_unitario = precio_final
+            item.total = total_recalculado
+
         # --- CONSTRUCCIÓN FILA EXCEL ---
         nit_raw = mapa_clientes.get(str(item.cliente or '').upper(), item.nit or '')
         match_nit = re.search(r'(\d+)', str(nit_raw))
@@ -130,15 +161,23 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None):
             'Encab: Nota': 'PEDIDO', 'Encab: FormaPago': f_pag, 
             'Encab: Fecha Entrega': item.fecha.strftime('%d/%m/%Y') if item.fecha else datetime.now().strftime('%d/%m/%Y'),
             'Detalle: Producto': item.id_codigo, 'Detalle: Bodega': 'Principal', 'Detalle: UnidadDeMedida': 'Und.',
-            'Detalle: Cantidad': float(item.cantidad or 0), 'Detalle: IVA': 0.19, 
-            'Detalle: Valor Unitario': float(item.precio_unitario or 0),
+            'Detalle: Cantidad': cant, 'Detalle: IVA': 0.19, 
+            'Detalle: Valor Unitario': precio_final,
             'Detalle: Descuento': desc, 
-            'Detalle: Vencimiento': item.fecha.strftime('%d/%m/%Y') if item.fecha else datetime.now().strftime('%d/%m/%Y')
+            'Detalle: Vencimiento': item.fecha.strftime('%d/%m/%Y') if item.fecha else datetime.now().strftime('%d/%m/%Y'),
+            
+            # Columnas de auditoría
+            'precio_historico': precio_hist,
+            'precio_maestro': precio_maest
         })
         rows_finales.append(row)
 
     df = pd.DataFrame(rows_finales)
-    if not df.empty: df = df[columnas_wo]
+    if not df.empty:
+        if incluir_auditoria:
+            df = df[columnas_wo + ['precio_historico', 'precio_maestro']]
+        else:
+            df = df[columnas_wo]
     
     return df, items_con_exito
 
@@ -203,21 +242,25 @@ def exportar_world_office():
         logger.error(f"❌ Error en exportación WO: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@facturacion_bp.route('/api/exportar/world-office/preview', methods=['POST'])
+@facturacion_bp.route('/api/exportar/world-office/preview', methods=['GET', 'POST'])
 @require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def preview_world_office():
     """Vista previa sin persistencia (rollback automático de la sesión)."""
     try:
-        data = request.get_json(silent=True) or {}
-        ids_filter = data.get('ids', None)
-        consecutivo_inicial = data.get('consecutivo_inicial', None)
+        ids_filter = None
+        consecutivo_inicial = None
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            ids_filter = data.get('ids', None)
+            consecutivo_inicial = data.get('consecutivo_inicial', None)
         
-        df, _ = procesar_datos_wo(ids_filter, consecutivo_inicial)
+        df, _ = procesar_datos_wo(ids_filter, consecutivo_inicial, incluir_auditoria=True)
         
         # OBLIGATORIO: Hacer rollback para que el preview NO guarde cambios en la BD
         db.session.rollback()
         
         if df.empty: return jsonify({'success': True, 'data': []})
+        
         preview = df.fillna('').head(100).to_dict(orient='records')
         return jsonify({'success': True, 'data': preview})
     except Exception as e:
