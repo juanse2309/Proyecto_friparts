@@ -143,40 +143,61 @@ window.ModuloMes = {
             const horaInicio = (m.estado === 'EN_PROCESO' && activo?.hora_inicio)
                 ? `<small class="text-muted"><i class="fas fa-clock me-1"></i>Inicio: ${activo.hora_inicio}</small>` : '';
 
-            // Productos activos HTML
+            // Productos activos HTML (Agrupados por id_inyeccion de lote)
             let productosActivosHTML = '';
             if (activo && activo.productos_activos && activo.productos_activos.length > 0) {
-                productosActivosHTML = activo.productos_activos.map(p => `
-                    <div class="d-flex justify-content-between align-items-center py-2 mb-2"
-                        style="border-bottom:1px solid #e2e8f0;font-size:.78rem">
-                        <div>
-                            <div class="fw-bold" style="color:#1e293b">${p.codigo_sistema || '-'}</div>
-                            <span class="badge" style="background:#eff6ff;color:#2563eb;font-size:.65rem">${p.cavidades} cav.</span>
-                        </div>
-                        <button class="btn btn-warning btn-sm fw-bold"
-                            onclick="ModuloMes.clickFinalizarDesdeCard('${p.id_inyeccion || activo.id_inyeccion}', ${p.cavidades}, '${p.molde || capacidadMolde}', '${p.codigo_sistema}', '${p.hora_inicio || activo.hora_inicio || '06:00'}')">
-                            <i class="fas fa-stop-circle me-1"></i> Pausar/Finalizar
-                        </button>
+                const skuList = activo.productos_activos.map(p => `
+                    <div class="d-flex justify-content-between align-items-center py-1" style="font-size:.75rem">
+                        <span><i class="fas fa-cog fa-spin me-1" style="color:#2563eb"></i> ${p.codigo_sistema || '-'}</span>
+                        <span class="badge" style="background:#eff6ff;color:#2563eb;font-size:.65rem">${p.cavidades} cav.</span>
                     </div>
                 `).join('');
+
+                productosActivosHTML = `
+                    <div class="mb-3 p-2" style="border: 1px solid #93c5fd; border-radius: 8px; background: #eff6ff;">
+                        <div class="fw-bold mb-2 text-primary" style="font-size:.8rem">Lote Activo (Molde: ${activo.molde || capacidadMolde})</div>
+                        ${skuList}
+                        <button class="btn btn-warning btn-sm fw-bold w-100 mt-2"
+                            onclick="ModuloMes.clickFinalizarDesdeCard('${activo.id_inyeccion}', ${activo.cavidades}, '${activo.molde || capacidadMolde}', 'LOTE MÚLTIPLE', '${activo.hora_inicio || '06:00'}')">
+                            <i class="fas fa-stop-circle me-1"></i> Pausar/Finalizar Montaje
+                        </button>
+                    </div>
+                `;
             }
 
-            // Productos en cola HTML
+            // Productos en cola HTML (Agrupados por Molde/Montaje)
             let productosColaHTML = '';
             if (cola && cola.length > 0) {
-                productosColaHTML = cola.map(c => `
-                    <div class="d-flex justify-content-between align-items-center py-2 mb-2"
-                        style="border-bottom:1px solid #e2e8f0;font-size:.78rem">
-                        <div>
-                            <div class="fw-bold" style="color:#1e293b">${c.codigo_sistema || '-'}</div>
+                // Agrupamos usando el Molde como clave del Montaje
+                const colaAgrupada = {};
+                cola.forEach(c => {
+                    const groupKey = c.molde || 'N/A';
+                    if (!colaAgrupada[groupKey]) colaAgrupada[groupKey] = [];
+                    colaAgrupada[groupKey].push(c);
+                });
+
+                for (const [moldeKey, itemsMolde] of Object.entries(colaAgrupada)) {
+                    // Tomamos el id de la primera programación para iniciar todo el bloque
+                    const primerId = itemsMolde[0].id_programacion;
+                    
+                    const skuList = itemsMolde.map(c => `
+                        <div class="d-flex justify-content-between align-items-center py-1" style="font-size:.75rem">
+                            <span><i class="fas fa-caret-right me-1 text-muted"></i> ${c.codigo_sistema || '-'}</span>
                             <span class="badge" style="background:#f0fdf4;color:#16a34a;font-size:.65rem">${c.cavidades} cav.</span>
                         </div>
-                        <button class="btn btn-success btn-sm fw-bold"
-                            onclick="ModuloMes.clickIniciarDesdeCard('${c.id_programacion}')">
-                            <i class="fas fa-play me-1"></i> Iniciar
-                        </button>
-                    </div>
-                `).join('');
+                    `).join('');
+
+                    productosColaHTML += `
+                        <div class="mb-3 p-2" style="border: 1px dashed #cbd5e1; border-radius: 8px; background: #f8fafc;">
+                            <div class="fw-bold mb-2 text-dark" style="font-size:.8rem">Montaje (Molde ${moldeKey})</div>
+                            ${skuList}
+                            <button class="btn btn-success btn-sm fw-bold w-100 mt-2"
+                                onclick="ModuloMes.clickIniciarDesdeCard('${primerId}')">
+                                <i class="fas fa-play me-1"></i> Iniciar Montaje
+                            </button>
+                        </div>
+                    `;
+                }
             }
 
             const skuList = (productosActivosHTML + productosColaHTML) || `<div class="text-muted" style="font-size:.75rem">Sin productos.</div>`;
