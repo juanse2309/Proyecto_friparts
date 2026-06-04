@@ -512,9 +512,10 @@ window.ModuloMes = {
         if (filtrados.length > 0) {
             suggestions.innerHTML = filtrados.map(p => {
                 const codigoDisplay = p.codigo_sistema || p.codigo;
+                const badgePed = (p.pedidos_pendientes && p.pedidos_pendientes > 0) ? `<span class="badge" style="background:#fee2e2;color:#b91c1c;margin-left:8px;font-size:0.7rem;">⚠️ ${p.pedidos_pendientes} en Pedido</span>` : '';
                 return `
                 <div class="suggestion-item p-2 border-bottom pointer" onclick="ModuloMes.seleccionarProducto('${codigoDisplay}')">
-                    <div class="fw-bold">${codigoDisplay}</div>
+                    <div class="fw-bold d-flex align-items-center">${codigoDisplay} ${badgePed}</div>
                     <div class="text-xs text-muted text-truncate">${p.descripcion}</div>
                 </div>`;
             }).join('');
@@ -639,6 +640,19 @@ window.ModuloMes = {
                 }
 
                 if (preview) {
+                    let badgeAlerta = '';
+                    if (p.pedidos_pendientes && p.pedidos_pendientes > 0) {
+                        badgeAlerta = `
+                            <div class="alert alert-danger d-flex align-items-center mt-2 mb-0 p-2 border-0" style="background-color: #fee2e2; color: #b91c1c; border-radius: 8px;">
+                                <i class="fas fa-exclamation-triangle me-2 fs-6"></i>
+                                <div>
+                                    <strong class="d-block" style="font-size: 0.85rem;">Atención: Backorder</strong>
+                                    <span style="font-size: 0.75rem;">Hay ${p.pedidos_pendientes} piezas en Pedido Pendiente. ¡Priorizar!</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
                     preview.innerHTML = `
                         <div class="alert alert-success d-flex align-items-center mb-0 p-2 border-0" style="background-color: #d1fae5; color: #065f46; border-radius: 8px;">
                             <i class="fas fa-check-circle me-2 fs-5"></i>
@@ -647,6 +661,7 @@ window.ModuloMes = {
                                 <span style="font-size: 0.75rem;">${p.descripcion || p.codigo_sistema}</span>
                             </div>
                         </div>
+                        ${badgeAlerta}
                     `;
                 }
 

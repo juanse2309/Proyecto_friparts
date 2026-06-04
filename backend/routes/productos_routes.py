@@ -68,6 +68,25 @@ def detalle_producto(codigo_sistema):
             stock_total_calculado = v_por_pulir + v_p_terminado
             comp = float(p_sql.comprometido or 0)
             
+            # Cálculo de Backorder (Pedidos Pendientes)
+            from backend.models.sql_models import Pedido
+            pedidos_activos = db.session.query(Pedido).filter(
+                Pedido.id_codigo == p_sql.id_codigo,
+                Pedido.estado.in_(['PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO'])
+            ).all()
+            total_pendientes = 0
+            for p_obj in pedidos_activos:
+                try:
+                    import re
+                    c_sol_str = re.sub(r'[^0-9.]', '', str(p_obj.cantidad or '0'))
+                    c_sol = float(c_sol_str) if c_sol_str else 0.0
+                    c_ali_str = re.sub(r'[^0-9.]', '', str(p_obj.cant_alistada or '0'))
+                    c_ali = float(c_ali_str) if c_ali_str else 0.0
+                except:
+                    c_sol = 0.0
+                    c_ali = 0.0
+                total_pendientes += max(0.0, c_sol - c_ali)
+            
             res_data = {
                 "id_codigo": p_sql.id_codigo,
                 "codigo_sistema": p_sql.codigo_sistema,
@@ -79,7 +98,8 @@ def detalle_producto(codigo_sistema):
                 "disponible": v_p_terminado,
                 "stock_bodega": v_bodega,
                 "imagen": p_sql.imagen or "",
-                "imagen_valida": resolver_ruta_imagen(p_sql.imagen, p_sql.codigo_sistema)
+                "imagen_valida": resolver_ruta_imagen(p_sql.imagen, p_sql.codigo_sistema),
+                "pedidos_pendientes": total_pendientes
             }
 
             return jsonify({"status": "success", "producto": res_data}), 200
@@ -137,6 +157,17 @@ def buscar_productos(query):
                     REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
                 FROM db_precio_venta
             ),
+            pedidos_cte AS (
+                SELECT id_codigo, SUM(
+                    GREATEST(0, 
+                        COALESCE(NULLIF(REGEXP_REPLACE(CAST(cantidad AS TEXT), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC - 
+                        COALESCE(NULLIF(REGEXP_REPLACE(CAST(cant_alistada AS TEXT), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC
+                    )
+                ) as total_pendiente
+                FROM db_pedidos
+                WHERE estado IN ('PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO')
+                GROUP BY id_codigo
+            ),
             productos_base AS (
                 SELECT 
                     *,
@@ -158,10 +189,12 @@ def buscar_productos(query):
                 p.codigo_sistema, 
                 p.imagen,
                 p.oem,
-                COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw
+                COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw,
+                COALESCE(ped.total_pendiente, 0) as pedidos_pendientes
             FROM productos_base p
             LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
             LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
+            LEFT JOIN pedidos_cte ped ON ped.id_codigo = p.id_codigo
             ORDER BY p.codigo_sistema
             LIMIT :l
         """
@@ -193,7 +226,8 @@ def buscar_productos(query):
                 "codigo_sistema": r['codigo_sistema'],
                 "imagen": resolver_ruta_imagen(r['imagen'], r['codigo_sistema']),
                 "oem": r['oem'] or "",
-                "precio": limpiar_precio(r['precio_raw'])
+                "precio": limpiar_precio(r['precio_raw']),
+                "pedidos_pendientes": float(r['pedidos_pendientes'] or 0)
             })
             
         return jsonify({
@@ -248,6 +282,17 @@ def listar_productos():
                     REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
                 FROM db_precio_venta
             ),
+            pedidos_cte AS (
+                SELECT id_codigo, SUM(
+                    GREATEST(0, 
+                        COALESCE(NULLIF(REGEXP_REPLACE(CAST(cantidad AS TEXT), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC - 
+                        COALESCE(NULLIF(REGEXP_REPLACE(CAST(cant_alistada AS TEXT), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC
+                    )
+                ) as total_pendiente
+                FROM db_pedidos
+                WHERE estado IN ('PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO')
+                GROUP BY id_codigo
+            ),
             productos_base AS (
                 SELECT 
                     *,
@@ -263,10 +308,12 @@ def listar_productos():
                 p.por_pulir, 
                 p.codigo_sistema, 
                 p.imagen,
-                COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw
+                COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw,
+                COALESCE(ped.total_pendiente, 0) as pedidos_pendientes
             FROM productos_base p
             LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
             LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
+            LEFT JOIN pedidos_cte ped ON ped.id_codigo = p.id_codigo
             ORDER BY p.codigo_sistema
         """
         
@@ -307,7 +354,8 @@ def listar_productos():
                 "por_pulir": float(r['por_pulir'] or 0),
                 "codigo_sistema": r['codigo_sistema'],
                 "imagen": resolver_ruta_imagen(r['imagen'], r['codigo_sistema']),
-                "precio": limpiar_precio(r['precio_raw'])
+                "precio": limpiar_precio(r['precio_raw']),
+                "pedidos_pendientes": float(r['pedidos_pendientes'] or 0)
             })
             
         return jsonify({"items": resultado}), 200
