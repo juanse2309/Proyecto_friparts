@@ -1303,7 +1303,16 @@ const ModuloInyeccion = {
 
         } catch (e) {
             console.error('Error [Inyeccion] confirmar registro:', e);
-            Swal.fire('Error de Conexión', e.message, 'error');
+            let msg = e.message;
+            if (msg.toLowerCase().includes('json') || msg.includes('Unexpected token')) {
+                msg = "Ocurrió un error en el servidor (500). Verifique los datos ingresados o contacte a sistemas.";
+            }
+            Swal.fire({
+                title: 'Error del Sistema',
+                text: msg,
+                icon: 'error',
+                confirmButtonText: 'Entendido'
+            });
         } finally {
             mostrarLoading(false);
             if (btn) btn.disabled = false;

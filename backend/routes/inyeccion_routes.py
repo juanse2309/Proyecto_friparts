@@ -131,6 +131,7 @@ def registrar_inyeccion_lote():
     Paso 1: SQL Data. Paso 2: Stock. Paso 3: Estado VALIDADO. Paso 4: PDF (Opcional).
     """
     try:
+        from backend.utils.formatters import normalizar_codigo, to_float, to_int
         data = request.json
         turno = data.get('turno', {})
         items = data.get('items', [])
@@ -162,7 +163,6 @@ def registrar_inyeccion_lote():
         movimientos_inventario = []
 
         for item in items:
-            from backend.utils.formatters import normalizar_codigo, to_float, to_int
             from backend.app import registrar_entrada, registrar_salida
             
             # --- Identificación del Registro ---
@@ -213,21 +213,21 @@ def registrar_inyeccion_lote():
                 registro.finalizado_por = session.get('user', 'SISTEMA')
             
             # --- BLINDAJE DE DATOS (int(round(float)) para BigInt/Integer) ---
-            disparos      = float(item.get('cantidad') or item.get('contador_maq') or 0)
-            num_cavidades = int(round(float(item.get('no_cavidades') or item.get('cavidades') or 1)))
-            cant_real     = int(round(float(item.get('cantidad_real') or 0)))
-            p_bujes       = float(item.get('peso_bujes') or 0)
+            disparos      = to_float(item.get('cantidad') or item.get('contador_maq') or 0)
+            num_cavidades = to_int(item.get('no_cavidades') or item.get('cavidades') or 1)
+            cant_real     = to_int(item.get('cantidad_real') or 0)
+            p_bujes       = to_float(item.get('peso_bujes') or 0)
             
             # Asignación a modelo unificado (int4/bigint)
             registro.cantidad_real = cant_real
             registro.cavidades     = num_cavidades
-            registro.molde         = int(round(float(item.get('molde') or 0)))
+            registro.molde         = to_int(item.get('molde') or 0)
             
             # Sincronización de Contadores y Métricas Recuperadas (JSON Mapping)
-            disparos      = float(item.get('cant_contador') or item.get('disparos') or 0)
-            registro.cant_contador      = int(round(disparos)) # Blindaje BigInt
-            registro.produccion_teorica = float(item.get('produccion_teorica') or (disparos * num_cavidades))
-            registro.peso_bujes         = float(item.get('peso_bujes') or 0)
+            disparos      = to_float(item.get('cant_contador') or item.get('disparos') or 0)
+            registro.cant_contador      = to_int(disparos) # Blindaje BigInt
+            registro.produccion_teorica = to_float(item.get('produccion_teorica') or (disparos * num_cavidades))
+            registro.peso_bujes         = to_float(item.get('peso_bujes') or 0)
             registro.peso_lote          = str(round(cant_real * registro.peso_bujes, 4))
             
             # Metadatos y Tiempos (Fix hora_llegada)
@@ -240,14 +240,14 @@ def registrar_inyeccion_lote():
             registro.orden_produccion = item.get('orden_produccion') or turno.get('orden_produccion')
             
             # Sanitización de PNC
-            pnc_val = int(round(float(item.get('pnc') or item.get('pnc_total') or 0)))
+            pnc_val = to_int(item.get('pnc') or item.get('pnc_total') or 0)
             registro.pnc_total   = pnc_val
             pnc_det = item.get('criterio_pnc') or item.get('pnc_detalle')
             registro.pnc_detalle = normalizar_criterio(pnc_det, "inyeccion") if pnc_det else None # NULL en DB
             
             # Pesos y Movimientos
-            registro.entrada = str(float(item.get('entrada') or turno.get('entrada_manual') or 0))
-            registro.salida  = str(float(item.get('salida') or turno.get('salida_manual') or 0))
+            registro.entrada = str(to_float(item.get('entrada') or turno.get('entrada_manual') or 0))
+            registro.salida  = str(to_float(item.get('salida') or turno.get('salida_manual') or 0))
 
             # --- Cálculo de Tiempos y Métricas ---
             h_inicio = registro.hora_inicio
@@ -294,7 +294,7 @@ def registrar_inyeccion_lote():
             deformacion_rechupado = 0
 
             for p_def in pnc_items_para_este_codigo:
-                c_pnc = float(p_def.get('cantidad') or 0)
+                c_pnc = to_float(p_def.get('cantidad') or 0)
                 if c_pnc <= 0:
                     continue
                 crit = str(p_def.get('criterio') or 'Otro').lower().strip()
@@ -485,7 +485,7 @@ def registrar_inyeccion_lote():
             for pnc_data in pnc_list:
                 cod_raw = pnc_data.get('codigo', '')
                 cod_norm = normalizar_codigo(cod_raw)
-                cant_pnc = float(pnc_data.get('cantidad') or 0)
+                cant_pnc = to_float(pnc_data.get('cantidad') or 0)
                 motivo = pnc_data.get('criterio') or pnc_data.get('motivo') or 'Otros'
                 motivo_norm = normalizar_criterio(motivo, "inyeccion")
                 
