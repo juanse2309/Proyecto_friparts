@@ -468,9 +468,9 @@
 
     // Registro Global indispensable para el onclick en HTML
     /**
-     * Abrir modal de edición (Sólo Paola)
+     * Abrir modal de edición (Carga asíncrona de datos de base de datos)
      */
-    function editarRegistro(index) {
+    async function editarRegistro(index) {
         const r = h_datos[index];
         if (!r || !r.hoja || !r.fila) {
             mostrarNotificacion('No se puede editar este registro (Faltan metadatos)', 'error');
@@ -482,121 +482,234 @@
         document.getElementById('edit-hoja').value = r.hoja;
         document.getElementById('edit-fila').value = r.fila;
 
-        let html = '';
-
-        if (r.Tipo === 'INYECCION') {
-            html += `
-                <div class="edit-section mb-4">
-                    <h6 class="section-title"><i class="fas fa-info-circle me-2"></i> Información General</h6>
-                    <div class="row g-3">
-                        <div class="col-md-6">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Departamento', r.DEPARTAMENTO, 'text', 'DEPARTAMENTO')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Máquina', r.Extra, 'text', 'MAQUINA')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Orden Producción', r.Orden, 'text', 'ORDEN PRODUCCION')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('ID Código', r.Producto, 'text', 'ID CODIGO')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Cod. Ensamble', r.CODIGO_ENSAMBLE, 'text', 'CODIGO ENSAMBLE')}</div>
-                    </div>
+        // Mostrar spinner de carga
+        container.innerHTML = `
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Cargando...</span>
                 </div>
-
-                <div class="edit-section mb-4">
-                    <h6 class="section-title"><i class="fas fa-clock me-2"></i> Tiempos y Fechas</h6>
-                    <div class="row g-3">
-                        <div class="col-md-12">${crearCampoEdicion('Fecha Inicia', r.FECHA_INICIA, 'text', 'FECHA INICIA')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Hora Llegada', r.HORA_LLEGADA, 'text', 'HORA LLEGADA')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Hora Inicio', r.HORA_INICIO, 'text', 'HORA INICIO')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Hora Termina', r.HORA_TERMINA, 'text', 'HORA TERMINA')}</div>
-                    </div>
-                </div>
-
-                <div class="edit-section mb-4">
-                    <h6 class="section-title"><i class="fas fa-microchip me-2"></i> Producción y Contadores</h6>
-                    <div class="row g-3">
-                        <div class="col-md-4">${crearCampoEdicion('No. Cavidades', r.N_CAVIDADES, 'number', 'No. CAVIDADES')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Contador Maq.', r.CONTADOR_MAQ, 'number', 'CONTADOR MAQ.')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Cant. Contador', r.CANT_CONTADOR, 'number', 'CANT. CONTADOR')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Tomados Proceso', r.TOMADOS_PROCESO, 'number', 'TOMADOS EN PROCESO')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Cantidad REAL', r.Cant, 'number', 'CANTIDAD REAL')}</div>
-                        <div class="col-md-12">${crearCampoEdicion('Almacén Destino', r.ALMACEN_DESTINO, 'text', 'ALMACEN DESTINO')}</div>
-                    </div>
-                </div>
-
-                <div class="edit-section mb-4">
-                    <h6 class="section-title"><i class="fas fa-weight-hanging me-2"></i> Pesos (g)</h6>
-                    <div class="row g-3">
-                        <div class="col-md-6">${crearCampoEdicion('Peso Tomadas (g)', r.PESO_TOMADOS_PROCESO, 'number', 'PESO TOMADAS EN PROCESO')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Peso Vela (g)', r.PESO_VELA, 'number', 'PESO VELA MAQUINA')}</div>
-                        <div class="col-md-12">${crearCampoEdicion('Peso Bujes (g)', r.PESO_BUJES, 'number', 'PESO BUJES')}</div>
-                    </div>
-                </div>
-
-                <div class="edit-section mb-3">
-                    <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
-                    <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
-                        style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${r.Detalle || ''}</textarea>
-                </div>
-            `;
-        } else if (r.Tipo === 'PULIDO') {
-            html += `
-                <div class="edit-section mb-4">
-                    <h6 class="section-title"><i class="fas fa-id-badge me-2"></i> Datos de Pulido</h6>
-                    <div class="row g-3">
-                        <div class="col-md-12">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Recibidos', r.RECIBIDOS, 'number', 'CANTIDAD RECIBIDA')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Buenos', r.BUENOS, 'number', 'BUJES BUENOS')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('PNC', r.PNC, 'number', 'PNC')}</div>
-                    </div>
-                </div>
-            `;
-        } else if (r.Tipo === 'ENSAMBLE') {
-            html += `
-                <div class="edit-section mb-4">
-                    <h6 class="section-title"><i class="fas fa-puzzle-piece me-2"></i> Datos de Ensamble</h6>
-                    <div class="row g-3">
-                        <div class="col-md-6">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('ID Código Final', r.Producto, 'text', 'ID CODIGO')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Cantidad', r.Cant, 'number', 'CANTIDAD')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('OP Número', r.Orden, 'text', 'OP NUMERO')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('ID Ensamble', r.ID_ENSAMBLE, 'text', 'ID ENSAMBLE')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Buje Ensamble', r.BUJE_ENSAMBLE, 'text', 'BUJE ENSAMBLE')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Qty Unitaria', r.QTY_UNITARIA, 'text', 'QTY (Unitaria)')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Almacén Origen', r.ALMACEN_ORIGEN, 'text', 'ALMACEN ORIGEN')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Almacén Destino', r.ALMACEN_DESTINO, 'text', 'ALMACEN DESTINO')}</div>
-                        <div class="col-md-3">${crearCampoEdicion('Hora Inicio', r.HORA_INICIO, 'text', 'HORA INICIO')}</div>
-                        <div class="col-md-3">${crearCampoEdicion('Hora Fin', r.HORA_FIN, 'text', 'HORA FIN')}</div>
-                    </div>
-                </div>
-                <div class="edit-section mb-3">
-                    <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
-                    <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
-                        style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${r.OBSERVACIONES || ''}</textarea>
-                </div>
-            `;
-        } else if (r.Tipo === 'MEZCLA') {
-            html += `
-                <div class="edit-section mb-4">
-                    <h6 class="section-title"><i class="fas fa-blender me-2"></i> Datos de Mezcla</h6>
-                    <div class="row g-3">
-                        <div class="col-md-6">${crearCampoEdicion('Responsable', r.Responsable, 'text', 'RESPONSABLE')}</div>
-                        <div class="col-md-6">${crearCampoEdicion('Máquina', r.Extra, 'text', 'MAQUINA')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Virgen (Kg)', r.VIRGEN, 'number', 'VIRGEN (Kg)')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Molido (Kg)', r.MOLIDO, 'number', 'MOLIDO (Kg)')}</div>
-                        <div class="col-md-4">${crearCampoEdicion('Pigmento (Kg)', r.PIGMENTO, 'number', 'PIGMENTO (Kg)')}</div>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Siempre permitir editar observaciones
-        html += `
-            <div class="edit-section mb-3">
-                <h6 class="section-title text-primary"><i class="fas fa-comment-dots me-2"></i> Motivo de la Corrección</h6>
-                <textarea class="form-control" id="edit-motivo" rows="3" 
-                    placeholder="Describa brevemente por qué realiza este cambio..."
-                    style="border-radius: 12px; border: 1px solid #cbd5e1; padding: 12px; font-size: 0.95rem;"></textarea>
-            </div>`;
-
-        container.innerHTML = html;
+                <p class="mt-3 text-muted fw-medium">Cargando datos completos del registro...</p>
+            </div>
+        `;
         modal.style.display = 'flex';
+
+        try {
+            const res = await fetch(`/api/historial/detalle?hoja=${encodeURIComponent(r.hoja)}&fila=${encodeURIComponent(r.fila)}`);
+            const data = await res.json();
+            
+            if (!data.success) {
+                mostrarNotificacion(data.error || 'Error al obtener detalles del registro', 'error');
+                modal.style.display = 'none';
+                return;
+            }
+
+            const det = data.data;
+            let html = '';
+
+            // Helpers de formato seguros
+            const formatVal = (val) => val !== null && val !== undefined ? val : '';
+            const formatDateVal = (val) => val ? val.split('T')[0] : '';
+            const formatTimeVal = (val) => {
+                if (!val) return '';
+                if (val.includes('T')) {
+                    const timePart = val.split('T')[1];
+                    return timePart.substring(0, 5); // HH:MM
+                }
+                return val.substring(0, 5);
+            };
+
+            if (r.hoja === 'db_inyeccion') {
+                html += `
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-info-circle me-2"></i> Información General</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">${crearCampoEdicion('Responsable', formatVal(det.responsable), 'text', 'RESPONSABLE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Departamento', formatVal(det.departamento), 'text', 'DEPARTAMENTO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Máquina', formatVal(det.maquina), 'text', 'MAQUINA')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Orden Producción', formatVal(det.orden_produccion), 'text', 'ORDEN PRODUCCION')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('ID Código', formatVal(det.id_codigo), 'text', 'ID CODIGO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Cod. Ensamble', formatVal(det.codigo_ensamble), 'text', 'CODIGO ENSAMBLE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Estado', formatVal(det.estado), 'text', 'ESTADO')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-clock me-2"></i> Tiempos y Fechas</h6>
+                        <div class="row g-3">
+                            <div class="col-md-12">${crearCampoEdicion('Fecha Inicia', formatDateVal(det.fecha_inicia), 'date', 'FECHA INICIA')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Hora Llegada', formatTimeVal(det.hora_llegada), 'time', 'HORA LLEGADA')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Hora Inicio', formatTimeVal(det.hora_inicio), 'time', 'HORA INICIO')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Hora Termina', formatTimeVal(det.hora_termina), 'time', 'HORA TERMINA')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-microchip me-2"></i> Producción y Contadores</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">${crearCampoEdicion('No. Cavidades', formatVal(det.cavidades), 'number', 'No. CAVIDADES')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Contador Maq.', formatVal(det.cant_contador), 'number', 'CONTADOR MAQ.')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Cant. Contador', formatVal(det.cant_contador), 'number', 'CANT. CONTADOR')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Tomados Proceso', formatVal(det.tomados_proceso), 'number', 'TOMADOS EN PROCESO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Cantidad REAL', formatVal(det.cantidad_real), 'number', 'CANTIDAD REAL')}</div>
+                            <div class="col-md-12">${crearCampoEdicion('Almacén Destino', formatVal(det.almacen_destino), 'text', 'ALMACEN DESTINO')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-weight-hanging me-2"></i> Pesos (g)</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">${crearCampoEdicion('Peso Tomadas (g)', formatVal(det.peso_tomados_proceso), 'number', 'PESO TOMADAS EN PROCESO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Peso Vela (g)', formatVal(det.peso_vela), 'number', 'PESO VELA MAQUINA')}</div>
+                            <div class="col-md-12">${crearCampoEdicion('Peso Bujes (g)', formatVal(det.peso_bujes), 'number', 'PESO BUJES')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-3">
+                        <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                            style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
+                    </div>
+                `;
+            } else if (r.hoja === 'db_pulido') {
+                html += `
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-id-badge me-2"></i> Datos de Pulido</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">${crearCampoEdicion('Responsable', formatVal(det.responsable), 'text', 'RESPONSABLE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Producto/Código', formatVal(det.codigo), 'text', 'ID CODIGO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Orden Producción', formatVal(det.orden_produccion), 'text', 'ORDEN PRODUCCION')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Lote', formatVal(det.lote), 'text', 'LOTE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Estado', formatVal(det.estado), 'text', 'ESTADO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Almacén Destino', formatVal(det.almacen_destino), 'text', 'ALMACEN DESTINO')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-clock me-2"></i> Tiempos y Fechas</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">${crearCampoEdicion('Fecha', formatDateVal(det.fecha), 'date', 'FECHA')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Hora Inicio', formatTimeVal(det.hora_inicio), 'time', 'HORA INICIO')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Hora Fin', formatTimeVal(det.hora_fin), 'time', 'HORA FIN')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-calculator me-2"></i> Cantidades y Calidad</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">${crearCampoEdicion('Recibidos', formatVal(det.cantidad_recibida), 'number', 'CANTIDAD RECIBIDA')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Buenos', formatVal(det.cantidad_real), 'number', 'BUJES BUENOS')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('PNC Pulido', formatVal(det.pnc_pulido), 'number', 'PNC')}</div>
+                            <div class="col-md-12">${crearCampoEdicion('PNC Inyección', formatVal(det.pnc_inyeccion), 'number', 'PNC_INYECCION')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-3">
+                        <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                            style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
+                    </div>
+                `;
+            } else if (r.hoja === 'db_ensambles') {
+                html += `
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-puzzle-piece me-2"></i> Datos de Ensamble</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">${crearCampoEdicion('Responsable', formatVal(det.responsable), 'text', 'RESPONSABLE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('ID Código Final', formatVal(det.id_codigo), 'text', 'ID CODIGO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Buje Ensamble', formatVal(det.buje_ensamble), 'text', 'BUJE ENSAMBLE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('OP Número', formatVal(det.op_numero), 'text', 'OP NUMERO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('ID Ensamble', formatVal(det.id_ensamble), 'text', 'ID ENSAMBLE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Estado', formatVal(det.estado), 'text', 'ESTADO')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-clock me-2"></i> Tiempos y Fechas</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">${crearCampoEdicion('Fecha', formatDateVal(det.fecha), 'date', 'FECHA')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Hora Inicio', formatTimeVal(det.hora_inicio), 'time', 'HORA INICIO')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Hora Fin', formatTimeVal(det.hora_fin), 'time', 'HORA FIN')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-warehouse me-2"></i> Cantidades y Almacenes</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">${crearCampoEdicion('Cantidad', formatVal(det.cantidad), 'number', 'CANTIDAD')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Qty Unitaria', formatVal(det.qty), 'number', 'QTY (Unitaria)')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Consumo Total', formatVal(det.consumo_total), 'number', 'CONSUMO_TOTAL')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Almacén Origen', formatVal(det.almacen_para_descargar), 'text', 'ALMACEN ORIGEN')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Almacén Destino', formatVal(det.almacen_destino), 'text', 'ALMACEN DESTINO')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-3">
+                        <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                            style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
+                    </div>
+                `;
+            } else if (r.hoja === 'db_mezcla') {
+                html += `
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-blender me-2"></i> Datos de Mezcla</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">${crearCampoEdicion('Responsable', formatVal(det.responsable), 'text', 'RESPONSABLE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Máquina', formatVal(det.maquina), 'text', 'MAQUINA')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Lote Interno', formatVal(det.lote_interno), 'text', 'LOTE_INTERNO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Fecha', formatDateVal(det.fecha), 'date', 'FECHA')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Hora', formatTimeVal(det.hora), 'time', 'HORA')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-weight me-2"></i> Materiales (Kg)</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">${crearCampoEdicion('Virgen (Kg)', formatVal(det.virgen_kg), 'number', 'VIRGEN (Kg)')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Molido (Kg)', formatVal(det.molido_kg), 'number', 'MOLIDO (Kg)')}</div>
+                            <div class="col-md-4">${crearCampoEdicion('Pigmento (Kg)', formatVal(det.pigmento_kg), 'number', 'PIGMENTO (Kg)')}</div>
+                        </div>
+                    </div>
+
+                    <div class="edit-section mb-3">
+                        <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                            style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
+                    </div>
+                `;
+            } else if (r.hoja === 'db_ventas') {
+                html += `
+                    <div class="edit-section mb-4">
+                        <h6 class="section-title"><i class="fas fa-shopping-cart me-2"></i> Datos de Ventas</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">${crearCampoEdicion('Cliente', formatVal(det.nombres), 'text', 'CLIENTE')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Documento/Orden', formatVal(det.documento), 'text', 'DOCUMENTO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Producto', formatVal(det.productos), 'text', 'PRODUCTO')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Cantidad', formatVal(det.cantidad), 'number', 'CANTIDAD')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Fecha', formatDateVal(det.fecha), 'date', 'FECHA')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Clasificación', formatVal(det.clasificacion), 'text', 'CLASIFICACION')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Total Ingresos', formatVal(det.total_ingresos), 'number', 'TOTAL_INGRESOS')}</div>
+                            <div class="col-md-6">${crearCampoEdicion('Precio Promedio', formatVal(det.precio_promedio), 'number', 'PRECIO_PROMEDIO')}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Siempre permitir editar observaciones (motivo)
+            html += `
+                <div class="edit-section mb-3">
+                    <h6 class="section-title text-primary"><i class="fas fa-comment-dots me-2"></i> Motivo de la Corrección</h6>
+                    <textarea class="form-control" id="edit-motivo" rows="3" 
+                        placeholder="Describa brevemente por qué realiza este cambio..."
+                        style="border-radius: 12px; border: 1px solid #cbd5e1; padding: 12px; font-size: 0.95rem;"></textarea>
+                </div>`;
+
+            container.innerHTML = html;
+        } catch (error) {
+            console.error('❌ Error cargando detalles del registro:', error);
+            mostrarNotificacion('Error al obtener los detalles del registro', 'error');
+            modal.style.display = 'none';
+        }
     }
 
     function crearCampoEdicion(label, valor, tipo, colName) {
@@ -864,6 +977,18 @@
 
             const searchStr = `${m.tipo} ${m.fecha} ${m.cant || 0} ${m.responsable} ${m.detalle}`.toLowerCase();
             
+            let detalleFormatted = m.detalle || '';
+            detalleFormatted = detalleFormatted.replace(/Estado:\s*([A-Za-z0-9_]+)/gi, (match, p1) => {
+                let badgeColor = 'bg-secondary';
+                const p1Upper = p1.toUpperCase();
+                if (['PENDIENTE', 'ABIERTO'].includes(p1Upper)) badgeColor = 'bg-warning text-dark';
+                else if (['EXPORTADO_WO', 'CERRADO'].includes(p1Upper)) badgeColor = 'bg-success';
+                else if (['ALISTADO', 'ALISTAMIENTO'].includes(p1Upper)) badgeColor = 'bg-info text-dark';
+                else if (p1Upper === 'CANCELADO') badgeColor = 'bg-danger';
+                return `Estado: <span class="badge ${badgeColor}" style="font-size: 0.7rem; padding: 0.25em 0.6em; vertical-align: baseline;">${p1Upper}</span>`;
+            });
+            detalleFormatted = detalleFormatted.replace(/ \| /g, ' <span class="text-muted mx-1">|</span> ');
+            
             const itemHtml = `
                 <div class="timeline-item d-flex mb-3 align-items-start swal-tl-item bg-${grupo.bg} bg-opacity-10 border border-2 border-top-0 border-bottom-0 border-end-0 border-${grupo.bg}-subtle p-3 rounded" data-search="${searchStr}" style="margin-left:10px;">
                     <div class="timeline-icon me-3 mt-1" style="font-size: 1.3rem; min-width: 30px; text-align: center;">
@@ -878,7 +1003,7 @@
                             <span class="badge rounded-pill shadow-sm text-white" style="background-color: ${grupo.color}; font-size: 0.75rem;">${m.cant || 0} uds</span>
                             <span class="ms-2 fw-bold text-dark text-truncate d-inline-block" style="max-width: 200px; font-size: 0.85rem;">${m.responsable || '-'}</span>
                         </div>
-                        <div class="small text-secondary mt-2 lh-sm" style="font-size: 0.8rem;">${m.detalle || ''}</div>
+                        <div class="small text-secondary mt-2 lh-sm" style="font-size: 0.85rem;">${detalleFormatted}</div>
                     </div>
                 </div>
             `;

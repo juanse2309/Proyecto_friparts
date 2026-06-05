@@ -12,6 +12,7 @@ from backend.models.sql_models import (
     Ensamble, Mezcla, BujeRevuelto,
     PncInyeccion, PncPulido, PncEnsamble
 )
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 
 historial_bp = Blueprint('historial_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -282,7 +283,63 @@ def obtener_historial_global():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@historial_bp.route('/api/historial/detalle', methods=['GET'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
+def obtener_detalle_historial():
+    """
+    Devuelve todos los campos detallados de un registro específico
+    para poder editarlos con sus valores reales en el modal.
+    """
+    try:
+        import decimal
+        hoja = request.args.get('hoja')
+        fila = request.args.get('fila')
+        
+        if not hoja or not fila:
+            return jsonify({'success': False, 'error': 'Faltan parámetros hoja o fila'}), 400
+            
+        # Determinar modelo
+        model = None
+        if hoja == 'db_inyeccion':
+            model = ProduccionInyeccion
+        elif hoja == 'db_pulido':
+            model = ProduccionPulido
+        elif hoja == 'db_ensambles':
+            model = Ensamble
+        elif hoja == 'db_mezcla':
+            model = Mezcla
+        elif hoja == 'db_ventas':
+            model = RawVentas
+        else:
+            return jsonify({'success': False, 'error': f'Hoja no soportada: {hoja}'}), 400
+            
+        registro = model.query.get(fila)
+        if not registro:
+            return jsonify({'success': False, 'error': 'Registro no encontrado'}), 404
+            
+        # Convertir a dict serializable
+        datos = {}
+        for col in registro.__table__.columns:
+            val = getattr(registro, col.name)
+            # Formatear fechas y datetimes
+            if isinstance(val, datetime):
+                datos[col.name] = val.isoformat()
+            elif hasattr(val, 'strftime') and val.__class__.__name__ == 'date':
+                datos[col.name] = val.isoformat()
+            elif isinstance(val, decimal.Decimal):
+                datos[col.name] = float(val)
+            else:
+                datos[col.name] = val
+                
+        return jsonify({'success': True, 'data': datos})
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo detalle de registro: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @historial_bp.route('/api/historial/actualizar', methods=['POST'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
 def actualizar_registro_historial():
     """
     Endpoint para editar registros corregidos por Auditoría / Gerencia desde el Historial Global.
@@ -324,8 +381,11 @@ def actualizar_registro_historial():
             'MAQUINA': 'maquina',
             'ORDEN PRODUCCION': 'orden_produccion',
             'ID CODIGO': 'id_codigo',
+            'CODIGO': 'codigo',
             'CODIGO ENSAMBLE': 'codigo_ensamble',
             'FECHA INICIA': 'fecha_inicia',
+            'FECHA': 'fecha',
+            'FECHA FIN': 'fecha_fin',
             'HORA LLEGADA': 'hora_llegada',
             'HORA INICIO': 'hora_inicio',
             'HORA TERMINA': 'hora_termina',
@@ -340,15 +400,27 @@ def actualizar_registro_historial():
             'CANTIDAD RECIBIDA': 'cantidad_recibida',
             'BUJES BUENOS': 'cantidad_real',
             'PNC': 'pnc_pulido',
+            'PNC_INYECCION': 'pnc_inyeccion',
             'CANTIDAD': 'cantidad',
             'OP NUMERO': 'op_numero',
             'ID ENSAMBLE': 'id_ensamble',
             'BUJE ENSAMBLE': 'buje_ensamble',
             'QTY (Unitaria)': 'qty',
+            'CONSUMO_TOTAL': 'consumo_total',
             'ALMACEN ORIGEN': 'almacen_para_descargar',
             'VIRGEN (Kg)': 'virgen_kg',
             'MOLIDO (Kg)': 'molido_kg',
             'PIGMENTO (Kg)': 'pigmento_kg',
+            'LOTE_INTERNO': 'lote_interno',
+            'LOTE': 'lote',
+            'ESTADO': 'estado',
+            'HORA': 'hora',
+            'CLIENTE': 'nombres',
+            'DOCUMENTO': 'documento',
+            'PRODUCTO': 'productos',
+            'CLASIFICACION': 'clasificacion',
+            'TOTAL_INGRESOS': 'total_ingresos',
+            'PRECIO_PROMEDIO': 'precio_promedio'
         }
         
         from backend.models.sql_models import OperacionLog
@@ -363,28 +435,107 @@ def actualizar_registro_historial():
         except Exception as log_e:
             logger.warning(f"No se pudo guardar OperacionLog: {log_e}")
 
+        # Intentar determinar una fecha base para combinar con horas si es necesario
+        fecha_base = None
+        fecha_str = datos.get('FECHA') or datos.get('FECHA INICIA')
+        if fecha_str:
+            try:
+                fecha_base = datetime.strptime(fecha_str.split('T')[0].split(' ')[0], '%Y-%m-%d').date()
+            except ValueError:
+                try:
+                    fecha_base = datetime.strptime(fecha_str.split(' ')[0], '%d/%m/%Y').date()
+                except ValueError:
+                    pass
+
+        if not fecha_base:
+            for col_f in ['fecha', 'fecha_inicia']:
+                if hasattr(registro, col_f) and getattr(registro, col_f):
+                    val_f = getattr(registro, col_f)
+                    if isinstance(val_f, datetime):
+                        fecha_base = val_f.date()
+                        break
+                    elif hasattr(val_f, 'strftime') and val_f.__class__.__name__ == 'date':
+                        fecha_base = val_f
+                        break
+        
+        if not fecha_base:
+            fecha_base = datetime.now().date()
+
         for key, value in datos.items():
             if key in MAPEO:
                 col_name = MAPEO[key]
-                if hasattr(registro, col_name):
-                    # Transformaciones seguras de tipo
-                    if value == '' or value is None:
-                        # Dependiendo del campo podriamos setear None, pero lo dejamos como string vacio o 0
-                        # Para evitar fallos si es numerico:
-                        col_type = str(getattr(model, col_name).type)
-                        if 'Integer' in col_type or 'Numeric' in col_type or 'Float' in col_type:
-                            value = 0
-                        else:
-                            value = ''
-                    else:
-                        col_type = str(getattr(model, col_name).type)
-                        if 'Integer' in col_type or 'Numeric' in col_type or 'Float' in col_type:
-                            try:
-                                value = float(str(value).replace(',', '.'))
-                            except ValueError:
-                                value = 0
+                
+                # Resiliencia de mapeo para ID CODIGO / CODIGO
+                if col_name == 'id_codigo' and not hasattr(registro, 'id_codigo') and hasattr(registro, 'codigo'):
+                    col_name = 'codigo'
+                elif col_name == 'codigo' and not hasattr(registro, 'codigo') and hasattr(registro, 'id_codigo'):
+                    col_name = 'id_codigo'
 
-                    setattr(registro, col_name, value)
+                if hasattr(registro, col_name):
+                    col_attr = getattr(model, col_name)
+                    col_type = str(col_attr.type)
+                    
+                    if value == '' or value is None:
+                        if 'Integer' in col_type or 'Numeric' in col_type or 'Float' in col_type or 'BigInteger' in col_type:
+                            setattr(registro, col_name, 0)
+                        else:
+                            setattr(registro, col_name, None)
+                        continue
+
+                    # Conversión según el tipo de columna en SQLAlchemy
+                    if 'DateTime' in col_type:
+                        try:
+                            # Caso 1: Es una hora en formato HH:MM o HH:MM:SS
+                            if ':' in str(value) and len(str(value)) <= 8:
+                                parts = str(value).split(':')
+                                h = int(parts[0])
+                                m = int(parts[1])
+                                s = int(parts[2]) if len(parts) > 2 else 0
+                                dt_value = datetime.combine(fecha_base, datetime.min.time().replace(hour=h, minute=m, second=s))
+                                setattr(registro, col_name, dt_value)
+                            # Caso 2: Es una fecha YYYY-MM-DD
+                            else:
+                                clean_val = str(value).split('T')[0].split(' ')[0]
+                                try:
+                                    dt_parsed = datetime.strptime(clean_val, '%Y-%m-%d')
+                                except ValueError:
+                                    dt_parsed = datetime.strptime(clean_val, '%d/%m/%Y')
+                                
+                                # Si ya tenía hora, intentar conservarla
+                                old_val = getattr(registro, col_name)
+                                if old_val and isinstance(old_val, datetime):
+                                    dt_value = datetime.combine(dt_parsed.date(), old_val.time())
+                                else:
+                                    dt_value = dt_parsed
+                                setattr(registro, col_name, dt_value)
+                        except Exception as e_dt:
+                            logger.warning(f"No se pudo parsear DateTime {value} para {col_name}: {e_dt}")
+
+                    elif 'Date' in col_type:
+                        try:
+                            clean_val = str(value).split('T')[0].split(' ')[0]
+                            try:
+                                dt_parsed = datetime.strptime(clean_val, '%Y-%m-%d').date()
+                            except ValueError:
+                                dt_parsed = datetime.strptime(clean_val, '%d/%m/%Y').date()
+                            setattr(registro, col_name, dt_parsed)
+                        except Exception as e_d:
+                            logger.warning(f"No se pudo parsear Date {value} para {col_name}: {e_d}")
+
+                    elif 'Integer' in col_type or 'BigInteger' in col_type:
+                        try:
+                            setattr(registro, col_name, int(float(str(value).replace(',', '.'))))
+                        except ValueError:
+                            setattr(registro, col_name, 0)
+
+                    elif 'Numeric' in col_type or 'Float' in col_type:
+                        try:
+                            setattr(registro, col_name, float(str(value).replace(',', '.')))
+                        except ValueError:
+                            setattr(registro, col_name, 0.0)
+
+                    else:
+                        setattr(registro, col_name, str(value).strip())
                     
         db.session.commit()
         logger.info(f"✅ [Historial] Registro ID {fila} en {hoja} modificado correctamente por {usuario}")
