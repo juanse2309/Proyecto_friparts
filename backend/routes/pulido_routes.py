@@ -300,8 +300,8 @@ def registrar_pulido():
                     codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
                 ).first()
                 if prod_wip:
-                    prod_wip.stock_por_pulir = float(prod_wip.stock_por_pulir or 0) + wip
-                    logger.info(f" [WIP] Agregando {wip} piezas a stock_por_pulir del producto {registro.codigo}")
+                    prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
+                    logger.info(f" [WIP] Agregando {wip} piezas a por_pulir del producto {registro.codigo}")
 
         db.session.commit()
         return jsonify({
@@ -968,8 +968,8 @@ def reporte_masivo():
                             codigo_sistema=preservar_o_normalizar_prefijo(referencia)
                         ).first()
                         if prod:
-                            prod.stock_por_pulir = (prod.stock_por_pulir or 0) + int(wip)
-                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a stock_por_pulir para {referencia}")
+                            prod.por_pulir = (prod.por_pulir or 0) + int(wip)
+                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a por_pulir para {referencia}")
 
                     # Solo avanzar si no está ya cerrado (idempotente)
                     if lote_traz.estado_actual == 'ABIERTO_PRODUCCION':
