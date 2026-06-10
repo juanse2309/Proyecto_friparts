@@ -141,31 +141,41 @@ def probar_y_sincronizar_productos():
         # Serializar los datos usando el encoder robusto
         payload_json = json.dumps(payload, cls=SQLServerJSONEncoder)
         
-        logger.info(f"Enviando datos al servidor en la nube ({FRITECH_API_URL})...")
-        response = requests.post(
-            FRITECH_API_URL, 
-            data=payload_json, 
-            headers=headers,
-            timeout=15
-        )
+        logger.info(f"[DEBUG] URL de Envío Exacta: {FRITECH_API_URL}")
+        logger.info(f"[DEBUG] Headers de Envío: {headers}")
+        logger.info(f"[DEBUG] Tamaño del Payload: {len(payload_json)} bytes")
         
-        # 4. Procesar respuesta del servidor
-        if response.status_code == 200:
-            logger.info("🎉 ¡Sincronización exitosa!")
-            logger.info(f"Respuesta del servidor (200 OK): {response.text}")
-            return True
-        elif response.status_code == 401:
-            logger.error("❌ Error 401: No autorizado. Verifica la API Key (WO_SYNC_API_KEY).")
-        else:
-            logger.error(f"❌ Error en el servidor (Status {response.status_code}): {response.text}")
+        try:
+            logger.info(f"Enviando datos al servidor en la nube ({FRITECH_API_URL})...")
+            response = requests.post(
+                FRITECH_API_URL, 
+                data=payload_json, 
+                headers=headers,
+                timeout=30
+            )
             
-        return False
+            logger.info(f"[DEBUG] Código de Respuesta del Servidor: {response.status_code}")
+            logger.info(f"[DEBUG] Respuesta Completa del Servidor: {response.text}")
+            
+            # 4. Procesar respuesta del servidor
+            if response.status_code == 200:
+                logger.info("🎉 ¡Sincronización exitosa!")
+                return True
+            elif response.status_code == 401:
+                logger.error("❌ Error 401: No autorizado. Verifica la API Key (WO_SYNC_API_KEY).")
+            else:
+                logger.error(f"❌ Error en el servidor (Status {response.status_code})")
+                
+            return False
+            
+        except requests.exceptions.RequestException as e_net:
+            logger.error(f"❌ Error de red / conexión al backend (requests.post falló): {e_net}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
         
     except pyodbc.Error as e_sql:
         logger.error(f"❌ Error de base de datos (SQL Server): {e_sql}")
-        return False
-    except requests.exceptions.RequestException as e_net:
-        logger.error(f"❌ Error de red / conexión al backend: {e_net}")
         return False
     except Exception as e:
         logger.error(f"❌ Error inesperado en el agente de sincronización: {e}")

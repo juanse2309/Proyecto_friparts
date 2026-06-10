@@ -1027,50 +1027,12 @@ def reporte_masivo():
                 observaciones='Reporte Masivo por Voz Fin de Turno'
             )
 
-            item_hora_inicio = item.get('hora_inicio')
-            item_hora_fin = item.get('hora_fin')
-
-            # Fallback de Tiempo
-            if not item_hora_inicio or not item_hora_fin:
-                registro.hora_inicio = ahora.replace(tzinfo=None)
-                registro.hora_fin = ahora.replace(tzinfo=None)
-                registro.duracion_segundos = 60
-                registro.tiempo_total_minutos = 1.0
-                registro.segundos_por_unidad = float(round(60 / buenos, 2)) if buenos > 0 else 0.0
-            else:
-                try:
-                    hi_h, hi_m = map(int, item_hora_inicio.split(':'))
-                    hf_h, hf_m = map(int, item_hora_fin.split(':'))
-                    
-                    t_ini = ahora.replace(hour=hi_h, minute=hi_m, second=0, microsecond=0)
-                    t_fin = ahora.replace(hour=hf_h, minute=hf_m, second=0, microsecond=0)
-                    
-                    registro.hora_inicio = t_ini.replace(tzinfo=None)
-                    
-                    # Bugfix de Medianoche
-                    if t_fin < t_ini:
-                        from datetime import timedelta
-                        t_fin += timedelta(days=1)
-                    
-                    registro.hora_fin = t_fin.replace(tzinfo=None)
-                    
-                    diff = t_fin - t_ini
-                    segundos_totales = int(diff.total_seconds())
-                    
-                    if segundos_totales < 60:
-                        segundos_totales = 60 # Contingencia mínima
-                        
-                    registro.duracion_segundos = segundos_totales
-                    registro.tiempo_total_minutos = float(round(segundos_totales / 60.0, 2))
-                    registro.segundos_por_unidad = float(round(segundos_totales / buenos, 2)) if buenos > 0 else 0.0
-                    
-                except Exception as e_met:
-                    logger.warning(f"Error calculando duracion: {e_met}")
-                    registro.hora_inicio = ahora.replace(tzinfo=None)
-                    registro.hora_fin = ahora.replace(tzinfo=None)
-                    registro.duracion_segundos = 60
-                    registro.tiempo_total_minutos = 1.0
-                    registro.segundos_por_unidad = float(round(60 / buenos, 2)) if buenos > 0 else 0.0
+            # Tiempos e indicadores de tiempo se ignoran para el reporte masivo/de lotes
+            registro.hora_inicio = None
+            registro.hora_fin = None
+            registro.duracion_segundos = 0
+            registro.tiempo_total_minutos = 0.0
+            registro.segundos_por_unidad = 0.0
 
             db.session.add(registro)
 

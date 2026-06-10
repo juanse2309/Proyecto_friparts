@@ -57,6 +57,7 @@ def recibir_datos():
         logger.info(f"Datos de WO recibidos ({nombre_vista}): {len(datos)} registros")
 
         # Upsert para Vista_Tabla_Inventarios y unificación directa en db_productos
+        # Upsert para Vista_Tabla_Inventarios y unificación directa en db_productos
         if nombre_vista == "Vista_Tabla_Inventarios":
             from backend.core.sql_database import db
             from backend.models.sql_models import InventarioWO, Producto
@@ -82,18 +83,34 @@ def recibir_datos():
                     "id_cod_limpio": limpiar_codigo_wo(p.id_codigo)
                 })
 
+            # Normalizar las llaves de todos los registros recibidos de forma robusta
+            def normalizar_llaves(d):
+                if not isinstance(d, dict):
+                    return d
+                import unicodedata
+                def limpiar_texto(s):
+                    s = s.lower().strip()
+                    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+                    s = s.replace(' ', '_')
+                    return s
+                return {limpiar_texto(k): v for k, v in d.items()}
+
+            datos_normalizados = []
+            for item in datos:
+                datos_normalizados.append(normalizar_llaves(item))
+
+            logger.info(f"[DEBUG] Recibidos {len(datos_normalizados)} registros para insertar.")
+            if datos_normalizados:
+                logger.info(f"[DEBUG] Llaves del primer registro normalizado: {list(datos_normalizados[0].keys())}")
+                logger.info(f"[DEBUG] Primer registro normalizado crudo: {datos_normalizados[0]}")
+
             upsert_count = 0
             productos_actualizados = 0
             logs_fallidos_counter = [0] # Mutable list para contar en el helper
 
             def buscar_producto_flexible(r_wo):
                 # Extraer códigos de World Office
-                c_principal = (
-                    r_wo.get('código_producto') or 
-                    r_wo.get('codigo_producto') or 
-                    r_wo.get('codigo') or 
-                    r_wo.get('código')
-                )
+                c_principal = r_wo.get('codigo_producto') or r_wo.get('codigo')
                 c_alterno = r_wo.get('codigo_alterno') or r_wo.get('codigo_alterno_wo')
                 ref = r_wo.get('referencia') or r_wo.get('ref') or r_wo.get('referencia_comercial')
                 
@@ -143,20 +160,19 @@ def recibir_datos():
                 
                 return None
 
-            for r in datos:
+            for r in datos_normalizados:
                 # Extraer codigo_producto de forma flexible
                 codigo_producto = (
-                    r.get('código_producto') or 
                     r.get('codigo_producto') or 
-                    r.get('codigo') or 
-                    r.get('código')
+                    r.get('codigo') or
+                    r.get('codigo_alterno') or
+                    r.get('referencia')
                 )
                 if not codigo_producto:
                     continue
                 codigo_producto = str(codigo_producto).strip()
                 
                 descripcion = (
-                    r.get('descripción') or 
                     r.get('descripcion') or 
                     r.get('nombre') or 
                     r.get('detalle') or 
@@ -213,7 +229,11 @@ def recibir_datos():
                 upsert_count += 1
             
             db.session.commit()
-            logger.info(f"✅ Upsert exitoso en inventario_wo: {upsert_count} registros procesados.")
+            
+            # Forzar volcado y verificar cantidad en BD
+            guardados_bd = db.session.query(InventarioWO).count()
+            logger.info(f"[DEBUG] Registros guardados en inventario_wo: {guardados_bd}")
+            logger.info(f"✅ Upsert exitoso en inventario_wo: {upsert_count} registros procesados en esta tanda.")
             logger.info(f"✅ Unificación directa completada: {productos_actualizados} productos actualizados en db_productos.")
         
         return jsonify({
@@ -233,15 +253,15 @@ def recibir_datos():
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
 def unificar_inventario_wo():
     """
-    Lee los primeros 10 registros de 'inventario_wo' y realiza una comparación de auditoría detallada
-    contra los códigos de db_productos.
+    Modo Auditoría de Estructura de Datos.
+    Detecta e imprime columnas y datos crudos de las tablas físicas.
     """
     try:
         from backend.core.sql_database import db
         from backend.models.sql_models import InventarioWO, Producto
-        import difflib
+        from sqlalchemy import inspect
         
-        # Asegurar columnas alternas en caliente
+        # 1. Asegurar columnas alternas en caliente por si acaso
         try:
             db.session.execute(text("ALTER TABLE inventario_wo ADD COLUMN IF NOT EXISTS codigo_alterno VARCHAR(100)"))
             db.session.execute(text("ALTER TABLE inventario_wo ADD COLUMN IF NOT EXISTS referencia VARCHAR(100)"))
@@ -249,112 +269,38 @@ def unificar_inventario_wo():
         except Exception as e_ddl:
             db.session.rollback()
             logger.warning(f"No se pudieron asegurar las columnas DDL de inventario_wo: {e_ddl}")
-            
-        # Tomamos solo los primeros 10 registros para el modo de auditoría
-        registros_wo = db.session.query(InventarioWO).limit(10).all()
-        productos_db = db.session.query(Producto).all()
+
+        # 2. Obtener columnas reales de la base de datos física
+        inspector = inspect(db.engine)
+        cols_wo_db = [c['name'] for c in inspector.get_columns('inventario_wo')]
+        cols_prod_db = [c['name'] for c in inspector.get_columns('db_productos')]
         
-        # Mapa en memoria para emparejamiento flexible
-        prods_map = []
-        codigos_locales = []
-        for p in productos_db:
-            if p.codigo_sistema:
-                codigos_locales.append(p.codigo_sistema)
-            if p.id_codigo and p.id_codigo not in codigos_locales:
-                codigos_locales.append(p.id_codigo)
-                
-            prods_map.append({
-                "obj": p,
-                "codigo_sistema": p.codigo_sistema,
-                "id_codigo": p.id_codigo,
-                "cod_sis_limpio": limpiar_codigo_wo(p.codigo_sistema),
-                "id_cod_limpio": limpiar_codigo_wo(p.id_codigo)
-            })
-            
-        actualizados = 0
+        logger.info(f"[DEBUG] Columnas detectadas en inventario_wo: {cols_wo_db}")
+        logger.info(f"[DEBUG] Columnas detectadas en db_productos: {cols_prod_db}")
         
-        for item in registros_wo:
-            c_principal = item.codigo_producto
-            stock_wo = item.stock_wo or 0.0
-            precio_wo = item.precio_wo or 0.0
+        # 3. Obtener primeros 3 registros crudos tal cual vienen de la base de datos
+        raw_res = db.session.execute(text("SELECT * FROM inventario_wo LIMIT 3")).mappings().all()
+        registros_crudos = []
+        for r in raw_res:
+            row_dict = {}
+            for k, v in dict(r).items():
+                # Convertir a float/string para serialización segura en JSON
+                if isinstance(v, (int, float)) or v is None:
+                    row_dict[k] = v
+                elif hasattr(v, '__str__'):
+                    row_dict[k] = str(v)
+                else:
+                    row_dict[k] = v
+            registros_crudos.append(row_dict)
             
-            # 1. Encontrar el código local más parecido usando difflib
-            candidatos_close = difflib.get_close_matches(c_principal, codigos_locales, n=1, cutoff=0.1)
-            codigo_local_parecido = candidatos_close[0] if candidatos_close else "Ninguno"
-            
-            # 2. Realizar el cruce de coincidencia flexible
-            candidatos = [c_principal, item.codigo_alterno, item.referencia]
-            candidatos = [c for c in candidatos if c]
-            
-            p_db = None
-            match_exitoso = False
-            
-            # Buscar el producto
-            for c in candidatos:
-                c_limpio = limpiar_codigo_wo(c)
-                if not c_limpio:
-                    continue
-                for p_info in prods_map:
-                    if c_limpio == p_info["cod_sis_limpio"] or c_limpio == p_info["id_cod_limpio"]:
-                        p_db = p_info["obj"]
-                        match_exitoso = True
-                        break
-                if p_db:
-                    break
-            
-            if not p_db:
-                # Intento 2: exacto original
-                for c in candidatos:
-                    c_str = str(c).upper().strip()
-                    for p_info in prods_map:
-                        sis_upper = (p_info["codigo_sistema"] or "").upper().strip()
-                        id_upper = (p_info["id_codigo"] or "").upper().strip()
-                        if c_str == sis_upper or c_str == id_upper:
-                            p_db = p_info["obj"]
-                            match_exitoso = True
-                            break
-                    if p_db:
-                        break
-            
-            if not p_db:
-                # Intento 3: Substring
-                for c in candidatos:
-                    c_limpio = limpiar_codigo_wo(c)
-                    if len(c_limpio) < 3:
-                        continue
-                    for p_info in prods_map:
-                        if c_limpio in p_info["cod_sis_limpio"] or c_limpio in p_info["id_cod_limpio"]:
-                            p_db = p_info["obj"]
-                            match_exitoso = True
-                            break
-                        if p_info["cod_sis_limpio"] and p_info["cod_sis_limpio"] in c_limpio:
-                            p_db = p_info["obj"]
-                            match_exitoso = True
-                            break
-                        if p_info["id_cod_limpio"] and p_info["id_cod_limpio"] in c_limpio:
-                            p_db = p_info["obj"]
-                            match_exitoso = True
-                            break
-                    if p_db:
-                        break
-            
-            # Imprimir Logs de Diagnóstico obligatorios
-            logger.info(f"[DEBUG] Comparando Código WO: {c_principal}")
-            logger.info(f"[DEBUG] Contra el Código Local más parecido en db_productos: {codigo_local_parecido}")
-            logger.info(f"[DEBUG] Resultado de la comparación (limpieza): {match_exitoso}")
-            
-            if p_db:
-                p_db.p_terminado = stock_wo
-                p_db.precio = precio_wo
-                actualizados += 1
-                
-        db.session.commit()
-        logger.info(f"✅ [Auditoría] Unificación completada: {actualizados} de 10 productos actualizados en db_productos.")
+        logger.info(f"[DEBUG] Primeros 3 registros crudos de inventario_wo: {registros_crudos}")
         
         return jsonify({
             "success": True,
-            "message": f"[Modo Auditoría] Procesados 10 registros. Actualizados: {actualizados}",
-            "actualizados": actualizados
+            "message": "Auditoría de estructura de datos completada",
+            "columnas_inventario_wo": cols_wo_db,
+            "columnas_db_productos": cols_prod_db,
+            "primeros_3_registros_wo": registros_crudos
         }), 200
         
     except Exception as e:

@@ -1949,16 +1949,6 @@ const ModuloPulido = {
                         </div>
                     </div>
 
-                    <div class="row g-3 align-items-center mt-1">
-                        <div class="col-6">
-                            <label class="form-label fw-bold text-muted small text-uppercase mb-1">Hora Inicio</label>
-                            <input type="time" class="form-control item-hora-inicio" style="border-radius:8px;">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label fw-bold text-muted small text-uppercase mb-1">Hora Fin</label>
-                            <input type="time" class="form-control item-hora-fin" style="border-radius:8px;">
-                        </div>
-                    </div>
                     
                     <div class="defectos-container mt-3 pt-2 border-top" id="defects-container-${lote.id_lote.replace(/[^a-zA-Z0-9]/g, '_')}">
                         <!-- Sub-filas de defectos -->
