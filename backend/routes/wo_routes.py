@@ -251,15 +251,17 @@ def recibir_datos():
         }), 500
 
 def normalizar_referencia(codigo):
+    """Normalización agresiva: mayúsculas, elimina todo lo no alfanumérico
+    y cualquier prefijo de letras que preceda a dígitos (FR-, MT-, CAR-, FR9714, etc.)"""
     if not codigo:
         return ""
     import re
-    # Convertir a mayúsculas
     t = str(codigo).upper()
-    # Quitar espacios, guiones y caracteres no alfanuméricos
+    # Quitar TODO lo que no sea letra o dígito
     t = re.sub(r'[^A-Z0-9]', '', t)
-    # Remover prefijo 'FR' si es seguido por dígitos para unificación exitosa (FR9714 -> 9714)
-    t = re.sub(r'^FR(?=\d)', '', t)
+    # Eliminar cualquier bloque de letras al inicio si va seguido de dígitos
+    # Ej: FR9714 -> 9714, MT5002 -> 5002, CAR9890 -> 9890
+    t = re.sub(r'^[A-Z]+(?=\d)', '', t)
     return t
 
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
@@ -288,31 +290,46 @@ def unificar_inventario_wo():
         actualizados = 0
         no_encontrados = 0
         
+        # Pre-calcular lista de claves normalizadas para fallback de substring
+        claves_locales = list(productos_mapa.keys())
+        
         for item in items_wo:
-            # Primero intentar cruzar por el campo referencia
-            ref_wo = normalizar_referencia(item.referencia)
             p_db = None
             ref_usada = ""
+            ref_wo = ""
             
+            # 1. Primer intento: campo referencia (lookup exacto O(1))
+            ref_wo = normalizar_referencia(item.referencia)
             if ref_wo:
                 p_db = productos_mapa.get(ref_wo)
                 ref_usada = item.referencia
-                
-            # Si no hay match o estaba vacío, intentar con codigo_alterno
+            
+            # 2. Segundo intento: campo codigo_alterno (lookup exacto O(1))
             if not p_db:
                 ref_alt = normalizar_referencia(item.codigo_alterno)
                 if ref_alt:
                     p_db = productos_mapa.get(ref_alt)
-                    ref_usada = item.codigo_alterno
+                    if p_db:
+                        ref_usada = item.codigo_alterno
+                        ref_wo = ref_alt
+            
+            # 3. Tercer intento: cruce relajado por substring (ref_wo contenida en clave local o viceversa)
+            if not p_db and ref_wo and len(ref_wo) >= 4:
+                for clave_local in claves_locales:
+                    if len(clave_local) >= 4 and (ref_wo in clave_local or clave_local in ref_wo):
+                        p_db = productos_mapa[clave_local]
+                        ref_usada = f"{ref_usada or ref_wo} -> {clave_local} (substring)"
+                        break
             
             if p_db:
                 p_db.p_terminado = float(item.stock_wo or 0)
                 p_db.precio = float(item.precio_wo or 0)
                 actualizados += 1
             else:
-                # Si no se encontró en ningún campo, registrar en debug
-                valor_reporte = ref_usada or item.referencia or item.codigo_alterno or item.codigo_producto
-                logger.info(f"[DEBUG] Referencia WO no encontrada en catálogo: {valor_reporte}")
+                # Debug de rescate: mostrar 5 claves locales más cercanas
+                valor_wo = ref_wo or item.referencia or item.codigo_alterno or item.codigo_producto
+                muestra_local = claves_locales[:5]
+                logger.info(f'[DEBUG] Referencia WO "{valor_wo}" no encontrada en catálogo. Intentamos buscarla en: {muestra_local}')
                 no_encontrados += 1
                 
         # Confirmar los cambios al final del proceso
