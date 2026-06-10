@@ -1129,6 +1129,60 @@ window.ModuloInventario = {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    },
+
+    sincronizarStockWO: async function () {
+        const confirmResult = await Swal.fire({
+            title: '¿Sincronizar Stock con World Office?',
+            text: 'Esta acción sobrescribirá la columna de Producto Terminado en FriTech con el stock más reciente recibido de World Office.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, unificar stock',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#10b981',
+            cancelButtonColor: '#6c757d'
+        });
+
+        if (!confirmResult.isConfirmed) return;
+
+        // Mostrar alerta de carga
+        Swal.fire({
+            title: 'Sincronizando Inventario...',
+            text: 'Por favor espera mientras unificamos las cantidades de stock.',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            allowEnterKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        try {
+            const response = await fetch('/api/wo/unificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                await Swal.fire({
+                    icon: 'success',
+                    title: '¡Stock Unificado!',
+                    text: `Se actualizaron con éxito ${result.actualizados} productos en el inventario real.`,
+                    confirmButtonText: 'Excelente',
+                    confirmButtonColor: '#10b981'
+                });
+                // Refrescar tabla de inventario
+                if (typeof cargarProductos === 'function') cargarProductos(true);
+            } else {
+                Swal.fire('Error de Unificación', result.error || 'No se pudo sincronizar el stock.', 'error');
+            }
+        } catch (e) {
+            console.error('[WO Stock Sync] Error:', e);
+            Swal.fire('Error de Conexión', 'No se pudo comunicar con el servidor para la unificación.', 'error');
+        }
     }
 };
 

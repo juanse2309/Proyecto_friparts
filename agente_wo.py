@@ -107,7 +107,7 @@ def probar_y_sincronizar_productos():
         
         # 2. Ejecutar consulta sobre la vista de inventarios
         nombre_vista = "Vista_Tabla_Inventarios"
-        query = f"SELECT TOP 50 * FROM {nombre_vista}"
+        query = f"SELECT * FROM {nombre_vista}"
         logger.info(f"Ejecutando consulta: '{query}'")
         cursor.execute(query)
         

@@ -628,6 +628,8 @@ class InventarioWO(db.Model):
     descripcion     = db.Column(db.String(500), nullable=True)
     stock_wo        = db.Column(db.Numeric(18, 2), default=0)
     precio_wo       = db.Column(db.Numeric(18, 2), default=0)
+    codigo_alterno  = db.Column(db.String(100), nullable=True)
+    referencia      = db.Column(db.String(100), nullable=True)
 
 
 

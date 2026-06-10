@@ -88,17 +88,6 @@ def detalle_producto(codigo_sistema):
                     c_ali = 0.0
                 total_pendientes += max(0.0, c_sol - c_ali)
             
-            # Consulta flexible a la tabla espejo inventario_wo
-            from backend.models.sql_models import InventarioWO
-            p_wo = sql_db.session.query(InventarioWO).filter(
-                (InventarioWO.codigo_producto == p_sql.id_codigo) | 
-                (InventarioWO.codigo_producto == p_sql.codigo_sistema) |
-                (InventarioWO.codigo_producto == codigo_numerico)
-            ).first()
-            
-            disponible_final = float(p_wo.stock_wo) if (p_wo and p_wo.stock_wo is not None) else v_p_terminado
-            precio_final = float(p_wo.precio_wo) if (p_wo and p_wo.precio_wo is not None) else float(p_sql.precio or 0)
-            
             res_data = {
                 "id_codigo": p_sql.id_codigo,
                 "codigo_sistema": p_sql.codigo_sistema,
@@ -106,13 +95,13 @@ def detalle_producto(codigo_sistema):
                 "p_terminado": v_p_terminado,
                 "por_pulir": v_por_pulir,
                 "comprometido": comp,
-                "stock_disponible": disponible_final,
-                "disponible": disponible_final,
+                "stock_disponible": v_p_terminado - comp,
+                "disponible": v_p_terminado - comp,
                 "stock_bodega": v_bodega,
                 "imagen": p_sql.imagen or "",
                 "imagen_valida": resolver_ruta_imagen(p_sql.imagen, p_sql.codigo_sistema),
                 "pedidos_pendientes": total_pendientes,
-                "precio": precio_final
+                "precio": float(p_sql.precio or 0)
             }
 
             return jsonify({"status": "success", "producto": res_data}), 200
@@ -159,7 +148,6 @@ def buscar_productos(query):
                 })
             return jsonify({'status': 'success', 'items': resultado}), 200
 
-        # --- Lógica EstStandard (FriParts) ---
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
             WITH precios_norm AS (
@@ -189,7 +177,9 @@ def buscar_productos(query):
                     id_codigo ILIKE :t OR 
                     codigo_sistema ILIKE :t OR 
                     descripcion ILIKE :t OR
-                    oem ILIKE :            SELECT 
+                    oem ILIKE :t
+            )
+            SELECT 
                 p.id_codigo, 
                 p.descripcion as nombre_producto, 
                 p.p_terminado, 
@@ -200,14 +190,11 @@ def buscar_productos(query):
                 p.imagen,
                 p.oem,
                 COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw,
-                COALESCE(ped.total_pendiente, 0) as pedidos_pendientes,
-                i_wo.stock_wo,
-                i_wo.precio_wo
+                COALESCE(ped.total_pendiente, 0) as pedidos_pendientes
             FROM productos_base p
             LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
             LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
             LEFT JOIN pedidos_cte ped ON ped.id_codigo = p.id_codigo
-            LEFT JOIN inventario_wo i_wo ON (i_wo.codigo_producto = p.id_codigo OR i_wo.codigo_producto = p.codigo_sistema)
             ORDER BY p.codigo_sistema
             LIMIT :l
         """
@@ -225,12 +212,8 @@ def buscar_productos(query):
             p_term = float(r['p_terminado'] or 0)
             comp = float(r['comprometido'] or 0)
             
-            # Priorizar datos de la tabla espejo inventario_wo si están presentes
-            stock_wo = r['stock_wo']
-            precio_wo = r['precio_wo']
-            
-            disponible_final = float(stock_wo) if stock_wo is not None else (p_term - comp)
-            precio_final = float(precio_wo) if precio_wo is not None else limpiar_precio(r['precio_raw'])
+            disponible_final = p_term - comp
+            precio_final = limpiar_precio(r['precio_raw'])
             
             resultado.append({
                 "id_codigo": r['id_codigo'],
@@ -289,7 +272,7 @@ def listar_productos():
                     "precio": "{:.2f}".format(precio_val)
                 })
             return jsonify({"items": resultado}), 200
-
+            
         # --- Lógica Estándar (FriParts) ---
         # JOIN optimizado con CTE para pre-normalización
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
@@ -310,7 +293,8 @@ def listar_productos():
                 ) as total_pendiente
                 FROM db_pedidos
                 WHERE estado IN ('PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO')
-                       ),
+                GROUP BY id_codigo
+            ),
             productos_base AS (
                 SELECT 
                     *,
@@ -327,14 +311,11 @@ def listar_productos():
                 p.codigo_sistema, 
                 p.imagen,
                 COALESCE(pv1.precio, pv2.precio, p.precio, 0) as precio_raw,
-                COALESCE(ped.total_pendiente, 0) as pedidos_pendientes,
-                i_wo.stock_wo,
-                i_wo.precio_wo
+                COALESCE(ped.total_pendiente, 0) as pedidos_pendientes
             FROM productos_base p
             LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
             LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
             LEFT JOIN pedidos_cte ped ON ped.id_codigo = p.id_codigo
-            LEFT JOIN inventario_wo i_wo ON (i_wo.codigo_producto = p.id_codigo OR i_wo.codigo_producto = p.codigo_sistema)
             ORDER BY p.codigo_sistema
         """
         
@@ -356,18 +337,14 @@ def listar_productos():
                 
             try: return float(s)
             except: return 0
-  
+   
         resultado = []
         for r in result_query:
             p_term = float(r['p_terminado'] or 0)
             comp = float(r['comprometido'] or 0)
             
-            # Priorizar datos de la tabla espejo inventario_wo si están presentes
-            stock_wo = r['stock_wo']
-            precio_wo = r['precio_wo']
-            
-            disponible_final = float(stock_wo) if stock_wo is not None else (p_term - comp)
-            precio_final = float(precio_wo) if precio_wo is not None else limpiar_precio(r['precio_raw'])
+            disponible_final = p_term - comp
+            precio_final = limpiar_precio(r['precio_raw'])
             
             resultado.append({
                 "id_codigo": r['id_codigo'],
