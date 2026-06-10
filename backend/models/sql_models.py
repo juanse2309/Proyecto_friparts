@@ -617,4 +617,6 @@ class TrazabilidadLote(db.Model):
     # Cantidad total inyectada -- actualizada al cierre del turno por mes_reportar.
     # Validacion la usa para calcular WIP: WIP = cantidad_inyectada - SUM(db_pulido.cantidad_real)
     cantidad_inyectada = db.Column(db.Integer, default=0)
+    por_pulir          = db.Column(db.Integer, default=0)
+
 

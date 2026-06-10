@@ -71,3 +71,25 @@ def limpiar_cadena(texto: str) -> str:
     if not texto:
         return ""
     return ' '.join(str(texto).strip().split())
+
+
+def resolver_operario(payload_name: str) -> str:
+    """
+    Resuelve el operario responsable aplicando la jerarquía universal:
+    1. Si payload_name no está vacío/nulo/undefined, se limpia y se retorna.
+    2. Fallback: Se busca en session['user'] (o 'user_name').
+    3. Si ambos fallan, retorna 'SISTEMA'.
+    """
+    from flask import session
+    if payload_name is not None:
+        val = str(payload_name).strip()
+        if val and val.lower() not in ('null', 'undefined', 'none'):
+            return val
+    
+    session_user = session.get('user') or session.get('user_name')
+    if session_user is not None:
+        val_sess = str(session_user).strip()
+        if val_sess and val_sess.lower() not in ('null', 'undefined', 'none'):
+            return val_sess
+            
+    return 'SISTEMA'

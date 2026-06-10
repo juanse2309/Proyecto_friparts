@@ -349,8 +349,20 @@ const ModuloInyeccion = {
         if (result.isConfirmed) {
             try {
                 mostrarLoading(true, 'Validando lote...');
+                
+                const payload = {
+                    items: this.items.map(i => ({
+                        codigo: i.codigo_producto,
+                        pnc_inyeccion: i.pnc || 0,
+                        pnc_pulido: i.pnc_pulido || 0,
+                        pnc_list: i.pnc_list || [],
+                        pnc_pulido_list: i.pnc_pulido_list || []
+                    }))
+                };
+
                 const res = await fetchData(`/api/inyeccion/validar/${idInyeccion}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    body: payload
                 });
                 mostrarLoading(false);
 
@@ -882,6 +894,75 @@ const ModuloInyeccion = {
         }
     },
 
+    editarPNCPulidoLista: async function (index) {
+        const item = this.items[index];
+        if (!item) return;
+
+        const criterios = ["Rayado", "Porosidad", "Exceso de Rebaba", "Medida Incorrecta", "Mal Acabado", "Otros"];
+        const defectosActuales = item.defectos_pnc_pulido || {};
+
+        let htmlContent = `
+            <div style="text-align: left; margin-bottom: 15px;">
+                <span class="badge bg-secondary mb-1">Producto: ${item.codigo_producto}</span>
+                <p class="text-muted small mb-0">Ingresa la cantidad de piezas defectuosas por cada criterio aplicable (Pulido):</p>
+            </div>
+            <div class="pnc-list-modal-body" style="max-height: 320px; overflow-y: auto; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc;">
+        `;
+
+        criterios.forEach(crit => {
+            const val = defectosActuales[crit] || 0;
+            htmlContent += `
+                <div class="row align-items-center mb-2 pb-2 border-bottom" style="border-color: #f1f5f9 !important;">
+                    <div class="col-7 text-start fw-bold text-dark small" style="text-transform: capitalize;">
+                        ${crit}
+                    </div>
+                    <div class="col-5">
+                        <input type="number" min="0" class="form-control form-control-sm text-center swal-pnc-pulido-input fw-bold" data-criterio="${crit}" value="${val}" style="border-radius: 6px;">
+                    </div>
+                </div>
+            `;
+        });
+        htmlContent += `</div>`;
+
+        const { value: formValues } = await Swal.fire({
+            title: 'Reportar Criterios PNC Pulido',
+            html: htmlContent,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: '<i class="fas fa-save me-1"></i> Guardar PNC',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#e11d48',
+            preConfirm: () => {
+                const inputs = document.querySelectorAll('.swal-pnc-pulido-input');
+                const resultados = {};
+                inputs.forEach(input => {
+                    const crit = input.getAttribute('data-criterio');
+                    const qty = parseInt(input.value) || 0;
+                    if (qty > 0) {
+                        resultados[crit] = qty;
+                    }
+                });
+                return resultados;
+            }
+        });
+
+        if (formValues) {
+            item.defectos_pnc_pulido = formValues; // Guardar mapa para reapertura
+            
+            // Construir el array detailed para enviar al backend
+            item.pnc_pulido_list = Object.entries(formValues).map(([criterio, cantidad]) => ({
+                criterio,
+                cantidad
+            }));
+
+            // Calcular suma total de PNC
+            const totalPNC = Object.values(formValues).reduce((sum, val) => sum + val, 0);
+
+            // Actualizar la celda principal y recalcular buenas/bruto
+            this.editarItem(index, 'pnc_pulido', totalPNC);
+        }
+    },
+
     limpiarFormularioProducto: function () {
         document.getElementById('codigo-producto-inyeccion').value = '';
         document.getElementById('cavidades-inyeccion').value = 1;
@@ -918,12 +999,15 @@ const ModuloInyeccion = {
 
         let totalBuenas = 0;
         let totalPNC = 0;
+        let totalPNCPulido = 0;
         let totalBruto = 0;
         let totalPeso = 0;
 
-        tbody.innerHTML = this.items.map((item, index) => {
+        try {
+            tbody.innerHTML = this.items.map((item, index) => {
             totalBuenas += item.piezasBuenas;
             totalPNC += item.pnc;
+            totalPNCPulido += (item.pnc_pulido || 0);
             totalBruto += item.cantidad_real;
             totalPeso += (parseFloat(item.peso_bujes) || 0);
 
@@ -940,19 +1024,23 @@ const ModuloInyeccion = {
                     <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">Cant. Real</small>
                         <input type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 85px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
-                        ${ModuloInyeccion.esValidacionMode ? `
-                        <div class="mt-1 w-100" style="font-size: 0.7rem; display:flex; flex-direction:column; gap:2px;">
-                            <span class="badge bg-warning text-dark w-100 text-truncate" title="Revueltos (Pulido)">Rev: ${item.revueltos || 0}</span>
-                            <span class="badge bg-info text-dark w-100 text-truncate" title="WIP (Por Pulir)">WIP: ${item.wip || 0}</span>
-                        </div>` : ''}
                     </div>
                 </td>
                 <td class="text-center align-middle">
                     <div class="d-flex flex-column align-items-center">
-                        <small class="text-muted" style="font-size: 0.65rem;">PNC</small>
+                        <small class="text-muted" style="font-size: 0.65rem;">PNC Iny</small>
                         <div class="d-flex justify-content-center align-items-center gap-1">
                             <input type="number" min="0" class="form-control form-control-sm text-center" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.pnc}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc', this.value)">
                             <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
+                        </div>
+                    </div>
+                </td>
+                <td class="text-center align-middle">
+                    <div class="d-flex flex-column align-items-center">
+                        <small class="text-muted" style="font-size: 0.65rem;">PNC Pul</small>
+                        <div class="d-flex justify-content-center align-items-center gap-1">
+                            <input type="number" min="0" class="form-control form-control-sm text-center border-warning" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important;" value="${item.pnc_pulido || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc_pulido', this.value)">
+                            <button type="button" class="btn btn-sm btn-outline-warning px-2 py-1" onclick="ModuloInyeccion.editarPNCPulidoLista(${index})"><i class="fas fa-list-ul"></i></button>
                         </div>
                     </div>
                 </td>
@@ -963,7 +1051,7 @@ const ModuloInyeccion = {
                     </div>
                 </td>
                 <td class="text-center align-middle">
-                    <span class="badge bg-secondary fs-6">${item.cantidad_real.toLocaleString()}</span>
+                    <span class="badge bg-secondary fs-6">${(item.cantidad_real || 0).toLocaleString()}</span>
                 </td>
                 <td class="text-center align-middle">
                     <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="ModuloInyeccion.removerItem(${index})" title="Eliminar">
@@ -978,12 +1066,19 @@ const ModuloInyeccion = {
             tfoot.style.display = 'table-footer-group';
             document.getElementById('inyeccion-total-buenas').textContent = totalBuenas.toLocaleString();
             document.getElementById('inyeccion-total-pnc').textContent = totalPNC.toLocaleString();
+            if (document.getElementById('inyeccion-total-pnc-pulido')) {
+                document.getElementById('inyeccion-total-pnc-pulido').textContent = totalPNCPulido.toLocaleString();
+            }
             
             const pesoFooter = document.getElementById('inyeccion-total-peso');
             if (pesoFooter) pesoFooter.textContent = totalPeso.toFixed(2);
 
             const brutoFooter = document.getElementById('inyeccion-total-bruto');
             if (brutoFooter) brutoFooter.textContent = totalBruto.toLocaleString();
+        }
+        } catch (error) {
+            console.error("Error en renderTablaItems:", error);
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-3">Error al renderizar los datos. Verifica la consola.</td></tr>`;
         }
     },
 
@@ -1243,6 +1338,16 @@ const ModuloInyeccion = {
                             codigo: item.codigo_producto,
                             criterio: p.criterio,
                             cantidad: p.cantidad
+                        });
+                    });
+                }
+                if (item.pnc_pulido_list && item.pnc_pulido_list.length > 0) {
+                    item.pnc_pulido_list.forEach(p => {
+                        pncListConsolidada.push({
+                            codigo: item.codigo_producto,
+                            criterio: p.criterio,
+                            cantidad: p.cantidad,
+                            es_pulido: true
                         });
                     });
                 }

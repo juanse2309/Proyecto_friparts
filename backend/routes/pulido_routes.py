@@ -28,7 +28,8 @@ def registrar_pulido():
         registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first() if id_pulido else None
 
         # Guard de ownership: evita que un operario sobrescriba el registro de otro
-        incoming_responsable = (data.get('responsable') or '').strip()
+        from backend.utils.formatters import resolver_operario
+        incoming_responsable = resolver_operario(data.get('responsable'))
         if registro and registro.responsable and incoming_responsable:
             if str(registro.responsable).strip().upper() != incoming_responsable.upper():
                 return jsonify({
@@ -51,7 +52,7 @@ def registrar_pulido():
         registro.fecha = datetime.strptime(data.get('fecha_inicio', ahora.strftime('%Y-%m-%d')), '%Y-%m-%d').date()
         # ── Blindaje Dual: preservar prefijo MT-/CAR- o agregar FR- por defecto ──
         registro.codigo = preservar_o_normalizar_prefijo(data.get('codigo_producto'))
-        registro.responsable = data.get('responsable')
+        registro.responsable = incoming_responsable
         registro.cantidad_real = float(data.get('cantidad_real') or 0)
         registro.pnc_inyeccion = int(data.get('pnc_inyeccion') or 0)
         registro.pnc_pulido = int(data.get('pnc_pulido') or 0)
@@ -295,13 +296,18 @@ def registrar_pulido():
             wip = cant_inyectada - (buenas + pnc_total + rev_total)
             
             if wip > 0:
-                # ── WIP: buscar en db_productos respetando prefijo ──
-                prod_wip = db.session.query(Producto).filter_by(
-                    codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
-                ).first()
-                if prod_wip:
-                    prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
-                    logger.info(f" [WIP] Agregando {wip} piezas a por_pulir del producto {registro.codigo}")
+                es_prueba_wip = '9999' in str(registro.orden_produccion).upper() or 'PRUEBA' in str(registro.orden_produccion).upper() or '9999' in str(registro.id_pulido).upper() or 'PRUEBA' in str(registro.id_pulido).upper() or '9999' in str(lote_traz.id_lote).upper() or 'PRUEBA' in str(lote_traz.id_lote).upper()
+                
+                if not es_prueba_wip:
+                    # ── WIP: buscar en db_productos respetando prefijo ──
+                    prod_wip = db.session.query(Producto).filter_by(
+                        codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
+                    ).first()
+                    if prod_wip:
+                        prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
+                        logger.info(f" [WIP] Agregando {wip} piezas a por_pulir del producto {registro.codigo}")
+                else:
+                    logger.info(f"🧪 [SANDBOX] Lote de prueba {registro.id_pulido}. Se ignoró suma de {wip} al WIP (por_pulir).")
 
         db.session.commit()
         return jsonify({
@@ -321,6 +327,25 @@ def registrar_pulido():
             "error": str(e),
             "detail": "Error interno al procesar el reporte de pulido (Revisa logs del servidor)"
         }), 500
+
+@pulido_bp.route('/api/debug/forzar_a_pulido/<id_lote>', methods=['GET', 'POST'])
+def debug_forzar_pulido(id_lote):
+    try:
+        from backend.models.sql_models import TrazabilidadLote
+        lote = TrazabilidadLote.query.filter_by(id_lote=id_lote).first()
+        if not lote:
+            return jsonify({"success": False, "error": f"Lote {id_lote} no encontrado"}), 404
+        
+        lote.estado_actual = 'ABIERTO_PULIDO'
+        if not lote.por_pulir or lote.por_pulir <= 0:
+            lote.por_pulir = 100
+        
+        db.session.commit()
+        logger.info(f"🛠️ [DEBUG] Lote {id_lote} forzado a ABIERTO_PULIDO con por_pulir={lote.por_pulir}")
+        return jsonify({"success": True, "message": f"Lote {id_lote} forzado a ABIERTO_PULIDO"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @pulido_bp.route('/api/pulido/session_active', methods=['GET'])
 def get_active_pulido_session():
@@ -814,8 +839,26 @@ def get_lotes_activos():
     Pulido lo consulta al entrar al Modo Lotes en Vivo para mostrar la lista táctil.
     """
     try:
+        # from sqlalchemy import or_
+        # lotes = db.session.query(TrazabilidadLote).filter(
+        #     or_(
+        #         # Flujo normal
+        #         db.and_(
+        #             TrazabilidadLote.estado_actual.in_(['ABIERTO_PRODUCCION', 'ABIERTO_PULIDO']),
+        #             TrazabilidadLote.por_pulir > 0
+        #         ),
+        #         # Forzar visibilidad para lotes de prueba
+        #         TrazabilidadLote.id_lote.ilike('%PRUEBA%'),
+        #         TrazabilidadLote.id_lote.ilike('%9999%'),
+        #         TrazabilidadLote.orden_produccion.ilike('%PRUEBA%'),
+        #         TrazabilidadLote.orden_produccion.ilike('%9999%')
+        #     )
+        # ).order_by(TrazabilidadLote.fecha_creacion.desc()).all()
+
+        # Flujo estricto de producción
         lotes = db.session.query(TrazabilidadLote).filter(
-            TrazabilidadLote.estado_actual == 'ABIERTO_PRODUCCION'
+            TrazabilidadLote.estado_actual == 'ABIERTO_PRODUCCION',
+            TrazabilidadLote.por_pulir > 0
         ).order_by(TrazabilidadLote.fecha_creacion.desc()).all()
 
         resultado = [{
@@ -826,7 +869,8 @@ def get_lotes_activos():
             'responsable'      : l.responsable or '',
             'fecha_creacion'   : l.fecha_creacion.strftime('%d/%m/%Y %H:%M') if l.fecha_creacion else '',
             'estado_actual'    : l.estado_actual,
-            'cantidad_inyectada': l.cantidad_inyectada or 0
+            'cantidad_inyectada': l.cantidad_inyectada or 0,
+            'por_pulir'        : l.por_pulir or 0
         } for l in lotes]
 
         return jsonify({'success': True, 'lotes': resultado}), 200
@@ -834,6 +878,91 @@ def get_lotes_activos():
     except Exception as e:
         logger.error(f'❌ [Lotes Activos] Error: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pulido_bp.route('/api/pulido/liquidar_lote', methods=['POST'])
+def liquidar_lote():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No data provided"}), 400
+
+        id_lote = data.get('id_lote')
+        from backend.utils.formatters import resolver_operario
+        responsable = resolver_operario(data.get('responsable')) or 'Supervisor'
+
+        if not id_lote:
+            return jsonify({"success": False, "error": "Falta id_lote"}), 400
+
+        lote_traz = db.session.get(TrazabilidadLote, id_lote)
+        if not lote_traz:
+            return jsonify({"success": False, "error": f"Lote {id_lote} no encontrado"}), 404
+
+        restante = lote_traz.por_pulir or 0
+        if restante <= 0:
+            lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
+            db.session.commit()
+            return jsonify({"success": True, "message": "El lote ya estaba en 0 y fue enviado a validación"}), 200
+
+        # Force por_pulir to 0 and change state
+        lote_traz.por_pulir = 0
+        lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
+
+        # Record difference as scrap in db_pulido (ProduccionPulido) and db_pnc_pulido (PncPulido)
+        import uuid
+        from datetime import datetime
+        import pytz
+        colombia_tz = pytz.timezone('America/Bogota')
+        ahora = datetime.now(colombia_tz).replace(tzinfo=None)
+
+        id_pulido = f"LIQ-{lote_traz.id_lote}"
+        
+        # Check if liquidation record already exists to avoid PK/unique issues if clicked twice
+        existing_pulido = db.session.query(ProduccionPulido).filter_by(id_pulido=id_pulido).first()
+        if not existing_pulido:
+            # Create a ProduccionPulido record for the scrap
+            nuevo_pulido = ProduccionPulido(
+                id_pulido=id_pulido,
+                fecha=ahora,
+                codigo=lote_traz.id_codigo,
+                responsable=responsable,
+                cantidad_real=0,
+                pnc_inyeccion=0,
+                pnc_pulido=restante,
+                hora_inicio=ahora,
+                hora_fin=ahora,
+                estado='FINALIZADO',
+                tiempo_total_minutos=0.0,
+                duracion_segundos=0,
+                segundos_por_unidad=0.0,
+                orden_produccion=lote_traz.orden_produccion,
+                observaciones='LIQUIDACION FORZADA DE LOTE',
+                criterio_pnc_pulido='LIQUIDACION FORZADA',
+                lote=lote_traz.id_lote,
+                cantidad_recibida=0,
+                almacen_destino='P. TERMINADO'
+            )
+            db.session.add(nuevo_pulido)
+
+            # Create PncPulido record
+            nuevo_pnc = PncPulido(
+                id_pnc_pulido=uuid.uuid4().hex[:8],
+                id_pulido=id_pulido,
+                codigo=lote_traz.id_codigo,
+                cantidad=restante,
+                criterio='LIQUIDACION FORZADA - MERMA/AJUSTE',
+                codigo_ensamble='AUDITORIA PULIDO'
+            )
+            db.session.add(nuevo_pnc)
+
+        db.session.commit()
+        logger.info(f"⚡ [Liquidar Lote] Lote {id_lote} liquidado por {responsable}. Merma: {restante} unidades.")
+        return jsonify({"success": True, "message": f"Lote {id_lote} liquidado correctamente. Merma: {restante} unidades."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error liquidando lote: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @pulido_bp.route('/reporte_masivo', methods=['POST'])
@@ -846,10 +975,11 @@ def reporte_masivo():
 
         hora_inicio_str = data.get('hora_inicio')
         hora_fin_str = data.get('hora_fin')
-        responsable = data.get('responsable')
+        from backend.utils.formatters import resolver_operario
+        responsable = resolver_operario(data.get('responsable'))
         items = data.get('items', [])
 
-        if not responsable:
+        if not responsable or responsable == 'SISTEMA':
             return jsonify({"success": False, "error": "Falta el responsable"}), 400
 
         if not items:
@@ -865,11 +995,10 @@ def reporte_masivo():
                 raise ValueError("Se requiere la referencia en todos los registros del lote")
 
             buenos = float(item.get('buenos') or 0)
-            malos = float(item.get('malos') or 0)
             rev_total = sum(float(r.get('cantidad', 0)) for r in item.get('revueltos', []))
             
             # Filtro de Seguridad Backend (Anti-Basura)
-            if (buenos + malos + rev_total) <= 0:
+            if (buenos + rev_total) <= 0:
                 logger.info(f"Omitiendo registro de {referencia_raw} porque la cantidad total es cero.")
                 continue
 
@@ -887,13 +1016,13 @@ def reporte_masivo():
                 codigo=referencia,
                 responsable=responsable,
                 cantidad_real=int(buenos),
-                pnc_pulido=int(malos),
+                pnc_pulido=0,
                 pnc_inyeccion=0,
                 orden_produccion=op,
                 lote=lote,
                 estado='FINALIZADO',
                 departamento='PULIDO',
-                cantidad_recibida=buenos + malos,
+                cantidad_recibida=buenos,
                 almacen_destino='P. TERMINADO',
                 observaciones='Reporte Masivo por Voz Fin de Turno'
             )
@@ -955,55 +1084,21 @@ def reporte_masivo():
                 lote_traz = db.session.get(TrazabilidadLote, id_lote_ref)
                 if lote_traz:
                     # ---------------------------------------------------------
-                    # Cierre de Lote con Saldo a WIP "Por Pulir" (MODO MASIVO)
+                    # Descuento en Lote Continuo (TrazabilidadLote.por_pulir)
                     # ---------------------------------------------------------
                     revueltos_items = item.get('revueltos', [])
-                    cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
                     rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_items)
+                    procesado_lote = buenos + rev_total
                     
-                    wip = cant_inyectada - (buenos + malos + rev_total)
+                    lote_traz.por_pulir = max(0, (lote_traz.por_pulir or 0) - int(procesado_lote))
                     
-                    if wip > 0:
-                        prod = db.session.query(Producto).filter_by(
-                            codigo_sistema=preservar_o_normalizar_prefijo(referencia)
-                        ).first()
-                        if prod:
-                            prod.por_pulir = (prod.por_pulir or 0) + int(wip)
-                            logger.info(f"✅ [WIP Masivo] {int(wip)} piezas enviadas a por_pulir para {referencia}")
-
-                    # Solo avanzar si no está ya cerrado (idempotente)
-                    if lote_traz.estado_actual == 'ABIERTO_PRODUCCION':
+                    if lote_traz.por_pulir <= 0:
                         lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
-                        logger.info(f'🟡 [Trazabilidad] Lote {id_lote_ref} → PENDIENTE_VALIDACION por operaria {responsable}')
+                        logger.info(f'🟡 [Trazabilidad] Lote {id_lote_ref} completó por_pulir -> PENDIENTE_VALIDACION por operaria {responsable}')
                     else:
-                        logger.info(f'ℹ️ [Trazabilidad] Lote {id_lote_ref} ya en estado: {lote_traz.estado_actual} (sin cambio)')
+                        logger.info(f'🔄 [Trazabilidad] Lote {id_lote_ref} registrado. Quedan {lote_traz.por_pulir} por pulir.')
                 else:
                     logger.warning(f'⚠️ [Trazabilidad] id_lote {id_lote_ref} no encontrado en db_trazabilidad_lotes')
-
-            # 3. Registrar PNC detallado o resumido
-            pnc_items = item.get('pnc_detail', [])
-            if pnc_items:
-                for p_item in pnc_items:
-                    criterio_desc = p_item.get('criterio') or 'PNC Pulido - Desconocido'
-                    cantidad_pnc = float(p_item.get('cantidad') or 0)
-                    if cantidad_pnc > 0:
-                        db.session.add(PncPulido(
-                            id_pnc_pulido=uuid.uuid4().hex[:8],
-                            id_pulido=id_pulido,
-                            codigo=referencia,
-                            cantidad=int(cantidad_pnc),
-                            criterio=criterio_desc,
-                            codigo_ensamble='AUDITORIA PULIDO'
-                        ))
-            elif malos > 0:
-                db.session.add(PncPulido(
-                    id_pnc_pulido=uuid.uuid4().hex[:8],
-                    id_pulido=id_pulido,
-                    codigo=referencia,
-                    cantidad=int(malos),
-                    criterio='PNC Pulido - Reporte Masivo por Voz',
-                    codigo_ensamble='AUDITORIA PULIDO'
-                ))
 
             # 4. Registrar Revueltos Masivos
             revueltos_items = item.get('revueltos', [])

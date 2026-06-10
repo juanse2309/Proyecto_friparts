@@ -1260,7 +1260,8 @@ def mes_iniciar():
         from backend.models.sql_models import ProduccionInyeccion, ProgramacionInyeccion
         data = request.json
         id_prog_trigger = data.get('id_programacion')
-        operario = session.get('user', 'SISTEMA')
+        from backend.utils.formatters import resolver_operario
+        operario = resolver_operario(data.get('responsable') or data.get('operario'))
 
         prog_trigger = db.session.get(ProgramacionInyeccion, id_prog_trigger)
         if not prog_trigger:
@@ -3540,10 +3541,13 @@ def handle_mezcla():
             logger.error(f" Error Parseando datos de mezcla: {e}")
             return jsonify({'success': False, 'error': 'Formato de datos numéricos o fecha inválido'}), 400
 
+        from backend.utils.formatters import resolver_operario
+        responsable = resolver_operario(data.get('responsable'))
+
         nueva_mezcla = Mezcla(
             fecha=fecha_dt,
             hora=hora_str,
-            responsable=data.get('responsable', 'SISTEMA'),
+            responsable=responsable,
             maquina=data.get('maquina', 'PROCESO GRAL'),
             virgen_kg=virgen,
             molido_kg=molido,
@@ -3574,8 +3578,8 @@ def registrar_molido():
         # Captura de datos
         peso = round(float(data.get('peso', 0) or 0), 2)
         tipo = data.get('tipo', 'Recuperado')
-        # Si no hay responsable en data, intentar obtener de sesión
-        responsable = data.get('responsable') or session.get('user_name', 'SISTEMA')
+        from backend.utils.formatters import resolver_operario
+        responsable = resolver_operario(data.get('responsable'))
         obs = data.get('observaciones', '')
         
         ahora = get_now_colombia()

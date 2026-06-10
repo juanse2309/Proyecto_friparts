@@ -2075,7 +2075,7 @@ if (!window.initPedidos) {
             btnHistorial.innerHTML = '<i class="fas fa-history me-1"></i> Ver Historial Enviados';
 
             // 3. CONTROL DEL BOTÓN "Ver Historial Enviados":
-            btnHistorial.addEventListener('click', () => {
+            btnHistorial.addEventListener('click', async () => {
                 const container = document.getElementById('almacen-container');
 
                 if (ModuloPedidos.vistaActual === 'activos') {
@@ -2085,98 +2085,133 @@ if (!window.initPedidos) {
                     btnHistorial.innerHTML = '<i class="fas fa-box-open me-1"></i> Ver Pedidos Activos';
                     
                     if (container) {
-                        // 4. EVITAR ERROR 500 (Filtrar desde la caché local con espectro ancho):
-                        const pedidosCargados = (window.AlmacenModule && window.AlmacenModule.pedidosPendientes) || ModuloPedidos.pedidosMetalsCache || [];
-
-                        const enviados = pedidosCargados.filter(p => {
-                            const estadoNormalizado = (p.estado || '').toUpperCase();
-                            const estadoInternoNormalizado = (p.estado_interno || '').toUpperCase();
-                            const progreso = String(p.progreso_despacho || '').trim();
-
-                            return estadoNormalizado === 'DESPACHADO' || 
-                                   estadoNormalizado === 'ENTREGADO' || 
-                                   estadoInternoNormalizado === 'DESPACHADO_BODEGA' || 
-                                   estadoInternoNormalizado === 'DESPACHADO' || 
-                                   progreso === '100%' || 
-                                   progreso === '100';
-                        });
-                        
-                        if (enviados.length === 0) {
-                            container.innerHTML = `
-                                <div class="text-center py-5 text-muted empty-state-almacen">
-                                    <i class="fas fa-truck-loading fa-3x mb-3" style="opacity: 0.2; color: #10b981;"></i>
-                                    <p class="fs-5">Aún no hay despachos registrados</p>
-                                </div>
-                            `;
-                            return;
-                        }
-
-                        // Renderizar Tabla Moderna
-                        let tablaHtml = `
-                            <div class="table-responsive bg-white rounded-4 shadow-sm border p-3 mt-3">
-                                <table class="table table-hover align-middle mb-0">
-                                    <thead>
-                                        <tr style="background-color: #212529 !important;">
-                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;">Pedido</th>
-                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;">Cliente</th>
-                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;"><i class="fas fa-calendar-alt me-1"></i> F. Ingreso</th>
-                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;"><i class="fas fa-shipping-fast me-1"></i> F. Despacho</th>
-                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;" class="text-center"><i class="fas fa-hourglass-half me-1"></i> Días en Proceso</th>
-                                            <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                        `;
-
-                        enviados.forEach(p => {
-                            // Cálculo del Lead Time (Días en Proceso)
-                            const fIngresoDate = new Date(p.fecha_creacion || p.fecha || new Date());
-                            const fDespachoDate = new Date(p.fecha_despacho || p.fecha_modificacion || new Date());
-                            const diferenciaTiempo = Math.abs(fDespachoDate - fIngresoDate);
-                            const diasProceso = Math.ceil(diferenciaTiempo / (1000 * 60 * 60 * 24)) - 1;
-                            const diasTexto = diasProceso <= 0 ? "Mismo día" : `${diasProceso} ${diasProceso === 1 ? 'día' : 'días'}`;
-                            
-                            // Determinación de colores del badge según demora
-                            let badgeClass = 'bg-light text-success border border-success border-opacity-25';
-                            if (diasProceso >= 5) {
-                                badgeClass = 'bg-warning text-dark border border-warning';
-                            } else if (diasProceso >= 3) {
-                                badgeClass = 'bg-light text-secondary border border-secondary';
-                            }
-
-                            // Formateo seguro de fechas para mostrar (evitando NaN si la fecha es inválida)
-                            const formatFecha = (d) => !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : 'N/A';
-                            const fechaIngresoStr = formatFecha(fIngresoDate);
-                            const fechaDespachoStr = p.fecha_despacho || p.fecha_modificacion ? formatFecha(fDespachoDate) : formatFecha(fIngresoDate);
-
-                            tablaHtml += `
-                                <tr>
-                                    <td class="fw-bold text-primary">${p.id_pedido}</td>
-                                    <td>
-                                        <div class="fw-bold" style="color: #1e293b;">${p.cliente}</div>
-                                    </td>
-                                    <td class="text-muted"><i class="far fa-calendar-plus me-1"></i>${fechaIngresoStr}</td>
-                                    <td class="text-muted"><i class="fas fa-truck-loading me-1"></i>${fechaDespachoStr}</td>
-                                    <td class="text-center">
-                                        <span class="badge ${badgeClass} shadow-sm" style="padding: 6px 10px; border-radius: 20px;">
-                                            <i class="far fa-clock me-1"></i>${diasTexto}
-                                        </span>
-                                    </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold" onclick="ModuloPedidos.verDetalleMetals('${p.id_pedido}', ${JSON.stringify(p.productos || []).replace(/"/g, '&quot;')})">
-                                            <i class="fas fa-search me-1"></i> Auditar
-                                        </button>
-                                    </td>
-                                </tr>
-                            `;
-                        });
-
-                        tablaHtml += `
-                                    </tbody>
-                                </table>
+                        container.innerHTML = `
+                            <div class="text-center py-5 text-muted">
+                                <i class="fas fa-spinner fa-spin fa-3x mb-3 text-primary"></i>
+                                <p class="fs-5">Cargando historial de pedidos despachados...</p>
                             </div>
                         `;
-                        container.innerHTML = tablaHtml;
+
+                        try {
+                            const division = (window.AppState && window.AppState.user && window.AppState.user.division) || 'friparts';
+                            const res = await fetch(`/api/pedidos/listar?division=${encodeURIComponent(division)}`);
+                            const data = await res.json();
+                            
+                            if (!data.success) {
+                                throw new Error(data.error || 'Error al obtener historial');
+                            }
+
+                            const pedidosCargados = data.pedidos || [];
+
+                            const enviados = pedidosCargados.filter(p => {
+                                const estadoNormalizado = (p.estado || '').toUpperCase();
+                                const progreso = String(p.progreso_despacho || '').trim();
+
+                                return estadoNormalizado === 'DESPACHADO' || 
+                                       estadoNormalizado === 'ENTREGADO' || 
+                                       estadoNormalizado === 'DESPACHADO PARCIAL' ||
+                                       progreso === '100%' || 
+                                       progreso === '100';
+                            });
+
+                            if (enviados.length === 0) {
+                                container.innerHTML = `
+                                    <div class="text-center py-5 text-muted empty-state-almacen">
+                                        <i class="fas fa-truck-loading fa-3x mb-3" style="opacity: 0.2; color: #10b981;"></i>
+                                        <p class="fs-5">Aún no hay despachos registrados</p>
+                                    </div>
+                                `;
+                                return;
+                            }
+
+                            // Renderizar Tabla Moderna
+                            let tablaHtml = `
+                                <div class="table-responsive bg-white rounded-4 shadow-sm border p-3 mt-3">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead>
+                                            <tr style="background-color: #212529 !important;">
+                                                <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;">Pedido</th>
+                                                <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;">Cliente</th>
+                                                <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;"><i class="fas fa-calendar-alt me-1"></i> F. Ingreso</th>
+                                                <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;"><i class="fas fa-shipping-fast me-1"></i> F. Despacho</th>
+                                                <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;" class="text-center"><i class="fas fa-hourglass-half me-1"></i> Días en Proceso</th>
+                                                <th style="color: #ffffff !important; background-color: #212529 !important; padding: 10px; font-size: 0.85rem; text-transform: uppercase;" class="text-center">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                            `;
+
+                            // Limpieza segura de fechas para evitar 'Invalid Date' por sufijos como 'p.m.'
+                            const cleanDateStr = (dateStr) => {
+                                if (!dateStr) return null;
+                                return typeof dateStr === 'string' ? dateStr.split(' ')[0] : dateStr;
+                            };
+
+                            enviados.forEach(p => {
+                                const rawIngreso = p.fecha_creacion || p.fecha || null;
+                                const fIngresoDate = rawIngreso ? new Date(cleanDateStr(rawIngreso)) : null;
+                                
+                                const rawDespacho = p.fecha_despacho || p.fecha_modificacion || null;
+                                const fDespachoDate = rawDespacho ? new Date(cleanDateStr(rawDespacho)) : null;
+                                
+                                let diasProceso = 0;
+                                let diasTexto = "N/A";
+                                let badgeClass = 'bg-light text-secondary border border-secondary';
+
+                                if (fIngresoDate && fDespachoDate && !isNaN(fIngresoDate.getTime()) && !isNaN(fDespachoDate.getTime())) {
+                                    const diferenciaTiempo = Math.abs(fDespachoDate - fIngresoDate);
+                                    diasProceso = Math.ceil(diferenciaTiempo / (1000 * 60 * 60 * 24)) - 1;
+                                    diasTexto = diasProceso <= 0 ? "Mismo día" : `${diasProceso} ${diasProceso === 1 ? 'día' : 'días'}`;
+                                    
+                                    badgeClass = 'bg-light text-success border border-success border-opacity-25';
+                                    if (diasProceso >= 5) {
+                                        badgeClass = 'bg-warning text-dark border border-warning';
+                                    } else if (diasProceso >= 3) {
+                                        badgeClass = 'bg-light text-secondary border border-secondary';
+                                    }
+                                }
+
+                                const formatFecha = (d) => d && !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : 'N/A';
+                                const fechaIngresoStr = typeof rawIngreso === 'string' ? rawIngreso : (rawIngreso ? formatFecha(fIngresoDate) : 'N/A');
+                                const fechaDespachoStr = typeof rawDespacho === 'string' ? rawDespacho : (rawDespacho ? formatFecha(fDespachoDate) : 'N/A');
+
+                                tablaHtml += `
+                                    <tr>
+                                        <td class="fw-bold text-primary">${p.id_pedido}</td>
+                                        <td>
+                                            <div class="fw-bold" style="color: #1e293b;">${p.cliente}</div>
+                                        </td>
+                                        <td class="text-muted" style="white-space: nowrap;"><i class="far fa-calendar-plus me-1"></i>${fechaIngresoStr}</td>
+                                        <td class="text-muted" style="white-space: nowrap;"><i class="fas fa-truck-loading me-1"></i>${fechaDespachoStr}</td>
+                                        <td class="text-center">
+                                            <span class="badge ${badgeClass} shadow-sm" style="padding: 6px 10px; border-radius: 20px;">
+                                                <i class="far fa-clock me-1"></i>${diasTexto}
+                                            </span>
+                                        </td>
+                                        <td class="text-end">
+                                            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold" onclick="ModuloPedidos.verDetalleMetals('${p.id_pedido}', ${JSON.stringify(p.productos || []).replace(/"/g, '&quot;')})">
+                                                <i class="fas fa-search me-1"></i> Auditar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `;
+                            });
+
+                            tablaHtml += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            `;
+                            container.innerHTML = tablaHtml;
+
+                        } catch (error) {
+                            console.error('❌ Error al cargar historial:', error);
+                            container.innerHTML = `
+                                <div class="alert alert-danger mt-3">
+                                    <i class="fas fa-exclamation-triangle me-2"></i> Error al cargar el historial: ${error.message}
+                                </div>
+                            `;
+                        }
                     }
                 } else {
                     // Pasar a Activos

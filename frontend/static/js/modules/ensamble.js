@@ -6,10 +6,10 @@
 const ModuloEnsamble = {
     productosData: [],
     responsablesData: [],
-    currentTab: 'programacion', 
+    currentTab: 'programacion',
     isManualMode: false,
     pncDetalles: [],
-    
+
     // Estado de Sesión Persistente
     sessionId: null,
     sesionActiva: false,
@@ -20,34 +20,34 @@ const ModuloEnsamble = {
 
     inicializar: async function () {
         console.log('🔧 [Ensamble] Inicializando módulo con Captura Infalible...');
-        
+
         // Capturar usuario actual para validaciones de voz
         this.usuarioActual = document.getElementById('current_user_fullname')?.value || '';
         this.intentarAutoSeleccionarResponsable(); // Sincronizar UI inmediatamente
-        
+
         this.configurarTabs();
         await this.cargarDatos();
         this.configurarEventos();
-        
+
         // Autocompletes
         this.initAutocomplete('prog-producto', 'prog-producto-suggestions', true);
         this.initAutocomplete('reporte-producto-manual', 'reporte-producto-manual-suggestions', true);
 
         this.listarProgramacion();
         this.listarTareasPendientes();
-        
+
         // Inicializar fecha hoy
         const hoy = new Date().toISOString().split('T')[0];
         if (document.getElementById('reporte-fecha')) document.getElementById('reporte-fecha').value = hoy;
         if (document.getElementById('prog-fecha')) document.getElementById('prog-fecha').value = hoy;
 
         this.intentarAutoSeleccionarResponsable();
-        
+
         // --- VERIFICACIÓN DE SESIÓN ACTIVA (Evita Duplicados) ---
         await this.verificarSesionActiva();
     },
 
-    verificarSesionActiva: async function() {
+    verificarSesionActiva: async function () {
         const responsable = document.getElementById('current_user_fullname')?.value || document.getElementById('responsable')?.value;
         if (!responsable) return;
 
@@ -76,19 +76,19 @@ const ModuloEnsamble = {
                 if (opInput) opInput.value = data.session.orden_produccion || '';
                 const cantInput = document.getElementById('reporte-cantidad');
                 if (cantInput) cantInput.value = data.session.cantidad;
-                
+
                 const bujeOrigen = document.getElementById('reporte-buje-origen');
                 if (bujeOrigen) bujeOrigen.value = data.session.id_codigo;
 
                 // --- REHIDRATACIÓN BOM ---
                 this.renderBOMCheckboxes(data.session.id_codigo, 'reporte-bom-check-container');
-                
+
                 document.getElementById('form-reporte-ensamble-container').style.display = 'block';
                 this.bloquearFormulario(true);
-                
+
                 // FORZAR UI DE BOTONES
                 this.actualizarUIBotones();
-                
+
                 if (this.timerInterval) clearInterval(this.timerInterval);
                 this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
             }
@@ -97,17 +97,17 @@ const ModuloEnsamble = {
         }
     },
 
-    bloquearFormulario: function(lock) {
+    bloquearFormulario: function (lock) {
         ['reporte-producto-manual', 'reporte-op', 'reporte-fecha', 'reporte-almacen-origen', 'reporte-almacen-destino'].forEach(id => {
             const el = document.getElementById(id);
-            if(el) el.disabled = lock;
+            if (el) el.disabled = lock;
         });
     },
 
-    actualizarUIBotones: function() {
+    actualizarUIBotones: function () {
         const btnFinalizar = document.getElementById('btn-reportar-avance'); // Alineado con HTML
         const container = document.getElementById('form-reporte-ensamble');
-        
+
         console.log(`[Ensamble] Actualizando UI: Activa=${this.sesionActiva}, Pausa=${this.enPausa}`);
 
         if (this.sesionActiva) {
@@ -143,7 +143,7 @@ const ModuloEnsamble = {
         }
     },
 
-    actualizarTimer: function() {
+    actualizarTimer: function () {
         if (this.enPausa || !this.startTime) return;
         const now = new Date();
         const diff = now - this.startTime - this.totalPausaMs;
@@ -154,7 +154,7 @@ const ModuloEnsamble = {
         if (display) display.innerText = `${h}:${m}:${s}`;
     },
 
-    configurarTabs: function() {
+    configurarTabs: function () {
         document.querySelectorAll('#ensamble-tabs .nav-link').forEach(tab => {
             tab.addEventListener('click', (e) => {
                 this.switchTab(e.target.closest('.nav-link').dataset.tab);
@@ -162,14 +162,14 @@ const ModuloEnsamble = {
         });
     },
 
-    switchTab: function(tabName) {
+    switchTab: function (tabName) {
         this.currentTab = tabName;
         document.querySelectorAll('.ensamble-tab-content').forEach(el => el.style.display = 'none');
         document.getElementById(`ens-tab-${tabName}`).style.display = 'block';
-        
+
         document.querySelectorAll('#ensamble-tabs .nav-link').forEach(el => el.classList.remove('active'));
         document.querySelector(`#ensamble-tabs .nav-link[data-tab="${tabName}"]`).classList.add('active');
-        
+
         if (tabName === 'reporte') {
             this.listarTareasPendientes();
             if (!this.sesionActiva) this.resetFormulario(true);
@@ -180,7 +180,7 @@ const ModuloEnsamble = {
     cargarDatos: async function () {
         try {
             mostrarLoading(true);
-            
+
             // 1. Cargar Productos
             if (window.AppState?.sharedData?.productos?.length > 0) {
                 this.productosData = window.AppState.sharedData.productos;
@@ -201,10 +201,10 @@ const ModuloEnsamble = {
         }
     },
 
-    renderResponsablesDatalist: function() {
+    renderResponsablesDatalist: function () {
         const datalist = document.getElementById('responsables-list');
         if (!datalist) return;
-        
+
         datalist.innerHTML = '';
         this.responsablesData.forEach(r => {
             const opt = document.createElement('option');
@@ -214,28 +214,28 @@ const ModuloEnsamble = {
         console.log(`✅ [Ensamble] Datalist poblado con ${this.responsablesData.length} responsables.`);
     },
 
-    buscarMatchResponsable: function(input) {
+    buscarMatchResponsable: function (input) {
         if (!input || input.trim().length < 3) return input;
-        
+
         const search = input.toLowerCase().trim();
-        
+
         // 1. Coincidencia exacta
         const exact = this.responsablesData.find(r => r.nombre.toLowerCase() === search);
         if (exact) return exact.nombre;
-        
+
         // 2. Coincidencia parcial (empieza por...)
         const partial = this.responsablesData.find(r => r.nombre.toLowerCase().includes(search));
         if (partial) {
             console.log(`🎯 [IA] Match inteligente: '${input}' -> '${partial.nombre}'`);
             return partial.nombre;
         }
-        
+
         return input; // Devolver original si no hay match
     },
 
-    formatearFechaParaInput: function(fechaStr) {
+    formatearFechaParaInput: function (fechaStr) {
         if (!fechaStr) return new Date().toISOString().split('T')[0];
-        
+
         // Si ya viene en formato correcto YYYY-MM-DD
         const regexISO = /^\d{4}-\d{2}-\d{2}$/;
         if (regexISO.test(fechaStr)) return fechaStr;
@@ -253,7 +253,7 @@ const ModuloEnsamble = {
         return new Date().toISOString().split('T')[0]; // Fallback a hoy
     },
 
-    initAutocomplete: function(inputId, suggestionsId, isProduct) {
+    initAutocomplete: function (inputId, suggestionsId, isProduct) {
         const input = document.getElementById(inputId);
         const suggestionsDiv = document.getElementById(suggestionsId);
         if (!input || !suggestionsDiv) return;
@@ -265,11 +265,11 @@ const ModuloEnsamble = {
                 return;
             }
 
-            const resultados = this.productosData.filter(p => 
-                (p.codigo_sistema || '').toLowerCase().includes(query) || 
+            const resultados = this.productosData.filter(p =>
+                (p.codigo_sistema || '').toLowerCase().includes(query) ||
                 (p.descripcion || '').toLowerCase().includes(query)
             ).slice(0, 15);
-            
+
             renderProductSuggestions(suggestionsDiv, resultados, (item) => {
                 input.value = item.codigo_sistema;
                 suggestionsDiv.classList.remove('active');
@@ -286,12 +286,12 @@ const ModuloEnsamble = {
     },
 
     // --- VISTA NATHALIA ---
-    consultarBOMStock: async function(idCodigo) {
+    consultarBOMStock: async function (idCodigo) {
         try {
             const res = await fetchData(`/api/ensamble/bom_stock/${idCodigo}`);
             const container = document.getElementById('prog-bom-container');
             const alertBox = document.getElementById('prog-stock-alert');
-            
+
             if (!res || !res.success) {
                 container.innerHTML = '<div class="alert alert-warning">Ficha técnica no encontrada.</div>';
                 return;
@@ -318,7 +318,7 @@ const ModuloEnsamble = {
                 const isShort = c.alcanza_para < meta && meta > 0;
                 if (isShort) stockInsuficiente = true;
                 const rowClass = isShort ? 'table-warning bg-warning bg-opacity-25' : 'table-success bg-success bg-opacity-10';
-                
+
                 html += `
                     <tr class="${rowClass}">
                         <td class="fw-bold ps-3">${c.componente}<br><small class="text-muted">${c.codigo_inventario}</small></td>
@@ -335,7 +335,7 @@ const ModuloEnsamble = {
 
             html += '</tbody></table></div>';
             container.innerHTML = html;
-            
+
             if (stockInsuficiente) {
                 alertBox.innerHTML = `
                     <div class="alert border-warning bg-warning bg-opacity-10 mt-2 py-3 rounded-4">
@@ -350,7 +350,7 @@ const ModuloEnsamble = {
     },
 
     // --- FLUJO DE REPORTE ---
-    renderBOMCheckboxes: async function(idCodigo, containerId) {
+    renderBOMCheckboxes: async function (idCodigo, containerId) {
         try {
             const res = await fetchData(`/api/ensamble/bom_stock/${idCodigo}`);
             const container = document.getElementById(containerId);
@@ -377,33 +377,33 @@ const ModuloEnsamble = {
                 `;
             });
             container.innerHTML = html;
-        } catch (e) { 
+        } catch (e) {
             console.error(e);
             this.currentBOM = [];
         }
     },
 
-    seleccionarTarea: function(tarea) {
+    seleccionarTarea: function (tarea) {
         if (this.sesionActiva) {
             Swal.fire('Sesión Activa', 'Termina el trabajo actual antes de iniciar una nueva tarea.', 'warning');
             return;
         }
         this.isManualMode = false;
         this.resetFormulario(false);
-        
+
         document.getElementById('reporte-id-prog').value = tarea.id_prog;
         document.getElementById('reporte-producto-display').textContent = tarea.id_codigo;
         document.getElementById('reporte-producto-display').style.display = 'block';
         document.getElementById('reporte-producto-manual').value = tarea.id_codigo;
         document.getElementById('reporte-buje-origen').value = tarea.id_codigo;
         document.getElementById('reporte-cantidad').value = tarea.faltante;
-        
+
         this.intentarAutoSeleccionarResponsable();
         this.renderBOMCheckboxes(tarea.id_codigo, 'reporte-bom-check-container');
-        
+
         const container = document.getElementById('form-reporte-ensamble-container');
         if (container) container.style.display = 'block';
-        
+
         let modalEl = document.getElementById('modalReporteEnsamble') || document.getElementById('modalEnsamble');
         if (modalEl) {
             let inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
@@ -413,46 +413,46 @@ const ModuloEnsamble = {
         }
     },
 
-    seleccionarProductoManual: async function(producto) {
+    seleccionarProductoManual: async function (producto) {
         if (this.sesionActiva) return;
         document.getElementById('reporte-id-prog').value = '';
         document.getElementById('reporte-producto-display').textContent = producto.codigo_sistema;
         document.getElementById('reporte-producto-display').style.display = 'block';
         document.getElementById('reporte-buje-origen').value = producto.codigo_sistema;
-        
+
         this.intentarAutoSeleccionarResponsable();
         return await this.renderBOMCheckboxes(producto.codigo_sistema, 'reporte-bom-check-container');
     },
 
-    abrirModalManual: function() {
+    abrirModalManual: function () {
         this.isManualMode = true;
-        
+
         // 1. Limpiar todos los campos (Formulario en blanco)
         this.resetFormulario(true);
-        
+
         // Limpieza extra explícita
         const idsToClear = ['reporte-id-prog', 'reporte-producto-manual', 'reporte-cantidad', 'reporte-op', 'reporte-pnc', 'reporte-observaciones'];
         idsToClear.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });
-        
+
         const prodDisplay = document.getElementById('reporte-producto-display');
         if (prodDisplay) prodDisplay.style.display = 'none';
-        
+
         const bomContainer = document.getElementById('reporte-bom-check-container');
         if (bomContainer) bomContainer.innerHTML = '<div class="col-12 text-center text-muted py-2">Escribe un código para cargar el BOM.</div>';
-        
+
         this.intentarAutoSeleccionarResponsable();
-        
+
         // 2. Forzar visualización del contenedor
         const container = document.getElementById('form-reporte-ensamble-container');
         if (container) container.style.display = 'block';
-        
+
         // 3. Forzar apertura de Bootstrap Modal explícitamente
         const modalId = document.getElementById('modalReporteEnsamble') ? 'modalReporteEnsamble' : 'modalEnsamble';
         const modalEl = document.getElementById(modalId);
-        
+
         if (modalEl) {
             try {
                 let inst = bootstrap.Modal.getInstance(modalEl);
@@ -460,7 +460,7 @@ const ModuloEnsamble = {
                     inst = new bootstrap.Modal(modalEl);
                 }
                 inst.show();
-            } catch(e) {
+            } catch (e) {
                 console.error("[Ensamble] Error forzando modal:", e);
             }
         } else {
@@ -468,12 +468,12 @@ const ModuloEnsamble = {
         }
     },
 
-    reportarAvance: async function(estado = 'EN_PROCESO') {
+    reportarAvance: async function (estado = 'EN_PROCESO') {
         const rawIdCodigo = document.getElementById('reporte-producto-manual').value;
         // Normalización: Eliminar prefijo FR-
         const idCodigo = rawIdCodigo.replace(/^FR-/i, '').trim();
         const cantidad = parseInt(document.getElementById('reporte-cantidad').value) || 0;
-        const responsable = document.getElementById('responsable').value; 
+        const responsable = document.getElementById('responsable').value;
 
         if (!idCodigo || (cantidad < 0 && estado !== 'PAUSADO') || !responsable) {
             mostrarNotificacion('Faltan datos obligatorios', 'error');
@@ -521,7 +521,7 @@ const ModuloEnsamble = {
                 const codComp = chk.value;
                 const compInfo = (this.currentBOM || []).find(c => c.codigo_inventario === codComp);
                 const ratio = compInfo ? parseFloat(compInfo.cantidad_por_unidad || 1) : 1;
-                
+
                 registrosPayload.push({
                     ...commonData,
                     id_codigo: idCodigo, // El Ancla
@@ -569,7 +569,7 @@ const ModuloEnsamble = {
             mostrarLoading(true, estado === 'FINALIZADO' ? 'Procesando multi-registro e inventario...' : 'Guardando avance...');
             const res = await fetch('/api/ensamble/reportar', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ registros: registrosPayload })
             });
             const data = await res.json();
@@ -598,7 +598,7 @@ const ModuloEnsamble = {
                         document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
                         document.body.classList.remove('modal-open');
                         document.body.style.removeProperty('padding-right');
-                    } catch(modalErr) {
+                    } catch (modalErr) {
                         console.warn('[Ensamble] Error cerrando modal:', modalErr);
                     }
 
@@ -631,7 +631,7 @@ const ModuloEnsamble = {
                     this.bloquearFormulario(true);
                     this.actualizarUIBotones();
                     if (!this.timerInterval) this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
-                    
+
                     // Recargar productos reactivamente para actualizar stock de avance parcial si aplica
                     if (window.DataReloadHelpers && window.DataReloadHelpers.recargarProductos) {
                         window.DataReloadHelpers.recargarProductos().catch(err => console.error("[Ensamble] Error actualizando stock parcial:", err));
@@ -642,14 +642,14 @@ const ModuloEnsamble = {
             } else {
                 mostrarNotificacion(data.error || 'Error en el servidor', 'error');
             }
-        } catch (e) { 
-            mostrarLoading(false); 
+        } catch (e) {
+            mostrarLoading(false);
             console.error('[Ensamble] Error en reporte:', e);
             mostrarNotificacion('Error de conexión con el servidor', 'error');
         }
     },
 
-    pausarReporte: async function() {
+    pausarReporte: async function () {
         const nuevoEstado = this.enPausa ? 'TRABAJANDO' : 'PAUSADO';
         await this.reportarAvance(nuevoEstado);
         this.enPausa = !this.enPausa;
@@ -661,7 +661,7 @@ const ModuloEnsamble = {
      * Retorna un objeto con los defectos { criterio: cantidad } o null si canceló.
      * @param {string} estado - 'PAUSADO' o 'FINALIZADO'
      */
-    _mostrarModalPncEnsamble: async function(estado) {
+    _mostrarModalPncEnsamble: async function (estado) {
         const titulo = estado === 'FINALIZADO'
             ? 'Reporte Final de PNC — Ensamble'
             : 'Reportar PNC antes de Pausar — Ensamble';
@@ -702,33 +702,33 @@ const ModuloEnsamble = {
             focusConfirm: false,
             preConfirm: () => {
                 return {
-                    "Mal Ajuste / Pieza Suelta":  parseInt(document.getElementById('pnc-ens-mal-ajuste').value) || 0,
-                    "Componente Faltante":         parseInt(document.getElementById('pnc-ens-faltante').value) || 0,
-                    "Daño en Empaque / Fisura":    parseInt(document.getElementById('pnc-ens-dano').value) || 0
+                    "Mal Ajuste / Pieza Suelta": parseInt(document.getElementById('pnc-ens-mal-ajuste').value) || 0,
+                    "Componente Faltante": parseInt(document.getElementById('pnc-ens-faltante').value) || 0,
+                    "Daño en Empaque / Fisura": parseInt(document.getElementById('pnc-ens-dano').value) || 0
                 };
             }
         });
         return formValues ?? null;
     },
 
-    resetFormulario: function(fullReset = true) {
+    resetFormulario: function (fullReset = true) {
         if (fullReset) {
             const form = document.getElementById('form-reporte-ensamble');
             if (form) form.reset();
-            
+
             const idProg = document.getElementById('reporte-id-prog');
             if (idProg) idProg.value = '';
-            
+
             const prodDisplay = document.getElementById('reporte-producto-display');
             if (prodDisplay) prodDisplay.style.display = 'none';
-            
+
             const bomContainer = document.getElementById('reporte-bom-check-container');
             if (bomContainer) bomContainer.innerHTML = '<div class="col-12 text-center text-muted py-2">Selecciona un producto.</div>';
-            
+
             this.pncDetalles = [];
             this.bloquearFormulario(false);
             this.actualizarUIBotones();
-            
+
             const hoy = new Date().toISOString().split('T')[0];
             const fechaInput = document.getElementById('reporte-fecha');
             if (fechaInput) fechaInput.value = hoy;
@@ -740,11 +740,11 @@ const ModuloEnsamble = {
         }
     },
 
-    abrirModalPNC: async function() {
+    abrirModalPNC: async function () {
         // 1. Obtener id_codigo actual
         const rawIdCodigo = document.getElementById('reporte-producto-manual').value;
         const idCodigo = rawIdCodigo ? rawIdCodigo.replace(/^FR-/i, '').trim() : null;
-        
+
         if (!idCodigo) {
             mostrarNotificacion('Seleccione un producto primero', 'warning');
             return;
@@ -752,7 +752,7 @@ const ModuloEnsamble = {
 
         mostrarLoading(true, "Consultando componentes (BOM)...");
         const bomData = await fetchData(`/api/ensamble/bom_stock/${idCodigo}`);
-        
+
         // 2. Cargar criterios dinámicos
         let opcionesHTML = '<option value="">Seleccione defecto...</option>';
         let criteriosProcesados = [];
@@ -760,11 +760,11 @@ const ModuloEnsamble = {
             const respuestaCriterios = await fetchData('/api/obtener_criterios_pnc/ensamble');
             // Normalizar la respuesta por si viene como lista de objetos o lista de strings
             criteriosProcesados = Array.isArray(respuestaCriterios) ? respuestaCriterios : (respuestaCriterios.criterios || []);
-            
+
             criteriosProcesados.forEach(crit => {
                 // Si el criterio es un objeto, extraer el nombre o valor; si es un string, usarlo directo
                 let valorCriterio = (typeof crit === 'object' && crit !== null) ? (crit.nombre || crit.criterio || crit.descripcion) : crit;
-                
+
                 if (valorCriterio) {
                     // --- FIX DE ENCODING ANTIFANTASMA ---
                     try {
@@ -789,7 +789,7 @@ const ModuloEnsamble = {
 
         // 3. Inyectar dinámicamente HTML por componente
         let htmlFilas = '<div class="table-responsive"><table class="table table-sm align-middle text-start"><thead><tr><th>Componente</th><th style="width: 100px;">Cantidad</th><th>Motivo de Rechazo</th></tr></thead><tbody>';
-        
+
         bomData.componentes.forEach(c => {
             htmlFilas += `
                 <tr>
@@ -820,11 +820,11 @@ const ModuloEnsamble = {
             preConfirm: () => {
                 const resultados = [];
                 let totalPnc = 0;
-                
+
                 bomData.componentes.forEach(c => {
                     const cantInput = document.querySelector(`.pnc-bom-cantidad[data-codigo="${c.codigo_inventario}"]`);
                     const critSelect = document.querySelector(`.pnc-bom-criterio[data-codigo="${c.codigo_inventario}"]`);
-                    
+
                     const cantidad = parseInt(cantInput.value) || 0;
                     if (cantidad > 0) {
                         const criterio = critSelect.value;
@@ -847,21 +847,21 @@ const ModuloEnsamble = {
         if (formValues) {
             // 4. Guardar arreglo de objetos
             this.pncDetalles = formValues.resultados;
-            
+
             // Actualizar el valor total en el input del layout global
             const inputPnc = document.getElementById('reporte-pnc');
             if (inputPnc) {
                 inputPnc.value = formValues.totalPnc;
                 inputPnc.dispatchEvent(new Event('change', { bubbles: true }));
             }
-            
+
             if (formValues.totalPnc > 0) {
                 mostrarNotificacion(`Se registraron ${formValues.totalPnc} PNC desglosados`, 'success');
             }
         }
     },
 
-    cargarCriteriosPNC: async function() {
+    cargarCriteriosPNC: async function () {
         try {
             const select = document.getElementById('crit-inyeccion');
             if (!select) return;
@@ -885,7 +885,7 @@ const ModuloEnsamble = {
         }
     },
 
-    listarTareasPendientes: async function() {
+    listarTareasPendientes: async function () {
         try {
             const res = await fetchData('/api/ensamble/tareas_pendientes');
             const container = document.getElementById('tareas-pendientes-container');
@@ -922,7 +922,7 @@ const ModuloEnsamble = {
         } catch (e) { console.error(e); }
     },
 
-    listarProgramacion: async function() {
+    listarProgramacion: async function () {
         try {
             const res = await fetchData('/api/ensamble/programacion');
             const container = document.getElementById('prog-lista-container');
@@ -948,7 +948,7 @@ const ModuloEnsamble = {
         } catch (e) { console.error(e); }
     },
 
-    guardarProgramacion: async function() {
+    guardarProgramacion: async function () {
         const idCodigo = document.getElementById('prog-producto').value;
         const cantidad = document.getElementById('prog-cantidad').value;
         const fecha = document.getElementById('prog-fecha').value;
@@ -958,7 +958,7 @@ const ModuloEnsamble = {
             mostrarLoading(true);
             const res = await fetch('/api/ensamble/programacion', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id_codigo: idCodigo, cantidad_objetivo: cantidad, fecha_programada: fecha })
             });
             const data = await res.json();
@@ -971,14 +971,14 @@ const ModuloEnsamble = {
         } catch (e) { mostrarLoading(false); console.error(e); }
     },
 
-    configurarEventos: function() {
+    configurarEventos: function () {
         document.getElementById('btn-guardar-prog')?.addEventListener('click', () => this.guardarProgramacion());
         document.getElementById('btn-reportar-avance')?.addEventListener('click', () => this.reportarAvance('FINALIZADO'));
         document.getElementById('btn-registro-manual-directo')?.addEventListener('click', () => this.abrirModalManual());
         document.getElementById('btn-manual-mode')?.addEventListener('click', () => this.abrirModalManual());
         document.getElementById('btn-detalle-pnc')?.addEventListener('click', () => this.abrirModalPNC());
         document.getElementById('btn-cancelar-reporte')?.addEventListener('click', () => this.resetFormulario(true));
-        
+
         document.getElementById('btn-ia-voice-ensamble')?.addEventListener('click', () => this.toggleGrabacionVoz());
         document.getElementById('btn-cancelar-voz-ensamble')?.addEventListener('click', () => this.cancelarGrabacionVoz());
         document.getElementById('btn-forzar-relleno-ensamble')?.addEventListener('click', () => {
@@ -986,7 +986,7 @@ const ModuloEnsamble = {
                 this.poblarFormularioDesdeVoz(this.ultimoJsonVozEnsamble);
             }
         });
-        
+
         document.getElementById('prog-cantidad')?.addEventListener('input', () => {
             const idCodigo = document.getElementById('prog-producto').value;
             if (idCodigo) this.consultarBOMStock(idCodigo);
@@ -997,24 +997,24 @@ const ModuloEnsamble = {
             const val = e.target.value.trim().toUpperCase();
             if (val) {
                 e.target.value = val;
-                this.seleccionarProductoManual({codigo_sistema: val});
+                this.seleccionarProductoManual({ codigo_sistema: val });
             }
         });
     },
 
     // --- PUERTO PARA IA DE VOZ ---
     ultimoJsonVozEnsamble: null,
-    poblarFormularioDesdeVoz: async function(data) {
+    poblarFormularioDesdeVoz: async function (data) {
         if (this.sesionActiva) {
             Swal.fire('Sesión Activa', 'Termina el trabajo actual antes de cargar uno por voz.', 'warning');
             return;
         }
-        
+
         console.log('🎤 [Voz] Procesando datos recibidos:', data);
-        
+
         // 1. Abrir formulario
         this.abrirModalManual();
-        
+
         // Helper for triggering changes
         const triggerChange = (el) => {
             if (el) el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1026,10 +1026,10 @@ const ModuloEnsamble = {
             if (inputProd) {
                 inputProd.value = data.id_codigo.toUpperCase();
                 triggerChange(inputProd);
-                await this.seleccionarProductoManual({codigo_sistema: data.id_codigo.toUpperCase()});
+                await this.seleccionarProductoManual({ codigo_sistema: data.id_codigo.toUpperCase() });
             }
         }
-        
+
         if (data.cantidad) {
             const inputCant = document.getElementById('reporte-cantidad');
             if (inputCant) {
@@ -1037,7 +1037,7 @@ const ModuloEnsamble = {
                 triggerChange(inputCant);
             }
         }
-        
+
         // 3. Manejo de Responsable Inteligente (Voz o Sesión)
         const inputResp = document.getElementById('responsable');
         const inputDisplay = document.getElementById('responsable-display');
@@ -1047,7 +1047,7 @@ const ModuloEnsamble = {
             // Aplicar búsqueda inteligente (Match parcial -> Nombre completo)
             const nombreFinal = this.buscarMatchResponsable(data.responsable);
             console.log(`🎤 [Voz] Responsable procesado: ${data.responsable} -> ${nombreFinal}`);
-            
+
             if (inputResp) {
                 inputResp.value = nombreFinal;
                 triggerChange(inputResp);
@@ -1067,7 +1067,7 @@ const ModuloEnsamble = {
             inputResp.readOnly = false;
             inputResp.classList.remove('bg-light');
         }
-        
+
         if (data.op_numero) {
             const inputOp = document.getElementById('reporte-op');
             if (inputOp) {
@@ -1075,7 +1075,7 @@ const ModuloEnsamble = {
                 triggerChange(inputOp);
             }
         }
-        
+
         if (data.fecha) {
             const inputFecha = document.getElementById('reporte-fecha');
             if (inputFecha) {
@@ -1122,7 +1122,7 @@ const ModuloEnsamble = {
                 console.log('✅ [Voz] BOM marcado completamente (TODOS).');
             }, 500); // Pequeño delay para asegurar renderizado final
         }
-        
+
         console.log('🎤 [Voz] Formulario poblado con éxito.');
     },
 
@@ -1131,7 +1131,7 @@ const ModuloEnsamble = {
     audioChunks: [],
     isRecording: false,
 
-    toggleGrabacionVoz: async function() {
+    toggleGrabacionVoz: async function () {
         if (this.isRecording) {
             this.detenerGrabacion();
         } else {
@@ -1139,10 +1139,10 @@ const ModuloEnsamble = {
         }
     },
 
-    iniciarGrabacion: async function() {
+    iniciarGrabacion: async function () {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
+
             const options = { mimeType: 'audio/webm;codecs=opus' };
             if (MediaRecorder.isTypeSupported(options.mimeType)) {
                 this.mediaRecorder = new MediaRecorder(stream, options);
@@ -1150,7 +1150,7 @@ const ModuloEnsamble = {
                 console.warn('[Ensamble] audio/webm;codecs=opus no soportado, usando fallback');
                 this.mediaRecorder = new MediaRecorder(stream);
             }
-            
+
             this.audioChunks = [];
 
             this.mediaRecorder.ondataavailable = e => {
@@ -1164,7 +1164,7 @@ const ModuloEnsamble = {
 
             this.mediaRecorder.start();
             this.isRecording = true;
-            
+
             // UI Feedback
             const btn = document.getElementById('btn-ia-voice-ensamble');
             if (btn) {
@@ -1173,10 +1173,10 @@ const ModuloEnsamble = {
                 btn.style.background = ''; // Override gradient
                 btn.innerHTML = '<i class="fas fa-stop-circle pulse"></i> Grabando...';
             }
-            
+
             document.getElementById('btn-cancelar-voz-ensamble')?.classList.remove('d-none');
             document.getElementById('btn-forzar-relleno-ensamble')?.classList.add('d-none');
-            
+
             mostrarNotificacion('Escuchando...', 'info');
 
         } catch (err) {
@@ -1185,36 +1185,36 @@ const ModuloEnsamble = {
         }
     },
 
-    cancelarGrabacionVoz: function() {
+    cancelarGrabacionVoz: function () {
         if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
             // Eliminar el onstop para evitar que se lance el fetch a la API de IA
             this.mediaRecorder.onstop = null;
             this.mediaRecorder.stop();
-            
+
             // Liberar tracks
             this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
             this.isRecording = false;
             this.audioChunks = [];
-            
+
             const btn = document.getElementById('btn-ia-voice-ensamble');
             if (btn) {
                 btn.classList.remove('bg-danger');
                 btn.style.background = 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)';
                 btn.innerHTML = '<i class="fas fa-microphone"></i>';
             }
-            
+
             document.getElementById('btn-cancelar-voz-ensamble')?.classList.add('d-none');
             mostrarNotificacion('Grabación cancelada', 'warning');
         }
     },
 
-    detenerGrabacion: function() {
+    detenerGrabacion: function () {
         if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
             this.mediaRecorder.stop();
             // Free the stream
             this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
             this.isRecording = false;
-            
+
             const btn = document.getElementById('btn-ia-voice-ensamble');
             if (btn) {
                 btn.classList.remove('bg-danger');
@@ -1225,7 +1225,7 @@ const ModuloEnsamble = {
         }
     },
 
-    procesarAudioIA: async function(audioBlob) {
+    procesarAudioIA: async function (audioBlob) {
         try {
             mostrarLoading(true, '🤖 Procesando audio con Gemini IA...');
             const formData = new FormData();
@@ -1241,7 +1241,7 @@ const ModuloEnsamble = {
             if (result.success && result.data) {
                 this.ultimoJsonVozEnsamble = result.data;
                 document.getElementById('btn-forzar-relleno-ensamble')?.classList.remove('d-none');
-                
+
                 this.poblarFormularioDesdeVoz(result.data);
                 mostrarNotificacion('IA: Formulario llenado exitosamente', 'success');
             } else {
@@ -1269,17 +1269,17 @@ const ModuloEnsamble = {
             input.value = nombreCompleto;
             input.readOnly = false;
             input.classList.remove('bg-light');
-            
+
             // Asignar a la cabecera visual (si existe)
             if (inputDisplay) {
                 inputDisplay.value = nombreCompleto;
             }
-            
+
             console.log('✅ [Ensamble] Usuario capturado y asignado (editable):', nombreCompleto);
         }
     },
 
-    validarFormulario: function() {
+    validarFormulario: function () {
         const op = document.getElementById('reporte-op')?.value;
         const resp = document.getElementById('ensamble-responsable')?.value || document.getElementById('responsable')?.value;
         const qty = parseFloat(document.getElementById('reporte-cantidad')?.value || 0);

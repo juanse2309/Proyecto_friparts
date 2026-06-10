@@ -1,6 +1,6 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
 from flask import Blueprint, jsonify, request, session
-from backend.models.sql_models import db, Pedido, MetalsPedido
+from backend.models.sql_models import db, Pedido, MetalsPedido, DespachoPedido
 from sqlalchemy import text
 from backend.core.tenant import get_tenant_from_request
 from datetime import datetime
@@ -670,10 +670,14 @@ def obtener_pedidos_cliente():
         for r in items:
             id_p = r.id_pedido
             if id_p not in ped_map:
+                fecha_str = r.fecha.strftime('%Y-%m-%d') if r.fecha else ""
+                hora_str = str(r.hora or "").strip()
+                
                 ped_map[id_p] = {
                     "id": id_p,
-                    "fecha": r.fecha.strftime('%Y-%m-%d') if r.fecha else "",
-                    "hora": str(r.hora or "").strip(),
+                    "fecha_creacion": f"{fecha_str} {hora_str}".strip() if fecha_str else "",
+                    "fecha": fecha_str,
+                    "hora": hora_str,
                     "estado": r.estado,
                     "items": 0,
                     "total": 0.0
@@ -716,8 +720,14 @@ def listar_pedidos():
             for r in rows:
                 id_p = r.id_pedido
                 if id_p not in ped_map:
+                    # Extraer fecha_creacion real (original) para no usar la fecha_actualizacion masiva de MetalsPedido
+                    from backend.models.sql_models import Pedido
+                    original = Pedido.query.filter_by(id_pedido=id_p).first()
+                    fecha_orig = original.fecha.strftime('%Y-%m-%d') if original and original.fecha else str(r.fecha)
+
                     ped_map[id_p] = {
                         "id_pedido": id_p,
+                        "fecha_creacion": fecha_orig,
                         "fecha": str(r.fecha) if r.fecha else "",
                         "cliente": r.cliente,
                         "vendedor": r.vendedor,
@@ -755,13 +765,41 @@ def listar_pedidos():
             
             # Agrupar por id_pedido
             rows = query.order_by(Pedido.id.desc()).limit(300).all()
+            
+            # Obtener todos los id_pedido únicos
+            id_pedidos = list(set([r.id_pedido for r in rows if r.id_pedido]))
+            
+            # Consultar todos los despachos para estos id_pedido
+            despachos = []
+            if id_pedidos:
+                despachos = DespachoPedido.query.filter(DespachoPedido.id_pedido.in_(id_pedidos)).all()
+            
+            # Mapear el último despacho por id_pedido
+            despachos_map = {}
+            for d in despachos:
+                id_p = d.id_pedido
+                if id_p not in despachos_map or d.fecha > despachos_map[id_p].fecha:
+                    despachos_map[id_p] = d
+
             ped_map = {}
             for r in rows:
                 id_p = r.id_pedido
+                if not id_p:
+                    continue
                 if id_p not in ped_map:
+                    fecha_str = r.fecha.strftime('%Y-%m-%d') if r.fecha else ""
+                    hora_str = str(r.hora or "").strip()
+                    # Mapear fecha_creacion única e independiente para evitar fallback a Date() en JS
+                    fecha_creacion_final = f"{fecha_str} {hora_str}".strip() if fecha_str else ""
+                    
+                    d_obj = despachos_map.get(id_p)
+                    fecha_despacho_final = d_obj.fecha.strftime('%Y-%m-%d %I:%M %p') if d_obj and d_obj.fecha else ""
+
                     ped_map[id_p] = {
                         "id_pedido": id_p,
-                        "fecha": r.fecha.strftime('%Y-%m-%d') if r.fecha else "",
+                        "fecha_creacion": fecha_creacion_final or fecha_str,
+                        "fecha": fecha_str,
+                        "fecha_despacho": fecha_despacho_final,
                         "cliente": r.cliente,
                         "vendedor": r.vendedor,
                         "estado": r.estado,
@@ -771,6 +809,13 @@ def listar_pedidos():
                     }
                 ped_map[id_p]["items_count"] += 1
                 ped_map[id_p]["total"] += float(r.total or 0)
+                ped_map[id_p]["productos"].append({
+                    "id_codigo": r.id_codigo,
+                    "descripcion": r.descripcion,
+                    "cantidad": float(r.cantidad or 0),
+                    "precio_unitario": float(r.precio_unitario or 0),
+                    "total": float(r.total or 0)
+                })
             
             return jsonify({
                 "success": True, 

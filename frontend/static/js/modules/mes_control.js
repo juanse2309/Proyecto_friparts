@@ -59,6 +59,15 @@ window.ModuloMes = {
                 this.productos = res || [];
             }
 
+            // 3. Cargar Responsables para autocompletado
+            try {
+                const respData = await fetchData('/api/obtener_responsables');
+                this.responsables = Array.isArray(respData) ? respData : (respData?.responsables || []);
+            } catch (e) {
+                console.warn('[MES] No se pudieron cargar responsables:', e);
+                this.responsables = ['Richard Lobo', 'Oscar Prieto'];
+            }
+
             // 4. Cargar estado del dashboard de máquinas
             await this.cargarDashboard();
 
@@ -118,6 +127,7 @@ window.ModuloMes = {
         };
 
         grid.innerHTML = sorted.map(m => {
+            try {
             const pal = palette[m.estado] || palette.LIBRE;
             const activo = m.trabajo_activo;
             const cola = m.cola || [];
@@ -158,7 +168,7 @@ window.ModuloMes = {
                         <div class="fw-bold mb-2 text-primary" style="font-size:.8rem">Lote Activo (Molde: ${activo.molde || capacidadMolde})</div>
                         ${skuList}
                         <button class="btn btn-warning btn-sm fw-bold w-100 mt-2"
-                            onclick="ModuloMes.clickFinalizarDesdeCard('${activo.id_inyeccion}', ${activo.cavidades}, '${activo.molde || capacidadMolde}', '${activo.producto || 'LOTE MÚLTIPLE'}', '${activo.hora_inicio || '06:00'}')">
+                            onclick="ModuloMes.clickFinalizarDesdeCard('${activo.id_inyeccion}', ${activo.cavidades}, '${activo.molde || capacidadMolde}', '${activo.producto || 'LOTE MÚLTIPLE'}', '${activo.hora_inicio || '06:00'}', '${m.nombre}')">
                             <i class="fas fa-stop-circle me-1"></i> Pausar/Finalizar Montaje
                         </button>
                     </div>
@@ -192,7 +202,7 @@ window.ModuloMes = {
                             <div class="fw-bold mb-2 text-dark" style="font-size:.8rem">Montaje (Molde ${moldeKey})</div>
                             ${skuList}
                             <button class="btn btn-success btn-sm fw-bold w-100 mt-2"
-                                onclick="ModuloMes.clickIniciarDesdeCard('${primerId}')">
+                                onclick="ModuloMes.clickIniciarDesdeCard('${primerId}', '${m.nombre}')">
                                 <i class="fas fa-play me-1"></i> Iniciar Montaje
                             </button>
                         </div>
@@ -246,6 +256,10 @@ window.ModuloMes = {
                     </div>
                 </div>
             </div>`;
+            } catch (cardErr) {
+                console.error(`[MES] Error renderizando tarjeta máquina ${m?.nombre}:`, cardErr);
+                return `<div class="col-md-6 col-xl-3"><div class="card border-danger h-100 p-3 text-center text-danger small"><i class="fas fa-exclamation-triangle"></i> Error cargando ${m?.nombre || 'máquina'}</div></div>`;
+            }
         }).join('');
     },
 
@@ -253,27 +267,76 @@ window.ModuloMes = {
     /**
      * Iniciar trabajo desde el botón de la tarjeta de máquina.
      */
-    clickIniciarDesdeCard: async function (idProg) {
+    clickIniciarDesdeCard: async function (idProg, maquinaNombre) {
         if (!idProg) return;
 
-        const { value: opWorldOffice } = await Swal.fire({
+        // Lógica de operario por máquina
+        const _getDefaultResp = (maq) => {
+            if (!maq) return document.getElementById('current_user_fullname')?.value || '';
+            const n = maq.replace(/\D/g, ''); // extrae dígitos
+            if (n === '1' || n === '2') return 'Richard Lobo';
+            if (n === '3' || n === '4') return 'Oscar Prieto';
+            return document.getElementById('current_user_fullname')?.value || '';
+        };
+        const defaultResp = _getDefaultResp(maquinaNombre);
+
+        // Construir datalist — la API devuelve [{nombre, departamento, username}] o strings
+        const responsables = this.responsables || [];
+        const datalistOpts = responsables
+            .map(r => typeof r === 'object' ? (r.nombre || r.username || '') : String(r))
+            .filter(Boolean)
+            .map(n => `<option value="${n}">`)
+            .join('');
+        // Fallback si no hay datos cargados
+        const datalistOptsDefault = datalistOpts || '<option value="Richard Lobo"><option value="Oscar Prieto">';
+
+        const { value: formValues } = await Swal.fire({
             title: 'Iniciar Trabajo (Turno Mañana)',
-            text: 'Por favor, ingresa el número de Orden de Producción (OP) de World Office para iniciar el lote y activar la distribución a cubetas:',
-            input: 'text',
-            inputPlaceholder: 'Ej: OP-1025',
+            html: `
+                <datalist id="swal-resp-list-iniciar">${datalistOptsDefault}</datalist>
+                <div id="swal-prueba-alert" class="badge bg-warning text-dark w-100 mb-3 py-2 fs-6 border border-warning" style="display: none; background-color: #ffc107!important;"><i class="fas fa-vial me-1"></i> MODO DE PRUEBA - NO AFECTA INVENTARIO</div>
+                <div class="mb-3 text-start">
+                    <label for="swal-op-wo" class="form-label fw-bold small text-uppercase text-muted">Orden de Producción (OP) de World Office</label>
+                    <input type="text" id="swal-op-wo" class="form-control" placeholder="Ej: OP-1025">
+                </div>
+                <div class="mb-3 text-start">
+                    <label for="swal-responsable-iniciar" class="form-label fw-bold small text-uppercase text-muted">Operario / Responsable</label>
+                    <input type="text" id="swal-responsable-iniciar" class="form-control"
+                           list="swal-resp-list-iniciar"
+                           value="${defaultResp}" autocomplete="off"
+                           placeholder="Escribe para buscar...">
+                </div>
+            `,
             icon: 'info',
             showCancelButton: true,
             confirmButtonText: '<i class="fas fa-play me-1"></i> Iniciar Lote',
             cancelButtonText: 'Cancelar',
             confirmButtonColor: '#0284c7',
-            inputValidator: (value) => {
-                if (!value || !value.trim()) {
-                    return 'El número de OP es estrictamente obligatorio para iniciar el trabajo';
+            focusConfirm: false,
+            didOpen: () => {
+                const opInput = document.getElementById('swal-op-wo');
+                const alertDiv = document.getElementById('swal-prueba-alert');
+                opInput.addEventListener('input', (e) => {
+                    const val = e.target.value.toUpperCase();
+                    if (val.includes('9999') || val.includes('PRUEBA')) {
+                        alertDiv.style.display = 'block';
+                    } else {
+                        alertDiv.style.display = 'none';
+                    }
+                });
+            },
+            preConfirm: () => {
+                const op = document.getElementById('swal-op-wo').value;
+                const resp = document.getElementById('swal-responsable-iniciar').value;
+                if (!op || !op.trim()) {
+                    Swal.showValidationMessage('El número de OP es estrictamente obligatorio');
+                    return false;
                 }
+                return { op_world_office: op.trim(), responsable: resp };
             }
         });
 
-        if (opWorldOffice) {
+        if (formValues) {
             try {
                 mostrarLoading(true);
                 const res = await fetchData('/api/mes/iniciar_trabajo', {
@@ -281,7 +344,8 @@ window.ModuloMes = {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         id_programacion: idProg, 
-                        op_world_office: opWorldOffice.trim() 
+                        op_world_office: formValues.op_world_office,
+                        responsable: formValues.responsable
                     })
                 });
                 mostrarLoading(false);
@@ -308,8 +372,9 @@ window.ModuloMes = {
 
     /**
      * Finalizar turno desde el botón de la tarjeta de máquina.
+     * Finalizar turno desde el botón de la tarjeta de máquina.
      */
-    clickFinalizarDesdeCard: async function (idInyeccion, cavidades, molde, codigo, horaInicio) {
+    clickFinalizarDesdeCard: async function (idInyeccion, cavidades, molde, codigo, horaInicio, maquinaNombre) {
         if (!idInyeccion) return;
 
         // Obtener la hora actual en formato HH:MM para sugerir como Hora Fin
@@ -358,15 +423,51 @@ window.ModuloMes = {
             pncHtml += `</div>`;
         }
 
+        const maquinaData = (this.dashboardData || []).find(m => (m.nombre || '').toUpperCase() === (maquinaNombre || '').toUpperCase());
+        const activeResp = maquinaData?.trabajo_activo?.responsable;
+
+        // Lógica de operario por máquina (Máq 1-2 → Richard, Máq 3-4 → Oscar)
+        const _getRespFin = (maq) => {
+            const n = (maq || '').replace(/\D/g, '');
+            if (n === '1' || n === '2') return 'Richard Lobo';
+            if (n === '3' || n === '4') return 'Oscar Prieto';
+            return document.getElementById('current_user_fullname')?.value || '';
+        };
+        const defaultResp = activeResp || _getRespFin(maquinaNombre);
+
+        // Datalist de responsables — extraer .nombre del objeto si la API devuelve objetos
+        const responsables = this.responsables || [];
+        const datalistOptsFin = responsables
+            .map(r => typeof r === 'object' ? (r.nombre || r.username || '') : String(r))
+            .filter(Boolean)
+            .map(n => `<option value="${n}">`)
+            .join('') || '<option value="Richard Lobo"><option value="Oscar Prieto">';
+
+        const opActiva = maquinaData?.trabajo_activo?.orden_produccion || '';
+        const idInyActivo = maquinaData?.trabajo_activo?.id_inyeccion || '';
+        const esPrueba = opActiva.toUpperCase().includes('9999') || opActiva.toUpperCase().includes('PRUEBA') || idInyActivo.toUpperCase().includes('9999') || idInyActivo.toUpperCase().includes('PRUEBA');
+        const badgePrueba = esPrueba ? `<div class="badge bg-warning text-dark w-100 mb-3 py-2 fs-6 border border-warning" style="background-color: #ffc107!important;"><i class="fas fa-vial me-1"></i> MODO DE PRUEBA - NO AFECTA INVENTARIO</div>` : '';
+
         const { value: formValues } = await Swal.fire({
             title: '\u00bfFinalizar Turno?',
             html: `
+                ${badgePrueba}
                 <div class="alert alert-info py-2 px-3 mb-3 border-0 text-start" style="background:#e0f2fe;color:#0369a1;border-radius:12px">
                     <div class="row g-2">
                         <div class="col-6"><small class="d-block fw-bold opacity-75">MOLDE</small> <strong>${molde}</strong></div>
                         <div class="col-6"><small class="d-block fw-bold opacity-75">CAVIDADES</small> <strong>${cavidades}</strong></div>
                         <div class="col-12 mt-1"><small class="d-block fw-bold opacity-75">PRODUCTO(S)</small> <strong>${codigo}</strong></div>
+                        <div class="col-12 mt-1"><small class="d-block fw-bold opacity-75">OP WORLD OFFICE</small> <strong>${opActiva || '-'}</strong></div>
                     </div>
+                </div>
+
+                <datalist id="swal-resp-list-fin">${datalistOptsFin}</datalist>
+                <div class="mb-3 text-start px-2">
+                    <label class="form-label fw-bold small text-uppercase text-muted mb-1">Operario / Responsable</label>
+                    <input type="text" id="swal-responsable-fin" class="form-control"
+                           list="swal-resp-list-fin"
+                           value="${defaultResp}" autocomplete="off"
+                           placeholder="Escribe para buscar...">
                 </div>
 
                 <div class="mb-3 text-start px-2">
@@ -395,6 +496,7 @@ window.ModuloMes = {
                 const cierres = document.getElementById('swal-cierres').value;
                 const hi = document.getElementById('swal-hora-inicio').value;
                 const hf = document.getElementById('swal-hora-fin').value;
+                const resp = document.getElementById('swal-responsable-fin').value;
 
                 if (!cierres || parseInt(cierres) <= 0) {
                     Swal.showValidationMessage('Ingresa un n\u00famero v\u00e1lido de cierres');
@@ -428,7 +530,7 @@ window.ModuloMes = {
                     }
                 });
 
-                return { cierres: parseInt(cierres), hora_inicio: hi, hora_fin: hf, pncList: pncList };
+                return { cierres: parseInt(cierres), hora_inicio: hi, hora_fin: hf, responsable: resp, pncList: pncList };
             }
         });
 
@@ -442,7 +544,8 @@ window.ModuloMes = {
                         id_inyeccion: idInyeccion,
                         cierres: formValues.cierres,
                         hora_inicio: formValues.hora_inicio,
-                        hora_fin: formValues.hora_fin
+                        hora_fin: formValues.hora_fin,
+                        responsable: formValues.responsable
                     })
                 });
 
@@ -1308,22 +1411,44 @@ window.ModuloMes = {
     iniciarTrabajo: async function () {
         if (!this.trabajoActivo) return;
 
-        const { isConfirmed } = await Swal.fire({
+        const maquinaNombre = this.maquinaSeleccionada || '';
+        let defaultResp = '';
+        if (maquinaNombre.includes('1') || maquinaNombre.includes('2')) {
+            defaultResp = 'Richard Lobo';
+        } else {
+            defaultResp = document.getElementById('current_user_fullname')?.value || '';
+        }
+
+        const { value: formValues } = await Swal.fire({
             title: '¿Confirmar Inicio?',
-            html: `Vas a iniciar la producción de <b>${this.trabajoActivo.producto}</b> en la <b>${this.maquinaSeleccionada}</b>.`,
+            html: `
+                <div class="mb-3 text-start">
+                    <p class="mb-2 text-muted">Vas a iniciar la producción de <b>${this.trabajoActivo.producto}</b> en la <b>${maquinaNombre}</b>.</p>
+                </div>
+                <div class="mb-3 text-start">
+                    <label for="swal-responsable-iniciar" class="form-label fw-bold small text-uppercase text-muted">Operario / Responsable</label>
+                    <input type="text" id="swal-responsable-iniciar" class="form-control" value="${defaultResp}">
+                </div>
+            `,
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonText: 'Sí, iniciar'
+            confirmButtonText: 'Sí, iniciar',
+            focusConfirm: false,
+            preConfirm: () => {
+                const resp = document.getElementById('swal-responsable-iniciar').value;
+                return { responsable: resp };
+            }
         });
 
-        if (isConfirmed) {
+        if (formValues) {
             try {
                 mostrarLoading(true);
                 const res = await fetchData('/api/mes/iniciar', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        id_programacion: this.trabajoActivo.id_programacion
+                        id_programacion: this.trabajoActivo.id_programacion,
+                        responsable: formValues.responsable
                     })
                 });
                 mostrarLoading(false);
@@ -1357,6 +1482,16 @@ window.ModuloMes = {
         const idInyeccion = this.trabajoActivo.id_inyeccion;
         const horaInicio = this.trabajoActivo.inicio || '06:00';
         const productos = codigo.split(',').map(p => p.trim()).filter(Boolean);
+        const maquinaNombre = this.maquinaSeleccionada || '';
+        
+        let defaultResp = this.trabajoActivo.responsable || '';
+        if (!defaultResp) {
+            if (maquinaNombre.includes('1') || maquinaNombre.includes('2')) {
+                defaultResp = 'Richard Lobo';
+            } else {
+                defaultResp = document.getElementById('current_user_fullname')?.value || '';
+            }
+        }
         
         let pncHtml = '';
         if (productos.length > 0) {
@@ -1400,6 +1535,12 @@ window.ModuloMes = {
             title: '\u00bfFinalizar Turno?',
             html: `
                 <div class="text-start fs-6 mb-3 text-muted">Se reportar\u00e1n <b>${cierres} cierres</b> de molde. Revisa los tiempos del turno:</div>
+                
+                <div class="mb-3 text-start px-2">
+                    <label class="form-label fw-bold small text-uppercase text-muted mb-1">Operario / Responsable</label>
+                    <input type="text" id="swal-responsable-fin" class="form-control" value="${defaultResp}">
+                </div>
+
                 <div class="row text-start p-2 g-3">
                     <div class="col-6">
                         <label class="form-label fw-bold small text-uppercase text-muted mb-1">Hora Inicio Real</label>
@@ -1421,6 +1562,7 @@ window.ModuloMes = {
             preConfirm: () => {
                 const hi = document.getElementById('swal-hora-inicio').value;
                 const hf = document.getElementById('swal-hora-fin').value;
+                const resp = document.getElementById('swal-responsable-fin').value;
                 if (!hi || !hf) {
                     Swal.showValidationMessage('Ambas horas son obligatorias');
                     return false;
@@ -1449,7 +1591,7 @@ window.ModuloMes = {
                     }
                 });
 
-                return { hora_inicio: hi, hora_fin: hf, pncList: pncList };
+                return { hora_inicio: hi, hora_fin: hf, responsable: resp, pncList: pncList };
             }
         });
 
@@ -1463,7 +1605,8 @@ window.ModuloMes = {
                         id_inyeccion: idInyeccion,
                         cierres: cierres,
                         hora_inicio: formValues.hora_inicio,
-                        hora_fin: formValues.hora_fin
+                        hora_fin: formValues.hora_fin,
+                        responsable: formValues.responsable
                     })
                 });
 

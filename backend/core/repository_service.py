@@ -416,6 +416,7 @@ class RepositoryService:
                         "id": nro_pedido,
                         "id_pedido": nro_pedido,
                         "nro_pedido": nro_pedido,
+                        "fecha_creacion": f"{str(r['fecha'])[:10]} {str(r['hora']).strip()}" if r['fecha'] else '',
                         "fecha": str(r['fecha'])[:10] if r['fecha'] else '',
                         "hora": str(r['hora'] or '').strip(),
                         "cliente": str(r['cliente'] or 'Cliente Desconocido').strip(),

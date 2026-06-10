@@ -714,33 +714,7 @@ const ModuloPulido = {
         });
 
         if (!this.enPausa) {
-            // ── PAUSA: Mostrar formulario obligatorio de PNC antes de pausar ──
-            const pncData = await this._mostrarModalPncPulido('Reportar PNC antes de Pausar');
-            if (pncData === null) return; // Usuario canceló
-
             console.log(`⏸️ [Pulido] Pausando a las ${horaPausa}...`);
-
-            // 1. Registrar PNC en db_pnc_pulido
-            try {
-                const pncRes = await fetch('/api/pnc/registrar_pulido', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id_pulido: this.sessionId,
-                        id_codigo: this.normalizarCodigo(document.getElementById('buscador-productos')?.value || ''),
-                        defectos: pncData
-                    })
-                });
-                const pncResult = await pncRes.json();
-                if (!pncResult.success) {
-                    Swal.fire('Error PNC', pncResult.error || 'No se pudo registrar el PNC', 'error');
-                    return; // BLOQUEAR pausa si PNC falla
-                }
-            } catch (errPnc) {
-                console.error('[Pulido] Error registrando PNC:', errPnc);
-                Swal.fire('Error de Conexión', 'No se pudo registrar el PNC. La pausa fue cancelada.', 'error');
-                return;
-            }
 
             // 2. Ejecutar la pausa en el servidor
             const res = await fetch('/api/pulido/pausar', {
@@ -784,54 +758,7 @@ const ModuloPulido = {
      * Retorna un objeto con los defectos { criterio: cantidad } o null si canceló.
      */
     _mostrarModalPncPulido: async function(titulo) {
-        const { value: formValues } = await Swal.fire({
-            title: titulo || 'Reporte de PNC - Pulido',
-            html: `
-                <div class="text-start mb-3">
-                    <p class="text-muted small mb-3">
-                        <i class="fas fa-info-circle me-1 text-primary"></i>
-                        Registra los defectos encontrados (ingresa 0 si no hay defectos del tipo).
-                    </p>
-                    <div class="card p-3 border-0 shadow-sm" style="border-radius:12px; background:#fffafb; border:1px solid #fee2e2!important;">
-                        <div class="fw-bold text-danger mb-3" style="font-size:0.9rem">
-                            <i class="fas fa-exclamation-triangle me-1"></i> Criterios de Defecto - Área Pulido
-                        </div>
-                        <div class="row g-3">
-                            <div class="col-6">
-                                <label class="form-label small fw-bold text-muted mb-1">Porosidad / Burbujas residuales</label>
-                                <input type="number" id="pnc-pulido-porosidad" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label small fw-bold text-muted mb-1">Marcas de Lijado / Rayones</label>
-                                <input type="number" id="pnc-pulido-rayones" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label small fw-bold text-muted mb-1">Desgaste Excesivo / Deformación</label>
-                                <input type="number" id="pnc-pulido-desgaste" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label small fw-bold text-muted mb-1">Brillo Insuficiente</label>
-                                <input type="number" id="pnc-pulido-brillo" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `,
-            showCancelButton: true,
-            confirmButtonText: '<i class="fas fa-check me-1"></i> Confirmar PNC',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#16a34a',
-            focusConfirm: false,
-            preConfirm: () => {
-                return {
-                    "Porosidad / Burbujas":              parseInt(document.getElementById('pnc-pulido-porosidad').value) || 0,
-                    "Marcas de Lijado / Rayones":        parseInt(document.getElementById('pnc-pulido-rayones').value) || 0,
-                    "Desgaste Excesivo / Deformación":   parseInt(document.getElementById('pnc-pulido-desgaste').value) || 0,
-                    "Brillo Insuficiente":               parseInt(document.getElementById('pnc-pulido-brillo').value) || 0
-                };
-            }
-        });
-        return formValues ?? null;
+        return {};
     },
 
     habilitarCambioReferencia: function() {
@@ -1058,8 +985,6 @@ const ModuloPulido = {
         
         // Reset inputs modal
         document.getElementById('cantidad-recibida-pro').value = 0;
-        this.pncRows = []; // Reiniciar PNC dinámico
-        this.renderPncRows();
         document.getElementById('resultado-buenas-pro').innerText = '0';
         
         document.getElementById('modal-reporte-final').style.display = 'flex';
@@ -1281,31 +1206,6 @@ const ModuloPulido = {
 
         if (!data.responsable || !data.codigo_producto || data.cantidad_real < 0) {
             Swal.fire('Atención', 'Faltan campos obligatorios o hay valores negativos', 'warning');
-            return;
-        }
-
-        // ── BLOQUEO OBLIGATORIO DE PNC antes de finalizar (Pulido) ──
-        const pncFinal = await this._mostrarModalPncPulido('Reporte Final de PNC - Pulido');
-        if (pncFinal === null) return; // Usuario canceló
-
-        try {
-            const pncRes = await fetch('/api/pnc/registrar_pulido', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id_pulido: this.sessionId,
-                    id_codigo: data.codigo_producto,
-                    defectos: pncFinal
-                })
-            });
-            const pncResult = await pncRes.json();
-            if (!pncResult.success) {
-                Swal.fire('Error PNC', pncResult.error || 'No se pudo registrar el PNC de cierre', 'error');
-                return;
-            }
-        } catch (errPnc) {
-            console.error('[Pulido] Error PNC cierre:', errPnc);
-            Swal.fire('Error de Conexión', 'No se pudo registrar el PNC. El cierre fue cancelado.', 'error');
             return;
         }
 
@@ -1913,6 +1813,8 @@ const ModuloPulido = {
         try {
             const res = await fetch('/api/pulido/lotes_activos');
             const data = await res.json();
+            
+            console.log("Lotes recibidos del servidor:", data);
 
             if (spinnerLotes) spinnerLotes.style.display = 'none';
 
@@ -1939,6 +1841,7 @@ const ModuloPulido = {
                     g = {
                         maquina: maq,
                         orden_produccion: op,
+                        fecha_creacion: l.fecha_creacion || 'Sin Fecha',
                         referencias: []
                     };
                     grupos.push(g);
@@ -1950,26 +1853,47 @@ const ModuloPulido = {
 
             contenedor.innerHTML = grupos.map((g, index) => {
                 const codigosHTML = g.referencias.map(l => `<span class="badge bg-light text-dark border me-1">${l.id_codigo}</span>`).join('');
+                
                 return `
                     <div class="card lote-card-activo mb-2 border-start border-4 border-success shadow-sm"
                          id="lote-grupo-card-${index}"
                          onclick="ModuloPulido.seleccionarGrupoLote(${index})"
                          style="cursor:pointer; transition: all .15s; user-select:none;">
                         <div class="card-body py-2 px-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div style="flex:1;">
                                     <span class="fw-bold text-dark d-block mb-1" style="font-size:1.1rem">MÁQUINA: ${g.maquina}</span>
                                     <div class="mb-1"><small class="text-muted">OP: <strong>${g.orden_produccion}</strong></small></div>
+                                    <div class="mb-2"><span class="badge bg-secondary"><i class="fas fa-clock me-1"></i> Inyectado: ${g.fecha_creacion}</span></div>
                                     <div class="d-flex flex-wrap mt-1">${codigosHTML}</div>
                                 </div>
-                                <div class="text-end">
+                                <div class="text-end d-flex flex-column align-items-end gap-2 ms-2">
                                     <span class="badge bg-success-subtle text-success">${g.referencias.length} Ref(s)</span>
+                                    <button type="button"
+                                        class="btn btn-danger btn-sm text-white fw-bold"
+                                        data-grupo-index="${index}"
+                                        data-accion="liquidar"
+                                        title="Cerrar canastilla: pone por_pulir en 0 y envía a Validación">
+                                        <i class="fas fa-fire-alt me-1"></i>Liquidar
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 `;
             }).join('');
+
+            // Event delegation: botones Liquidar sin onclick inline (evita SyntaxError)
+            contenedor.querySelectorAll('[data-accion="liquidar"]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(btn.getAttribute('data-grupo-index'), 10);
+                    const grupo = this.gruposLotesActivos[idx];
+                    if (!grupo) return;
+                    const idLotes = grupo.referencias.map(l => l.id_lote);
+                    this.liquidarLote(idLotes, grupo.maquina);
+                });
+            });
 
         } catch (err) {
             if (spinnerLotes) spinnerLotes.style.display = 'none';
@@ -2049,10 +1973,6 @@ const ModuloPulido = {
                                 onclick="ModuloPulido.agregarRevueltoFilaMasiva('${lote.id_lote}')">
                             <i class="fas fa-layer-group me-1"></i>+ Añadir Revuelto
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3"
-                                onclick="ModuloPulido.agregarDefectoFila('${lote.id_lote}')">
-                            <i class="fas fa-plus me-1"></i>+ Añadir Defecto
-                        </button>
                     </div>
                 </div>
                 `;
@@ -2072,72 +1992,82 @@ const ModuloPulido = {
         }
     },
 
-    agregarDefectoFila: function(idLote, criterioDef = '', cantDef = '') {
-        const containerId = `defects-container-${idLote.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const container = document.getElementById(containerId);
-        if (!container) return;
+    liquidarLote: async function(idLotes, maquinaNombre) {
+        // idLotes es un array con todos los id_lote del grupo
+        if (!idLotes || idLotes.length === 0) return;
 
-        const subRowId = 'defect-row-' + Math.random().toString(36).substring(2, 9);
-        const subRow = document.createElement('div');
-        subRow.className = 'row g-2 mb-2 align-items-center defect-sub-row';
-        subRow.id = subRowId;
-        
-        const opcionesDefinidas = [
-            'Chupado Interno', 'Porosidad / Burbujas', 'Falta Material / Incompleto', 
-            'Material Contaminado', 'Manchas',
-            'Rayado por Cuchilla', 'Mal Cortado / Medida Incorrecta', 'Exceso de Rebaba', 
-            'Mal Acabado', 'Otro (Manipulación)'
-        ];
-        const isOtro = criterioDef && !opcionesDefinidas.includes(criterioDef);
+        const operario = this.getOperarioActual() || '';
+        const codigosTexto = (this.gruposLotesActivos || []).find(g => g.maquina === maquinaNombre)?.referencias?.map(l => l.id_codigo).join(', ') || '';
 
-        subRow.innerHTML = `
-            <div class="col-6 col-md-5 mb-2">
-                <select class="form-select form-select-sm defect-criterio" style="border-radius:8px;">
-                    <optgroup label="Defectos de Inyección (Ocultos)">
-                        <option value="Chupado Interno" ${criterioDef === 'Chupado Interno' ? 'selected' : ''}>Chupado Interno</option>
-                        <option value="Porosidad / Burbujas" ${criterioDef === 'Porosidad / Burbujas' ? 'selected' : ''}>Porosidad / Burbujas</option>
-                        <option value="Falta Material / Incompleto" ${criterioDef === 'Falta Material / Incompleto' ? 'selected' : ''}>Falta Material / Incompleto</option>
-                        <option value="Material Contaminado" ${criterioDef === 'Material Contaminado' ? 'selected' : ''}>Material Contaminado</option>
-                        <option value="Manchas" ${criterioDef === 'Manchas' ? 'selected' : ''}>Manchas</option>
-                    </optgroup>
-                    <optgroup label="Errores de Pulido (Manipulación)">
-                        <option value="Rayado por Cuchilla" ${criterioDef === 'Rayado por Cuchilla' ? 'selected' : ''}>Rayado por Cuchilla</option>
-                        <option value="Mal Cortado / Medida Incorrecta" ${criterioDef === 'Mal Cortado / Medida Incorrecta' ? 'selected' : ''}>Mal Cortado / Medida Incorrecta</option>
-                        <option value="Exceso de Rebaba" ${criterioDef === 'Exceso de Rebaba' ? 'selected' : ''}>Exceso de Rebaba</option>
-                        <option value="Mal Acabado" ${criterioDef === 'Mal Acabado' ? 'selected' : ''}>Mal Acabado</option>
-                        <option value="Otro (Manipulación)" ${isOtro || criterioDef === 'Otro (Manipulación)' ? 'selected' : ''}>Otro (Manipulación)</option>
-                    </optgroup>
-                </select>
-                <input type="text" class="form-control form-control-sm mt-1 defect-criterio-otro" 
-                       placeholder="Escribe el defecto..." 
-                       value="${isOtro ? criterioDef : ''}" 
-                       style="display: ${isOtro ? 'block' : 'none'}; border-radius:8px;">
-            </div>
-            <div class="col-4 col-md-3">
-                <input type="number" class="form-control form-control-sm text-center fw-bold defect-cantidad" 
-                       min="1" placeholder="Cant" value="${cantDef || 1}" 
-                       style="color:#dc2626; border:1px solid #fca5a5; border-radius:8px;">
-            </div>
-            <div class="col-2 col-md-2 text-end">
-                <button type="button" class="btn btn-sm btn-link text-danger p-0" 
-                        onclick="document.getElementById('${subRowId}').remove()">
-                    <i class="fas fa-trash-alt"></i>
-                </button>
-            </div>
-        `;
-        container.appendChild(subRow);
-
-        const selectEl = subRow.querySelector('.defect-criterio');
-        const inputOtro = subRow.querySelector('.defect-criterio-otro');
-        selectEl.addEventListener('change', function() {
-            if (this.value === 'Otro (Manipulación)') {
-                inputOtro.style.display = 'block';
-                inputOtro.value = '';
-                inputOtro.focus();
-            } else {
-                inputOtro.style.display = 'none';
+        const { value: formValues } = await Swal.fire({
+            title: '⚡ Liquidar Canastilla',
+            icon: 'warning',
+            html: `
+                <div class="alert alert-warning border-0 text-start py-2 px-3 mb-3" style="background:#fef9c3;border-radius:10px;">
+                    <strong>Máquina:</strong> ${maquinaNombre || '-'}<br>
+                    <strong>Referencias:</strong> ${codigosTexto || idLotes.join(', ')}<br>
+                    <small class="text-muted">Esto pondrá <code>por_pulir = 0</code> en cada lote del grupo y los enviará a <b>Validación</b>.</small>
+                </div>
+                <div class="text-start">
+                    <label class="form-label fw-bold small text-uppercase text-muted mb-1">Responsable que liquida</label>
+                    <input type="text" id="swal-liq-responsable" class="form-control"
+                           value="${operario}" placeholder="Nombre del supervisor">
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: '<i class="fas fa-fire-alt me-1"></i> Sí, Liquidar Todo',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#dc2626',
+            focusConfirm: false,
+            preConfirm: () => {
+                const resp = document.getElementById('swal-liq-responsable').value.trim();
+                if (!resp) {
+                    Swal.showValidationMessage('El responsable es obligatorio');
+                    return false;
+                }
+                return resp;
             }
         });
+
+        if (!formValues) return;
+        const responsable = formValues;
+
+        if (typeof window.mostrarLoading === 'function') window.mostrarLoading(true, 'Liquidando lotes...');
+
+        let errores = [];
+        for (const id_lote of idLotes) {
+            try {
+                const res = await fetch('/api/pulido/liquidar_lote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id_lote, responsable })
+                });
+                const data = await res.json();
+                if (!data.success) errores.push(`${id_lote}: ${data.error}`);
+            } catch (e) {
+                errores.push(`${id_lote}: Error de red`);
+            }
+        }
+
+        if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
+
+        if (errores.length === 0) {
+            await Swal.fire({
+                icon: 'success',
+                title: '¡Lotes Liquidados!',
+                text: `${idLotes.length} lote(s) cerrados y enviados a Validación.`,
+                timer: 2500,
+                showConfirmButton: false
+            });
+        } else {
+            await Swal.fire('Error Parcial', errores.join('\n'), 'error');
+        }
+
+        // Refrescar lista y limpiar selección
+        this.grupoLoteSeleccionado = null;
+        const panelCant = document.getElementById('panel-lote-cantidades');
+        if (panelCant) panelCant.style.display = 'none';
+        await this.cargarLotesActivos();
     },
 
     agregarRevueltoFilaMasiva: function(idLote) {
@@ -2216,31 +2146,17 @@ const ModuloPulido = {
         const items = [];
 
         blocks.forEach(block => {
+            try {
             const idLote = block.getAttribute('data-lote-id');
             const referencia = block.getAttribute('data-codigo');
             const op = this.grupoLoteSeleccionado.orden_produccion;
 
             const buenos = parseFloat(block.querySelector('.lote-buenos-input')?.value) || 0;
 
+            // PNC de defectos: sección eliminada del DOM (solo Buenas reportadas)
             let totalMalos = 0;
             const pnc_detail = [];
-
-            const defectRows = block.querySelectorAll('.defect-sub-row');
-            defectRows.forEach(row => {
-                const selectVal = row.querySelector('.defect-criterio').value;
-                const inputVal = row.querySelector('.defect-criterio-otro').value;
-                const criterio = selectVal === 'Otro (Manipulación)' ? (inputVal.trim() || 'Otro (Manipulación)') : selectVal;
-                const cantidad = parseFloat(row.querySelector('.defect-cantidad').value) || 0;
-
-                if (cantidad > 0) {
-                    totalMalos += cantidad;
-                    pnc_detail.push({
-                        criterio: criterio,
-                        cantidad: cantidad,
-                        proceso: 'PULIDO'
-                    });
-                }
-            });
+            // Los .defect-sub-row ya no existen en el HTML — no iterar para evitar null references
 
             if (buenos === 0 && totalMalos === 0) {
                 // Si no hay nada, pasamos al siguiente (solo si no hay revueltos tampoco)
@@ -2281,6 +2197,9 @@ const ModuloPulido = {
                 hora_inicio: item_hora_inicio,
                 hora_fin: item_hora_fin
             });
+            } catch (blockErr) {
+                console.error('[Pulido] Error procesando bloque de lote (ignorado):', blockErr);
+            }
         });
 
         if (items.length === 0) {

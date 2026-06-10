@@ -464,7 +464,7 @@ def historial_producto(codigo):
                     'fecha': r.fecha.strftime('%d/%m/%Y') if hasattr(r.fecha, 'strftime') else str(r.fecha or ''),
                     'responsable': str(r.cliente or 'CLIENTE'),
                     'cant': int(float(r.cantidad or 0)),
-                    'detalle': f"Orden: {r.id_pedido} | Vendedor: {r.vendedor or ''}"
+                    'detalle': f"Orden: {r.id_pedido} | Estado: {r.estado or 'N/A'} | Vendedor: {r.vendedor or ''}"
                 })
 
             # 4.2 Ventas Reales (db_ventas - SQL Quirúrgico)

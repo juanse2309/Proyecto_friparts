@@ -179,7 +179,8 @@ def reportar_ensamble_multi():
         # 1. Identificar el registro principal (es_final = True)
         main_reg = next((r for r in registros_data if r.get('es_final')), registros_data[0])
         estado_final = main_reg.get('estado', 'EN_PROCESO')
-        responsable = main_reg.get('responsable', 'OPERARIO')
+        from backend.utils.formatters import resolver_operario
+        responsable = resolver_operario(main_reg.get('responsable'))
         
         logger.info(f"[ENSAMBLE-MULTI] Procesando {len(registros_data)} registros para id_ensamble={id_ensamble_global}")
 
