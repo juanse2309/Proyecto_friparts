@@ -254,21 +254,26 @@ def recibir_datos():
 def unificar_inventario_wo():
     """
     Sincroniza y unifica el stock de la tabla espejo inventario_wo
-    en la tabla db_productos mediante comparación exacta de códigos en mayúsculas sin espacios.
+    en la tabla db_productos mediante similitud de descripción (mínimo 85%).
     """
     try:
         from backend.core.sql_database import db
         from backend.models.sql_models import InventarioWO, Producto
+        from difflib import SequenceMatcher
 
-        # Traer todos los registros de db_productos
+        # Traer todos los productos de db_productos
         productos = db.session.query(Producto).all()
         
-        # Mapear productos por su codigo_sistema normalizado (.strip().upper())
-        productos_map = {}
+        # Pre-normalizar descripciones locales para optimizar rendimiento
+        productos_info = []
         for p in productos:
-            if p.codigo_sistema:
-                key = str(p.codigo_sistema).strip().upper()
-                productos_map[key] = p
+            desc_local_original = p.descripcion or ""
+            desc_local_norm = str(desc_local_original).strip().lower()
+            productos_info.append({
+                "producto": p,
+                "original": desc_local_original,
+                "normalizada": desc_local_norm
+            })
 
         # Traer todos los registros de inventario_wo
         items_wo = db.session.query(InventarioWO).all()
@@ -277,26 +282,38 @@ def unificar_inventario_wo():
         no_encontrados = 0
         
         for item in items_wo:
-            cod_wo_raw = item.codigo_producto
-            if not cod_wo_raw:
+            desc_wo_original = item.descripcion or ""
+            if not desc_wo_original.strip():
                 continue
+                
+            desc_wo_norm = str(desc_wo_original).strip().lower()
             
-            cod_wo = str(cod_wo_raw).strip().upper()
+            mejor_similitud = 0.0
+            mejor_p_info = None
             
-            # Buscar coincidencia de fuerza bruta
-            p_db = productos_map.get(cod_wo)
-            if p_db:
+            for p_info in productos_info:
+                # SequenceMatcher de la librería estándar
+                ratio = SequenceMatcher(None, desc_wo_norm, p_info["normalizada"]).ratio() * 100
+                if ratio > mejor_similitud:
+                    mejor_similitud = ratio
+                    mejor_p_info = p_info
+            
+            # Log requerido: [DEBUG] Comparando Descripción WO: "[valor_wo]" con Descripción Local: "[valor_local]". Similitud: X%.
+            valor_local = mejor_p_info["original"] if mejor_p_info else "Ninguno"
+            logger.info(f'[DEBUG] Comparando Descripción WO: "{desc_wo_original}" con Descripción Local: "{valor_local}". Similitud: {mejor_similitud:.2f}%.')
+            
+            if mejor_similitud >= 85.0 and mejor_p_info:
+                p_db = mejor_p_info["producto"]
                 p_db.p_terminado = float(item.stock_wo or 0)
                 p_db.precio = float(item.precio_wo or 0)
                 actualizados += 1
             else:
-                logger.info(f"[DEBUG] NO SE ENCONTRÓ EMPAREJAMIENTO para código WO: {cod_wo_raw}")
                 no_encontrados += 1
                 
         # Confirmar los cambios al final del proceso
         db.session.commit()
         
-        logger.info(f"📊 [Unificar WO] Proceso finalizado. Actualizados: {actualizados}, No encontrados: {no_encontrados}")
+        logger.info(f"📊 [Unificar WO por Descripción] Proceso finalizado. Actualizados: {actualizados}, No encontrados: {no_encontrados}")
         
         return jsonify({
             "success": True,
@@ -307,7 +324,7 @@ def unificar_inventario_wo():
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"❌ Error en endpoint unificar de WO: {e}")
+        logger.error(f"❌ Error en unificar de WO por descripción: {e}")
         return jsonify({
             "success": False,
             "error": str(e)
