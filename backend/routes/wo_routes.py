@@ -233,12 +233,13 @@ def recibir_datos():
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
 def unificar_inventario_wo():
     """
-    Lee todos los registros de 'inventario_wo' y sobrescribe directamente 
-    la columna 'p_terminado' y 'precio' de cada producto correspondiente en 'db_productos'.
+    Lee los primeros 10 registros de 'inventario_wo' y realiza una comparación de auditoría detallada
+    contra los códigos de db_productos.
     """
     try:
         from backend.core.sql_database import db
         from backend.models.sql_models import InventarioWO, Producto
+        import difflib
         
         # Asegurar columnas alternas en caliente
         try:
@@ -249,12 +250,19 @@ def unificar_inventario_wo():
             db.session.rollback()
             logger.warning(f"No se pudieron asegurar las columnas DDL de inventario_wo: {e_ddl}")
             
-        registros_wo = db.session.query(InventarioWO).all()
+        # Tomamos solo los primeros 10 registros para el modo de auditoría
+        registros_wo = db.session.query(InventarioWO).limit(10).all()
         productos_db = db.session.query(Producto).all()
         
         # Mapa en memoria para emparejamiento flexible
         prods_map = []
+        codigos_locales = []
         for p in productos_db:
+            if p.codigo_sistema:
+                codigos_locales.append(p.codigo_sistema)
+            if p.id_codigo and p.id_codigo not in codigos_locales:
+                codigos_locales.append(p.id_codigo)
+                
             prods_map.append({
                 "obj": p,
                 "codigo_sistema": p.codigo_sistema,
@@ -264,75 +272,88 @@ def unificar_inventario_wo():
             })
             
         actualizados = 0
-        logs_fallidos_counter = [0] # Mutable list para contar en el helper
-
-        def buscar_producto_flexible(item_wo):
-            c_principal = item_wo.codigo_producto
-            c_alterno = item_wo.codigo_alterno
-            ref = item_wo.referencia
+        
+        for item in registros_wo:
+            c_principal = item.codigo_producto
+            stock_wo = item.stock_wo or 0.0
+            precio_wo = item.precio_wo or 0.0
             
-            candidatos = [c for c in [c_principal, c_alterno, ref] if c]
-            if not candidatos:
-                return None
-                
-            # 1. Coincidencia exacta limpia
+            # 1. Encontrar el código local más parecido usando difflib
+            candidatos_close = difflib.get_close_matches(c_principal, codigos_locales, n=1, cutoff=0.1)
+            codigo_local_parecido = candidatos_close[0] if candidatos_close else "Ninguno"
+            
+            # 2. Realizar el cruce de coincidencia flexible
+            candidatos = [c_principal, item.codigo_alterno, item.referencia]
+            candidatos = [c for c in candidatos if c]
+            
+            p_db = None
+            match_exitoso = False
+            
+            # Buscar el producto
             for c in candidatos:
                 c_limpio = limpiar_codigo_wo(c)
                 if not c_limpio:
                     continue
                 for p_info in prods_map:
                     if c_limpio == p_info["cod_sis_limpio"] or c_limpio == p_info["id_cod_limpio"]:
-                        return p_info["obj"]
+                        p_db = p_info["obj"]
+                        match_exitoso = True
+                        break
+                if p_db:
+                    break
             
-            # 2. Coincidencia exacta original (case-insensitive, strip)
-            for c in candidatos:
-                c_str = str(c).upper().strip()
-                for p_info in prods_map:
-                    sis_upper = (p_info["codigo_sistema"] or "").upper().strip()
-                    id_upper = (p_info["id_codigo"] or "").upper().strip()
-                    if c_str == sis_upper or c_str == id_upper:
-                        return p_info["obj"]
-                        
-            # 3. Coincidencia de Substring parcial (min 3 caracteres)
-            for c in candidatos:
-                c_limpio = limpiar_codigo_wo(c)
-                if len(c_limpio) < 3:
-                    continue
-                for p_info in prods_map:
-                    if c_limpio in p_info["cod_sis_limpio"] or c_limpio in p_info["id_cod_limpio"]:
-                        return p_info["obj"]
-                    if p_info["cod_sis_limpio"] and p_info["cod_sis_limpio"] in c_limpio:
-                        return p_info["obj"]
-                    if p_info["id_cod_limpio"] and p_info["id_cod_limpio"] in c_limpio:
-                        return p_info["obj"]
+            if not p_db:
+                # Intento 2: exacto original
+                for c in candidatos:
+                    c_str = str(c).upper().strip()
+                    for p_info in prods_map:
+                        sis_upper = (p_info["codigo_sistema"] or "").upper().strip()
+                        id_upper = (p_info["id_codigo"] or "").upper().strip()
+                        if c_str == sis_upper or c_str == id_upper:
+                            p_db = p_info["obj"]
+                            match_exitoso = True
+                            break
+                    if p_db:
+                        break
             
-            # Reporte de logs de control si falla el emparejamiento
-            if logs_fallidos_counter[0] < 3:
-                sample_fritech = prods_map[0]["codigo_sistema"] if prods_map else "Sin productos"
-                logger.info(
-                    f"⚠️ [Unificación] Cruce fallido ({logs_fallidos_counter[0] + 1}/3): Intentando cruzar candidatos WO {candidatos} "
-                    f"con FriTech (Muestra: '{sample_fritech}'). No se encontró coincidencia flexible."
-                )
-                logs_fallidos_counter[0] += 1
+            if not p_db:
+                # Intento 3: Substring
+                for c in candidatos:
+                    c_limpio = limpiar_codigo_wo(c)
+                    if len(c_limpio) < 3:
+                        continue
+                    for p_info in prods_map:
+                        if c_limpio in p_info["cod_sis_limpio"] or c_limpio in p_info["id_cod_limpio"]:
+                            p_db = p_info["obj"]
+                            match_exitoso = True
+                            break
+                        if p_info["cod_sis_limpio"] and p_info["cod_sis_limpio"] in c_limpio:
+                            p_db = p_info["obj"]
+                            match_exitoso = True
+                            break
+                        if p_info["id_cod_limpio"] and p_info["id_cod_limpio"] in c_limpio:
+                            p_db = p_info["obj"]
+                            match_exitoso = True
+                            break
+                    if p_db:
+                        break
             
-            return None
-        
-        for item in registros_wo:
-            stock_wo = item.stock_wo or 0.0
-            precio_wo = item.precio_wo or 0.0
+            # Imprimir Logs de Diagnóstico obligatorios
+            logger.info(f"[DEBUG] Comparando Código WO: {c_principal}")
+            logger.info(f"[DEBUG] Contra el Código Local más parecido en db_productos: {codigo_local_parecido}")
+            logger.info(f"[DEBUG] Resultado de la comparación (limpieza): {match_exitoso}")
             
-            p_db = buscar_producto_flexible(item)
             if p_db:
                 p_db.p_terminado = stock_wo
                 p_db.precio = precio_wo
                 actualizados += 1
                 
         db.session.commit()
-        logger.info(f"✅ Unificación manual completada: {actualizados} productos actualizados en db_productos.")
+        logger.info(f"✅ [Auditoría] Unificación completada: {actualizados} de 10 productos actualizados en db_productos.")
         
         return jsonify({
             "success": True,
-            "message": "Unificación completada con éxito",
+            "message": f"[Modo Auditoría] Procesados 10 registros. Actualizados: {actualizados}",
             "actualizados": actualizados
         }), 200
         
