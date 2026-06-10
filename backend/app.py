@@ -82,6 +82,7 @@ from backend.routes.historial_routes import historial_bp
 from backend.routes.ensamble_routes import ensamble_bp
 from backend.routes.ia_routes import ia_bp
 from backend.routes.gerencia_routes import gerencia_bp
+from backend.routes.wo_routes import wo_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -101,6 +102,7 @@ app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
 app.register_blueprint(ensamble_bp)
 app.register_blueprint(ia_bp)
 app.register_blueprint(gerencia_bp)
+app.register_blueprint(wo_bp)
 
 
 # --- RUTA DE DEBUG INICIAL ---
