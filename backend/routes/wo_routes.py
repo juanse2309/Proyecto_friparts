@@ -289,22 +289,30 @@ def unificar_inventario_wo():
         no_encontrados = 0
         
         for item in items_wo:
-            cod_wo_raw = item.codigo_producto
-            if not cod_wo_raw:
-                continue
-                
-            ref_wo = normalizar_referencia(cod_wo_raw)
-            if not ref_wo:
-                continue
+            # Primero intentar cruzar por el campo referencia
+            ref_wo = normalizar_referencia(item.referencia)
+            p_db = None
+            ref_usada = ""
             
-            p_db = productos_mapa.get(ref_wo)
+            if ref_wo:
+                p_db = productos_mapa.get(ref_wo)
+                ref_usada = item.referencia
+                
+            # Si no hay match o estaba vacío, intentar con codigo_alterno
+            if not p_db:
+                ref_alt = normalizar_referencia(item.codigo_alterno)
+                if ref_alt:
+                    p_db = productos_mapa.get(ref_alt)
+                    ref_usada = item.codigo_alterno
+            
             if p_db:
                 p_db.p_terminado = float(item.stock_wo or 0)
                 p_db.precio = float(item.precio_wo or 0)
                 actualizados += 1
             else:
-                # Log requerido: [DEBUG] Referencia WO no encontrada en catálogo: [valor]
-                logger.info(f"[DEBUG] Referencia WO no encontrada en catálogo: {cod_wo_raw}")
+                # Si no se encontró en ningún campo, registrar en debug
+                valor_reporte = ref_usada or item.referencia or item.codigo_alterno or item.codigo_producto
+                logger.info(f"[DEBUG] Referencia WO no encontrada en catálogo: {valor_reporte}")
                 no_encontrados += 1
                 
         # Confirmar los cambios al final del proceso
