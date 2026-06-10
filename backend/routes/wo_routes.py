@@ -250,18 +250,16 @@ def recibir_datos():
             "error": str(e)
         }), 500
 
-def extraer_referencia(texto):
-    if not texto:
+def normalizar_referencia(codigo):
+    if not codigo:
         return ""
     import re
-    # Pasar a mayúsculas y quitar espacios iniciales/finales
-    t = str(texto).strip().upper()
-    # Eliminar prefijos de letras seguidos de guión (ej. FR-, MT-, CAR-)
-    t = re.sub(r'^[A-Z]+-', '', t)
-    # Eliminar también prefijos de letras si van pegados al número (ej. FR9714 -> 9714)
-    t = re.sub(r'^[A-Z]+(?=\d)', '', t)
-    # Quedarse únicamente con caracteres alfanuméricos
+    # Convertir a mayúsculas
+    t = str(codigo).upper()
+    # Quitar espacios, guiones y caracteres no alfanuméricos
     t = re.sub(r'[^A-Z0-9]', '', t)
+    # Remover prefijo 'FR' si es seguido por dígitos para unificación exitosa (FR9714 -> 9714)
+    t = re.sub(r'^FR(?=\d)', '', t)
     return t
 
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
@@ -280,7 +278,7 @@ def unificar_inventario_wo():
         # Mapear productos por su referencia normalizada como llave del diccionario
         productos_mapa = {}
         for p in productos:
-            ref_local = extraer_referencia(p.codigo_sistema) or extraer_referencia(p.id_codigo)
+            ref_local = normalizar_referencia(p.codigo_sistema) or normalizar_referencia(p.id_codigo)
             if ref_local:
                 productos_mapa[ref_local] = p
 
@@ -295,7 +293,7 @@ def unificar_inventario_wo():
             if not cod_wo_raw:
                 continue
                 
-            ref_wo = extraer_referencia(cod_wo_raw)
+            ref_wo = normalizar_referencia(cod_wo_raw)
             if not ref_wo:
                 continue
             
