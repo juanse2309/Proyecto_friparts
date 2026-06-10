@@ -47,6 +47,67 @@ def recibir_datos():
             datos = [datos] if datos else []
             
         logger.info(f"Datos de WO recibidos ({nombre_vista}): {len(datos)} registros")
+
+        # Upsert para Vista_Tabla_Inventarios
+        if nombre_vista == "Vista_Tabla_Inventarios":
+            from backend.core.sql_database import db
+            from backend.models.sql_models import InventarioWO
+            
+            upsert_count = 0
+            for r in datos:
+                # Extraer codigo_producto de forma flexible
+                codigo_producto = (
+                    r.get('código_producto') or 
+                    r.get('codigo_producto') or 
+                    r.get('codigo') or 
+                    r.get('código')
+                )
+                if not codigo_producto:
+                    continue
+                codigo_producto = str(codigo_producto).strip()
+                
+                descripcion = (
+                    r.get('descripción') or 
+                    r.get('descripcion') or 
+                    r.get('nombre') or 
+                    r.get('detalle') or 
+                    ""
+                )
+                descripcion = str(descripcion).strip()
+                
+                # Convertir stock de forma segura
+                stock_raw = r.get('stock_wo') or r.get('stock') or r.get('cantidad') or 0
+                try:
+                    stock_wo = float(stock_raw)
+                except (ValueError, TypeError):
+                    stock_wo = 0.0
+                    
+                # Convertir precio de forma segura
+                precio_raw = r.get('precio_wo') or r.get('precio') or r.get('precio_venta') or 0
+                try:
+                    precio_wo = float(precio_raw)
+                except (ValueError, TypeError):
+                    precio_wo = 0.0
+                
+                # Realizar Upsert
+                registro_existente = db.session.query(InventarioWO).filter_by(codigo_producto=codigo_producto).first()
+                if registro_existente:
+                    registro_existente.descripcion = descripcion
+                    registro_existente.stock_wo = stock_wo
+                    registro_existente.precio_wo = precio_wo
+                else:
+                    nuevo_registro = InventarioWO(
+                        codigo_producto=codigo_producto,
+                        descripcion=descripcion,
+                        stock_wo=stock_wo,
+                        precio_wo=precio_wo
+                    )
+                    db.session.add(nuevo_registro)
+                
+                upsert_count += 1
+            
+            db.session.commit()
+            logger.info(f"✅ Upsert exitoso en inventario_wo: {upsert_count} registros procesados.")
         
         return jsonify({
             "success": True,
