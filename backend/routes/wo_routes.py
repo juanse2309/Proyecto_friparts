@@ -253,57 +253,60 @@ def recibir_datos():
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
 def unificar_inventario_wo():
     """
-    Modo Auditoría de Estructura de Datos.
-    Detecta e imprime columnas y datos crudos de las tablas físicas.
+    Sincroniza y unifica el stock de la tabla espejo inventario_wo
+    en la tabla db_productos mediante comparación exacta de códigos en mayúsculas sin espacios.
     """
     try:
         from backend.core.sql_database import db
         from backend.models.sql_models import InventarioWO, Producto
-        from sqlalchemy import inspect
-        
-        # 1. Asegurar columnas alternas en caliente por si acaso
-        try:
-            db.session.execute(text("ALTER TABLE inventario_wo ADD COLUMN IF NOT EXISTS codigo_alterno VARCHAR(100)"))
-            db.session.execute(text("ALTER TABLE inventario_wo ADD COLUMN IF NOT EXISTS referencia VARCHAR(100)"))
-            db.session.commit()
-        except Exception as e_ddl:
-            db.session.rollback()
-            logger.warning(f"No se pudieron asegurar las columnas DDL de inventario_wo: {e_ddl}")
 
-        # 2. Obtener columnas reales de la base de datos física
-        inspector = inspect(db.engine)
-        cols_wo_db = [c['name'] for c in inspector.get_columns('inventario_wo')]
-        cols_prod_db = [c['name'] for c in inspector.get_columns('db_productos')]
+        # Traer todos los registros de db_productos
+        productos = db.session.query(Producto).all()
         
-        logger.info(f"[DEBUG] Columnas detectadas en inventario_wo: {cols_wo_db}")
-        logger.info(f"[DEBUG] Columnas detectadas en db_productos: {cols_prod_db}")
+        # Mapear productos por su codigo_sistema normalizado (.strip().upper())
+        productos_map = {}
+        for p in productos:
+            if p.codigo_sistema:
+                key = str(p.codigo_sistema).strip().upper()
+                productos_map[key] = p
+
+        # Traer todos los registros de inventario_wo
+        items_wo = db.session.query(InventarioWO).all()
         
-        # 3. Obtener primeros 3 registros crudos tal cual vienen de la base de datos
-        raw_res = db.session.execute(text("SELECT * FROM inventario_wo LIMIT 3")).mappings().all()
-        registros_crudos = []
-        for r in raw_res:
-            row_dict = {}
-            for k, v in dict(r).items():
-                # Convertir a float/string para serialización segura en JSON
-                if isinstance(v, (int, float)) or v is None:
-                    row_dict[k] = v
-                elif hasattr(v, '__str__'):
-                    row_dict[k] = str(v)
-                else:
-                    row_dict[k] = v
-            registros_crudos.append(row_dict)
+        actualizados = 0
+        no_encontrados = 0
+        
+        for item in items_wo:
+            cod_wo_raw = item.codigo_producto
+            if not cod_wo_raw:
+                continue
             
-        logger.info(f"[DEBUG] Primeros 3 registros crudos de inventario_wo: {registros_crudos}")
+            cod_wo = str(cod_wo_raw).strip().upper()
+            
+            # Buscar coincidencia de fuerza bruta
+            p_db = productos_map.get(cod_wo)
+            if p_db:
+                p_db.p_terminado = float(item.stock_wo or 0)
+                p_db.precio = float(item.precio_wo or 0)
+                actualizados += 1
+            else:
+                logger.info(f"[DEBUG] NO SE ENCONTRÓ EMPAREJAMIENTO para código WO: {cod_wo_raw}")
+                no_encontrados += 1
+                
+        # Confirmar los cambios al final del proceso
+        db.session.commit()
+        
+        logger.info(f"📊 [Unificar WO] Proceso finalizado. Actualizados: {actualizados}, No encontrados: {no_encontrados}")
         
         return jsonify({
             "success": True,
-            "message": "Auditoría de estructura de datos completada",
-            "columnas_inventario_wo": cols_wo_db,
-            "columnas_db_productos": cols_prod_db,
-            "primeros_3_registros_wo": registros_crudos
+            "message": f"Sincronización de stock completada. {actualizados} productos actualizados, {no_encontrados} no emparejados.",
+            "actualizados": actualizados,
+            "no_emparejados": no_encontrados
         }), 200
-        
+
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error en endpoint unificar de WO: {e}")
         return jsonify({
             "success": False,
