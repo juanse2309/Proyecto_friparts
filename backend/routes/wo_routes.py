@@ -267,86 +267,83 @@ def normalizar_referencia(codigo):
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
 def unificar_inventario_wo():
     """
-    Sincroniza y unifica el stock de la tabla espejo inventario_wo
-    en la tabla db_productos mediante código de referencia utilizando Hashing (O(1)).
+    MODO DIAGNÓSTICO: Solo lee y compara, NO actualiza nada.
+    Imprime los valores RAW de WO y los 3 códigos locales más cercanos
+    para identificar el gap de normalización.
     """
     try:
         from backend.core.sql_database import db
         from backend.models.sql_models import InventarioWO, Producto
+        from difflib import SequenceMatcher, get_close_matches
 
         # Traer todos los productos de db_productos
         productos = db.session.query(Producto).all()
         
-        # Mapear productos por su referencia normalizada como llave del diccionario
-        productos_mapa = {}
+        # Guardar valores RAW locales para diagnóstico
+        # Clave: normalizada -> (codigo_sistema_raw, id_codigo_raw)
+        productos_mapa_raw = {}
         for p in productos:
             ref_local = normalizar_referencia(p.codigo_sistema) or normalizar_referencia(p.id_codigo)
             if ref_local:
-                productos_mapa[ref_local] = p
+                productos_mapa_raw[ref_local] = {
+                    "codigo_sistema": p.codigo_sistema,
+                    "id_codigo": p.id_codigo,
+                    "ref_norm": ref_local
+                }
 
-        # Traer todos los registros de inventario_wo
-        items_wo = db.session.query(InventarioWO).all()
+        claves_locales_norm = list(productos_mapa_raw.keys())
+
+        # Traer los primeros 20 items de inventario_wo para diagnóstico (evitar flood de logs)
+        items_wo = db.session.query(InventarioWO).limit(20).all()
         
-        actualizados = 0
+        encontrados = 0
         no_encontrados = 0
-        
-        # Pre-calcular lista de claves normalizadas para fallback de substring
-        claves_locales = list(productos_mapa.keys())
-        
+
         for item in items_wo:
-            p_db = None
-            ref_usada = ""
-            ref_wo = ""
-            
-            # 1. Primer intento: campo referencia (lookup exacto O(1))
-            ref_wo = normalizar_referencia(item.referencia)
-            if ref_wo:
-                p_db = productos_mapa.get(ref_wo)
-                ref_usada = item.referencia
-            
-            # 2. Segundo intento: campo codigo_alterno (lookup exacto O(1))
-            if not p_db:
-                ref_alt = normalizar_referencia(item.codigo_alterno)
-                if ref_alt:
-                    p_db = productos_mapa.get(ref_alt)
-                    if p_db:
-                        ref_usada = item.codigo_alterno
-                        ref_wo = ref_alt
-            
-            # 3. Tercer intento: cruce relajado por substring (ref_wo contenida en clave local o viceversa)
-            if not p_db and ref_wo and len(ref_wo) >= 4:
-                for clave_local in claves_locales:
-                    if len(clave_local) >= 4 and (ref_wo in clave_local or clave_local in ref_wo):
-                        p_db = productos_mapa[clave_local]
-                        ref_usada = f"{ref_usada or ref_wo} -> {clave_local} (substring)"
-                        break
-            
-            if p_db:
-                p_db.p_terminado = float(item.stock_wo or 0)
-                p_db.precio = float(item.precio_wo or 0)
-                actualizados += 1
+            # Valores RAW tal cual están en la tabla
+            ref_raw = item.referencia
+            alt_raw = item.codigo_alterno
+            cod_raw = item.codigo_producto
+
+            # Normalizar para intentar lookup
+            ref_wo_norm = normalizar_referencia(ref_raw)
+            alt_wo_norm = normalizar_referencia(alt_raw)
+
+            hit = productos_mapa_raw.get(ref_wo_norm) or productos_mapa_raw.get(alt_wo_norm)
+
+            if hit:
+                logger.info(
+                    f'[DEBUG-OK] WO: referencia="{ref_raw}" | alt="{alt_raw}" | cod="{cod_raw}" '
+                    f'-> MATCH con local: codigo_sistema="{hit["codigo_sistema"]}" | id_codigo="{hit["id_codigo"]}" | ref_norm="{hit["ref_norm"]}"'
+                )
+                encontrados += 1
             else:
-                # Debug de rescate: mostrar 5 claves locales más cercanas
-                valor_wo = ref_wo or item.referencia or item.codigo_alterno or item.codigo_producto
-                muestra_local = claves_locales[:5]
-                logger.info(f'[DEBUG] Referencia WO "{valor_wo}" no encontrada en catálogo. Intentamos buscarla en: {muestra_local}')
+                # Buscar los 3 más cercanos por similitud en las claves normalizadas
+                clave_busqueda = ref_wo_norm or alt_wo_norm
+                cercanos_norm = get_close_matches(clave_busqueda, claves_locales_norm, n=3, cutoff=0.0) if clave_busqueda else []
+                cercanos_raw = [
+                    f"{productos_mapa_raw[c]['codigo_sistema']} (norm={c})"
+                    for c in cercanos_norm
+                ]
+                logger.info(
+                    f'[DEBUG-FAIL] WO: referencia="{ref_raw}" | alt="{alt_raw}" | cod="{cod_raw}" '
+                    f'| ref_norm="{ref_wo_norm}" | alt_norm="{alt_wo_norm}" '
+                    f'-> NO ENCONTRADO. Más cercanos locales: {cercanos_raw}'
+                )
                 no_encontrados += 1
-                
-        # Confirmar los cambios al final del proceso
-        db.session.commit()
-        
-        logger.info(f"📊 [Unificar WO por Referencia] Proceso finalizado. Actualizados: {actualizados}, No encontrados: {no_encontrados}")
+
+        logger.info(f"📊 [DIAGNÓSTICO] Encontrados: {encontrados} | No encontrados: {no_encontrados} (de {len(items_wo)} muestras)")
         
         return jsonify({
             "success": True,
-            "message": f"Sincronización de stock completada. {actualizados} productos actualizados, {no_encontrados} no emparejados.",
-            "actualizados": actualizados,
-            "no_emparejados": no_encontrados
+            "message": f"MODO DIAGNÓSTICO completado. Encontrados: {encontrados}, No encontrados: {no_encontrados}. Revisa los logs del servidor.",
+            "encontrados": encontrados,
+            "no_encontrados": no_encontrados,
+            "nota": "Este modo NO actualiza datos. Revisa los logs [DEBUG-OK] y [DEBUG-FAIL] en el servidor."
         }), 200
 
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error en unificar de WO por referencia: {e}")
+        logger.error(f"❌ Error en diagnóstico WO: {e}")
         return jsonify({
             "success": False,
             "error": str(e)
