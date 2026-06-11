@@ -49,27 +49,55 @@ def obtener_historial_global():
         logger.info(f"🔍 [Historial] Consulta v5.0 SQL-Limpio ({f_desde} -> {f_hasta})")
         movimientos = []
 
-        # 1. INYECCIÓN
+        # 1. INYECCIÓN — SQL nativo con CAST para evitar comparación Date vs DateTime (timestamp)
         if not tipo_filtro or tipo_filtro == 'INYECCION':
             try:
-                res = ProduccionInyeccion.query.filter(ProduccionInyeccion.fecha_inicia.between(f_desde, f_hasta)).all()
-                for r in res:
-                    movimientos.append({
-                        'Fecha': getattr(r.fecha_inicia, 'strftime', lambda x: '')('%d/%m/%Y') if r.fecha_inicia else '',
-                        'Tipo': 'INYECCION',
-                        'Producto': safe_str(getattr(r, 'id_codigo', '')),
-                        'Responsable': safe_str(getattr(r, 'responsable', 'SISTEMA')),
-                        'Cant': float(str(getattr(r, 'cantidad_real', 0) or 0).replace(',', '.')),
-                        'Orden': safe_str(getattr(r, 'orden_produccion', '')) or safe_str(getattr(r, 'id_inyeccion', '')),
-                        'Extra': f"Molde: {getattr(r, 'molde', '')}",
-                        'Detalle': safe_str(getattr(r, 'observaciones', '')),
-                        'HORA_INICIO': format_time_py(getattr(r, 'hora_inicio', None)),
-                        'HORA_FIN': format_time_py(getattr(r, 'hora_termina', None)),
-                        'hoja': 'db_inyeccion',
-                        'fila': getattr(r, 'id', 0)
-                    })
+                sql_iny = """
+                    SELECT
+                        id, id_inyeccion::TEXT, fecha_inicia, fecha_fin,
+                        id_codigo::TEXT, responsable::TEXT, maquina::TEXT,
+                        cantidad_real, estado::TEXT, molde, cavidades,
+                        hora_llegada::TEXT, hora_inicio::TEXT, hora_termina::TEXT,
+                        cant_contador, almacen_destino::TEXT, codigo_ensamble::TEXT,
+                        orden_produccion::TEXT, observaciones::TEXT,
+                        pnc_total, departamento::TEXT
+                    FROM db_inyeccion
+                    WHERE CAST(fecha_inicia AS DATE) BETWEEN :desde AND :hasta
+                    ORDER BY fecha_inicia DESC
+                """
+                logger.info(
+                    f"🔍 [Historial-INYECCION] SQL enviado a PostgreSQL: "
+                    f"SELECT ... FROM db_inyeccion WHERE CAST(fecha_inicia AS DATE) "
+                    f"BETWEEN '{f_desde}' AND '{f_hasta}'"
+                )
+                res_raw = db.session.execute(text(sql_iny), {"desde": f_desde, "hasta": f_hasta})
+                res_iny = [dict(row._mapping) for row in res_raw]
+                logger.info(f"✅ [Historial-INYECCION] Registros encontrados: {len(res_iny)} (rango {f_desde} → {f_hasta})")
+
+                for r in res_iny:
+                    try:
+                        fi = r.get('fecha_inicia')
+                        movimientos.append({
+                            'Fecha': fi.strftime('%d/%m/%Y') if fi else '',
+                            'Tipo': 'INYECCION',
+                            'Producto': safe_str(r.get('id_codigo', '')),
+                            'Responsable': safe_str(r.get('responsable', 'SISTEMA')),
+                            'Cant': float(str(r.get('cantidad_real') or 0).replace(',', '.')),
+                            'Orden': safe_str(r.get('orden_produccion', '')) or safe_str(r.get('id_inyeccion', '')),
+                            'Extra': f"Molde: {r.get('molde', '')}",
+                            'Detalle': safe_str(r.get('observaciones', '')),
+                            'HORA_INICIO': safe_str(r.get('hora_inicio', '')),
+                            'HORA_FIN': safe_str(r.get('hora_termina', '')),
+                            'hoja': 'db_inyeccion',
+                            'fila': int(r.get('id', 0))
+                        })
+                    except Exception as e_row:
+                        logger.error(f"❌ [Historial-INYECCION] Error procesando fila (ID {r.get('id', '?')}): {e_row}")
+                        continue
             except Exception as e:
-                logger.error(f"Error Inyeccion: {e}")
+                logger.error(f"❌ [Historial-INYECCION] Error crítico en bloque: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
         # 2. PULIDO (Lógica Quirúrgica v4.4)
         if not tipo_filtro or tipo_filtro == 'PULIDO':
@@ -210,11 +238,18 @@ def obtener_historial_global():
         # 6. PNC
         if not tipo_filtro or tipo_filtro == 'PNC':
             try:
-                # PNC INYECCIÓN
+                from sqlalchemy import func, cast, Date as SADate
+
+                # PNC INYECCIÓN — cast DateTime → Date para comparación correcta de rango
                 iny_query = db.session.query(PncInyeccion, ProduccionInyeccion).outerjoin(
                     ProduccionInyeccion, PncInyeccion.id_inyeccion == ProduccionInyeccion.id_inyeccion
-                ).filter(ProduccionInyeccion.fecha_inicia.between(f_desde, f_hasta))
-                
+                ).filter(
+                    cast(ProduccionInyeccion.fecha_inicia, SADate) >= f_desde,
+                    cast(ProduccionInyeccion.fecha_inicia, SADate) <= f_hasta
+                )
+                logger.info(
+                    f"🔍 [Historial-PNC-INY] CAST(fecha_inicia AS DATE) >= '{f_desde}' AND <= '{f_hasta}'"
+                )
                 for pnc, prod in iny_query.all():
                     movimientos.append({
                         'Fecha': getattr(prod.fecha_inicia, 'strftime', lambda x: '')('%d/%m/%Y') if prod and prod.fecha_inicia else 'S/F',
@@ -230,12 +265,14 @@ def obtener_historial_global():
                         'hoja': 'db_pnc_inyeccion',
                         'fila': getattr(pnc, 'id_row', 0)
                     })
-                    
-                # PNC PULIDO
+
+                # PNC PULIDO — ProduccionPulido.fecha también es DateTime
                 pul_query = db.session.query(PncPulido, ProduccionPulido).outerjoin(
                     ProduccionPulido, PncPulido.id_pulido == ProduccionPulido.id_pulido
-                ).filter(ProduccionPulido.fecha.between(f_desde, f_hasta))
-                
+                ).filter(
+                    cast(ProduccionPulido.fecha, SADate) >= f_desde,
+                    cast(ProduccionPulido.fecha, SADate) <= f_hasta
+                )
                 for pnc, prod in pul_query.all():
                     movimientos.append({
                         'Fecha': getattr(prod.fecha, 'strftime', lambda x: '')('%d/%m/%Y') if prod and prod.fecha else 'S/F',
@@ -251,12 +288,14 @@ def obtener_historial_global():
                         'hoja': 'db_pnc_pulido',
                         'fila': getattr(pnc, 'id_row', 0)
                     })
-                    
-                # PNC ENSAMBLE
+
+                # PNC ENSAMBLE — Ensamble.fecha es DateTime
                 ens_query = db.session.query(PncEnsamble, Ensamble).outerjoin(
                     Ensamble, PncEnsamble.id_ensamble == Ensamble.id_ensamble
-                ).filter(Ensamble.fecha.between(f_desde, f_hasta))
-                
+                ).filter(
+                    cast(Ensamble.fecha, SADate) >= f_desde,
+                    cast(Ensamble.fecha, SADate) <= f_hasta
+                )
                 for pnc, prod in ens_query.all():
                     movimientos.append({
                         'Fecha': getattr(prod.fecha, 'strftime', lambda x: '')('%d/%m/%Y') if prod and prod.fecha else 'S/F',
