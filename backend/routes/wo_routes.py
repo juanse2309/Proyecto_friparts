@@ -238,30 +238,16 @@ def unificar_inventario_wo():
                 "actualizados": 0
             }), 400
 
-        # Ejecutamos un UPDATE masivo nativo en PostgreSQL
-        # Usamos REGEXP_REPLACE o LIKE para hacer el match de la parte numérica.
-        # Aquí cruzamos usando la parte numérica normalizada
-        
+        # NOTA: Este UPDATE sincroniza ÚNICAMENTE el stock físico (p_terminado)
+        # por coincidencia exacta (Exact Match) de strings para evitar colisiones.
         sql_update = text("""
-            WITH normalizados AS (
-                SELECT 
-                    codigo_producto, 
-                    stock_wo, 
-                    precio_wo,
-                    -- Extraemos el último bloque de números de la referencia de WO
-                    SUBSTRING(codigo_producto FROM '([0-9]+)$') as ref_num_wo
-                FROM inventario_wo
-                WHERE SUBSTRING(codigo_producto FROM '([0-9]+)$') IS NOT NULL
-            )
             UPDATE db_productos AS p
             SET 
-                p_terminado = COALESCE(n.stock_wo, 0),
-                precio = COALESCE(n.precio_wo, 0)
-            FROM normalizados n
+                p_terminado = COALESCE(n.stock_wo, 0)
+            FROM inventario_wo n
             WHERE 
-                -- Hacemos match con el mismo bloque numérico extraído de codigo_sistema o id_codigo
-                SUBSTRING(p.codigo_sistema FROM '([0-9]+)$') = n.ref_num_wo
-                OR SUBSTRING(p.id_codigo FROM '([0-9]+)$') = n.ref_num_wo;
+                p.codigo_sistema = n.codigo_producto
+                OR p.id_codigo = n.codigo_producto;
         """)
         
         result = db.session.execute(sql_update)

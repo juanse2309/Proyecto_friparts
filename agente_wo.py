@@ -107,57 +107,78 @@ def probar_y_sincronizar_productos():
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
         
-        # 2. PASO DIAGNÓSTICO: Leer las columnas reales de Vista_Existencias antes de ejecutar la query
+        # 2. Inspeccionar Vista_Tabla_Inventarios para encontrar la columna de SKU
         nombre_vista = "Vista_Existencias"
-        logger.info("Inspeccionando columnas reales de Vista_Existencias...")
-        cursor.execute("SELECT TOP 1 * FROM [FRIPARTS2021].[dbo].[Vista_Existencias]")
-        columnas_reales = [col[0] for col in cursor.description]
-        logger.info(f"[AUDITORIA] Columnas reales encontradas: {columnas_reales}")
-        cursor.fetchall()  # Vaciar el cursor antes del siguiente query
-
-        # 3. Auto-detectar el nombre de la columna de código e inventario
-        # Buscar la columna que contenga 'codigo' o 'inventario' (case-insensitive)
-        col_codigo = None
-        col_stock = None
-        for c in columnas_reales:
-            cn = c.lower().replace('ó', 'o').replace('é', 'e').replace('á', 'a')
-            if col_codigo is None and ('codigo' in cn or 'inventario' in cn or 'referencia' in cn or 'articulo' in cn):
-                col_codigo = c
-            if col_stock is None and ('existencia' in cn or 'stock' in cn or 'saldo' in cn or 'cantidad' in cn):
-                col_stock = c
-
-        if not col_codigo or not col_stock:
-            logger.error(f"No se encontraron las columnas esperadas. Disponibles: {columnas_reales}")
-            logger.error("Edita agente_wo.py y ajusta manualmente col_codigo y col_stock.")
-            return False
-
-        logger.info(f"[AUDITORIA] Columna de Codigo: '{col_codigo}' | Columna de Stock: '{col_stock}'")
-
-        # 4. Ejecutar la consulta consolidada con SUM para agrupar por producto
-        # Razón: la vista tiene una fila por bodega; sin GROUP BY los saldos en cero sobreescriben los reales.
-        query = (
-            f"SELECT [{col_codigo}] AS codigo_producto, "
-            f"SUM([{col_stock}]) AS stock_wo "
-            f"FROM [FRIPARTS2021].[dbo].[Vista_Existencias] "
-            f"WHERE [{col_codigo}] IS NOT NULL "
-            f"GROUP BY [{col_codigo}]"
-        )
-        logger.info(f"Ejecutando consulta: {query}")
-        cursor.execute(query)
-
-        # Mapear filas a una lista de diccionarios asegurando los tipos de datos
         registros = []
-        for row in cursor.fetchall():
-            codigo_val = str(row[0] or '').strip()
-            if not codigo_val:
-                continue
-            try:
-                stock_val = float(row[1])
-            except (ValueError, TypeError):
-                stock_val = 0.0
-            registros.append({'codigo_producto': codigo_val, 'stock_wo': stock_val})
 
-        logger.info(f"Extraccion exitosa. {len(registros)} registros obtenidos de Vista_Existencias.")
+        logger.info("Inspeccionando columnas de Vista_Tabla_Inventarios para detectar el SKU...")
+        cursor.execute("SELECT TOP 1 * FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios]")
+        cols_inv = [col[0] for col in cursor.description]
+        cursor.fetchall()
+        logger.info(f"[AUDITORIA] Columnas de Vista_Tabla_Inventarios: {cols_inv}")
+
+        # Auto-detectar columna de ID interno y columna de SKU/Código
+        col_id_inv   = None  # La FK que une con Vista_Existencias (IdInventario)
+        col_sku      = None  # El código alfanumérico del producto (ej: FR-123)
+        for c in cols_inv:
+            cn = c.lower().replace('ó','o').replace('é','e').replace('á','a').replace('í','i')
+            if col_id_inv is None and cn in ('idinventario', 'id_inventario', 'id'):
+                col_id_inv = c
+            if col_sku is None and ('codigo' in cn or 'referencia' in cn or 'sku' in cn or 'articulo' in cn):
+                col_sku = c
+
+        logger.info(f"[AUDITORIA] col_id_inv='{col_id_inv}' | col_sku='{col_sku}'")
+
+        if col_id_inv and col_sku:
+            query_join = f"""
+                SELECT 
+                    i.[{col_sku}] AS codigo_producto,
+                    SUM(e.[Existencia]) AS stock_wo
+                FROM [FRIPARTS2021].[dbo].[Vista_Existencias] e
+                INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios] i
+                    ON e.[IdInventario] = i.[{col_id_inv}]
+                WHERE e.[Existencia] IS NOT NULL
+                GROUP BY i.[{col_sku}]
+            """
+            try:
+                logger.info(f"Ejecutando JOIN: {query_join.strip()}")
+                cursor.execute(query_join)
+                for row in cursor.fetchall():
+                    codigo_val = str(row[0] or '').strip()
+                    if not codigo_val:
+                        continue
+                    try:
+                        stock_val = float(row[1])
+                    except (ValueError, TypeError):
+                        stock_val = 0.0
+                    registros.append({'codigo_producto': codigo_val, 'stock_wo': stock_val})
+                logger.info(f"JOIN exitoso. {len(registros)} productos con SKU real obtenidos.")
+            except pyodbc.Error as e_join:
+                logger.warning(f"JOIN fallido (2do intento): {e_join}")
+                logger.info(f"[DIAG] Todas las columnas disponibles en Vista_Tabla_Inventarios: {cols_inv}")
+        
+        # Fallback si el JOIN falló o no se detectaron columnas
+        if not registros:
+            logger.warning("FALLBACK: usando IdInventario directamente (sin SKU real). "
+                           "Revisa el log [AUDITORIA] para ajustar col_id_inv y col_sku.")
+            cursor.execute("""
+                SELECT [IdInventario] AS codigo_producto, SUM([Existencia]) AS stock_wo
+                FROM [FRIPARTS2021].[dbo].[Vista_Existencias]
+                WHERE [IdInventario] IS NOT NULL
+                GROUP BY [IdInventario]
+            """)
+            for row in cursor.fetchall():
+                codigo_val = str(row[0] or '').strip()
+                if not codigo_val:
+                    continue
+                try:
+                    stock_val = float(row[1])
+                except (ValueError, TypeError):
+                    stock_val = 0.0
+                registros.append({'codigo_producto': codigo_val, 'stock_wo': stock_val})
+            logger.info(f"Fallback exitoso. {len(registros)} registros obtenidos.")
+
+        logger.info(f"Total final a enviar: {len(registros)} registros.")
         
         # Cerrar conexión de base de datos
         cursor.close()
@@ -188,34 +209,44 @@ def probar_y_sincronizar_productos():
         logger.info(f"[DEBUG] Headers de Envío: {headers}")
         logger.info(f"[DEBUG] Tamaño del Payload: {len(payload_json)} bytes")
         
-        try:
-            logger.info(f"Enviando datos al servidor en la nube ({FRITECH_API_URL})...")
-            response = requests.post(
-                FRITECH_API_URL, 
-                data=payload_json, 
-                headers=headers,
-                timeout=30
-            )
-            
-            logger.info(f"[DEBUG] Código de Respuesta del Servidor: {response.status_code}")
-            logger.info(f"[DEBUG] Respuesta Completa del Servidor: {response.text}")
-            
-            # 4. Procesar respuesta del servidor
-            if response.status_code == 200:
-                logger.info("🎉 ¡Sincronización exitosa!")
-                return True
-            elif response.status_code == 401:
-                logger.error("❌ Error 401: No autorizado. Verifica la API Key (WO_SYNC_API_KEY).")
-            else:
-                logger.error(f"❌ Error en el servidor (Status {response.status_code})")
-                
-            return False
-            
-        except requests.exceptions.RequestException as e_net:
-            logger.error(f"❌ Error de red / conexión al backend (requests.post falló): {e_net}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return False
+        import time as _time
+
+        MAX_INTENTOS = 3
+        for intento in range(1, MAX_INTENTOS + 1):
+            try:
+                logger.info(f"Enviando datos al servidor (intento {intento}/{MAX_INTENTOS})...")
+                response = requests.post(
+                    FRITECH_API_URL,
+                    data=payload_json,
+                    headers=headers,
+                    timeout=60
+                )
+
+                logger.info(f"[DEBUG] Código de Respuesta del Servidor: {response.status_code}")
+                logger.info(f"[DEBUG] Respuesta Completa del Servidor: {response.text}")
+
+                if response.status_code == 200:
+                    logger.info("Sincronizacion exitosa!")
+                    return True
+                elif response.status_code == 401:
+                    logger.error("Error 401: No autorizado. Verifica la API Key (WO_SYNC_API_KEY).")
+                    return False  # No tiene sentido reintentar en 401
+                elif response.status_code == 400:
+                    logger.error(f"Error 400 (datos inválidos): {response.text}")
+                    return False  # No tiene sentido reintentar en 400
+                else:
+                    logger.warning(f"Error en el servidor (Status {response.status_code}). Reintentando...")
+
+            except requests.exceptions.RequestException as e_net:
+                logger.warning(f"Error de red (intento {intento}): {e_net}")
+
+            if intento < MAX_INTENTOS:
+                espera = 5 * intento  # 5s, 10s
+                logger.info(f"Esperando {espera}s antes del siguiente intento...")
+                _time.sleep(espera)
+
+        logger.error(f"Fallaron los {MAX_INTENTOS} intentos de envío al servidor.")
+        return False
         
     except pyodbc.Error as e_sql:
         logger.error(f"❌ Error de base de datos (SQL Server): {e_sql}")

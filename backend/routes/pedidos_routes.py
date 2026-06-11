@@ -730,7 +730,7 @@ def listar_pedidos():
                 id_p = r.id_pedido
                 if id_p not in ped_map:
                     # Extraer fecha_creacion real (original) para no usar la fecha_actualizacion masiva de MetalsPedido
-                    from backend.models.sql_models import Pedido
+                    # Pedido ya está importado globalmente en la línea 3 — NO re-importar aquí (causa UnboundLocalError)
                     original = Pedido.query.filter_by(id_pedido=id_p).first()
                     fecha_orig = original.fecha.strftime('%Y-%m-%d') if original and original.fecha else str(r.fecha)
 
