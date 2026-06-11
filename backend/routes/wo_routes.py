@@ -266,3 +266,150 @@ def unificar_inventario_wo():
         db.session.rollback()
         logger.error(f"❌ Error en unificar WO (SQL Masivo): {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ====================================================================
+# ENDPOINT: RECIBIR DATOS COMERCIALES (VENTAS Y PEDIDOS) DESDE WO
+# ====================================================================
+
+@wo_bp.route('/api/wo/recibir_comercial', methods=['POST'])
+def recibir_comercial():
+    """
+    Recibe la sincronización de ventas, pedidos y devoluciones (año actual) desde World Office.
+    Realiza un DELETE previo del año actual en db_ventas para evitar duplicados,
+    y luego realiza un bulk insert de los nuevos registros mapeados.
+    Ambas operaciones corren en una sola transacción para evitar dejar la base de datos vacía en caso de falla.
+    """
+    # Validar API Key
+    api_key_header = request.headers.get('X-API-Key')
+    api_key_env = os.environ.get('WO_SYNC_API_KEY')
+
+    if not api_key_env:
+        logger.error("❌ Variable de entorno WO_SYNC_API_KEY no configurada en el servidor.")
+        return jsonify({"success": False, "error": "Configuración de seguridad incompleta"}), 500
+
+    if api_key_header != api_key_env:
+        logger.warning(f"⚠️ Sincronización comercial WO no autorizada. Header X-API-Key: {api_key_header}")
+        return jsonify({"success": False, "error": "No autorizado. API Key inválida o ausente."}), 401
+
+    try:
+        payload = request.json or {}
+        if isinstance(payload, dict):
+            datos = payload.get("datos", [])
+        else:
+            datos = payload
+
+        if not isinstance(datos, list):
+            datos = [datos] if datos else []
+
+        logger.info(f"Datos comerciales de WO recibidos: {len(datos)} registros")
+
+        from backend.models.sql_models import RawVentas
+        from backend.core.sql_database import db
+        from sqlalchemy import extract
+        from datetime import datetime
+
+        # Helper para parseo seguro de fechas
+        def parse_date(date_val):
+            if not date_val:
+                return None
+            if isinstance(date_val, datetime):
+                return date_val.date()
+            try:
+                # Intentar formato ISO 'YYYY-MM-DD'
+                return datetime.fromisoformat(str(date_val).replace('Z', '')).date()
+            except ValueError:
+                try:
+                    return datetime.strptime(str(date_val)[:10], '%Y-%m-%d').date()
+                except ValueError:
+                    return None
+
+        # Paso 1: Obtener año actual de Colombia / Servidor
+        current_year = datetime.now().year
+
+        # Paso 2: Ejecutar DELETE e INSERT en la misma transacción lógica
+        # DELETE de todos los registros de este año en db_ventas
+        db.session.query(RawVentas).filter(extract('year', RawVentas.fecha) == current_year).delete(synchronize_session=False)
+
+        # Paso 3: Mapear y preparar datos
+        mappings = []
+        cant_pd = 0
+        cant_fv = 0
+        cant_nc = 0
+
+        for item in datos:
+            clasif = item.get('clasificacion')
+            if clasif == 'pedido':
+                cant_pd += 1
+            elif clasif == 'venta':
+                cant_fv += 1
+            elif clasif == 'devolucion':
+                cant_nc += 1
+            else:
+                # Fallback por si acaso el mapeo falló o viene directo del agente
+                prefijo = item.get('prefijo_doc') or ''
+                if prefijo == 'FV':
+                    clasif = 'venta'
+                    cant_fv += 1
+                elif prefijo == 'PD':
+                    clasif = 'pedido'
+                    cant_pd += 1
+                elif prefijo == 'NC':
+                    clasif = 'devolucion'
+                    cant_nc += 1
+                else:
+                    clasif = 'desconocido'
+
+            # Conversión de tipos para evitar errores de persistencia
+            try:
+                cantidad = float(item.get('cantidad') or 0)
+            except (ValueError, TypeError):
+                cantidad = 0.0
+
+            try:
+                total_ingresos = float(item.get('total_ingresos') or 0)
+            except (ValueError, TypeError):
+                total_ingresos = 0.0
+
+            try:
+                precio_promedio = float(item.get('precio_promedio') or 0)
+            except (ValueError, TypeError):
+                precio_promedio = 0.0
+
+            mappings.append({
+                'fecha': parse_date(item.get('fecha')),
+                'documento': str(item.get('documento') or '').strip()[:80],
+                'nombres': str(item.get('nombres') or '').strip()[:200],
+                'productos': str(item.get('productos') or '').strip()[:100],
+                'cantidad': cantidad,
+                'total_ingresos': total_ingresos,
+                'precio_promedio': precio_promedio,
+                'clasificacion': clasif
+            })
+
+        if mappings:
+            db.session.bulk_insert_mappings(RawVentas, mappings)
+            db.session.commit()
+            logger.info(f"✅ Inserción comercial completada en una única transacción. Insertados: {len(mappings)} registros (PD: {cant_pd}, FV: {cant_fv}, NC: {cant_nc}).")
+        else:
+            db.session.commit()
+            logger.info("ℹ️ No se recibieron registros comerciales válidos para insertar.")
+
+        return jsonify({
+            "success": True,
+            "message": "Sincronización comercial exitosa",
+            "detalles": {
+                "insertados_pd": cant_pd,
+                "insertados_fv": cant_fv,
+                "insertados_nc": cant_nc,
+                "total_insertados": len(mappings)
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Transacción fallida. Sincronización comercial abortada y revertida (Rollback). Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
