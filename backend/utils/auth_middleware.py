@@ -45,9 +45,10 @@ def require_role(allowed_roles_input):
             if user_role in ROL_ADMINS:
                 return f(*args, **kwargs)
             
-            # 5. Check specific access
-            if user_role in allowed_roles:
-                return f(*args, **kwargs)
+            # 5. Check specific access (flexible/inclusive matching)
+            for allowed in allowed_roles:
+                if allowed in user_role:
+                    return f(*args, **kwargs)
             
             return jsonify({
                 'success': False, 

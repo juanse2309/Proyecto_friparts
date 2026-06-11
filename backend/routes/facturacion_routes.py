@@ -7,22 +7,29 @@ from datetime import datetime
 import logging
 from backend.core.sql_database import db
 from backend.models.sql_models import Pedido, Producto, DbCostos
-from sqlalchemy import text
+from sqlalchemy import text, or_
 
 facturacion_bp = Blueprint('facturacion_bp', __name__)
 logger = logging.getLogger(__name__)
 
 
 def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None, incluir_auditoria=False):
-    """Lógica centralizada: Genera Excel y Actualiza SQL simultáneamente."""
+    """Lógica centralizada: Genera Excel y Actualiza SQL simultáneamente con Auto-Sanado de Precios."""
     
-    # 1. Obtener ítems originales de SQL
-    query = Pedido.query.filter(Pedido.estado == 'PENDIENTE')
+    # 1. Obtener ítems originales haciendo un LEFT JOIN con Producto (db_productos)
+    query = db.session.query(Pedido, Producto.precio).select_from(Pedido).outerjoin(
+        Producto,
+        or_(
+            Pedido.id_codigo == Producto.id_codigo,
+            Pedido.id_codigo == Producto.codigo_sistema
+        )
+    ).filter(Pedido.estado == 'PENDIENTE')
+    
     if ids_filter:
         query = query.filter(Pedido.id_pedido.in_(ids_filter))
     
-    items_sql = query.order_by(Pedido.id_pedido.asc()).all()
-    if not items_sql:
+    results = query.order_by(Pedido.id_pedido.asc()).all()
+    if not results:
         return pd.DataFrame(), 0
 
     # 2. Preparar Maestros (Clientes para NITs)
@@ -31,23 +38,6 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None, incluir_auditor
         mapa_clientes = {str(c['nombre']).strip().upper(): str(c['identificacion']).strip() for c in res_clientes}
     except:
         mapa_clientes = {}
-
-    # 2b. Preparar Precios Maestros (para corrección automática)
-    mapa_precios = {}
-    try:
-        codigos = [str(item.id_codigo).strip().upper() for item in items_sql if item.id_codigo]
-        if codigos:
-            productos = Producto.query.filter(
-                (Producto.codigo_sistema.in_(codigos)) |
-                (Producto.id_codigo.in_(codigos))
-            ).all()
-            for p in productos:
-                if p.codigo_sistema:
-                    mapa_precios[str(p.codigo_sistema).strip().upper()] = float(p.precio or 0)
-                if p.id_codigo:
-                    mapa_precios[str(p.id_codigo).strip().upper()] = float(p.precio or 0)
-    except Exception as pe:
-        logger.error(f"[WO] Error consultando precios maestros: {pe}")
 
     # 3. Mapeo WO Estricto (57 columnas)
     columnas_wo = [
@@ -82,7 +72,7 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None, incluir_auditor
 
     items_con_exito = 0
 
-    for item in items_sql:
+    for item, precio_maestro in results:
         id_orig = item.id_pedido
         
         # Asignar/Recuperar consecutivo para este pedido
@@ -109,15 +99,26 @@ def procesar_datos_wo(ids_filter=None, consecutivo_inicial=None, incluir_auditor
         # --- CORRECCIÓN AUTOMÁTICA DE PRECIO Y FINANZAS ---
         prod_cod = str(item.id_codigo or '').strip().upper()
         precio_hist = float(item.precio_unitario or 0)
-        precio_maest = mapa_precios.get(prod_cod, precio_hist)
         
-        precio_final = precio_maest
+        # Obtener el precio maestro de db_productos
+        precio_maest = float(precio_maestro) if precio_maestro is not None else 0.0
+        
+        # Regla de Auto-Sanado: si el precio histórico es 0, nulo, o difiere del maestro
+        if precio_maest > 0:
+            if precio_hist == 0 or abs(precio_hist - precio_maest) > 0.01:
+                precio_final = precio_maest
+            else:
+                precio_final = precio_hist
+        else:
+            precio_final = precio_hist
+
         cant = float(item.cantidad or 0)
         total_recalculado = cant * precio_final
+        total_hist = float(item.total or 0)
         
         # Actualizamos en el objeto de la base de datos (se persistirá en commit)
-        if abs(precio_hist - precio_final) > 0.01:
-            logger.info(f"💲 Corrección automática de precio para {prod_cod}: {precio_hist} -> {precio_final}")
+        if abs(precio_hist - precio_final) > 0.01 or abs(total_hist - total_recalculado) > 0.01:
+            logger.info(f"💲 [Auto-Sanado] Corrección automática para {prod_cod}: precio {precio_hist} -> {precio_final}, total {total_hist} -> {total_recalculado}")
             item.precio_unitario = precio_final
             item.total = total_recalculado
 

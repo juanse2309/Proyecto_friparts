@@ -154,6 +154,8 @@ def registrar_pedido():
         for prod in productos:
             id_sql = prod.get('id_sql')
             codigo = str(prod.get('codigo', '')).strip().upper()
+            if codigo.startswith('9') and not codigo.startswith('FR-'):
+                codigo = f"FR-{codigo}"
             cantidad = float(prod.get('cantidad', 0))
             precio = float(prod.get('precio_unitario', 0))
             descripcion = prod.get('descripcion', '')
@@ -161,6 +163,13 @@ def registrar_pedido():
             
             if not codigo or cantidad <= 0:
                 continue
+
+            if precio <= 0:
+                logger.warning(
+                    f"⚠️ [Fuga de Precios] Item guardado con precio $0 o nulo. "
+                    f"Pedido: {id_pedido_final}, Producto: {codigo}, Cantidad: {cantidad}, "
+                    f"Vendedor: {vendedor}, Cliente: {cliente}"
+                )
 
             # Buscar registro existente para UPSERT
             registro_existente = None

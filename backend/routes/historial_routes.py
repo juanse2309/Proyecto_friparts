@@ -323,7 +323,7 @@ def obtener_historial_global():
 
 
 @historial_bp.route('/api/historial/detalle', methods=['GET'])
-@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
+@require_role(ROL_ADMINS + ['AUXILIAR'])
 def obtener_detalle_historial():
     """
     Devuelve todos los campos detallados de un registro específico
@@ -378,7 +378,7 @@ def obtener_detalle_historial():
 
 
 @historial_bp.route('/api/historial/actualizar', methods=['POST'])
-@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
+@require_role(ROL_ADMINS + ['AUXILIAR'])
 def actualizar_registro_historial():
     """
     Endpoint para editar registros corregidos por Auditoría / Gerencia desde el Historial Global.
@@ -584,3 +584,106 @@ def actualizar_registro_historial():
         db.session.rollback()
         logger.error(f"❌ Error actualizando registro desde historial: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@historial_bp.route('/api/exportar-historial-global', methods=['GET'])
+def exportar_excel_historial_global():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    from flask import send_file
+    
+    try:
+        # Llamar directamente a la función existente para obtener los datos
+        response = obtener_historial_global()
+        if type(response) == tuple and len(response) > 1 and response[1] != 200:
+            return response
+            
+        resultados = response.get_json() if hasattr(response, 'get_json') else response
+        
+        if not isinstance(resultados, list):
+            logger.error("Los resultados no son una lista")
+            return jsonify({"success": False, "error": "Error interno"}), 500
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Historial Global"
+
+        header_font = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
+        header_fill = PatternFill(start_color='2C3E50', end_color='2C3E50', fill_type='solid')
+        header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        thin_border = Border(
+            left=Side(style='thin', color='D5D8DC'),
+            right=Side(style='thin', color='D5D8DC'),
+            top=Side(style='thin', color='D5D8DC'),
+            bottom=Side(style='thin', color='D5D8DC')
+        )
+        zebra_fill = PatternFill(start_color='F2F3F4', end_color='F2F3F4', fill_type='solid')
+        data_align = Alignment(horizontal='center', vertical='center')
+        text_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+        columnas = [
+            'Fecha', 'Hora Inicio', 'Hora Fin', 'Tipo', 'Responsable', 
+            'Producto', 'Orden Prod.', 'Máquina/Extra', 'Cantidad', 'Detalle'
+        ]
+
+        for col_idx, titulo in enumerate(columnas, 1):
+            cell = ws.cell(row=1, column=col_idx, value=titulo)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+        for row_idx, r in enumerate(resultados, 2):
+            fila = [
+                r.get('Fecha', ''),
+                r.get('HORA_INICIO', ''),
+                r.get('HORA_FIN', ''),
+                r.get('Tipo', ''),
+                r.get('Responsable', ''),
+                r.get('Producto', ''),
+                r.get('Orden', ''),
+                r.get('Extra', ''),
+                r.get('Cant', 0),
+                r.get('Detalle', '')
+            ]
+
+            for col_idx, valor in enumerate(fila, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=valor)
+                cell.border = thin_border
+
+                if col_idx in (4, 5, 6, 7, 8, 10): 
+                    cell.alignment = text_align
+                else:
+                    cell.alignment = data_align
+
+            if row_idx % 2 == 0:
+                for col_idx in range(1, len(columnas) + 1):
+                    ws.cell(row=row_idx, column=col_idx).fill = zebra_fill
+
+        anchos = [12, 11, 11, 12, 20, 18, 15, 15, 10, 40]
+        for i, w in enumerate(anchos, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        ws.freeze_panes = 'A2'
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        fecha_archivo = datetime.now().strftime('%Y-%m-%d')
+        filename = f"Historial_Global_{fecha_archivo}.xlsx"
+
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        logger.error(f"Error exportando Excel Historial Global: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500

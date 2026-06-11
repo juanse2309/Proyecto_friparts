@@ -185,8 +185,8 @@
         // RBAC: Validación centralizada de permisos
         const rolActual = (window.AppState?.user?.rol || window.AppState?.user?.departamento || '').toUpperCase().trim();
         console.log('DEBUG Permisos - Rol/Depto actual:', rolActual);
-        const rolesPermitidos = ['AUXILIAR INVENTARIO', 'ADMINISTRACION', 'ADMIN'];
-        const puedeEditar = rolesPermitidos.includes(rolActual);
+        const terminosPermitidos = ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION', 'AUXILIAR'];
+        const puedeEditar = terminosPermitidos.some(termino => rolActual.includes(termino));
 
         // Detectar modo vista (Móvil vs Escritorio)
         const esMovil = window.innerWidth < 992;
@@ -779,7 +779,7 @@
     }
 
     /**
-     * Exportar los datos actuales a Excel
+     * Exportar los datos actuales a Excel (vía Backend)
      */
     function exportarHistorialExcel() {
         if (!h_datos || h_datos.length === 0) {
@@ -787,98 +787,23 @@
             return;
         }
 
-        // Si estamos en vista PULIDO, usar el endpoint del backend (formato profesional)
+        // Si estamos en vista PULIDO, usar el endpoint específico de Pulido
         const proceso = document.getElementById('tipoProceso')?.value || '';
         if (proceso === 'PULIDO') {
             return descargarExcelPulido();
         }
 
-        try {
-            console.log('📊 Generando Excel del historial...');
-            mostrarLoading(true);
+        const desde = document.getElementById('fechaDesde')?.value || '';
+        const hasta = document.getElementById('fechaHasta')?.value || '';
+        const tipo_filtro = proceso;
 
-            // Preparar datos para Excel
-            const rows = h_datos.map(r => {
-                // Normalización similar a la de la tabla
-                let responsable = r.Responsable;
-                let cantidad = r.Cant;
-                let orden = r.Orden;
-                let maquina = r.Extra || '-';
+        const url = `/api/exportar-historial-global?desde=${desde}&hasta=${hasta}&tipo=${tipo_filtro}`;
 
-                if (r.Tipo === 'INYECCION') {
-                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : (r.cantidad_real !== undefined ? r.cantidad_real : r.Cant);
-                    orden = r['ORDEN PRODUCCION'] || r.Orden;
-                    maquina = r.MAQUINA || r.Extra;
-                } else if (r.Tipo === 'PULIDO') {
-                    responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
-                    // Priorizamos cantidad_real para Pulido
-                    cantidad = r.cantidad_real !== undefined ? r.cantidad_real : r.Cant;
-                    orden = r['ORDEN PRODUCCION'] || r.Orden;
-                    maquina = 'N/A';
-                }
+        console.log('📊 [Excel Historial] Descargando desde backend:', url);
+        mostrarNotificacion('Generando Excel profesional del Historial...', 'info');
 
-                const rowData = {
-                    'Fecha': r.Fecha,
-                    'Hora Inicio': formatHorario(r.HORA_INICIO),
-                    'Hora Fin': formatHorario(r.HORA_FIN),
-                    'Tipo de Registro': r.Tipo,
-                    'Responsable': responsable,
-                    'Producto': r.Producto || 'Sin Producto',
-                    'Orden de Producción': orden,
-                    'Máquina/Extra': maquina,
-                    'Detalle': limpiarTextoParaExcel(r.Detalle),
-                    'Cantidad OK': { v: Number(cantidad) || 0, t: 'n' }
-                };
-
-                // Añadir columnas extra para Pulido si están presentes
-                if (r.Tipo === 'PULIDO') {
-                    rowData['Cant. Recibida'] = { v: Number(r.cantidad_recibida) || 0, t: 'n' };
-                    rowData['PNC Iny'] = { v: Number(r.pnc_inyeccion) || 0, t: 'n' };
-                    rowData['PNC Pul'] = { v: Number(r.pnc_pulido) || 0, t: 'n' };
-                }
-
-                return rowData;
-            });
-
-            // Crear libro de trabajo
-            const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.json_to_sheet(rows);
-
-            // Estilos básicos (ancho de columnas ajustado)
-            const wscols = [
-                { wch: 12 }, // Fecha
-                { wch: 10 }, // Hora Inicio
-                { wch: 10 }, // Hora Fin
-                { wch: 12 }, // Tipo
-                { wch: 25 }, // Responsable
-                { wch: 20 }, // Producto
-                { wch: 15 }, // Orden
-                { wch: 15 }, // Máquina
-                { wch: 50 }, // Detalle
-                { wch: 10 }, // Cantidad OK
-                { wch: 15 }, // Cant. Recibida
-                { wch: 10 }, // PNC Iny
-                { wch: 10 }  // PNC Pul
-            ];
-            ws['!cols'] = wscols;
-
-            XLSX.utils.book_append_sheet(wb, ws, "Historial");
-
-            // Generar nombre de archivo con fecha
-            const fechaStr = new Date().toISOString().slice(0, 10);
-            const fileName = `Historial_Global_${fechaStr}.xlsx`;
-
-            // Descargar
-            XLSX.writeFile(wb, fileName);
-            mostrarNotificacion('Excel generado correctamente', 'success');
-
-        } catch (error) {
-            console.error('❌ Error exportando Excel:', error);
-            mostrarNotificacion('Error al generar el Excel', 'error');
-        } finally {
-            mostrarLoading(false);
-        }
+        // Descarga directa via navegación
+        window.location.href = url;
     }
 
     /**

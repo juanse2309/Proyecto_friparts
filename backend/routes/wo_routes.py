@@ -101,6 +101,26 @@ def recibir_datos():
                 logger.info(f"[DEBUG] Primer registro crudo: {datos_normalizados[0]}")
 
             try:
+                # PRE-AUDITORÍA DE STOCK: Verificar si TODOS los registros vienen con stock 0
+                all_zeros = True
+                for r in datos_normalizados:
+                    stock_raw = (r.get('stock_wo') or r.get('stock') or r.get('cantidad') or 
+                                 r.get('saldo') or r.get('saldos') or r.get('existencia') or 0)
+                    try:
+                        if float(stock_raw) > 0:
+                            all_zeros = False
+                            break
+                    except (ValueError, TypeError):
+                        pass
+                
+                if all_zeros and len(datos_normalizados) > 0:
+                    logger.critical("❌ [CRÍTICO] El archivo/reporte de WO reporta stock 0.00 para TODOS los items. "
+                                    "Se aborta la sincronización para evitar borrar el inventario real.")
+                    return jsonify({
+                        "success": False, 
+                        "error": "El reporte de World Office viene vacío o todos los saldos son 0. Verifique las columnas del reporte exportado."
+                    }), 400
+
                 # PASO 1: TRUNCATE — limpiar tabla sin bloqueos residuales
                 db.session.execute(text("TRUNCATE TABLE inventario_wo"))
                 db.session.flush()
@@ -127,8 +147,15 @@ def recibir_datos():
                         codigo_alterno = str(r.get('codigo_alterno') or "").strip()[:100]
                         referencia     = str(r.get('referencia') or r.get('ref') or "").strip()[:100]
 
+                        # Obtención de stock ampliada a posibles columnas de WO
+                        stock_raw = (r.get('stock_wo') or r.get('stock') or r.get('cantidad') or 
+                                     r.get('saldo') or r.get('saldos') or r.get('existencia') or 0)
+                        
+                        if j < 5 and i == 0:  # Imprimir log preventivo para los primeros 5 registros de muestra
+                            logger.info(f"[CARGA WO] Procesando Ref: {codigo_producto} | Valor Stock Detectado: {stock_raw}")
+
                         try:
-                            stock_wo = float(r.get('stock_wo') or r.get('stock') or r.get('cantidad') or 0)
+                            stock_wo = float(stock_raw)
                         except (ValueError, TypeError):
                             stock_wo = 0.0
 
@@ -188,12 +215,12 @@ def recibir_datos():
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
 def unificar_inventario_wo():
     """
-    Cruza inventario_wo con db_productos por la parte numérica final
-    del codigo_producto y actualiza p_terminado y precio.
+    Cruza inventario_wo con db_productos usando SQL masivo para 
+    asegurar actualización real en la base de datos de p_terminado y precio.
     """
     try:
         from backend.core.sql_database import db
-        from backend.models.sql_models import InventarioWO, Producto
+        from sqlalchemy import text
 
         # Log de cuántos registros hay en inventario_wo ANTES del cruce
         count_wo = db.session.execute(text("SELECT COUNT(*) FROM inventario_wo")).scalar()
@@ -207,66 +234,45 @@ def unificar_inventario_wo():
                 "actualizados": 0
             }), 400
 
-        # Indexar productos de FriTech por su referencia numérica
-        productos = db.session.query(Producto).all()
-        productos_mapa = {}
-        for p in productos:
-            ref_local = normalizar_referencia(p.codigo_sistema) or normalizar_referencia(p.id_codigo)
-            if ref_local:
-                if ref_local not in productos_mapa:
-                    productos_mapa[ref_local] = []
-                productos_mapa[ref_local].append(p)
-
-        logger.info(f"[DEBUG] Productos indexados en productos_mapa: {len(productos_mapa)} claves únicas.")
-
-        # Traer todos los registros de inventario_wo
-        items_wo = db.session.query(InventarioWO).all()
-
-        actualizados  = 0
-        no_encontrados = 0
-        colisiones    = 0
-
-        for item in items_wo:
-            cod_wo_raw = item.codigo_producto
-            if not cod_wo_raw:
-                continue
-
-            ref_wo = normalizar_referencia(cod_wo_raw)
-            if not ref_wo:
-                continue
-
-            hits = productos_mapa.get(ref_wo)
-            if hits:
-                if len(hits) == 1:
-                    hits[0].p_terminado = float(item.stock_wo or 0)
-                    hits[0].precio      = float(item.precio_wo or 0)
-                    actualizados += 1
-                else:
-                    for p_col in hits:
-                        p_col.p_terminado = float(item.stock_wo or 0)
-                        p_col.precio      = float(item.precio_wo or 0)
-                    colisiones    += 1
-                    actualizados  += len(hits)
-            else:
-                logger.info(f"[DEBUG] Referencia WO no encontrada en catálogo: {cod_wo_raw} (norm={ref_wo})")
-                no_encontrados += 1
-
+        # Ejecutamos un UPDATE masivo nativo en PostgreSQL
+        # Usamos REGEXP_REPLACE o LIKE para hacer el match de la parte numérica.
+        # Aquí cruzamos usando la parte numérica normalizada
+        
+        sql_update = text("""
+            WITH normalizados AS (
+                SELECT 
+                    codigo_producto, 
+                    stock_wo, 
+                    precio_wo,
+                    -- Extraemos el último bloque de números de la referencia de WO
+                    SUBSTRING(codigo_producto FROM '([0-9]+)$') as ref_num_wo
+                FROM inventario_wo
+                WHERE SUBSTRING(codigo_producto FROM '([0-9]+)$') IS NOT NULL
+            )
+            UPDATE db_productos AS p
+            SET 
+                p_terminado = COALESCE(n.stock_wo, 0),
+                precio = COALESCE(n.precio_wo, 0)
+            FROM normalizados n
+            WHERE 
+                -- Hacemos match con el mismo bloque numérico extraído de codigo_sistema o id_codigo
+                SUBSTRING(p.codigo_sistema FROM '([0-9]+)$') = n.ref_num_wo
+                OR SUBSTRING(p.id_codigo FROM '([0-9]+)$') = n.ref_num_wo;
+        """)
+        
+        result = db.session.execute(sql_update)
+        actualizados = result.rowcount
         db.session.commit()
 
-        logger.info(
-            f"📊 [Unificar WO] Actualizados: {actualizados}, "
-            f"Colisiones: {colisiones}, No encontrados: {no_encontrados}"
-        )
+        logger.info(f"📊 [Unificar WO] Actualización masiva completada. Filas afectadas: {actualizados}")
 
         return jsonify({
             "success": True,
-            "message": f"Sincronización completada. {actualizados} productos actualizados, {no_encontrados} no emparejados.",
-            "actualizados": actualizados,
-            "colisiones": colisiones,
-            "no_emparejados": no_encontrados
+            "message": f"Sincronización masiva completada exitosamente. {actualizados} productos actualizados.",
+            "actualizados": actualizados
         }), 200
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"❌ Error en unificar WO: {e}")
+        logger.error(f"❌ Error en unificar WO (SQL Masivo): {e}")
         return jsonify({"success": False, "error": str(e)}), 500
