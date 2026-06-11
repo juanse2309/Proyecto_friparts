@@ -41,7 +41,7 @@ logger = logging.getLogger("AgenteWOComercial")
 # ====================================================================
 # CONFIGURACIÓN DE CONEXIÓN Y SEGURIDAD
 # ====================================================================
-DB_DRIVER = os.getenv("WO_DB_DRIVER", "{ODBC Driver 17 for SQL Server}")
+DB_DRIVER = os.getenv("WO_DB_DRIVER", "{SQL Server}")
 DB_SERVER = os.getenv("WO_DB_SERVER", r"SERVERWO\WORLDOFFICE17")
 DB_DATABASE = os.getenv("WO_DB_DATABASE", "FRIPARTS2021")
 DB_UID = os.getenv("WO_DB_UID", "wo_cliente")

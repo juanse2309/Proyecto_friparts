@@ -1016,9 +1016,9 @@ _mes_cache = {
 MES_CACHE_TTL = 60 # Aumentado a 60s para proteger cuota de API
 
 def clear_mes_cache():
-    """Limpia todos los caches de lectura del MES (Llamar en toda operaciÃ³n de escritura)."""
+    """Limpia todos los caches de lectura del MES (Llamar en toda operacion de escritura)."""
     global _mes_cache
-    logger.info("ðŸ—‘ï¸  [CACHE] Invalidando cachÃ© MES por operaciÃ³n de escritura")
+    logger.info("🗑️ [CACHE] Invalidando cache MES por operacion de escritura")
     for key in _mes_cache:
         _mes_cache[key]['ts'] = 0
 
@@ -1027,20 +1027,30 @@ def mes_get_programaciones(maquina):
     """Obtiene programaciones activas desde SQL (db_programacion)."""
     try:
         from backend.models.sql_models import ProgramacionInyeccion
+        import datetime
         maquina_upper = maquina.upper()
         
+        today_date = datetime.date.today()
+        
+        # Filtro: estado es activo (PROGRAMADO, EN_PROCESO) y fecha >= hoy
         query = db.session.query(ProgramacionInyeccion).filter(
-            ProgramacionInyeccion.estado.notin_(['COMPLETADO', 'CANCELADO', 'FINALIZADO'])
+            ProgramacionInyeccion.estado.in_(['PROGRAMADO', 'EN_PROCESO']),
+            ProgramacionInyeccion.fecha >= today_date
         )
         
-        if maquina_upper != 'TODAS':
-            query = query.filter(ProgramacionInyeccion.maquina == maquina_upper)
-            
-        registros = query.all()
+        lotes = query.all()
         
+        # Auditoría log antes de filtrar por máquina
+        today = today_date.strftime('%Y-%m-%d')
+        logger.info(f"DEBUG: Cargando {len(lotes)} lotes para la cola de trabajo del {today}")
+        
+        # Filtrar por máquina si es necesario
+        if maquina_upper != 'TODAS':
+            lotes = [r for r in lotes if (r.maquina or '').upper() == maquina_upper]
+            
         # Formatear para el frontend (adaptado al modelo simplificado)
         data = []
-        for r in registros:
+        for r in lotes:
             data.append({
                 'id':            r.id,
                 'fecha':         r.fecha.strftime('%Y-%m-%d') if r.fecha else '',
@@ -1055,9 +1065,8 @@ def mes_get_programaciones(maquina):
 
         return jsonify(data), 200
     except Exception as e:
-        logger.error(f"âŒ Error en mes_get_programaciones SQL: {e}")
+        logger.error(f"❌ Error en mes_get_programaciones SQL: {e}")
         return jsonify([]), 200
-
 
 @app.route('/api/mes/dashboard', methods=['GET'])
 def mes_dashboard():

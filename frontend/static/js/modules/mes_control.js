@@ -13,6 +13,9 @@ window.ModuloMes = {
     init: async function () {
         console.log('🚀 [MES] Inicializando Módulo de Control de Producción...');
 
+        // Limpiar cola local/caché antes de cargar
+        this.programacionesActivas = [];
+
         // Registrar persistencia Juan Sebastian Request
         if (window.FormHelpers) {
             window.FormHelpers.registrarPersistencia('form-mes-programar');
@@ -42,6 +45,10 @@ window.ModuloMes = {
         if (typeof window.applyRBACRules === 'function') {
             window.applyRBACRules();
         }
+    },
+
+    inicializar: async function () {
+        return await this.init();
     },
 
     cargarDatos: async function () {
@@ -973,6 +980,35 @@ window.ModuloMes = {
         });
 
         const todasClaves = Object.keys(porBloque);
+
+        // Priorizar hoy y ordenar máquinas vacías al final
+        const tzOffset = new Date().getTimezoneOffset() * 60000;
+        const todayStr = new Date(Date.now() - tzOffset).toISOString().split('T')[0];
+
+        todasClaves.sort((a, b) => {
+            const aParts = a.split('|');
+            const bParts = b.split('|');
+            const aOp = aParts[1];
+            const bOp = bParts[1];
+            const aDate = aParts[3] || '';
+            const bDate = bParts[3] || '';
+            
+            const aIsToday = (aDate === todayStr);
+            const bIsToday = (bDate === todayStr);
+            
+            const aIsEmpty = (aOp === 'VACIA');
+            const bIsEmpty = (bOp === 'VACIA');
+            
+            if (aIsEmpty && !bIsEmpty) return 1;
+            if (!aIsEmpty && bIsEmpty) return -1;
+            
+            if (aIsToday && !bIsToday) return -1;
+            if (!aIsToday && bIsToday) return 1;
+            
+            if (aDate < bDate) return 1;
+            if (aDate > bDate) return -1;
+            return 0;
+        });
 
         // Paleta de colores...
         const paletas = [
