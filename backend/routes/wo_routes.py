@@ -89,7 +89,7 @@ def recibir_datos():
 
         logger.info(f"Datos de WO recibidos ({nombre_vista}): {len(datos)} registros")
 
-        if nombre_vista == "Vista_Tabla_Inventarios":
+        if nombre_vista in ("Vista_Tabla_Inventarios", "Vista_Existencias"):
             from backend.core.sql_database import db
 
             # Normalizar llaves de todos los registros
@@ -98,7 +98,11 @@ def recibir_datos():
             logger.info(f"[DEBUG] Recibidos {len(datos_normalizados)} registros para insertar.")
             if datos_normalizados:
                 logger.info(f"[DEBUG] Llaves del primer registro: {list(datos_normalizados[0].keys())}")
-                logger.info(f"[DEBUG] Primer registro crudo: {datos_normalizados[0]}")
+                logger.info(f"[DEBUG NUBE] Muestra primeros 5 registros recibidos:")
+                for i, r in enumerate(datos_normalizados[:5]):
+                    cod = r.get('codigo_producto') or r.get('codigo') or '(sin_cod)'
+                    stk = r.get('stock_wo') or r.get('existencia') or r.get('stock') or 0
+                    logger.info(f"  [{i}] Ref: {cod} | Stock: {stk}")
 
             try:
                 # PRE-AUDITORÍA DE STOCK: Verificar si TODOS los registros vienen con stock 0

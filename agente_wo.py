@@ -27,11 +27,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configurar logging local para monitoreo
+# Forzar UTF-8 en la salida de consola (evita crash con emojis en Windows cp1252)
+import io
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout)
+        logging.StreamHandler(io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace'))
     ]
 )
 logger = logging.getLogger("AgenteWO")
@@ -105,21 +107,57 @@ def probar_y_sincronizar_productos():
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
         
-        # 2. Ejecutar consulta sobre la vista de inventarios
-        nombre_vista = "Vista_Tabla_Inventarios"
-        query = f"SELECT * FROM {nombre_vista}"
-        logger.info(f"Ejecutando consulta: '{query}'")
+        # 2. PASO DIAGNÓSTICO: Leer las columnas reales de Vista_Existencias antes de ejecutar la query
+        nombre_vista = "Vista_Existencias"
+        logger.info("Inspeccionando columnas reales de Vista_Existencias...")
+        cursor.execute("SELECT TOP 1 * FROM [FRIPARTS2021].[dbo].[Vista_Existencias]")
+        columnas_reales = [col[0] for col in cursor.description]
+        logger.info(f"[AUDITORIA] Columnas reales encontradas: {columnas_reales}")
+        cursor.fetchall()  # Vaciar el cursor antes del siguiente query
+
+        # 3. Auto-detectar el nombre de la columna de código e inventario
+        # Buscar la columna que contenga 'codigo' o 'inventario' (case-insensitive)
+        col_codigo = None
+        col_stock = None
+        for c in columnas_reales:
+            cn = c.lower().replace('ó', 'o').replace('é', 'e').replace('á', 'a')
+            if col_codigo is None and ('codigo' in cn or 'inventario' in cn or 'referencia' in cn or 'articulo' in cn):
+                col_codigo = c
+            if col_stock is None and ('existencia' in cn or 'stock' in cn or 'saldo' in cn or 'cantidad' in cn):
+                col_stock = c
+
+        if not col_codigo or not col_stock:
+            logger.error(f"No se encontraron las columnas esperadas. Disponibles: {columnas_reales}")
+            logger.error("Edita agente_wo.py y ajusta manualmente col_codigo y col_stock.")
+            return False
+
+        logger.info(f"[AUDITORIA] Columna de Codigo: '{col_codigo}' | Columna de Stock: '{col_stock}'")
+
+        # 4. Ejecutar la consulta consolidada con SUM para agrupar por producto
+        # Razón: la vista tiene una fila por bodega; sin GROUP BY los saldos en cero sobreescriben los reales.
+        query = (
+            f"SELECT [{col_codigo}] AS codigo_producto, "
+            f"SUM([{col_stock}]) AS stock_wo "
+            f"FROM [FRIPARTS2021].[dbo].[Vista_Existencias] "
+            f"WHERE [{col_codigo}] IS NOT NULL "
+            f"GROUP BY [{col_codigo}]"
+        )
+        logger.info(f"Ejecutando consulta: {query}")
         cursor.execute(query)
-        
-        # Obtener nombres de columnas
-        columns = [column[0] for column in cursor.description]
-        
-        # Mapear filas a una lista de diccionarios
+
+        # Mapear filas a una lista de diccionarios asegurando los tipos de datos
         registros = []
         for row in cursor.fetchall():
-            registros.append(dict(zip(columns, row)))
-            
-        logger.info(f"✅ Extracción local exitosa. Se obtuvieron {len(registros)} registros de la vista '{nombre_vista}'.")
+            codigo_val = str(row[0] or '').strip()
+            if not codigo_val:
+                continue
+            try:
+                stock_val = float(row[1])
+            except (ValueError, TypeError):
+                stock_val = 0.0
+            registros.append({'codigo_producto': codigo_val, 'stock_wo': stock_val})
+
+        logger.info(f"Extraccion exitosa. {len(registros)} registros obtenidos de Vista_Existencias.")
         
         # Cerrar conexión de base de datos
         cursor.close()
@@ -137,6 +175,11 @@ def probar_y_sincronizar_productos():
             "nombre_vista": nombre_vista,
             "datos": registros
         }
+        
+        # DEBUG LOCAL: Verificar que los datos tienen stock real antes de enviar
+        print("MUESTRA DEL PAYLOAD A ENVIAR (primeros 5):")
+        for item in registros[:5]:
+            print(f"  Ref: {item.get('codigo_producto')} | stock_wo: {item.get('stock_wo')}")
         
         # Serializar los datos usando el encoder robusto
         payload_json = json.dumps(payload, cls=SQLServerJSONEncoder)
