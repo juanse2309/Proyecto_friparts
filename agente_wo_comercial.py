@@ -86,24 +86,58 @@ def sincronizar_datos_comerciales():
     Extrae los datos comerciales de ventas, pedidos y devoluciones del año actual 
     de World Office y los envía al backend en Render.
     """
-    conn_str = (
-        f"DRIVER={DB_DRIVER};"
-        f"SERVER={DB_SERVER};"
-        f"DATABASE={DB_DATABASE};"
-        f"UID={DB_UID};"
-        f"PWD={DB_PWD};"
-        "Timeout=30;"
-    )
+    # Obtener parámetros de entorno
+    driver_env = os.getenv("WO_DB_DRIVER", "{ODBC Driver 17 for SQL Server}")
+    server_env = os.getenv("WO_DB_SERVER", r"SERVERWO\WORLDOFFICE17")
+    db_env = os.getenv("WO_DB_DATABASE", "FRIPARTS2021")
+    uid_env = os.getenv("WO_DB_UID", "wo_cliente")
+    pwd_env = os.getenv("WO_DB_PWD", "wo_cliente")
+
+    # Lista de cadenas de conexión para intentar de forma robusta
+    cadenas_conexion = [
+        {
+            "nombre": "ODBC Driver 17 (Trusted Connection)",
+            "str": f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server_env};DATABASE={db_env};Trusted_Connection=yes;Timeout=30;"
+        },
+        {
+            "nombre": "SQL Server Legacy (Trusted Connection)",
+            "str": f"DRIVER={{SQL Server}};SERVER={server_env};DATABASE={db_env};Trusted_Connection=yes;Timeout=30;"
+        },
+        {
+            "nombre": "SQL Server Legacy (Con Credenciales de agente_wo.py)",
+            "str": f"DRIVER={{SQL Server}};SERVER={server_env};DATABASE={db_env};UID={uid_env};PWD={pwd_env};Timeout=30;"
+        },
+        {
+            "nombre": "ODBC Driver 17 (Con Credenciales)",
+            "str": f"DRIVER={driver_env};SERVER={server_env};DATABASE={db_env};UID={uid_env};PWD={pwd_env};Timeout=30;"
+        }
+    ]
 
     logger.info("📡 Iniciando proceso de sincronización comercial...")
-    logger.info(f"🔑 Servidor SQL Server: {DB_SERVER}")
-    logger.info(f"📂 Base de Datos: {DB_DATABASE}")
+    logger.info(f"🔑 Servidor SQL Server: {server_env}")
+    logger.info(f"📂 Base de Datos: {db_env}")
     logger.info(f"🌐 Enviando datos a: {FRITECH_COMERCIAL_API_URL}")
 
     conn = None
+    for opcion in cadenas_conexion:
+        try:
+            logger.info(f"Intentando conectar con {opcion['nombre']}...")
+            conn = pyodbc.connect(opcion["str"])
+            logger.info(f"✅ Conectado exitosamente usando: {opcion['nombre']}")
+            break
+        except pyodbc.Error as e_conn:
+            logger.warning(f"⚠️ Intento fallido con {opcion['nombre']}. Detalles: {e_conn}")
+
+    if not conn:
+        logger.critical("❌ Todos los intentos de conexión SQL Server fallaron.")
+        try:
+            available_drivers = pyodbc.drivers()
+            logger.info(f"🔍 Drivers ODBC disponibles en este equipo: {available_drivers}")
+        except Exception as e_drv:
+            logger.error(f"No se pudo consultar pyodbc.drivers(): {e_drv}")
+        return False
+
     try:
-        logger.info("Conectando a la base de datos SQL Server de World Office...")
-        conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
         sql_query = """
