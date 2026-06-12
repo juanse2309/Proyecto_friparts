@@ -1213,45 +1213,69 @@ const ModuloPulido = {
     },
 
     registrarPulidoTradicional: async function () {
-        const horaInicio = document.getElementById('hora-inicio-pulido')?.value || '00:00';
-        const horaFin = document.getElementById('hora-fin-pulido')?.value || '00:00';
+        console.log('🔘 Botón presionado, iniciando envío (Modo Satélite)...');
+        try {
+            const form = document.getElementById('form-pulido');
+            console.log('Formulario #form-pulido:', form ? 'Detectado' : 'No encontrado (NULL/UNDEFINED)');
+            
+            const horaInicio = document.getElementById('hora-inicio-pulido')?.value || '00:00';
+            const horaFin = document.getElementById('hora-fin-pulido')?.value || '00:00';
 
-        if (horaFin <= horaInicio) {
-            Swal.fire({
-                title: 'Error de Tiempos',
-                text: 'La Hora de Fin debe ser estrictamente posterior a la Hora de Inicio.',
-                icon: 'error',
-                confirmButtonColor: '#d33'
+            if (horaFin <= horaInicio) {
+                Swal.fire({
+                    title: 'Error de Tiempos',
+                    text: 'La Hora de Fin debe ser estrictamente posterior a la Hora de Inicio.',
+                    icon: 'error',
+                    confirmButtonColor: '#d33'
+                });
+                return;
+            }
+
+            // Validar existencia de inputs críticos
+            const responsableInput = document.getElementById('responsable-pulido-input');
+            const buscadorProd = document.getElementById('buscador-productos');
+            const cantRecibidaInput = document.getElementById('cantidad-recibida-pulido');
+            const manualBuenosSpan = document.getElementById('manual-bujes-buenos');
+            
+            console.log('Referencias de inputs cargadas:', {
+                responsableInput: responsableInput ? 'OK' : 'NULL',
+                buscadorProd: buscadorProd ? 'OK' : 'NULL',
+                cantRecibidaInput: cantRecibidaInput ? 'OK' : 'NULL',
+                manualBuenosSpan: manualBuenosSpan ? 'OK' : 'NULL'
             });
-            return;
+
+            const data = {
+                fecha_inicio: document.getElementById('fecha-pulido')?.value || new Date().toISOString().split('T')[0],
+                responsable: responsableInput?.value || '',
+                hora_inicio: horaInicio,
+                hora_fin: horaFin,
+                codigo_producto: this.normalizarCodigo(buscadorProd?.value || ''),
+                orden_produccion: document.getElementById('orden-produccion-pulido')?.value || '',
+                lote: document.getElementById('lote-pulido')?.value || '',
+                departamento: 'PULIDO',
+                almacen_destino: 'P. TERMINADO',
+                cantidad_recibida: parseInt(cantRecibidaInput?.value, 10) || 0,
+                pnc_inyeccion: 0,
+                pnc_pulido: 0,
+                criterio_pnc_inyeccion: '',
+                criterio_pnc_pulido: '',
+                cantidad_real: parseInt(manualBuenosSpan?.innerText, 10) || 0,
+                observaciones: document.getElementById('observaciones-pulido')?.value || '',
+                modo: 'MANUAL'
+            };
+
+            console.log('📦 Payload generado para Modo Satélite:', JSON.stringify(data, null, 2));
+
+            if (!data.responsable || !data.codigo_producto || !data.cantidad_recibida || data.cantidad_recibida <= 0) {
+                Swal.fire('Atención', 'Faltan campos obligatorios (Responsable, Referencia o Cantidad mayor a 0)', 'warning');
+                return;
+            }
+
+            await this.enviarAServidor(data);
+        } catch (error) {
+            console.error('❌ Error capturado en registrarPulidoTradicional:', error);
+            Swal.fire('Error de Ejecución', 'Se produjo un error al procesar el envío: ' + error.message, 'error');
         }
-
-        const data = {
-            fecha_inicio: document.getElementById('fecha-pulido')?.value || new Date().toISOString().split('T')[0],
-            responsable: document.getElementById('responsable-pulido-input').value,
-            hora_inicio: document.getElementById('hora-inicio-pulido')?.value || '00:00',
-            hora_fin: document.getElementById('hora-fin-pulido')?.value || '00:00',
-            codigo_producto: this.normalizarCodigo(document.getElementById('buscador-productos').value),
-            orden_produccion: document.getElementById('orden-produccion-pulido')?.value || '',
-            lote: document.getElementById('lote-pulido')?.value || '',
-            departamento: 'PULIDO',
-            almacen_destino: 'P. TERMINADO',
-            cantidad_recibida: parseInt(document.getElementById('cantidad-recibida-pulido').value, 10) || 0,
-            pnc_inyeccion: parseInt(document.getElementById('manual-pnc-iny').value, 10) || 0,
-            pnc_pulido: parseInt(document.getElementById('manual-pnc-pul').value, 10) || 0,
-            criterio_pnc_inyeccion: document.getElementById('manual-criterio-iny').value,
-            criterio_pnc_pulido: document.getElementById('manual-criterio-pul').value,
-            cantidad_real: parseInt(document.getElementById('manual-bujes-buenos').innerText, 10) || 0,
-            observaciones: document.getElementById('observaciones-pulido').value,
-            modo: 'MANUAL'
-        };
-
-        if (!data.responsable || !data.codigo_producto || !data.cantidad_recibida || data.cantidad_recibida <= 0) {
-            Swal.fire('Atención', 'Faltan campos obligatorios', 'warning');
-            return;
-        }
-
-        await this.enviarAServidor(data);
     },
 
     enviarAServidor: async function (data) {
@@ -1261,6 +1285,8 @@ const ModuloPulido = {
             }
 
             Swal.showLoading();
+            // Logger del payload exacto justo antes del post
+            console.log('📡 Enviando POST a /api/pulido con payload:', JSON.stringify(data, null, 2));
             // Usar el apiClient robusto que ya implementa 3 reintentos
             const result = await window.apiClient.post('/pulido', data);
 
