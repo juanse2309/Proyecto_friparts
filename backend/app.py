@@ -2667,8 +2667,9 @@ def obtener_fichas():
 def listar_productos_v2():
     """Endpoint optimizado para la tabla de inventario con semaforos."""
     try:
+        from backend.core.repository_service import repository_service
         # 1. Verificar Cache V2
-        current_time = time.time()
+        current_time = time_module.time()
         if PRODUCTOS_V2_CACHE["data"] and (current_time - PRODUCTOS_V2_CACHE["timestamp"] < PRODUCTOS_CACHE_TTL):
              print(" [Cache] Sirviendo inventario V2 desde memoria")
              return jsonify(PRODUCTOS_V2_CACHE["data"])
@@ -2678,24 +2679,24 @@ def listar_productos_v2():
         
         lista_final = []
         for p in productos_sql:
-            # Cálculos de stock
-            terminado = float(p.get('p_terminado', 0) or 0)
-            por_pulir = float(p.get('por_pulir', 0) or 0)
-            comprometido = float(p.get('comprometido', 0) or 0)
+            # Compatibilidad dual: Llaves en mayúscula (Sheets legacy) o minúscula (SQL Model)
+            terminado = float(p.get('P. TERMINADO', p.get('p_terminado', 0)) or 0)
+            por_pulir = float(p.get('POR PULIR', p.get('por_pulir', 0)) or 0)
+            comprometido = float(p.get('COMPROMETIDO', p.get('comprometido', 0)) or 0)
             
-            p_min = float(p.get('stock_minimo', 0) or 0)
-            p_reorden = float(p.get('punto_reorden', 0) or 0)
-            p_max = float(p.get('stock_maximo', 0) or 100)
+            p_min = float(p.get('STOCK MINIMO', p.get('stock_minimo', 0)) or 0)
+            p_reorden = float(p.get('PUNTO REORDEN', p.get('punto_reorden', 0)) or 0)
+            p_max = float(p.get('STOCK MAXIMO', p.get('stock_maximo', 100)) or 100)
             
             stock_global = (terminado + por_pulir) - comprometido
             semaforo = calcular_metricas_semaforo(stock_global, p_min, p_reorden, p_max)
             
             item = {
-                "codigo": p.get('codigo_sistema'),
-                "id_codigo": p.get('id_codigo'),
-                "descripcion": p.get('descripcion', ''),
-                "imagen": corregir_url_imagen(str(p.get('imagen', ''))),
-                "precio": float(p.get('precio', 0) or 0),
+                "codigo": p.get('CODIGO SISTEMA', p.get('codigo_sistema')),
+                "id_codigo": p.get('ID CODIGO', p.get('id_codigo')),
+                "descripcion": p.get('DESCRIPCION', p.get('descripcion', '')),
+                "imagen": corregir_url_imagen(str(p.get('IMAGEN', p.get('imagen', '')))),
+                "precio": float(p.get('PRECIO', p.get('precio', 0)) or 0),
                 "stock_por_pulir": por_pulir,
                 "stock_terminado": terminado,
                 "stock_comprometido": comprometido,
@@ -2711,8 +2712,10 @@ def listar_productos_v2():
         PRODUCTOS_V2_CACHE["timestamp"] = current_time
         return jsonify(lista_final), 200
     except Exception as e:
-        logger.error(f"Error en listar_productos_v2 SQL: {e}")
-        return jsonify([]), 500
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"❌ Error en listar_productos_v2 SQL: {e}\n{error_trace}")
+        return jsonify({"success": False, "error": str(e), "detail": "Error en el servidor al listar productos (V2)"}), 500
 
 # --- FIN SECCIÃ“N PRODUCTOS ---
 
@@ -2986,7 +2989,7 @@ def invalidar_cache_endpoint():
 @app.route('/api/cache/estado', methods=['GET'])
 def estado_cache():
     """Obtiene el estado actual del cache."""
-    ahora = time.time()
+    ahora = time_module.time()
     tiempo_transcurrido = ahora - PRODUCTOS_CACHE["timestamp"]
     restante = max(0, PRODUCTOS_CACHE_TTL - tiempo_transcurrido)
     

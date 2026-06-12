@@ -258,14 +258,15 @@ class RepositoryService:
                     'STOCK MAXIMO':         _num(p.stock_maximo),
                     'IMAGEN':               p.imagen or '',
                     'OEM':                  p.oem or '',
-                    'MEDIDA':               p.medida or '',
-                    'UBICACION':            p.ubicacion or '',
+                    'MEDIDA':               getattr(p, 'medida', '') or '',
+                    'UBICACION':            getattr(p, 'ubicacion', '') or '',
                     'DOLARES':              _num(p.dolares),
                 })
             logger.info(f"[get_productos_all] {len(result)} productos retornados desde SQL.")
             return result
         except Exception as e:
-            logger.error(f"[get_productos_all] {e}")
+            import traceback
+            logger.error(f"[get_productos_all] Error: {e}\n{traceback.format_exc()}")
             return []
 
     def buscar_producto(self, codigo):
