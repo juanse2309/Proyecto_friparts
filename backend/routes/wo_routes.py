@@ -426,19 +426,17 @@ def sincronizar_automatica():
     Utiliza el driver pyodbc local para extraer y guardar directamente en db_ventas.
     """
     # 1. Validar Token de Seguridad (desde Header o parámetro query de URL)
-    sync_token_header = request.headers.get('X-Sync-Token')
-    sync_token_param = request.args.get('token')
-    sync_token = sync_token_header or sync_token_param
-    sync_token_env = os.environ.get('SYNC_TOKEN') or os.environ.get('WO_SYNC_API_KEY') or "FriParts-WO-Sync-2026!"
+    token_recibido = request.args.get('token') or request.headers.get('X-Sync-Token')
+    token_esperado = os.getenv('SYNC_TOKEN')
 
-    # Registro explícito en logs para depuración en Render
-    logger.info(f"[SYNC DIAGNOSTIC] Token recibido vía Header: '{sync_token_header}'")
-    logger.info(f"[SYNC DIAGNOSTIC] Token recibido vía Query URL: '{sync_token_param}'")
-    logger.info(f"[SYNC DIAGNOSTIC] Token final a comparar: '{sync_token}'")
-    logger.info(f"[SYNC DIAGNOSTIC] Token esperado (SYNC_TOKEN o fallback): '{sync_token_env}'")
+    logger.info(f"DEBUG SYNC: Recibido={token_recibido}, Esperado={token_esperado}")
 
-    if sync_token != sync_token_env:
-        logger.warning(f"⚠️ Intento de sincronización automática no autorizado. Comparación fallida: '{sync_token}' != '{sync_token_env}'")
+    if token_esperado is None:
+        logger.error("❌ Variable de entorno SYNC_TOKEN no configurada en el servidor (es None).")
+        return jsonify({"status": "error", "message": "Error de configuración de seguridad: SYNC_TOKEN es None"}), 500
+
+    if token_recibido != token_esperado:
+        logger.warning(f"⚠️ Intento de sincronización automática no autorizado. Comparación fallida: '{token_recibido}' != '{token_esperado}'")
         return jsonify({"status": "error", "message": "No autorizado. Token de sincronización inválido."}), 403
 
     try:
