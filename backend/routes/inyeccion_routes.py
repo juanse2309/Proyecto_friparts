@@ -1044,6 +1044,7 @@ def verificar_demanda_b2b(codigo):
 
 
 @inyeccion_bp.route('/api/mes/iniciar_trabajo', methods=['POST'])
+@require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE'])
 def mes_iniciar_trabajo():
     """
     Fase 4: Inicia el trabajo en la máquina a partir de una programación vespertina.
@@ -1165,6 +1166,7 @@ def mes_iniciar_trabajo():
 
 
 @inyeccion_bp.route('/api/mes/reportar', methods=['POST'])
+@require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE'])
 def mes_reportar():
     """
     Fase 4: Finalización de Turno y Reporte de Inyección (Lógica de Cubetas FIFO).

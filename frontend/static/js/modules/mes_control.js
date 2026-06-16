@@ -10,6 +10,12 @@ window.ModuloMes = {
     trabajoActivo: null,
     tempProductList: [], // Lista para multi-producto (un montaje, varios códigos)
 
+    canOperarMaquina: function () {
+        if (typeof AuthModule === 'undefined' || !AuthModule.currentUser) return false;
+        const userRole = AuthModule.normalizeRole(AuthModule.currentUser.rol || AuthModule.currentUser.role || '');
+        return ['INYECCION', 'ENSAMBLE', 'ADMIN'].some(rolePart => userRole.includes(rolePart));
+    },
+
     init: async function () {
         console.log('🚀 [MES] Inicializando Módulo de Control de Producción...');
 
@@ -170,11 +176,13 @@ window.ModuloMes = {
                     </div>
                 `).join('');
 
+                const canOperate = this.canOperarMaquina();
                 productosActivosHTML = `
                     <div class="mb-3 p-2" style="border: 1px solid #93c5fd; border-radius: 8px; background: #eff6ff;">
                         <div class="fw-bold mb-2 text-primary" style="font-size:.8rem">Lote Activo (Molde: ${activo.molde || capacidadMolde})</div>
                         ${skuList}
                         <button class="btn btn-warning btn-sm fw-bold w-100 mt-2"
+                            ${canOperate ? '' : 'disabled title="Sin permisos para operar"'}
                             onclick="ModuloMes.clickFinalizarDesdeCard('${activo.id_inyeccion}', ${activo.cavidades}, '${activo.molde || capacidadMolde}', '${activo.producto || 'LOTE MÚLTIPLE'}', '${activo.hora_inicio || '06:00'}', '${m.nombre}')">
                             <i class="fas fa-stop-circle me-1"></i> Pausar/Finalizar Montaje
                         </button>
@@ -193,6 +201,7 @@ window.ModuloMes = {
                     colaAgrupada[groupKey].push(c);
                 });
 
+                const canOperate = this.canOperarMaquina();
                 for (const [moldeKey, itemsMolde] of Object.entries(colaAgrupada)) {
                     // Tomamos el id de la primera programación para iniciar todo el bloque
                     const primerId = itemsMolde[0].id_programacion;
@@ -209,6 +218,7 @@ window.ModuloMes = {
                             <div class="fw-bold mb-2 text-dark" style="font-size:.8rem">Montaje (Molde ${moldeKey})</div>
                             ${skuList}
                             <button class="btn btn-success btn-sm fw-bold w-100 mt-2"
+                                ${canOperate ? '' : 'disabled title="Sin permisos para operar"'}
                                 onclick="ModuloMes.clickIniciarDesdeCard('${primerId}', '${m.nombre}')">
                                 <i class="fas fa-play me-1"></i> Iniciar Montaje
                             </button>
@@ -221,8 +231,10 @@ window.ModuloMes = {
             const btn = '';
 
             // Botón liberar (solo PROGRAMADO)
+            const canOperateLiberar = this.canOperarMaquina();
             const btnLiberar = (m.estado === 'PROGRAMADO' && cola && cola.length > 0)
                 ? `<button class="btn btn-outline-danger btn-sm w-100 mt-2"
+                       ${canOperateLiberar ? '' : 'disabled title="Sin permisos para operar"'}
                        onclick="ModuloMes.cancelarBatch('${m.nombre}')">
                        <i class="fas fa-ban me-1"></i> Liberar M\u00e1quina
                    </button>` : '';
@@ -275,6 +287,10 @@ window.ModuloMes = {
      * Iniciar trabajo desde el botón de la tarjeta de máquina.
      */
     clickIniciarDesdeCard: async function (idProg, maquinaNombre) {
+        if (!this.canOperarMaquina()) {
+            Swal.fire('Acceso Denegado', 'No tienes permisos para iniciar producción.', 'error');
+            return;
+        }
         if (!idProg) return;
 
         // Lógica de operario por máquina
@@ -382,6 +398,10 @@ window.ModuloMes = {
      * Finalizar turno desde el botón de la tarjeta de máquina.
      */
     clickFinalizarDesdeCard: async function (idInyeccion, cavidades, molde, codigo, horaInicio, maquinaNombre) {
+        if (!this.canOperarMaquina()) {
+            Swal.fire('Acceso Denegado', 'No tienes permisos para pausar o finalizar producción.', 'error');
+            return;
+        }
         if (!idInyeccion) return;
 
         // Obtener la hora actual en formato HH:MM para sugerir como Hora Fin
@@ -1297,6 +1317,10 @@ window.ModuloMes = {
     },
 
     cancelarBatch: async function (maquina) {
+        if (!this.canOperarMaquina()) {
+            Swal.fire('Acceso Denegado', 'No tienes permisos para liberar máquinas.', 'error');
+            return;
+        }
         const result = await Swal.fire({
             title: '¿Liberar Máquina?',
             text: `Se cancelarán todas las programaciones pendientes para ${maquina}.`,

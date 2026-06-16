@@ -323,7 +323,7 @@ def obtener_historial_global():
 
 
 @historial_bp.route('/api/historial/detalle', methods=['GET'])
-@require_role(ROL_ADMINS + ['AUXILIAR'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
 def obtener_detalle_historial():
     """
     Devuelve todos los campos detallados de un registro específico
@@ -378,7 +378,7 @@ def obtener_detalle_historial():
 
 
 @historial_bp.route('/api/historial/actualizar', methods=['POST'])
-@require_role(ROL_ADMINS + ['AUXILIAR'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
 def actualizar_registro_historial():
     """
     Endpoint para editar registros corregidos por Auditoría / Gerencia desde el Historial Global.

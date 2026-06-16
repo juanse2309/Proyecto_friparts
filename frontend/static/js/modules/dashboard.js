@@ -1686,11 +1686,10 @@ window.ModuloDashboard = (function () {
 
             if (chartMensualInst) chartMensualInst.destroy();
 
-            // Colores Premium
-            const AZUL_BARRA = 'rgba(37, 99, 235, 0.9)';   // Azul Corporativo Fuerte
-            const GRIS_BARRA = '#CCCCCC';                  // Gris solicitado para YoY
-            const AZUL_META = '#f59e0b';                    // Ámbar para Pedidos Actual
-            const GRIS_META = '#94a3b8';                    // Gris pizarra para Pedidos Previos
+            // Colores Corporativos (Actualizados según solicitud)
+            const AZUL_OSCURO = 'rgba(30, 58, 138, 0.9)';    // Azul oscuro para ventas año actual
+            const GRIS_CLARO = 'rgba(156, 163, 175, 0.8)';   // Gris para ventas año pasado
+            const VERDE_PEDIDOS = 'rgba(16, 185, 129, 1)';   // Verde para pedidos
 
             chartMensualInst = new Chart(ctx, {
                 type: 'bar',
@@ -1699,38 +1698,38 @@ window.ModuloDashboard = (function () {
                     datasets: [
                         // ── Barras agrupadas ──────────────────────────
                         {
-                            label: isMoney ? `Ventas ${yearActual} ($)` : `Ventas ${yearActual} (Unds)`,
+                            label: isMoney ? `Ventas ${yearActual}` : `Ventas ${yearActual} (Unds)`,
                             data: dataActualVentas,
-                            backgroundColor: AZUL_BARRA,
+                            backgroundColor: AZUL_OSCURO,
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
                             order: 3
                         },
                         {
-                            label: isMoney ? `Ventas ${yearPrev} ($)` : `Ventas ${yearPrev} (Unds)`,
+                            label: isMoney ? `Ventas ${yearPrev}` : `Ventas ${yearPrev} (Unds)`,
                             data: dataPrevVentas,
-                            backgroundColor: GRIS_BARRA,
+                            backgroundColor: GRIS_CLARO,
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
                             order: 4
                         },
 
-                        // ── Metas elegantes: línea punteada + diamante ─
+                        // ── Líneas de Pedidos ───────────────────────────
                         {
-                            label: isMoney ? `Pedidos ${yearActual} ($)` : `Pedidos ${yearActual} (Unds)`,
+                            label: isMoney ? `Pedidos ${yearActual}` : `Pedidos ${yearActual} (Unds)`,
                             data: dataActualPedidos,
                             type: 'line',
                             showLine: true,
-                            borderColor: AZUL_META,
-                            borderWidth: 1.5,
+                            borderColor: VERDE_PEDIDOS,
+                            borderWidth: 2,
                             borderDash: [5, 5],
                             backgroundColor: 'transparent',
-                            pointStyle: 'diamond',
+                            pointStyle: 'circle',
                             pointRadius: 5,
                             pointHoverRadius: 7,
-                            pointBackgroundColor: AZUL_META,
+                            pointBackgroundColor: VERDE_PEDIDOS,
                             pointBorderColor: '#fff',
                             pointBorderWidth: 1.5,
                             tension: 0,
@@ -1738,20 +1737,20 @@ window.ModuloDashboard = (function () {
                             order: 1
                         },
                         {
-                            label: isMoney ? `Pedidos ${yearPrev} ($)` : `Pedidos ${yearPrev} (Unds)`,
+                            label: isMoney ? `Pedidos ${yearPrev}` : `Pedidos ${yearPrev} (Unds)`,
                             data: dataPrevPedidos,
                             type: 'line',
                             showLine: true,
-                            borderColor: GRIS_META,
+                            borderColor: GRIS_CLARO,
                             borderWidth: 1.5,
-                            borderDash: [5, 5],
+                            borderDash: [3, 3],
                             backgroundColor: 'transparent',
-                            pointStyle: 'circle',
-                            pointRadius: 5,
-                            pointHoverRadius: 7,
-                            pointBackgroundColor: GRIS_META,
+                            pointStyle: 'rect',
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            pointBackgroundColor: GRIS_CLARO,
                             pointBorderColor: '#fff',
-                            pointBorderWidth: 1.5,
+                            pointBorderWidth: 1,
                             tension: 0,
                             hidden: !isMoney && !hayPedidosUnidades,
                             order: 2

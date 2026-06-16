@@ -65,11 +65,11 @@ def metals_login():
         
         if check_password_hash(user.password_hash, password):
             # Validar que sea un rol permitido para metales (o admin)
-            rol_lower = user.rol.lower()
+            rol_upper = user.rol.upper()
             
             # Escribir sesión Flask
             session['user'] = user.username
-            session['role'] = rol_lower
+            session['role'] = rol_upper
 
             user.ultimo_acceso = datetime.datetime.utcnow()
             db.session.commit()
@@ -301,7 +301,7 @@ def login_client():
             return jsonify({"success": False, "message": "Usuario o contraseña incorrectos"}), 401
 
         session['user'] = user.username
-        session['role'] = 'cliente'
+        session['role'] = 'CLIENTE'
         
         return jsonify({
             "success": True,

@@ -225,14 +225,14 @@ window.applyRBACRules = function () {
         if (warning) warning.remove();
     };
 
-    // Rule 1: Programación - Administración, Nathalia, OSCAR PRIETO (Solo Lectura)
+    // Rule 1: Programación - Administración, Nathalia, OSCAR PRIETO o JEFE INYECCION (Solo Lectura)
     const canAccessProg = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole) || userName.includes('NATHALIA LOPEZ');
-    const isOscarPrieto = userName.includes('OSCAR PRIETO');
+    const isReadOnlyProg = (userRole.includes('JEFE') && userRole.includes('INYECCION')) || userRole.includes('SUPERVISOR');
 
     if (canAccessProg) {
         removeOverlay('#panel-programacion');
         removeOverlay('#form-mes-programar'); // Para asegurarse de quitar el velo específico
-    } else if (isOscarPrieto) {
+    } else if (isReadOnlyProg) {
         removeOverlay('#panel-programacion'); // Le permitimos ver todo el panel
         applyOverlay('#form-mes-programar');  // Pero le bloqueamos SOLO el formulario
     } else {
@@ -241,7 +241,7 @@ window.applyRBACRules = function () {
     }
 
     // Rule 2: Reporte Máquina - Inyección, Ensamble, Administración
-    const canAccessRep = ['ADMIN', 'INYECCION', 'ENSAMBLE', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
+    const canAccessRep = ['INYECCION', 'ENSAMBLE', 'ADMIN'].some(rolePart => userRole.includes(rolePart));
     if (!canAccessRep) applyOverlay('#panel-operacion');
     else removeOverlay('#panel-operacion');
 

@@ -2678,34 +2678,50 @@ def listar_productos_v2():
         productos_sql = repository_service.get_productos_all()
         
         lista_final = []
+        filas_corruptas = 0
         for p in productos_sql:
-            # Compatibilidad dual: Llaves en mayúscula (Sheets legacy) o minúscula (SQL Model)
-            terminado = float(p.get('P. TERMINADO', p.get('p_terminado', 0)) or 0)
-            por_pulir = float(p.get('POR PULIR', p.get('por_pulir', 0)) or 0)
-            comprometido = float(p.get('COMPROMETIDO', p.get('comprometido', 0)) or 0)
-            
-            p_min = float(p.get('STOCK MINIMO', p.get('stock_minimo', 0)) or 0)
-            p_reorden = float(p.get('PUNTO REORDEN', p.get('punto_reorden', 0)) or 0)
-            p_max = float(p.get('STOCK MAXIMO', p.get('stock_maximo', 100)) or 100)
-            
-            stock_global = (terminado + por_pulir) - comprometido
-            semaforo = calcular_metricas_semaforo(stock_global, p_min, p_reorden, p_max)
-            
-            item = {
-                "codigo": p.get('CODIGO SISTEMA', p.get('codigo_sistema')),
-                "id_codigo": p.get('ID CODIGO', p.get('id_codigo')),
-                "descripcion": p.get('DESCRIPCION', p.get('descripcion', '')),
-                "imagen": corregir_url_imagen(str(p.get('IMAGEN', p.get('imagen', '')))),
-                "precio": float(p.get('PRECIO', p.get('precio', 0)) or 0),
-                "stock_por_pulir": por_pulir,
-                "stock_terminado": terminado,
-                "stock_comprometido": comprometido,
-                "stock_disponible": terminado - comprometido,
-                "existencias_totales": terminado + por_pulir,
-                "metricas": { "min": p_min, "max": p_max, "reorden": p_reorden },
-                "semaforo": semaforo
-            }
-            lista_final.append(item)
+            # Blindaje por fila: una fila corrupta no tumba el endpoint completo
+            try:
+                # Compatibilidad dual: Llaves en mayúscula (Sheets legacy) o minúscula (SQL Model)
+                def _sf(v):
+                    """Safe float para valores que pueden venir en formato WO."""
+                    try: return float(v or 0)
+                    except: return 0.0
+
+                terminado    = _sf(p.get('P. TERMINADO',  p.get('p_terminado', 0)))
+                por_pulir    = _sf(p.get('POR PULIR',     p.get('por_pulir', 0)))
+                comprometido = _sf(p.get('COMPROMETIDO',  p.get('comprometido', 0)))
+
+                p_min    = _sf(p.get('STOCK MINIMO',  p.get('stock_minimo', 0)))
+                p_reorden = _sf(p.get('PUNTO REORDEN', p.get('punto_reorden', 0)))
+                p_max    = _sf(p.get('STOCK MAXIMO',  p.get('stock_maximo', 100))) or 100
+
+                stock_global = (terminado + por_pulir) - comprometido
+                semaforo = calcular_metricas_semaforo(stock_global, p_min, p_reorden, p_max)
+
+                item = {
+                    "codigo":              p.get('CODIGO SISTEMA', p.get('codigo_sistema', '')),
+                    "id_codigo":           p.get('ID CODIGO',      p.get('id_codigo', '')),
+                    "descripcion":         p.get('DESCRIPCION',    p.get('descripcion', '')),
+                    "imagen":              corregir_url_imagen(str(p.get('IMAGEN', p.get('imagen', '')) or '')),
+                    "precio":              _sf(p.get('PRECIO', p.get('precio', 0))),
+                    "stock_por_pulir":     por_pulir,
+                    "stock_terminado":     terminado,
+                    "stock_comprometido":  comprometido,
+                    "stock_disponible":    terminado - comprometido,
+                    "existencias_totales": terminado + por_pulir,
+                    "metricas": {"min": p_min, "max": p_max, "reorden": p_reorden},
+                    "semaforo":            semaforo
+                }
+                lista_final.append(item)
+            except Exception as e_fila:
+                filas_corruptas += 1
+                codigo_err = p.get('CODIGO SISTEMA', p.get('codigo_sistema', '?')) if isinstance(p, dict) else '?'
+                logger.error(f"[listar_v2] Fila corrupta ignorada ({codigo_err}): {e_fila}")
+                continue
+
+        if filas_corruptas:
+            logger.warning(f"[listar_v2] {filas_corruptas} filas ignoradas por datos corruptos. Ver logs anteriores.")
             
         # 3. Guardar en cache y retornar
         PRODUCTOS_V2_CACHE["data"] = lista_final

@@ -133,6 +133,30 @@ def _num(value):
         return 0.0
 
 
+def _safe_float(val):
+    """Convierte cualquier valor (str, Decimal, None, formato WO) a float sin lanzar excepciones."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        from decimal import Decimal
+        if isinstance(val, Decimal):
+            return float(val)
+        # Limpiar formatos WO: "$1.500,00" → "1500.00"
+        cleaned = str(val).replace('$', '').replace(' ', '').strip()
+        if not cleaned or cleaned.lower() in ('none', 'nan', 'n/a', '-'):
+            return 0.0
+        # Formato europeo con punto como separador de miles y coma decimal
+        if ',' in cleaned and '.' in cleaned:
+            cleaned = cleaned.replace('.', '').replace(',', '.')
+        elif ',' in cleaned:
+            cleaned = cleaned.replace(',', '.')
+        return float(cleaned)
+    except Exception:
+        return 0.0
+
+
 class RepositoryService:
     """Servicio centralizado para acceso 100% SQL a PostgreSQL."""
 
@@ -239,34 +263,46 @@ class RepositoryService:
     # ── PRODUCTOS ─────────────────────────────────────────────
 
     def get_productos_all(self):
-        """Retorna todos los productos con nombres legacy para el frontend."""
+        """Retorna todos los productos con nombres legacy para el frontend.
+        Blindaje total: usa getattr + _safe_float para tolerar discrepancias
+        entre el modelo ORM y el schema real de db_productos post-migracion WO.
+        """
         from backend.models.sql_models import Producto
         try:
             rows = Producto.query.all()
             result = []
+            skipped = 0
             for p in rows:
-                result.append({
-                    'CODIGO SISTEMA':       p.codigo_sistema or '',
-                    'ID CODIGO':            p.id_codigo or '',
-                    'DESCRIPCION':          p.descripcion or 'Sin descripción',
-                    'PRECIO':               _num(p.precio),
-                    'POR PULIR':            _num(p.por_pulir),
-                    'P. TERMINADO':         _num(p.p_terminado),
-                    'COMPROMETIDO':         _num(p.comprometido),
-                    'PRODUCTO ENSAMBLADO':  _num(p.producto_ensamblado),
-                    'STOCK MINIMO':         _num(p.stock_minimo),
-                    'STOCK MAXIMO':         _num(p.stock_maximo),
-                    'IMAGEN':               p.imagen or '',
-                    'OEM':                  p.oem or '',
-                    'MEDIDA':               getattr(p, 'medida', '') or '',
-                    'UBICACION':            getattr(p, 'ubicacion', '') or '',
-                    'DOLARES':              _num(p.dolares),
-                })
-            logger.info(f"[get_productos_all] {len(result)} productos retornados desde SQL.")
+                try:
+                    result.append({
+                        'CODIGO SISTEMA':      getattr(p, 'codigo_sistema', '') or '',
+                        'ID CODIGO':           getattr(p, 'id_codigo', '') or '',
+                        'DESCRIPCION':         getattr(p, 'descripcion', '') or 'Sin descripción',
+                        'PRECIO':              _safe_float(getattr(p, 'precio', 0)),
+                        'POR PULIR':           _safe_float(getattr(p, 'por_pulir', 0)),
+                        'P. TERMINADO':        _safe_float(getattr(p, 'p_terminado', 0)),
+                        'COMPROMETIDO':        _safe_float(getattr(p, 'comprometido', 0)),
+                        'PRODUCTO ENSAMBLADO': _safe_float(getattr(p, 'producto_ensamblado', 0)),
+                        'STOCK MINIMO':        _safe_float(getattr(p, 'stock_minimo', 0)),
+                        'STOCK MAXIMO':        _safe_float(getattr(p, 'stock_maximo', 0)),
+                        'PUNTO REORDEN':       _safe_float(getattr(p, 'punto_reorden', 0)),
+                        'IMAGEN':              getattr(p, 'imagen', '') or '',
+                        'OEM':                 getattr(p, 'oem', '') or '',
+                        'MEDIDA':              getattr(p, 'medida', '') or '',
+                        'UBICACION':           getattr(p, 'ubicacion', '') or '',
+                        'DOLARES':             _safe_float(getattr(p, 'dolares', 0)),
+                        'CATEGORIA':           getattr(p, 'categoria', '') or '',
+                    })
+                except Exception as e_row:
+                    skipped += 1
+                    codigo = getattr(p, 'codigo_sistema', None) or getattr(p, 'id_codigo', '?')
+                    logger.error(f"[get_productos_all] Fila corrupta ignorada ({codigo}): {e_row}")
+                    continue
+            logger.info(f"[get_productos_all] {len(result)} productos retornados. {skipped} filas ignoradas.")
             return result
         except Exception as e:
             import traceback
-            logger.error(f"[get_productos_all] Error: {e}\n{traceback.format_exc()}")
+            logger.error(f"[get_productos_all] Error crítico: {e}\n{traceback.format_exc()}")
             return []
 
     def buscar_producto(self, codigo):

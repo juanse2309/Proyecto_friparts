@@ -506,3 +506,87 @@ function limpiarFormulario(formId) {
         }
     }
 }
+
+// ============================================================
+// GESTIÓN CENTRALIZADA DE IMÁGENES — validarImagen()
+// ============================================================
+
+/** URL de fallback única y canónica para toda la app. */
+const IMG_FALLBACK = '/static/img/no-image.svg';
+
+/**
+ * Aplica el handler de fallback a un elemento <img>.
+ *
+ * Estrategia de cascada:
+ *   1. Intenta cargar la src original del servidor.
+ *   2. Si falla (404/CORS/red), muestra IMG_FALLBACK.
+ *   3. Marca el elemento con data-img-handled="true" para no
+ *      registrar el listener más de una vez.
+ *
+ * @param {HTMLImageElement} imgElement - El elemento <img> a proteger.
+ * @param {string} [sourceUrl]         - URL explícita a asignar (opcional).
+ *                                       Si se omite, se usa la src actual.
+ */
+function validarImagen(imgElement, sourceUrl) {
+    if (!(imgElement instanceof HTMLImageElement)) return;
+    // Evitar registrar el handler duplicado
+    if (imgElement.dataset.imgHandled === 'true') return;
+    imgElement.dataset.imgHandled = 'true';
+
+    // Asignar nueva src si se provee
+    if (sourceUrl) imgElement.src = sourceUrl;
+
+    imgElement.addEventListener('error', function onImgError() {
+        // Evitar bucle infinito si el propio fallback falla
+        if (this.src === window.location.origin + IMG_FALLBACK ||
+            this.src === IMG_FALLBACK) {
+            this.removeEventListener('error', onImgError);
+            return;
+        }
+        this.removeEventListener('error', onImgError);
+        this.src = IMG_FALLBACK;
+    }, { once: false });
+}
+
+/**
+ * Aplica validarImagen() a todas las <img> dentro de un nodo raíz.
+ * @param {Element|Document} root
+ */
+function aplicarFallbackImagenes(root) {
+    (root === document ? document.querySelectorAll('img') : root.querySelectorAll('img'))
+        .forEach(img => validarImagen(img));
+}
+
+/**
+ * Observer global: protege automáticamente cualquier <img> nueva
+ * inyectada por JS (tablas de inventario, sugerencias, tarjetas, etc.)
+ */
+(function initImageFallbackObserver() {
+    // Aplicar a las imágenes ya presentes en el DOM
+    document.addEventListener('DOMContentLoaded', () => aplicarFallbackImagenes(document));
+
+    // Observar mutaciones futuras (innerHTML dinámico)
+    const observer = new MutationObserver(mutations => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                // Si el nodo mismo es una img
+                if (node.tagName === 'IMG') {
+                    validarImagen(node);
+                }
+                // Si el nodo contiene imgs anidadas
+                const imgs = node.querySelectorAll ? node.querySelectorAll('img') : [];
+                imgs.forEach(img => validarImagen(img));
+            }
+        }
+    });
+
+    observer.observe(document.body || document.documentElement, {
+        childList: true,
+        subtree: true
+    });
+})();
+
+// Exponer al scope global para uso explícito en otros módulos
+window.validarImagen = validarImagen;
+window.aplicarFallbackImagenes = aplicarFallbackImagenes;

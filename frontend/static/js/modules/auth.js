@@ -715,11 +715,10 @@ const AuthModule = {
             let forbiddenInMetals = [
                 'dashboard', 'inyeccion', 'pulido', 'ensamble', 'pnc',
                 'facturacion', 'mezcla', 'reportes',
-                'admin-clientes', 'portal-cliente', 'procura', 'rotacion',
-                'almacen', 'historial', 'inventario'
+                'admin-clientes', 'portal-cliente', 'rotacion'
             ];
 
-            // EXCEPCIÓN: Admins y Gerencia siempre pueden ver Clientes (procura y rotacion se ocultan definitivamente en Metales)
+            // EXCEPCIÓN: Admins y Gerencia siempre pueden ver Clientes
             if (role.includes('ADMIN') || role.includes('GERENCIA')) {
                 forbiddenInMetals = forbiddenInMetals.filter(p => !['admin-clientes'].includes(p));
             }

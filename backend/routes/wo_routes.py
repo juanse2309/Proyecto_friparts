@@ -328,8 +328,8 @@ def recibir_comercial():
         current_year = datetime.now().year
 
         # Paso 2: Ejecutar DELETE e INSERT en la misma transacción lógica
-        # DELETE de todos los registros de este año en db_ventas
-        db.session.query(RawVentas).filter(extract('year', RawVentas.fecha) == current_year).delete(synchronize_session=False)
+        # DELETE TOTAL de todos los registros en db_ventas para eliminar basura histórica
+        db.session.query(RawVentas).delete(synchronize_session=False)
 
         # Paso 3: Mapear y preparar datos
         mappings = []
@@ -412,4 +412,178 @@ def recibir_comercial():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ====================================================================
+# ENDPOINT: DISPARAR SINCRONIZACIÓN AUTOMÁTICA DESDE SERVIDOR LOCAL / PLANTA
+# ====================================================================
+
+@wo_bp.route('/api/wo/sincronizar_automatica', methods=['GET', 'POST'])
+def sincronizar_automatica():
+    """
+    Ruta segura para disparar la sincronización comercial desde World Office de forma autónoma.
+    Soporta POST (header X-Sync-Token) y GET (parámetro query ?token=...).
+    Utiliza el driver pyodbc local para extraer y guardar directamente en db_ventas.
+    """
+    # 1. Validar Token de Seguridad (desde Header o parámetro query de URL)
+    sync_token_header = request.headers.get('X-Sync-Token')
+    sync_token_param = request.args.get('token')
+    sync_token = sync_token_header or sync_token_param
+    sync_token_env = os.environ.get('SYNC_TOKEN')
+
+    if not sync_token_env:
+        logger.error("❌ Variable de entorno SYNC_TOKEN no configurada en el servidor.")
+        return jsonify({"status": "error", "message": "Configuración de seguridad incompleta"}), 500
+
+    if sync_token != sync_token_env:
+        logger.warning(f"⚠️ Intento de sincronización automática no autorizado. Token inválido o ausente.")
+        return jsonify({"status": "error", "message": "No autorizado. Token de sincronización inválido."}), 403
+
+    try:
+        import pyodbc
+    except ImportError:
+        logger.error("❌ La librería pyodbc no está instalada en este entorno del servidor.")
+        return jsonify({"status": "error", "message": "pyodbc no está disponible en este servidor"}), 500
+
+    # 2. Configurar conexión SQL Server (Mismos parámetros que agente_wo_comercial.py)
+    DB_SERVER   = os.getenv("WO_SERVER",     r"SERVERWO\WORLDOFFICE17")
+    DB_DATABASE = os.getenv("WO_DB",         "FRIPARTS2021")
+    DB_UID      = os.getenv("WO_USER",       "wo_cliente")
+    DB_PWD      = os.getenv("WO_PASSWORD",   "wo_cliente")
+
+    conn_str = (
+        f"DRIVER={{SQL Server}};"
+        f"SERVER={DB_SERVER};"
+        f"DATABASE={DB_DATABASE};"
+        f"UID={DB_UID};"
+        f"PWD={DB_PWD};"
+        "Timeout=30;"
+    )
+
+    from backend.models.sql_models import RawVentas, OperacionLog
+    from backend.core.sql_database import db
+    from datetime import datetime
+
+    db_log_entry = OperacionLog(
+        fecha=datetime.now(),
+        modulo="SincronizacionComercial",
+        operario="Sistema (Auto)",
+        accion="Inicio Sincronización Automática",
+        detalles="Iniciando conexión local a World Office..."
+    )
+    db.session.add(db_log_entry)
+    db.session.commit()
+
+    conn = None
+    try:
+        conn = pyodbc.connect(conn_str, timeout=15)
+        cursor = conn.cursor()
+
+        # 3. Cargar catálogo maestro en memoria
+        cursor.execute("SELECT Autonumerico, Codigo_Producto FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios]")
+        mapping = {}
+        for row in cursor.fetchall():
+            mapping[str(row[0])] = row[1]
+
+        # 4. Extraer datos comerciales
+        sql = """
+        SELECT 
+            E.Fecha AS fecha,
+            (E.prefijo + '-' + CAST(E.Numero_de_Documento AS VARCHAR)) AS documento,
+            E.Nombre_tercero_externo AS nombres,
+            D.Producto AS productos,
+            CAST(D.Cantidad AS FLOAT) AS cantidad,
+            CAST((D.Cantidad * D.Valor_Unitario * (1 - (D.Descuento/100.0))) AS FLOAT) AS total_ingresos,
+            CAST(D.Valor_Unitario AS FLOAT) AS precio_promedio,
+            E.Tipo_de_Documento AS tipo_doc
+        FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
+        INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D 
+            ON E.Autonumerico = D.Pertenece_A
+        WHERE YEAR(E.Fecha) >= YEAR(GETDATE()) - 1
+          AND E.Tipo_de_Documento IN ('FV', 'PED')
+          AND E.Anulado = 0
+          AND D.Cantidad > 0;
+        """
+        cursor.execute(sql)
+        columnas = [column[0] for column in cursor.description]
+
+        datos_mapeados = []
+        cant_pd = 0
+        cant_fv = 0
+
+        for row in cursor.fetchall():
+            item = dict(zip(columnas, row))
+            
+            tipo_doc = item.get('tipo_doc', '').strip()
+            if tipo_doc == 'FV':
+                clasif = 'venta'
+                cant_fv += 1
+            elif tipo_doc == 'PED':
+                clasif = 'pedido'
+                cant_pd += 1
+            else:
+                clasif = 'desconocido'
+
+            prod_id = str(item.get('productos', '')).strip()
+            mapped_prod = mapping.get(prod_id, prod_id)
+            mapped_prod_str = str(mapped_prod or '').strip()
+
+            datos_mapeados.append({
+                'fecha': item.get('fecha'),
+                'documento': str(item.get('documento') or '').strip()[:80],
+                'nombres': str(item.get('nombres') or '').strip()[:200],
+                'productos': mapped_prod_str[:100],
+                'cantidad': float(item.get('cantidad') or 0.0),
+                'total_ingresos': float(item.get('total_ingresos') or 0.0),
+                'precio_promedio': float(item.get('precio_promedio') or 0.0),
+                'clasificacion': clasif
+            })
+
+        conn.close()
+
+        # 5. Borrado total de db_ventas e inserción masiva en transacción atómica
+        db.session.query(RawVentas).delete(synchronize_session=False)
+
+        if datos_mapeados:
+            db.session.bulk_insert_mappings(RawVentas, datos_mapeados)
+        
+        # Registrar éxito en bitácora
+        log_exito = OperacionLog(
+            fecha=datetime.now(),
+            modulo="SincronizacionComercial",
+            operario="Sistema (Auto)",
+            accion="Fin Sincronización Automática",
+            detalles=f"Exito. Procesados: {len(datos_mapeados)} (Ventas: {cant_fv}, Pedidos: {cant_pd})"
+        )
+        db.session.add(log_exito)
+        db.session.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Sincronización completada",
+            "registros": len(datos_mapeados)
+        }), 200
+
+    except Exception as e:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+        db.session.rollback()
+
+        # Registrar error en bitácora
+        log_error = OperacionLog(
+            fecha=datetime.now(),
+            modulo="SincronizacionComercial",
+            operario="Sistema (Auto)",
+            accion="Error Sincronización Automática",
+            detalles=f"Falla crítica: {str(e)}"
+        )
+        db.session.add(log_error)
+        db.session.commit()
+
+        logger.error(f"❌ Error en sincronizar_automatica: {e}")
+        return jsonify({"status": "error", "message": f"Falla en sincronización: {str(e)}"}), 500
+
 
