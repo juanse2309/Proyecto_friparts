@@ -111,13 +111,19 @@ def ejecutar_extraccion():
         print(f"   TOTAL VENTAS (FEV) = $ {total_ventas:,.2f}")
         print("=" * 60)
         
-        confirmacion = input("\nPresiona ENTER para enviar los datos a Render (o Ctrl+C para cancelar)...")
+        import sys
+        is_auto = "--auto" in sys.argv or os.getenv("AUTO_SYNC") == "True"
+        if not is_auto:
+            confirmacion = input("\nPresiona ENTER para enviar los datos a Render (o Ctrl+C para cancelar)...")
+        else:
+            print("\n[INFO] Modo automático detectado. Omitiendo freno de seguridad manual...")
         
         # Envío POST
         print("\n>> Enviando datos a Render...")
         headers = {
             "Content-Type": "application/json",
-            "X-API-Key": API_KEY
+            "X-API-Key": API_KEY,
+            "X-Sync-Token": API_KEY
         }
         
         payload = {"datos": datos}
