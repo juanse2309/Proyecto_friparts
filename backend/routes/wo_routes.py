@@ -583,3 +583,49 @@ def sincronizar_automatica():
         return jsonify({"status": "error", "message": f"Falla en sincronización: {str(e)}"}), 500
 
 
+# ====================================================================
+# ENDPOINT: AUDITORÍA DE DATOS COMERCIALES EN DB_VENTAS
+# ====================================================================
+
+@wo_bp.route('/api/wo/auditoria_comercial', methods=['GET'])
+def auditoria_comercial():
+    """
+    Ruta pura de auditoría para depurar los datos de la tabla db_ventas.
+    Agrupa los resultados y retorna un JSON con la cantidad de ventas y pedidos por año.
+    No realiza ninguna sincronización ni proceso pesado.
+    """
+    try:
+        from backend.core.sql_database import db
+        from backend.models.sql_models import RawVentas
+        from sqlalchemy import func
+
+        resultados = db.session.query(
+            func.extract('year', RawVentas.fecha).label('anio'),
+            RawVentas.clasificacion,
+            func.count(RawVentas.id).label('total')
+        ).group_by(
+            func.extract('year', RawVentas.fecha),
+            RawVentas.clasificacion
+        ).all()
+
+        data = {}
+        for r in resultados:
+            if r.anio is None:
+                continue
+            
+            anio = str(int(r.anio))
+            clasif = str(r.clasificacion).lower().strip()
+            
+            if anio not in data:
+                data[anio] = {"ventas": 0, "pedidos": 0}
+                
+            if clasif == 'venta':
+                data[anio]["ventas"] += r.total
+            elif clasif == 'pedido':
+                data[anio]["pedidos"] += r.total
+                
+        return jsonify(data), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error en auditoria_comercial: {e}")
+        return jsonify({"error": str(e)}), 500
