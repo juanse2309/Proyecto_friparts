@@ -629,3 +629,111 @@ def auditoria_comercial():
     except Exception as e:
         logger.error(f"❌ Error en auditoria_comercial: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+# ====================================================================
+# ENDPOINT: AUDITORÍA MENSUAL DE DATOS COMERCIALES
+# ====================================================================
+
+@wo_bp.route('/api/wo/auditoria_mensual', methods=['GET'])
+def auditoria_mensual():
+    """
+    Ruta pura de auditoría para diagnosticar la carga mensual de db_ventas.
+    Retorna la cantidad de ventas y pedidos agrupados por año y mes.
+    """
+    try:
+        from backend.core.sql_database import db
+        from backend.models.sql_models import RawVentas
+        from sqlalchemy import func
+
+        resultados = db.session.query(
+            func.extract('year', RawVentas.fecha).label('anio'),
+            func.extract('month', RawVentas.fecha).label('mes'),
+            RawVentas.clasificacion,
+            func.count(RawVentas.id).label('total')
+        ).group_by(
+            func.extract('year', RawVentas.fecha),
+            func.extract('month', RawVentas.fecha),
+            RawVentas.clasificacion
+        ).all()
+
+        data = {}
+        for r in resultados:
+            if r.anio is None or r.mes is None:
+                continue
+            
+            anio = str(int(r.anio))
+            mes = f"{int(r.mes):02d}"
+            clasif = str(r.clasificacion).lower().strip()
+            
+            if anio not in data:
+                data[anio] = {}
+                
+            if mes not in data[anio]:
+                data[anio][mes] = {"ventas": 0, "pedidos": 0}
+                
+            if clasif == 'venta':
+                data[anio][mes]["ventas"] += r.total
+            elif clasif == 'pedido':
+                data[anio][mes]["pedidos"] += r.total
+                
+        for anio in data:
+            data[anio] = dict(sorted(data[anio].items()))
+            
+        return jsonify(data), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error en auditoria_mensual: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ====================================================================
+# ENDPOINTS: FLAG DE SINCRONIZACIÓN COMERCIAL DESDE DASHBOARD
+# ====================================================================
+
+@wo_bp.route('/api/wo/solicitar_sync', methods=['POST'])
+def solicitar_sync():
+    """
+    Endpoint para activar o desactivar el flag de sincronización comercial.
+    """
+    try:
+        import json
+        
+        payload = request.get_json() if request.is_json else {}
+        # Por defecto, si no se especifica, se asume que se solicita la sync
+        estado = payload.get("sync_pendiente", True)
+        
+        # Guardar el flag en un archivo temporal o en el directorio base
+        data_dir = os.path.join(os.getcwd(), 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        file_path = os.path.join(data_dir, 'sync_comercial_flag.json')
+        
+        with open(file_path, 'w') as f:
+            json.dump({"sync_pendiente": estado}, f)
+            
+        logger.info(f"Flag de sincronización actualizado: sync_pendiente={estado}")
+        return jsonify({"success": True, "message": f"Sincronización {'solicitada' if estado else 'limpiada'} exitosamente"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error al solicitar sincronización: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@wo_bp.route('/api/wo/verificar_sync', methods=['GET'])
+def verificar_sync():
+    """
+    Ruta que el Agente Local consultará para saber si debe extraer los datos.
+    """
+    try:
+        import json
+        file_path = os.path.join(os.getcwd(), 'data', 'sync_comercial_flag.json')
+        
+        if not os.path.exists(file_path):
+            return jsonify({"sync_pendiente": False}), 200
+            
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+            
+        return jsonify(data), 200
+    except Exception as e:
+        logger.error(f"❌ Error al verificar flag de sincronización: {e}")
+        return jsonify({"sync_pendiente": False, "error": str(e)}), 500

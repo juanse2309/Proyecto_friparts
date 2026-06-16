@@ -140,5 +140,43 @@ def ejecutar_extraccion():
     except Exception as e:
         print(f"[FATAL] Error fatal en el proceso: {e}")
 
+def main():
+    import sys
+    modo_forzado = "--forzar" in sys.argv
+    
+    check_url = "https://proyecto-friparts.onrender.com/api/wo/verificar_sync"
+    sync_requerida = False
+    
+    print(f"Verificando si hay solicitud de sincronización en el servidor...")
+    try:
+        resp = requests.get(check_url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("sync_pendiente"):
+                print("[>>] Solicitud de sincronización pendiente detectada.")
+                sync_requerida = True
+            else:
+                print("[>>] No hay solicitud pendiente.")
+        else:
+            print(f"[WARN] No se pudo verificar el flag (HTTP {resp.status_code}).")
+    except Exception as e:
+        print(f"[WARN] Error al conectar con el servidor para verificar flag: {e}")
+        
+    if sync_requerida or modo_forzado or ("--auto" in sys.argv):
+        if sync_requerida:
+            os.environ["AUTO_SYNC"] = "True"
+            
+        ejecutar_extraccion()
+        
+        if sync_requerida:
+            print(">> Limpiando flag de sincronización en el servidor...")
+            try:
+                requests.post("https://proyecto-friparts.onrender.com/api/wo/solicitar_sync", json={"sync_pendiente": False}, timeout=10)
+                print("[OK] Flag limpio.")
+            except Exception as e:
+                print(f"[WARN] No se pudo limpiar el flag: {e}")
+    else:
+        print("[>>] Ejecución cancelada. Usa --forzar o --auto para extraer de todas formas.")
+
 if __name__ == "__main__":
-    ejecutar_extraccion()
+    main()

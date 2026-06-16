@@ -2447,7 +2447,29 @@ window.ModuloDashboard = (function () {
     window.ModuloDashboard = {
         inicializar: iniciar,
         refrescar: cargarDatos,
-        refrescarDatos: () => cargarDatos(true),   // botón 🔄: fuerza lectura fresca (nocache)
+        refrescarDatos: async () => {
+            try {
+                const response = await fetch('/api/wo/solicitar_sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sync_pendiente: true })
+                });
+                
+                if (response.ok) {
+                    Swal.fire({
+                        icon: 'info',
+                        title: 'Sincronización Solicitada',
+                        text: 'El proceso iniciará en un momento. No es necesario esperar.',
+                        timer: 3000,
+                        showConfirmButton: false
+                    });
+                }
+            } catch (error) {
+                console.error("Error al solicitar sincronización:", error);
+            }
+            // Ejecutamos también la recarga visual del Dashboard
+            cargarDatos(true);
+        },   // botón 🔄: fuerza lectura fresca (nocache)
         mostrarModalOperador: mostrarModalOperador,
         toggleChartView: toggleChartView,
         mostrarDetalleIncumplimiento: mostrarDetalleIncumplimiento,
