@@ -3,6 +3,10 @@ import pyodbc
 import requests
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Cargar variables de entorno locales si existe un archivo .env (y para que tome el token correcto)
+load_dotenv()
 
 # ====================================================================
 # CONFIGURACIÓN DE CONEXIÓN Y SEGURIDAD
