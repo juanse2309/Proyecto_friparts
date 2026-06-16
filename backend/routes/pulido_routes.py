@@ -1217,3 +1217,66 @@ def registrar_pnc_pulido():
         db.session.rollback()
         logger.error(f"❌ Error registrando PNC Pulido: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+@pulido_bp.route('/api/pulido/liquidar_lote', methods=['POST'])
+def liquidar_lote_endpoint():
+    """
+    Cierra manualmente un lote en Pulido, registrando cualquier diferencia
+    como pérdida (PNC) si el lote no se completó según la cantidad original.
+    """
+    try:
+        data = request.get_json()
+        id_lote = data.get('id_lote')
+        responsable = data.get('responsable', 'SISTEMA')
+
+        if not id_lote:
+            return jsonify({"success": False, "error": "Falta id_lote"}), 400
+
+        lote = TrazabilidadLote.query.filter_by(id_lote=id_lote).first()
+        if not lote:
+            return jsonify({"success": False, "error": f"Lote {id_lote} no encontrado"}), 404
+
+        # Diferencia: cantidad que faltó por reportar en Pulido (sobrante)
+        diferencia = float(lote.por_pulir or 0)
+        
+        if diferencia > 0:
+            colombia_tz = pytz.timezone('America/Bogota')
+            ahora = datetime.now(colombia_tz).replace(tzinfo=None)
+            
+            # Registrar la diferencia como un "salto" o pérdida en Pulido
+            nuevo_registro = ProduccionPulido(
+                id_pulido=f"LIQ-{uuid.uuid4().hex[:8]}",
+                fecha=ahora.date(),
+                codigo=lote.id_codigo,
+                responsable=responsable,
+                cantidad_real=0,
+                pnc_pulido=int(diferencia),
+                criterio_pnc_pulido="SOBRANTE/DIFERENCIA LIQUIDACION",
+                orden_produccion=lote.orden_produccion,
+                observaciones=f"Liquidación manual de lote. Diferencia: {diferencia}",
+                estado="FINALIZADO",
+                lote=id_lote,
+                departamento='PULIDO',
+                hora_inicio=ahora,
+                hora_fin=ahora
+            )
+            db.session.add(nuevo_registro)
+            
+            db.session.add(PncPulido(
+                id_pnc_pulido=uuid.uuid4().hex[:8],
+                id_pulido=nuevo_registro.id_pulido,
+                codigo=lote.id_codigo,
+                cantidad=diferencia,
+                criterio="DIFERENCIA LIQUIDACION"
+            ))
+
+        lote.por_pulir = 0
+        lote.estado_actual = 'LIQUIDADO'
+        db.session.commit()
+
+        logger.info(f"✅ Lote {id_lote} liquidado por {responsable}. Diferencia registrada: {diferencia}")
+        return jsonify({"success": True, "status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error en liquidar_lote: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

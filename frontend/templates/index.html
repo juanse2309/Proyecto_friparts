@@ -565,8 +565,6 @@
                         Procura y Rotación</span></a> </li>
             <li class="menu-item" data-page="asistencia"> <a href="#"><i class="fas fa-user-clock"></i><span>Control de
                         Asistencia</span></a> </li>
-            <li class="menu-item" data-page="gerencia"> <a href="#" onclick="ModuloGerencia.init()"><i
-                        class="fas fa-tachometer-alt text-primary"></i><span>Tablero Gerencial</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i
@@ -3262,29 +3260,7 @@
             </div>
         </div>
 
-        <!-- Tablero Gerencial (Torre de Control) -->
-        <div id="gerencia-page" class="page" style="display: none;">
-            <header class="top-bar">
-                <button class="btn-icon" id="toggle-sidebar-gerencia">
-                    <i class="fas fa-bars"></i>
-                </button>
-                <div class="page-title">
-                    <h1><i class="fas fa-chart-line text-primary"></i> Torre de Control Gerencial</h1>
-                    <p class="subtitle">Trazabilidad en tiempo real de Pedidos y avance en plantas de producción</p>
-                </div>
-                <div class="actions">
-                    <button class="btn btn-primary shadow-sm rounded-pill px-4 fw-bold" onclick="ModuloGerencia.cargarTrazabilidad()">
-                        <i class="fas fa-sync-alt me-2"></i> Actualizar Tablero
-                    </button>
-                </div>
-            </header>
 
-            <div class="container-fluid py-4">
-                <div id="vista-gerencia-container">
-                    <!-- Renderizado dinámico desde gerencia.js -->
-                </div>
-            </div>
-        </div>
 
         <!-- Reportes -->
         <div id="reportes-page" class="page">
@@ -4744,7 +4720,7 @@
     <script src="/static/js/modules/reportes.js?v=1.6.3"></script>
     <script src="/static/js/modules/mezcla.js?v=1.6.3"></script>
     <script src="/static/js/modules/historial.js?v=1.6.3"></script>
-    <script src="/static/js/modules/gerencia.js?v=1.6.3"></script>
+
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
