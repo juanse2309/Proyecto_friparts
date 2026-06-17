@@ -156,3 +156,6 @@ Para mantener el repositorio limpio y el código en producción libre de archivo
     python -m backend.app
     ```
     La aplicación se iniciará en `http://localhost:5005` (o en el puerto definido en tus variables de entorno).
+
+---
+*Hecho con ❤️ por Juanxe Novoa.*
