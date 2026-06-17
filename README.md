@@ -2,10 +2,10 @@
 
 FriTech MES (Manufacturing Execution System) es una plataforma full-stack diseñada específicamente para el control y automatización de procesos de producción, gestión de inventarios y sincronización con el ERP World Office de la planta de fabricación de bujes de FriParts.
 
-El sistema ha evolucionado de un modelo basado puramente en hojas de cálculo hacia una **arquitectura híbrida SQL-First**, utilizando **PostgreSQL** en la nube como base de datos transaccional principal, manteniendo compatibilidad con **Google Sheets** para catálogos específicos y persistencia de seguridad.
+El sistema utiliza una **arquitectura 100% SQL-First**, empleando **PostgreSQL** en la nube como base de datos transaccional única. La dependencia histórica de Google Sheets ha sido completamente removida, conservando únicamente la API de Google Drive de manera opcional para el almacenamiento de reportes PDF generados.
 
 ## ✨ Novedades Versión 1.5.0 (Estable)
-- **Arquitectura SQL-First**: Consolidación definitiva de base de datos transaccional PostgreSQL para la persistencia y control de inventarios físicos.
+- **Arquitectura SQL-First**: Consolidación definitiva de base de datos transaccional PostgreSQL como origen único de persistencia y control de inventarios, eliminando por completo Google Sheets.
 - **Decomisión de Módulos Obsoletos**: Purga completa de los dashboards de gerencia y métricas PNC antiguas en favor de consultas SQL directas y óptimas.
 - **Estructuración del Proyecto**: Organización formal de scripts temporales en `scratch/` y pruebas en `tests/` para mantener la raíz limpia y segura.
 - **Seguridad en Integraciones**: Robustecimiento de la comunicación HTTPS con World Office mediante handshakes seguros autenticados con tokens dinámicos.
@@ -28,9 +28,9 @@ El sistema ha evolucionado de un modelo basado puramente en hojas de cálculo ha
 ## 🛠️ Stack Tecnológico
 
 *   **Backend:** Python 3.9+ con **Flask** (Estructura de Blueprints modulares).
-*   **Base de Datos:** **PostgreSQL** (Transaccional principal vía *Flask-SQLAlchemy*) + **Google Sheets API** (*gspread* para catálogos secundarios y configuración de personal).
+*   **Base de Datos:** **PostgreSQL** (100% transaccional principal vía *Flask-SQLAlchemy*). El soporte de lectura/escritura de Google Sheets está completamente deprecado e inactivo.
 *   **Frontend:** HTML5 semántico, **Vanilla CSS3** (layouts responsivos para pantallas de operador y celulares) y **JavaScript (ES6+)** con arquitectura modular.
-*   **Reportes y PDF:** **ReportLab** para la generación local y en la nube de tiquetes de producción y fichas técnicas.
+*   **Reportes y PDF:** **ReportLab** para la generación local y carga automática en **Google Drive** de tiquetes de producción y fichas técnicas.
 *   **Infraestructura:** Despliegue automatizado mediante CI/CD en **Render**.
 
 ---
@@ -40,17 +40,15 @@ El sistema ha evolucionado de un modelo basado puramente en hojas de cálculo ha
 ### Requisitos Previos
 *   Python 3.9 o superior.
 *   Instalación de PostgreSQL local o en la nube.
-*   Credenciales de Google Cloud Platform (Service Account habilitado para Google Sheets y Drive API).
+*   Credenciales de Google Cloud Platform (Service Account habilitado para la API de Google Drive para almacenamiento de reportes).
 
 ### Archivo de Variables de Entorno (`.env`)
 Configura un archivo `.env` en la raíz del proyecto basándote en la siguiente plantilla:
 
 ```ini
 # ============================================
-# CONFIGURACIÓN GOOGLE SHEETS & DRIVE
+# CONFIGURACIÓN GOOGLE DRIVE (REPORTES PDF)
 # ============================================
-GSHEET_KEY=tu_id_de_hoja_de_calculo_aqui
-GSHEET_FILE_NAME=BASES PARA NUEVA APP
 DRIVE_REPORTS_FOLDER_ID=id_de_la_carpeta_de_drive_para_reportes
 
 # ============================================
