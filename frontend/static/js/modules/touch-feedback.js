@@ -106,9 +106,8 @@ const TouchFeedback = {
         }
 
         const sidebar = document.querySelector('.sidebar');
-        const toggleBtn = document.querySelector('.btn-icon.d-lg-none');
 
-        if (!sidebar || !toggleBtn) return;
+        if (!sidebar) return;
 
         // Toggle sidebar - ELIMINADO: Ya lo maneja app.js con event delegation
         /*

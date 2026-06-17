@@ -83,17 +83,31 @@ def crear_programacion():
         
         fecha_prog = datetime.strptime(fecha_str, '%Y-%m-%d').date()
         
-        nueva_prog = ProgramacionEnsamble(
+        from sqlalchemy.dialects.postgresql import insert
+        from sqlalchemy import text
+
+        stmt = insert(ProgramacionEnsamble).values(
             id_codigo=id_codigo,
             cantidad_objetivo=cantidad_objetivo,
             op_numero=data.get('op_numero'),
             fecha_programada=fecha_prog,
             estado='PENDIENTE'
         )
-        db.session.add(nueva_prog)
+
+        # UPSERT ante conflicto en uq_programacion_ensamble
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['fecha_programada', 'id_codigo', text("COALESCE(op_numero, '')")],
+            set_={
+                'cantidad_objetivo': stmt.excluded.cantidad_objetivo,
+                'estado': stmt.excluded.estado
+            }
+        ).returning(ProgramacionEnsamble.id_prog)
+
+        res = db.session.execute(stmt).fetchone()
         db.session.commit()
         
-        return jsonify({'success': True, 'id_prog': nueva_prog.id_prog})
+        id_prog_val = res[0] if res else None
+        return jsonify({'success': True, 'id_prog': id_prog_val})
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error al crear programación ensamble: {e}")

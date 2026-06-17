@@ -847,7 +847,10 @@ def guardar_programacion_diaria():
             }]
 
         # --- Iniciar Transacción Atómica ---
-        programaciones_creadas = []
+        from sqlalchemy.dialects.postgresql import insert
+        from sqlalchemy import text
+
+        programaciones_ids = []
         for prod_data in productos:
             cod_sistema = prod_data.get('codigo_sistema')
             if not cod_sistema:
@@ -859,7 +862,8 @@ def guardar_programacion_diaria():
             except (ValueError, TypeError) as e_num:
                 raise ValueError(f"Error en campos numéricos para producto {cod_sistema}: {e_num}")
 
-            nueva_prog = ProgramacionInyeccion(
+            # Sentencia de inserción/upsert nativa de postgres
+            stmt = insert(ProgramacionInyeccion).values(
                 fecha=fecha_dt,
                 codigo_sistema=cod_sistema,
                 maquina=maquina,
@@ -869,10 +873,35 @@ def guardar_programacion_diaria():
                 cavidades=cav_val,
                 responsable_planta=responsable_planta,
                 observaciones=observaciones,
-                op_world_office=None  # Aún no se conoce la OP la tarde anterior
+                op_world_office=None
             )
-            db.session.add(nueva_prog)
-            programaciones_creadas.append(nueva_prog)
+
+            # Si hay conflicto en la restricción única (fecha, maquina, codigo_sistema, COALESCE(molde, 0)),
+            # hacemos update de los datos de planificación.
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['fecha', 'maquina', 'codigo_sistema', text('COALESCE(molde, 0)')],
+                set_={
+                    'cantidad': stmt.excluded.cantidad,
+                    'cavidades': stmt.excluded.cavidades,
+                    'responsable_planta': stmt.excluded.responsable_planta,
+                    'observaciones': stmt.excluded.observaciones,
+                    'estado': stmt.excluded.estado
+                }
+            ).returning(ProgramacionInyeccion.id)
+
+            res = db.session.execute(stmt).fetchone()
+            if res:
+                programaciones_ids.append(res[0])
+
+        # Para evitar cubetas duplicadas al reprogramar (UPSERT)
+        # Limpiamos las distribuciones planificadas previas (con OP = None) para los productos del montaje
+        for prod_data in productos:
+            cod_sistema = prod_data.get('codigo_sistema')
+            if cod_sistema:
+                db.session.query(DistribucionOpPedidos).filter(
+                    DistribucionOpPedidos.codigo_producto == cod_sistema,
+                    DistribucionOpPedidos.op_world_office.is_(None)
+                ).delete(synchronize_session=False)
 
         # Insertar registros correspondientes en db_distribucion_op_pedidos
         for pedido in pedidos_asignados:
@@ -904,11 +933,11 @@ def guardar_programacion_diaria():
         # Guardar en base de datos de manera atómica
         db.session.commit()
 
-        logger.info(f"✅ {len(programaciones_creadas)} Programación(es) creada(s) exitosamente. Pedidos distribuidos: {len(pedidos_asignados)}")
+        logger.info(f"✅ {len(programaciones_ids)} Programación(es) creada(s)/actualizada(s) exitosamente. Pedidos distribuidos: {len(pedidos_asignados)}")
         return jsonify({
             "success": True,
-            "message": f"Programación diaria ({len(programaciones_creadas)} referencias) y cubetas creadas correctamente",
-            "id_programacion": programaciones_creadas[0].id if programaciones_creadas else None
+            "message": f"Programación diaria ({len(programaciones_ids)} referencias) y cubetas creadas correctamente",
+            "id_programacion": programaciones_ids[0] if programaciones_ids else None
         }), 201
 
     except ValueError as val_err:

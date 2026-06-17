@@ -292,7 +292,7 @@ body {
 
     .sidebar {
         position: fixed;
-        z-index: 5000;
+        z-index: 99999 !important;
     }
 
     .main-content {
