@@ -71,10 +71,10 @@ DATABASE_URL=postgresql://usuario:password@host:port/database_name
 # INTEGRACIÓN ERP WORLD OFFICE (WO)
 # ============================================
 # Conexión local del agente a la BD SQL Server de World Office
-WO_SERVER=SERVERWO\WORLDOFFICE17
-WO_DB=FRIPARTS2021
-WO_USER=wo_cliente
-WO_PASSWORD=wo_cliente
+WO_SERVER=SERVERWO\WORLDOFFICEXXXX
+WO_DB=WO_DB
+WO_USER=cliente
+WO_PASSWORD=contraseñaxxxx
 
 # Handshake seguro de API de Sincronización
 WO_SYNC_API_KEY=token_seguro_de_comunicacion_wo
