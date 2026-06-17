@@ -1,8 +1,14 @@
-# 🏭 FriTech MES - Sistema de Gestión de Producción e Inventario
+# 🏭 FriTech MES - Sistema de Gestión de Producción e Inventario ![v1.5.0](https://img.shields.io/badge/versión-1.5.0--estable-green)
 
 FriTech MES (Manufacturing Execution System) es una plataforma full-stack diseñada específicamente para el control y automatización de procesos de producción, gestión de inventarios y sincronización con el ERP World Office de la planta de fabricación de bujes de FriTech/FriParts.
 
 El sistema ha evolucionado de un modelo basado puramente en hojas de cálculo hacia una **arquitectura híbrida SQL-First**, utilizando **PostgreSQL** en la nube como base de datos transaccional principal, manteniendo compatibilidad con **Google Sheets** para catálogos específicos y persistencia de seguridad.
+
+## ✨ Novedades Versión 1.5.0 (Estable)
+- **Arquitectura SQL-First**: Consolidación definitiva de base de datos transaccional PostgreSQL para la persistencia y control de inventarios físicos.
+- **Decomisión de Módulos Obsoletos**: Purga completa de los dashboards de gerencia y métricas PNC antiguas en favor de consultas SQL directas y óptimas.
+- **Estructuración del Proyecto**: Organización formal de scripts temporales en `scratch/` y pruebas en `tests/` para mantener la raíz limpia y segura.
+- **Seguridad en Integraciones**: Robustecimiento de la comunicación HTTPS con World Office mediante handshakes seguros autenticados con tokens dinámicos.
 
 ---
 
