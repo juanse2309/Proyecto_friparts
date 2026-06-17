@@ -59,9 +59,21 @@ debug_param.txt
 .DS_Store
 Thumbs.db
 
-# --- Cleanup Maintenance ---
-# Ignorar scripts de prueba temporales en la raíz si no son parte de la app
+# --- Cleanup Maintenance & Workspaces ---
+# Ignorar scripts de prueba temporales en la raíz
 test_*.py
 debug_*.py
 check_*.py
 verify_*.py
+
+# Carpetas de trabajo locales
+scratch/
+
+# Datos, reportes y comprimidos
+*.csv
+*.xlsx
+*.rar
+*.zip
+*.log
+*.json
+*.pdf
