@@ -65,6 +65,9 @@ test_*.py
 debug_*.py
 check_*.py
 verify_*.py
+!tests/
+!tests/*.py
+
 
 # Carpetas de trabajo locales
 scratch/
