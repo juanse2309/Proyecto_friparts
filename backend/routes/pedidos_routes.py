@@ -734,10 +734,15 @@ def listar_pedidos():
                     original = Pedido.query.filter_by(id_pedido=id_p).first()
                     fecha_orig = original.fecha.strftime('%Y-%m-%d') if original and original.fecha else str(r.fecha)
 
+                    fecha_str_metal = str(r.fecha) if r.fecha else ""
+                    hora_str_metal = str(r.hora or "").strip()
+                    fecha_mod_metal = f"{fecha_str_metal} {hora_str_metal}".strip() if fecha_str_metal else ""
+
                     ped_map[id_p] = {
                         "id_pedido": id_p,
                         "fecha_creacion": fecha_orig,
-                        "fecha": str(r.fecha) if r.fecha else "",
+                        "fecha": fecha_str_metal,
+                        "fecha_despacho": fecha_mod_metal,
                         "cliente": r.cliente,
                         "vendedor": r.vendedor,
                         "estado": r.estado or "REGISTRADO",
@@ -765,15 +770,22 @@ def listar_pedidos():
             
         else:
             # Lógica estándar FriParts (db_pedidos)
-            query = Pedido.query
             if search:
-                query = query.filter(
+                query = Pedido.query.filter(
                     (Pedido.id_pedido.ilike(f'%{search}%')) |
                     (Pedido.cliente.ilike(f'%{search}%'))
                 )
-            
-            # Agrupar por id_pedido
-            rows = query.order_by(Pedido.id.desc()).limit(300).all()
+                rows = query.order_by(Pedido.id_pedido.desc()).limit(500).all()
+            else:
+                # 1. Obtener los últimos 100 id_pedido únicos
+                ids_result = db.session.query(Pedido.id_pedido).group_by(Pedido.id_pedido).order_by(Pedido.id_pedido.desc()).limit(100).all()
+                lista_de_ids = [r[0] for r in ids_result if r[0]]
+                
+                # 2. Consultar todas las filas (ítems) para esos IDs
+                if lista_de_ids:
+                    rows = Pedido.query.filter(Pedido.id_pedido.in_(lista_de_ids)).order_by(Pedido.id_pedido.desc()).all()
+                else:
+                    rows = []
             
             # Obtener todos los id_pedido únicos
             id_pedidos = list(set([r.id_pedido for r in rows if r.id_pedido]))
@@ -802,7 +814,12 @@ def listar_pedidos():
                     fecha_creacion_final = f"{fecha_str} {hora_str}".strip() if fecha_str else ""
                     
                     d_obj = despachos_map.get(id_p)
-                    fecha_despacho_final = d_obj.fecha.strftime('%Y-%m-%d %I:%M %p') if d_obj and d_obj.fecha else ""
+                    # Formato seguro %Y-%m-%d %H:%M:%S
+                    fecha_despacho_final = d_obj.fecha.strftime('%Y-%m-%d %H:%M:%S') if d_obj and d_obj.fecha else ""
+                    
+                    # Fallback si no hay registro de despacho (usa la fecha/hora de creación)
+                    if not fecha_despacho_final:
+                        fecha_despacho_final = fecha_creacion_final
 
                     ped_map[id_p] = {
                         "id_pedido": id_p,

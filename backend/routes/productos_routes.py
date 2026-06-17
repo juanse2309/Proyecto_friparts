@@ -154,7 +154,8 @@ def buscar_productos(query):
                 SELECT 
                     codigo,
                     precio,
-                    REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
+                    REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm,
+                    ROW_NUMBER() OVER(PARTITION BY REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') ORDER BY codigo) as rn
                 FROM db_precio_venta
             ),
             pedidos_cte AS (
@@ -193,7 +194,7 @@ def buscar_productos(query):
                 COALESCE(ped.total_pendiente, 0) as pedidos_pendientes
             FROM productos_base p
             LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
-            LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
+            LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm AND pv2.rn = 1
             LEFT JOIN pedidos_cte ped ON ped.id_codigo = p.id_codigo
             ORDER BY p.codigo_sistema
             LIMIT :l
@@ -281,7 +282,8 @@ def listar_productos():
                 SELECT 
                     codigo,
                     precio,
-                    REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm
+                    REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') as cod_norm,
+                    ROW_NUMBER() OVER(PARTITION BY REGEXP_REPLACE(codigo, {PREFIX_PATTERN}, '', 'i') ORDER BY codigo) as rn
                 FROM db_precio_venta
             ),
             pedidos_cte AS (
@@ -314,7 +316,7 @@ def listar_productos():
                 COALESCE(ped.total_pendiente, 0) as pedidos_pendientes
             FROM productos_base p
             LEFT JOIN db_precio_venta pv1 ON pv1.codigo = p.id_codigo
-            LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm
+            LEFT JOIN precios_norm pv2 ON pv2.cod_norm = p.id_norm AND pv2.rn = 1
             LEFT JOIN pedidos_cte ped ON ped.id_codigo = p.id_codigo
             ORDER BY p.codigo_sistema
         """

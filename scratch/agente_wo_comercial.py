@@ -63,9 +63,8 @@ def ejecutar_extraccion():
         INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D 
             ON E.Autonumerico = D.Pertenece_A
         WHERE YEAR(E.Fecha) >= YEAR(GETDATE()) - 1
-          AND E.Tipo_de_Documento IN ('FV', 'PED')
-          AND E.Anulado = 0
-          AND D.Cantidad > 0;
+          AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL')
+          AND E.Anulado = 0;
         """
         
         print(">> Ejecutando consulta SQL...")
@@ -82,13 +81,22 @@ def ejecutar_extraccion():
             if item['fecha']:
                 item['fecha'] = item['fecha'].strftime('%Y-%m-%d')
             
-            # Mapeo de Clasificación
+            # Mapeo de Clasificación y Ajuste Matemático
             tipo_doc = item.get('tipo_doc', '').strip()
-            if tipo_doc == 'FV':
-                item['clasificacion'] = 'venta'
-                total_ventas += float(item.get('total_ingresos', 0))
-            elif tipo_doc == 'PED':
+            
+            if tipo_doc == 'PED':
                 item['clasificacion'] = 'pedido'
+            elif tipo_doc in ['FV', 'COT', 'NC', 'NCV', 'NCCL']:
+                item['clasificacion'] = 'venta'
+                
+                # Ajuste matemático para devoluciones/notas crédito
+                if tipo_doc in ['NC', 'NCV', 'NCCL']:
+                    # Se asume que total_ingresos viene en positivo, lo volvemos negativo
+                    item['total_ingresos'] = float(item.get('total_ingresos', 0)) * -1
+                
+                # Para el control de seguridad local (solo FV suma al control)
+                if tipo_doc == 'FV':
+                    total_ventas += float(item.get('total_ingresos', 0))
             else:
                 item['clasificacion'] = 'desconocido'
             # Mapeo de Producto en Memoria

@@ -329,12 +329,19 @@ def recibir_comercial():
 
         # Paso 3: Mapear y preparar datos
         mappings = []
+        conteo_prefijos = {}
         cant_pd = 0
         cant_fv = 0
         cant_nc = 0
 
         for item in datos:
             clasif = item.get('clasificacion')
+            
+            # Extraer prefijo real del documento (ej: "COT-1234" -> "COT")
+            doc_str = str(item.get('documento') or '')
+            prefijo_real = doc_str.split('-')[0] if '-' in doc_str else 'DESC'
+            conteo_prefijos[prefijo_real] = conteo_prefijos.get(prefijo_real, 0) + 1
+
             if clasif == 'pedido':
                 cant_pd += 1
             elif clasif == 'venta':
@@ -386,20 +393,22 @@ def recibir_comercial():
         if mappings:
             db.session.bulk_insert_mappings(RawVentas, mappings)
             db.session.commit()
-            logger.info(f"✅ Inserción comercial completada en una única transacción. Insertados: {len(mappings)} registros (PD: {cant_pd}, FV: {cant_fv}, NC: {cant_nc}).")
+            logger.info(f"✅ Inserción comercial completada en una única transacción. Insertados: {len(mappings)} registros. Desglose: {conteo_prefijos}")
         else:
             db.session.commit()
             logger.info("ℹ️ No se recibieron registros comerciales válidos para insertar.")
 
+        detalles_response = {
+            "total_insertados": len(mappings)
+        }
+        # Agregar los contadores dinámicos al response
+        for pref, qty in conteo_prefijos.items():
+            detalles_response[f"insertados_{pref.lower()}"] = qty
+
         return jsonify({
             "success": True,
             "message": "Sincronización comercial exitosa",
-            "detalles": {
-                "insertados_pd": cant_pd,
-                "insertados_fv": cant_fv,
-                "insertados_nc": cant_nc,
-                "total_insertados": len(mappings)
-            }
+            "detalles": detalles_response
         }), 200
 
     except Exception as e:
