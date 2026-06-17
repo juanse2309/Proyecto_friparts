@@ -894,70 +894,27 @@ def liquidar_lote():
         if not id_lote:
             return jsonify({"success": False, "error": "Falta id_lote"}), 400
 
-        lote_traz = db.session.get(TrazabilidadLote, id_lote)
-        if not lote_traz:
+        # Buscamos todos los lotes de trazabilidad que coincidan con id_lote
+        # Puede ser un ID de lote específico (con sufijo) o el prefijo base del lote
+        lotes_traz = TrazabilidadLote.query.filter(
+            (TrazabilidadLote.id_lote == id_lote) | 
+            (TrazabilidadLote.id_lote.like(f"{id_lote}-%"))
+        ).all()
+
+        if not lotes_traz:
             return jsonify({"success": False, "error": f"Lote {id_lote} no encontrado"}), 404
 
-        restante = lote_traz.por_pulir or 0
-        if restante <= 0:
+        lotes_procesados = 0
+
+        for lote_traz in lotes_traz:
+            # Poner por_pulir a 0 y cambiar estado
+            lote_traz.por_pulir = 0
             lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
-            db.session.commit()
-            return jsonify({"success": True, "message": "El lote ya estaba en 0 y fue enviado a validación"}), 200
-
-        # Force por_pulir to 0 and change state
-        lote_traz.por_pulir = 0
-        lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
-
-        # Record difference as scrap in db_pulido (ProduccionPulido) and db_pnc_pulido (PncPulido)
-        import uuid
-        from datetime import datetime
-        import pytz
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz).replace(tzinfo=None)
-
-        id_pulido = f"LIQ-{lote_traz.id_lote}"
-        
-        # Check if liquidation record already exists to avoid PK/unique issues if clicked twice
-        existing_pulido = db.session.query(ProduccionPulido).filter_by(id_pulido=id_pulido).first()
-        if not existing_pulido:
-            # Create a ProduccionPulido record for the scrap
-            nuevo_pulido = ProduccionPulido(
-                id_pulido=id_pulido,
-                fecha=ahora,
-                codigo=lote_traz.id_codigo,
-                responsable=responsable,
-                cantidad_real=0,
-                pnc_inyeccion=0,
-                pnc_pulido=restante,
-                hora_inicio=ahora,
-                hora_fin=ahora,
-                estado='FINALIZADO',
-                tiempo_total_minutos=0.0,
-                duracion_segundos=0,
-                segundos_por_unidad=0.0,
-                orden_produccion=lote_traz.orden_produccion,
-                observaciones='LIQUIDACION FORZADA DE LOTE',
-                criterio_pnc_pulido='LIQUIDACION FORZADA',
-                lote=lote_traz.id_lote,
-                cantidad_recibida=0,
-                almacen_destino='P. TERMINADO'
-            )
-            db.session.add(nuevo_pulido)
-
-            # Create PncPulido record
-            nuevo_pnc = PncPulido(
-                id_pnc_pulido=uuid.uuid4().hex[:8],
-                id_pulido=id_pulido,
-                codigo=lote_traz.id_codigo,
-                cantidad=restante,
-                criterio='LIQUIDACION FORZADA - MERMA/AJUSTE',
-                codigo_ensamble='AUDITORIA PULIDO'
-            )
-            db.session.add(nuevo_pnc)
+            lotes_procesados += 1
 
         db.session.commit()
-        logger.info(f"⚡ [Liquidar Lote] Lote {id_lote} liquidado por {responsable}. Merma: {restante} unidades.")
-        return jsonify({"success": True, "message": f"Lote {id_lote} liquidado correctamente. Merma: {restante} unidades."}), 200
+        logger.info(f"⚡ [Liquidar Lote] Se liquidaron/cerraron {lotes_procesados} referencia(s) de {id_lote} por {responsable} (por_pulir establecido en 0 y estado -> PENDIENTE_VALIDACION).")
+        return jsonify({"success": True, "message": f"Lote {id_lote} cerrado administrativamente correctamente."}), 200
 
     except Exception as e:
         db.session.rollback()
@@ -1218,65 +1175,4 @@ def registrar_pnc_pulido():
         logger.error(f"❌ Error registrando PNC Pulido: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@pulido_bp.route('/api/pulido/liquidar_lote', methods=['POST'])
-def liquidar_lote_endpoint():
-    """
-    Cierra manualmente un lote en Pulido, registrando cualquier diferencia
-    como pérdida (PNC) si el lote no se completó según la cantidad original.
-    """
-    try:
-        data = request.get_json()
-        id_lote = data.get('id_lote')
-        responsable = data.get('responsable', 'SISTEMA')
-
-        if not id_lote:
-            return jsonify({"success": False, "error": "Falta id_lote"}), 400
-
-        lote = TrazabilidadLote.query.filter_by(id_lote=id_lote).first()
-        if not lote:
-            return jsonify({"success": False, "error": f"Lote {id_lote} no encontrado"}), 404
-
-        # Diferencia: cantidad que faltó por reportar en Pulido (sobrante)
-        diferencia = float(lote.por_pulir or 0)
-        
-        if diferencia > 0:
-            colombia_tz = pytz.timezone('America/Bogota')
-            ahora = datetime.now(colombia_tz).replace(tzinfo=None)
-            
-            # Registrar la diferencia como un "salto" o pérdida en Pulido
-            nuevo_registro = ProduccionPulido(
-                id_pulido=f"LIQ-{uuid.uuid4().hex[:8]}",
-                fecha=ahora.date(),
-                codigo=lote.id_codigo,
-                responsable=responsable,
-                cantidad_real=0,
-                pnc_pulido=int(diferencia),
-                criterio_pnc_pulido="SOBRANTE/DIFERENCIA LIQUIDACION",
-                orden_produccion=lote.orden_produccion,
-                observaciones=f"Liquidación manual de lote. Diferencia: {diferencia}",
-                estado="FINALIZADO",
-                lote=id_lote,
-                departamento='PULIDO',
-                hora_inicio=ahora,
-                hora_fin=ahora
-            )
-            db.session.add(nuevo_registro)
-            
-            db.session.add(PncPulido(
-                id_pnc_pulido=uuid.uuid4().hex[:8],
-                id_pulido=nuevo_registro.id_pulido,
-                codigo=lote.id_codigo,
-                cantidad=diferencia,
-                criterio="DIFERENCIA LIQUIDACION"
-            ))
-
-        lote.por_pulir = 0
-        lote.estado_actual = 'LIQUIDADO'
-        db.session.commit()
-
-        logger.info(f"✅ Lote {id_lote} liquidado por {responsable}. Diferencia registrada: {diferencia}")
-        return jsonify({"success": True, "status": "success"})
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error en liquidar_lote: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+# Eliminado endpoint duplicado /api/pulido/liquidar_lote

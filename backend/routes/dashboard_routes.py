@@ -116,6 +116,7 @@ def obtener_metricas_bi():
         ranking_pul_ops = repository_service.get_ranking_operarios_pulido(desde, hasta)
         ranking_maquinas = repository_service.get_ranking_maquinas(desde, hasta)
         analytics_pulido = repository_service.get_analytics_pulido(desde, hasta)
+        analytics_inyeccion = repository_service.get_analytics_inyeccion(desde, hasta)
         
         # 2. Nuevas métricas SQL-Native (Stock Crítico y Pérdida Financiera)
         stock_critico = repository_service.get_stock_critico_sql()
@@ -204,6 +205,7 @@ def obtener_metricas_bi():
             "maquinas": [{'maquina': m.get('maquina', '?'), 'valor': m.get('valor', 0)} for m in ranking_maquinas],
             "tendencia": tendencia,
             "analytics_pulido": analytics_pulido,
+            "analytics_inyeccion": analytics_inyeccion,
             "insights_ia": insights,
             "insight_ia": insights[0]
         }
@@ -225,6 +227,7 @@ def obtener_metricas_bi():
             "rankings": {"inyeccion_ops": [], "pulido_profundo": {}},
             "maquinas": [], "tendencia": [],
             "analytics_pulido": {"evolucion_puntos_op": {}, "operario_referencia": {}},
+            "analytics_inyeccion": {"operario_referencia": {}},
             "insights_ia": [f"⚠️ Error temporal cargando datos: {str(e)[:80]}"],
             "insight_ia": f"⚠️ Error temporal: {str(e)[:80]}",
             "rango": {"desde": "", "hasta": ""}

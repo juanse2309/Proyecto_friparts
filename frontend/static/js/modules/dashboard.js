@@ -198,6 +198,7 @@ window.ModuloDashboard = (function () {
 
     function renderizarTodo(data, jefaturaData) {
         console.log("🚀 Iniciando renderizado de componentes...", { data, jefaturaData });
+        window.lastDashboardData = data;
 
         // Limpiar cache de filas al renderizar datos nuevos
         tableRowCache = {};
@@ -440,18 +441,7 @@ window.ModuloDashboard = (function () {
                     if (elements.length > 0) {
                         const index = elements[0].index;
                         const operador = ops[index].nombre;
-                        const valor = ops[index].valor;
-                        const mixData = ops[index].mix || [];
-                        const arr = mixData.slice(0, 10).map(p => ({
-                            ref: p.prod,
-                            cantidad: p.qty,
-                            ultima_fecha: p.fecha,
-                            pts_u: p.u_pts || 0,
-                            costo_u: 0
-                        }));
-                        const detalleMix = encodeURIComponent(JSON.stringify(arr));
-                        const insightText = ops[index].insight || "Sin insights disponibles para Inyección.";
-                        mostrarModalOperador(operador, valor, 'Inyección', insightText, detalleMix);
+                        ModuloDashboard.mostrarDetalleOperadorInyeccion(operador);
                     }
                 },
                 onHover: (event, chartElement) => {
@@ -1509,19 +1499,88 @@ window.ModuloDashboard = (function () {
         });
     }
 
+    function mostrarDetalleOperadorInyeccion(nombre) {
+        // Fallback or fetching from window.lastDashboardData.analytics_inyeccion if it ever exists
+        let referenciasHtml = `<tr><td colspan="3" class="text-center text-muted py-4"><i class="fas fa-box-open fs-3 mb-2 opacity-50 d-block"></i>No hay detalle de referencias disponible</td></tr>`;
+        
+        const root = window.lastDashboardData?.data || window.lastDashboardData;
+        const analyticsIny = root?.analytics_inyeccion;
+        const refsMap = analyticsIny?.operario_referencia;
+        
+        const keyUpper = String(nombre || '').toUpperCase().trim();
+        const dataOp = refsMap?.[keyUpper];
+
+        let totalBuenas = 0;
+        let totalPnc = 0;
+
+        if (dataOp) {
+            const refs = Object.keys(dataOp);
+            if (refs.length > 0) {
+                referenciasHtml = refs.map(ref => {
+                    const buenas = dataOp[ref].buenas || 0;
+                    const scrap = dataOp[ref].pnc || 0;
+                    totalBuenas += buenas;
+                    totalPnc += scrap;
+                    return `
+                    <tr>
+                        <td class="text-start fw-medium"><i class="fas fa-cube text-muted me-1"></i> ${ref}</td>
+                        <td class="text-center"><span class="badge bg-success text-white">${buenas.toLocaleString()}</span></td>
+                        <td class="text-center"><span class="badge bg-danger text-white">${scrap.toLocaleString()}</span></td>
+                    </tr>
+                    `;
+                }).join('');
+            }
+        }
+        
+        Swal.fire({
+            title: `<i class="fas fa-industry text-primary mb-2"></i><br>Detalle de Inyección: ${nombre}`,
+            html: `
+                <div class="row g-3 mb-4">
+                    <div class="col-6">
+                        <div class="card shadow-none border rounded-3 p-2 bg-light">
+                            <span class="small text-muted fw-bold">Piezas Buenas</span>
+                            <h4 class="text-success mb-0">${totalBuenas.toLocaleString()}</h4>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="card shadow-none border rounded-3 p-2 bg-light">
+                            <span class="small text-muted fw-bold">PNC Reportado</span>
+                            <h4 class="text-danger mb-0">${totalPnc.toLocaleString()}</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle small mb-0" style="width: 100% !important; min-width: 100% !important; table-layout: fixed;">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="text-start">Referencia</th>
+                                <th class="text-center">Buenas</th>
+                                <th class="text-center">PNC</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${referenciasHtml}
+                        </tbody>
+                    </table>
+                </div>
+            `,
+            width: window.innerWidth > 768 ? '32em' : '95%',
+            showConfirmButton: true,
+            confirmButtonText: 'Cerrar',
+            confirmButtonColor: '#3b82f6'
+        });
+    }
+
     function mostrarModalTodosInyeccion(ops) {
         if (!ops || ops.length === 0) return Swal.fire("Aviso", "No hay operadores de inyección", "info");
 
         // Construir tabla
         let rowsHtml = ops.map((op, idx) => {
             const topProd = op.mix && op.mix[0] ? op.mix[0].prod : "N/A";
-            // Usamos cuádruple backslash para que en el atributo HTML llegue como doble backslash (literal \n)
-            const detalleMixText = op.mix ? op.mix.slice(0, 5).map(p => `${p.prod}:${p.qty}:${p.u_pts || 1}:${p.pts || 0} `).join('\\\\n').replace(/'/g, "\\'") : '';
             const nombreEscaped = op.nombre.replace(/'/g, "\\'");
-            const insightEscaped = (op.insight || "Sin insights disponibles para Inyección.").replace(/'/g, "\\'");
 
             return `
-                <tr style="cursor: pointer" onclick="ModuloDashboard.mostrarModalOperador('${nombreEscaped}', ${op.valor}, 'Inyección', '${insightEscaped}', '${detalleMixText}')">
+                <tr style="cursor: pointer" onclick="ModuloDashboard.mostrarDetalleOperadorInyeccion('${nombreEscaped}')">
                     <td class="ps-3"><span class="badge bg-light text-dark border">${idx + 1}</span></td>
                     <td class="text-start">
                         <div class="fw-bold">${op.nombre}</div>
@@ -1536,7 +1595,7 @@ window.ModuloDashboard = (function () {
             title: `<i class="fas fa-users text-primary mb-2"></i><br>Todos los Operadores (Inyección)`,
             html: `
                 <div class="table-responsive" style="max-height: 400px;">
-                    <table class="table table-hover align-middle small mb-0">
+                    <table class="table table-hover align-middle small mb-0" style="width: 100% !important; min-width: 100% !important; table-layout: fixed;">
                         <thead class="bg-light sticky-top">
                             <tr>
                                 <th style="width: 15%;">#</th>
@@ -2470,6 +2529,7 @@ window.ModuloDashboard = (function () {
             // Ejecutamos también la recarga visual del Dashboard
             cargarDatos(true);
         },   // botón 🔄: fuerza lectura fresca (nocache)
+        mostrarDetalleOperadorInyeccion: mostrarDetalleOperadorInyeccion,
         mostrarModalOperador: mostrarModalOperador,
         toggleChartView: toggleChartView,
         mostrarDetalleIncumplimiento: mostrarDetalleIncumplimiento,

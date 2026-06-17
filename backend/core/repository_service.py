@@ -568,7 +568,7 @@ class RepositoryService:
             ventas_totales = _num(r_ven[0])
 
             # --- Pedidos (db_ventas con clasificacion=pedido) ---
-            sql_ped = f"SELECT COALESCE(SUM({_sql_cast_num('total_ingresos')}), 0) FROM db_ventas {filt_gen} AND clasificacion ILIKE '%pedido%'"
+            sql_ped = f"SELECT COALESCE(SUM({_sql_cast_num('cantidad')}), 0) FROM db_ventas {filt_gen} AND clasificacion ILIKE '%pedido%'"
             r_ped = db.session.execute(text(sql_ped), params).fetchone()
             pedidos_sum = _num(r_ped[0])
 
@@ -643,7 +643,7 @@ class RepositoryService:
             sql += ' GROUP BY i.responsable ORDER BY total DESC LIMIT :lim'
 
             rows = db.session.execute(text(sql), params).fetchall()
-            return [{'nombre': r[0] or '?', 'valor': _num(r[1]), 'pnc': _num(r[2])} for r in rows]
+            return [{'nombre': str(r[0] or 'Desconocido').strip(), 'valor': _num(r[1]), 'pnc': _num(r[2])} for r in rows]
         except Exception as e:
             db.session.rollback()
             logger.error(f"[get_ranking_operarios_inyeccion] {e}")
@@ -664,7 +664,7 @@ class RepositoryService:
             sql += ' GROUP BY maquina ORDER BY total DESC'
 
             rows = db.session.execute(text(sql), params).fetchall()
-            return [{'maquina': r[0] or '?', 'valor': _num(r[1])} for r in rows]
+            return [{'maquina': str(r[0] or 'Desconocida').strip(), 'valor': _num(r[1])} for r in rows]
         except Exception as e:
             db.session.rollback()
             logger.error(f"[get_ranking_maquinas] {e}")
@@ -699,7 +699,7 @@ class RepositoryService:
             
             resultado = []
             for r in rows:
-                nombre = r[0] or '?'
+                nombre = str(r[0] or 'Desconocido').strip()
                 buenas = int(r[1])
                 pnc = int(r[2])
                 t_real = int(r[3])
@@ -749,7 +749,10 @@ class RepositoryService:
             rows_evol = db.session.execute(text(sql_evol), params).fetchall()
             evolucion = {}
             for r in rows_evol:
-                mes, res, pts = r[0], r[1], float(r[2])
+                mes = str(r[0] or 'Sin Mes').strip()
+                res = str(r[1] or 'Desconocido').strip()
+                pts = float(r[2] or 0)
+                
                 if mes not in evolucion: evolucion[mes] = {}
                 evolucion[mes][res] = pts
 
@@ -770,7 +773,12 @@ class RepositoryService:
             rows_refs = db.session.execute(text(sql_refs), params).fetchall()
             refs_map = {}
             for r in rows_refs:
-                res, ref, qty, pts_u, costo_u = r[0], r[1], int(r[2]), float(r[3]), float(r[4])
+                res = str(r[0] or 'Desconocido').strip()
+                ref = str(r[1] or 'Sin Referencia').strip()
+                qty = int(r[2] or 0)
+                pts_u = float(r[3] or 0)
+                costo_u = float(r[4] or 0)
+                
                 if res not in refs_map: refs_map[res] = {}
                 refs_map[res][ref] = {
                     "cantidad_total": qty,
@@ -786,6 +794,72 @@ class RepositoryService:
             db.session.rollback()
             logger.error(f"[get_analytics_pulido] {e}")
             return {"evolucion_puntos_op": {}, "operario_referencia": {}}
+
+    def get_analytics_inyeccion(self, desde=None, hasta=None):
+        """Genera detalle de referencias por operario para Inyección (Buenas y PNC)"""
+        try:
+            params = {}
+            filt_iny = ""
+            filt_pnc = ""
+            if desde and hasta:
+                filt_iny = " AND fecha_inicia BETWEEN :desde AND :hasta"
+                filt_pnc = " AND i.fecha_inicia BETWEEN :desde AND :hasta"
+                params['desde'] = desde
+                params['hasta'] = hasta
+
+            # 1. Obtener buenas por operario y referencia
+            sql_buenas = f"""
+                SELECT 
+                    UPPER(TRIM(responsable)) as responsable,
+                    TRIM(id_codigo::TEXT) as referencia,
+                    SUM(COALESCE(cantidad_real, 0)) as buenas
+                FROM db_inyeccion
+                WHERE 1=1 {filt_iny}
+                GROUP BY 1, 2
+            """
+            rows_buenas = db.session.execute(text(sql_buenas), params).fetchall()
+
+            # 2. Obtener pnc por operario y referencia
+            sql_pnc = f"""
+                SELECT 
+                    UPPER(TRIM(i.responsable)) as responsable,
+                    TRIM(p.id_codigo::TEXT) as referencia,
+                    SUM(COALESCE(p.cantidad, 0)) as pnc
+                FROM db_pnc_inyeccion p
+                JOIN db_inyeccion i ON p.id_inyeccion = i.id_inyeccion
+                WHERE 1=1 {filt_pnc}
+                GROUP BY 1, 2
+            """
+            rows_pnc = db.session.execute(text(sql_pnc), params).fetchall()
+
+            # Merge
+            refs_map = {}
+            
+            for r in rows_buenas:
+                res = str(r[0] or 'Desconocido').strip()
+                ref = str(r[1] or 'Sin Referencia').strip()
+                buenas = int(r[2] or 0)
+                
+                if res not in refs_map: refs_map[res] = {}
+                if ref not in refs_map[res]: refs_map[res][ref] = {"buenas": 0, "pnc": 0}
+                refs_map[res][ref]["buenas"] += buenas
+
+            for r in rows_pnc:
+                res = str(r[0] or 'Desconocido').strip()
+                ref = str(r[1] or 'Sin Referencia').strip()
+                pnc = int(r[2] or 0)
+                
+                if res not in refs_map: refs_map[res] = {}
+                if ref not in refs_map[res]: refs_map[res][ref] = {"buenas": 0, "pnc": 0}
+                refs_map[res][ref]["pnc"] += pnc
+
+            return {
+                "operario_referencia": refs_map
+            }
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"[get_analytics_inyeccion] {e}")
+            return {"operario_referencia": {}}
 
     # ── NUEVAS FUNCIONES SQL-NATIVE ──────────────────────────
 
@@ -1061,17 +1135,24 @@ class RepositoryService:
             
             for r in back_rows:
                 # r tiene 7 columnas: cli, prod, ref_fin, p_qty, v_qty, diff_q, diff_m
-                cli, prod, ref_fin, p_qty, v_qty, diff_q, diff_m = r
-                inc_unidades.append({"cliente": cli, "producto": prod, "unidades_fallidas": _num(diff_q)})
-                inc_dinero.append({"cliente": cli, "producto": prod, "dinero_perdido": _num(diff_m)})
+                cli = str(r[0] or 'Sin Cliente').strip()
+                prod = str(r[1] or 'Sin Producto').strip()
+                ref_fin = str(r[2] or '').strip()
+                p_qty = _num(r[3])
+                v_qty = _num(r[4])
+                diff_q = _num(r[5])
+                diff_m = _num(r[6])
+                
+                inc_unidades.append({"cliente": cli, "producto": prod, "unidades_fallidas": diff_q})
+                inc_dinero.append({"cliente": cli, "producto": prod, "dinero_perdido": diff_m})
                 backorder_list.append({
                     "producto": prod, 
                     "cliente": cli,
                     "clean_ref": ref_fin,
-                    "pedidos_qty": _num(p_qty), 
-                    "ventas_qty": _num(v_qty), 
-                    "pendiente_qty": _num(diff_q),
-                    "pendiente_money": _num(diff_m)
+                    "pedidos_qty": p_qty, 
+                    "ventas_qty": v_qty, 
+                    "pendiente_qty": diff_q,
+                    "pendiente_money": diff_m
                 })
 
             # Obtener Scrap para el resumen
@@ -1079,8 +1160,8 @@ class RepositoryService:
 
             return {
                 "mensual": self.get_rendimiento_mensual_sql(start_date, end_date),
-                "top_productos": [{"producto": r[0], "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in top_d],
-                "peores_productos": [{"producto": r[0], "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in peor_d],
+                "top_productos": [{"producto": str(r[0] or 'Sin Producto').strip(), "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in top_d],
+                "peores_productos": [{"producto": str(r[0] or 'Sin Producto').strip(), "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in peor_d],
                 "backorder": backorder_list,
                 "incumplimiento_consolidado": [
                     {
