@@ -517,6 +517,10 @@ class RepositoryService:
             def _sql_cast_num(col):
                 return f"COALESCE(NULLIF(regexp_replace(regexp_replace({col}::text, '[$. ]', '', 'g'), ',', '.', 'g'), '')::NUMERIC, 0)"
 
+            # Filtros específicos con prefijos
+            filt_iny_pnc = " WHERE i.fecha_inicia BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
+            filt_pul_pnc = " WHERE d.fecha BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
+
             # --- Inyección (db_pnc_inyeccion) ---
             # Cantidad OK viene de la tabla principal
             sql_iny_ok = f"SELECT SUM({_user_cast('cantidad_real')}) FROM db_inyeccion {filt_iny}"
@@ -525,7 +529,7 @@ class RepositoryService:
                 SELECT SUM({_user_cast('p.cantidad')})
                 FROM db_pnc_inyeccion p
                 LEFT JOIN db_inyeccion i ON p.id_inyeccion = i.id_inyeccion
-                {filt_iny.replace('WHERE ', 'WHERE i.') if 'WHERE' in filt_iny else 'WHERE 1=1'}
+                {filt_iny_pnc}
             """
             r_iny_ok = db.session.execute(text(sql_iny_ok), params).fetchone()
             r_iny_pnc = db.session.execute(text(sql_iny_pnc), params).fetchone()
@@ -538,7 +542,7 @@ class RepositoryService:
                 SELECT SUM({_user_cast('p.cantidad')})
                 FROM db_pnc_pulido p
                 LEFT JOIN db_pulido d ON p.id_pulido = d.id_pulido
-                {filt_gen.replace('WHERE ', 'WHERE d.') if 'WHERE' in filt_gen else 'WHERE 1=1'}
+                {filt_pul_pnc}
             """
             r_pul_ok = db.session.execute(text(sql_pul_ok), params).fetchone()
             r_pul_pnc = db.session.execute(text(sql_pul_pnc), params).fetchone()
@@ -551,7 +555,7 @@ class RepositoryService:
                 SELECT SUM({_user_cast('p.cantidad')})
                 FROM db_pnc_ensamble p
                 LEFT JOIN db_ensambles d ON p.id_ensamble = d.id_ensamble
-                {filt_gen.replace('WHERE ', 'WHERE d.') if 'WHERE' in filt_gen else 'WHERE 1=1'}
+                {filt_pul_pnc}
             """
             r_ens_ok = db.session.execute(text(sql_ens_ok), params).fetchone()
             r_ens_pnc = db.session.execute(text(sql_ens_pnc), params).fetchone()

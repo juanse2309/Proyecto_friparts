@@ -140,21 +140,29 @@ def sincronizar_datos_comerciales():
     try:
         cursor = conn.cursor()
 
+        # 1. Crear Diccionario de Mapeo en Memoria (Catálogo Maestro)
+        logger.info("Cargando catálogo maestro de inventarios en memoria...")
+        cursor.execute("SELECT Autonumerico, Codigo_Producto FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios]")
+        mapping = {}
+        for row in cursor.fetchall():
+            mapping[str(row[0])] = row[1]
+
         sql_query = """
         SELECT 
-            Fecha AS fecha,
-            (Prefijo + '-' + CAST(NumeroDocumento AS VARCHAR)) AS documento,
-            NombreTercero AS nombres,
-            CodigoInventario AS productos,
-            Cantidad AS cantidad,
-            Subtotal AS total_ingresos,
-            ValorUnitario AS precio_promedio,
-            Prefijo AS prefijo_doc
-        FROM [FRIPARTS2021].[dbo].[Vista_Documentos_Detalle]
-        WHERE YEAR(Fecha) = YEAR(GETDATE()) 
-          AND Prefijo IN ('FV', 'PD', 'NC')
-          AND Cantidad > 0
-          AND Estado <> 'Anulado';
+            E.Fecha AS fecha,
+            (E.prefijo + '-' + CAST(E.Numero_de_Documento AS VARCHAR)) AS documento,
+            E.Nombre_tercero_externo AS nombres,
+            D.Producto AS productos, -- ESTE ES EL ID QUE USAREMOS PARA EL MAPEO
+            CAST(D.Cantidad AS FLOAT) AS cantidad,
+            CAST((D.Cantidad * D.Valor_Unitario * (1 - (D.Descuento/100.0))) AS FLOAT) AS total_ingresos,
+            CAST(D.Valor_Unitario AS FLOAT) AS precio_promedio,
+            E.Tipo_de_Documento AS tipo_doc
+        FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
+        INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D 
+            ON E.Autonumerico = D.Pertenece_A
+        WHERE YEAR(E.Fecha) >= YEAR(GETDATE()) - 1
+          AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL')
+          AND E.Anulado = 0;
         """
 
         logger.info("Ejecutando consulta comercial SQL Server...")
@@ -172,28 +180,43 @@ def sincronizar_datos_comerciales():
         for row in cursor.fetchall():
             row_dict = dict(zip(columns, row))
             
-            # Mapear la columna clasificacion
-            prefijo = row_dict.get('prefijo_doc')
-            
             # Sanitizar ingresos/subtotal
             subtotal = row_dict.get('total_ingresos') or 0.0
             try:
                 subtotal_f = float(subtotal)
             except (ValueError, TypeError):
                 subtotal_f = 0.0
-
-            if prefijo == 'FV':
-                row_dict['clasificacion'] = 'venta'
-                cant_fv += 1
-                total_ingresos_fv += subtotal_f
-            elif prefijo == 'PD':
+            
+            # Mapeo de Clasificación y Ajuste Matemático
+            tipo_doc = row_dict.get('tipo_doc', '').strip()
+            
+            if tipo_doc == 'PED':
                 row_dict['clasificacion'] = 'pedido'
                 cant_pd += 1
-            elif prefijo == 'NC':
-                row_dict['clasificacion'] = 'devolucion'
-                cant_nc += 1
+            elif tipo_doc in ['FV', 'COT', 'NC', 'NCV', 'NCCL']:
+                row_dict['clasificacion'] = 'venta'
+                
+                # Ajuste matemático para devoluciones/notas crédito
+                if tipo_doc in ['NC', 'NCV', 'NCCL']:
+                    # Se asume que total_ingresos viene en positivo, lo volvemos negativo
+                    subtotal_f = subtotal_f * -1
+                    row_dict['total_ingresos'] = subtotal_f
+                    cant_nc += 1
+                
+                # Para el control de seguridad local (solo FV suma al control)
+                if tipo_doc == 'FV':
+                    cant_fv += 1
+                    total_ingresos_fv += subtotal_f
+                elif tipo_doc == 'COT':
+                    # Opcional, lo sumamos a cant_fv localmente para mantener el log consistente
+                    cant_fv += 1
             else:
                 row_dict['clasificacion'] = 'desconocido'
+                
+            # Mapeo de Producto en Memoria
+            prod_id = str(row_dict.get('productos', '')).strip()
+            mapped_prod = mapping.get(prod_id, prod_id)
+            row_dict['productos'] = str(mapped_prod or '').strip()
 
             registros.append(row_dict)
 
@@ -204,7 +227,7 @@ def sincronizar_datos_comerciales():
         # FRENO DE SEGURIDAD CONTABLE
         # ====================================================================
         print("\n" + "="*80)
-        print(" 🔒 FRENO DE SEGURIDAD - AUDITORÍA FINANCIERA")
+        print(" [SECURITY] FRENO DE SEGURIDAD - AUDITORÍA FINANCIERA")
         print(f" TOTAL DE INGRESOS CALCULADO PARA VENTAS ('FV'): ${total_ingresos_fv:,.2f}")
         print(" POR FAVOR, VALIDE ESTE NÚMERO CONTRA EL BALANCE DE WORLD OFFICE ANTES DE VALIDAR LOS REPORTES EN EL B2B.")
         print("="*80 + "\n")
