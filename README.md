@@ -1,118 +1,154 @@
-# Proyecto Bujes - Sistema de Gestión de Producción ![v1.4.3](https://img.shields.io/badge/versión-1.4.3-green)
+# 🏭 FriTech MES - Sistema de Gestión de Producción e Inventario
 
-Este proyecto es una aplicación web full-stack diseñada para gestionar la producción, inventario y facturación de una fábrica de bujes. Utiliza **Google Sheets** como base de datos en tiempo real.
+FriTech MES (Manufacturing Execution System) es una plataforma full-stack diseñada específicamente para el control y automatización de procesos de producción, gestión de inventarios y sincronización con el ERP World Office de la planta de fabricación de bujes de FriTech/FriParts.
 
-## ✨ Novedades Versión 1.4.3 (Backfill de Pulido)
-- **Sincronización de Fecha**: La fecha ahora también se recupera del último registro en Sheets al seleccionar el operario, facilitando el ingreso masivo de datos históricos sin tener que re-ingresar el día.
+El sistema ha evolucionado de un modelo basado puramente en hojas de cálculo hacia una **arquitectura híbrida SQL-First**, utilizando **PostgreSQL** en la nube como base de datos transaccional principal, manteniendo compatibilidad con **Google Sheets** para catálogos específicos y persistencia de seguridad.
 
-## ✨ Novedades Versión 1.4.2 (Sincronización de Pulido)
-- **Historial Global de Pulido**: Ahora el banner de último registro se sincroniza con Google Sheets. Esto permite que los operarios vean su último trabajo incluso si cambian de dispositivo o borran el historial del navegador.
+---
 
-## ✨ Novedades Versión 1.4.1 (UX Pulido & PDF Fix)
-- **UX Pulido Optimizado**: Campos "pegajosos" (Sticky Inputs) para Fecha y Responsable, junto con un banner de notificación del último registro para agilizar ingresos masivos.
-- **Fix PDF Inyección**: Robustez mejorada para evitar fallos silenciosos ante datos nulos o mal formateados en el proceso de inyección multi-sku.
+## 🧭 Módulos Principales del Sistema
 
-## ✨ Novedades Versión 1.4.0 (Arquitectura & Persistencia)
-- **Persistencia Global de Formularios**: Los formularios de producción (Inyección, Pulido, Ensamble, Mezcla) y Pedidos ahora guardan el progreso automáticamente en el navegador. No más pérdida de datos al recargar.
-- **Memoria de Aplicación**: El sistema recuerda la última página visitada y la máquina seleccionada en el módulo MES.
-- **Seguridad de Repositorio**: Optimización de `.gitignore` y limpieza de historial para proteger credenciales de Google Cloud y variables de entorno.
-- **Plantilla PDF Premium**: Nueva generación de reportes de inyección con soporte para "Molde de Familia" (múltiples productos por inyección) y resumen ejecutivo.
-- **Hotfix Render**: Corrección de dependencias (`reportlab`) para estabilidad en producción.
+| Módulo | Descripción Técnica | Componentes Clave |
+| :--- | :--- | :--- |
+| **🏭 Inyección** | Control del proceso primario de inyección de plástico. Soporta configuraciones de "Molde de Familia" (múltiples SKUs por ciclo), control de cavidades y control de tiempos y contadores por máquina. | `inyeccion_routes.py`<br>`inyeccion.js`<br>`PDFGenerator` (ReportLab) |
+| **✨ Pulido** | Monitoreo del acabado y calidad de piezas. Incluye el flujo de **Liquidación de Lote**, cálculo automático de diferencias e inventario en tránsito desde satélites externos. | `pulido_routes.py`<br>`pulido.js`<br>`trazabilidad_lotes` (SQL) |
+| **🔩 Ensamble** | Mapeo y ensamble final de bujes con base en una ficha maestra (recetas de componentes). Realiza deducciones automáticas de stock del almacén de materias primas al ensamblar un SKU. | `ensamble_routes.py`<br>`ensamble.js`<br>`bom_service.py` |
+| **🛒 Pedidos** | Gestión de órdenes de compra comerciales y solicitudes de clientes. Visualización en tiempo real optimizada para visualizadores en planta (Modo TV) con alertas sonoras integradas. | `pedidos_routes.py`<br>`pedidos.js` |
+| **📦 Almacén** | Flujo logístico interno con **Doble Check**: Alistamiento de mercancía (**Box** 📦) y confirmación de Despacho de camiones (**Truck** 🚚), con soporte para despachos parciales. | `inventario_routes.py`<br>`almacen.js` |
+| **⚠️ PNC** | Control de **Producto No Conforme**. Registro, clasificación y búsqueda inteligente de rechazos de control de calidad por tipo de defecto para mitigar mermas en planta. | `pnc.js` (Registros de Calidad) |
 
-## ✨ Novedades Versión 1.3.1 (Hotfix & Mejoras)
-- **Restauración en Deshacer**: Ahora al deshacer un registro, los datos se restauran en el formulario para corrección rápida.
-- **Feedback Sonoro Mejorado**: Nuevos sonidos para error crítico y notificación de pedidos en modo TV.
-- **Scroll en Modales**: Solucionado el problema de scroll en modales de auditoría en móviles.
-
-## ✨ Novedades Versión 1.3.0 (UX & Personalización)
-Esta versión se enfoca en mejorar la experiencia del operario, haciéndola más amigable y segura.
-
-### 🎨 Personalización
-- **Saludo Dinámico**: La barra lateral saluda según la hora del día (Buenos días/tardes).
-- **Avatar de Usuario**: Generación automática de avatar con iniciales y color único por usuario.
-
-### ↩️ Botón de Pánico (Deshacer)
-- **Seguridad Operativa**: Al registrar en Inyección, Pulido o Ensamble, aparece un botón **"DESHACER"** por 5 segundos.
-- **Corrección Inmediata**: Permite eliminar el último registro erróneo sin necesidad de soporte técnico.
-
-## 🚀 Características
-
-### 📊 Dashboard y Analítica
-- **Dashboard en Tiempo Real**: KPIs y analítica avanzada integrada con **Chart.js** (reemplaza Power BI externo)
-- **Modo TV**: Vista de monitoreo continuo para planta con auto-refresco (30s) y fuentes de alto contraste
-- **Semáforo de Inventario**: Alertas visuales de stock (Verde/Amarillo/Rojo)
-
-### 📦 Gestión de Almacén
-- **Sistema de Doble Check**: Alistamiento (Box 📦) y Despacho (Truck 🚚) con seguimiento de entregas parciales
-- **Auto-Refresh**: Actualización automática cada 15 segundos
-- **Delegación de Pedidos**: Asignación de órdenes a colaboradoras específicas
-
-### 🛒 Portal Cliente
-- **Catálogo de Productos**: Vista moderna con búsqueda inteligente y paginación
-- **Carrito de Compras**: Gestión de pedidos con cálculo automático de totales
-- **Historial de Pedidos**: Seguimiento de estado y progreso de entregas
-
-### 🏭 Gestión de Procesos
-- **Inyección**: Registro de producción con control de operarios y máquinas (Soporte Multi-SKU)
-- **Pulido**: Seguimiento de acabado y calidad
-- **Ensamble**: Control de ensamblaje final con selector dinámico de recetas
-- **Mezclas Automáticas**: Gestión de formulaciones y materias primas
-- **PNC (Producto No Conforme)**: Control detallado de rechazos por calidad con Smart Search
-
-### 🔐 Seguridad y Permisos
-- **Autenticación**: Sistema de login con Google Sheets como base de usuarios
-- **Roles Granulares**: Administración, Comercial, Producción, Almacén
-- **Arquitectura de Secretos**: Compatible con Google Service Accounts y variables de entorno seguras en Render.
-
-## 📁 Estructura del Proyecto
-- `backend/`: Contiene `app.py` (Flask) y la lógica de módulos (services, routes, utils).
-- `frontend/`:
-  - `templates/`: Archivos HTML (index.html, login.html).
-  - `static/`: Estilos (CSS), Imágenes y Módulos de Javascript (`js/modules`).
-- `requirements.txt`: Dependencias de Python (Flask, gspread, reportlab, etc.).
+---
 
 ## 🛠️ Stack Tecnológico
 
-### Backend
-- **Python 3.9+** / **Flask**
-- **gspread**: Google Sheets API
-- **ReportLab**: Generación de PDFs profesionales
-- **python-dotenv**: Gestión de secretos
+*   **Backend:** Python 3.9+ con **Flask** (Estructura de Blueprints modulares).
+*   **Base de Datos:** **PostgreSQL** (Transaccional principal vía *Flask-SQLAlchemy*) + **Google Sheets API** (*gspread* para catálogos secundarios y configuración de personal).
+*   **Frontend:** HTML5 semántico, **Vanilla CSS3** (layouts responsivos para pantallas de operador y celulares) y **JavaScript (ES6+)** con arquitectura modular.
+*   **Reportes y PDF:** **ReportLab** para la generación local y en la nube de tiquetes de producción y fichas técnicas.
+*   **Infraestructura:** Despliegue automatizado mediante CI/CD en **Render**.
 
-### Frontend
-- **JavaScript (ES6+)** / **Vanilla CSS3**
-- **Chart.js**: Visualización de datos y analítica en tiempo real.
-- **Arquitectura Modular**: Módulos independientes para cada proceso (inyeccion.js, pulido.js, etc.)
+---
 
-## 🛠️ Instalación Local
+## ⚙️ Configuración del Entorno
 
-1.  **Clonar el repositorio**:
+### Requisitos Previos
+*   Python 3.9 o superior.
+*   Instalación de PostgreSQL local o en la nube.
+*   Credenciales de Google Cloud Platform (Service Account habilitado para Google Sheets y Drive API).
+
+### Archivo de Variables de Entorno (`.env`)
+Configura un archivo `.env` en la raíz del proyecto basándote en la siguiente plantilla:
+
+```ini
+# ============================================
+# CONFIGURACIÓN GOOGLE SHEETS & DRIVE
+# ============================================
+GSHEET_KEY=tu_id_de_hoja_de_calculo_aqui
+GSHEET_FILE_NAME=BASES PARA NUEVA APP
+DRIVE_REPORTS_FOLDER_ID=id_de_la_carpeta_de_drive_para_reportes
+
+# ============================================
+# CONFIGURACIÓN DE CACHÉ Y SEGURIDAD FLASK
+# ============================================
+FLASK_ENV=development # development | production
+FLASK_DEBUG=true
+PORT=5005
+SECRET_KEY=clave_secreta_para_sesiones_flask
+CACHE_TTL=120
+CACHE_ENABLED=true
+
+# ============================================
+# CONFIGURACIÓN DE BASE DE DATOS TRANSACCIONAL
+# ============================================
+# Utilizado por Flask-SQLAlchemy para persistencia de producción
+DATABASE_URL=postgresql://usuario:password@host:port/database_name
+
+# ============================================
+# INTEGRACIÓN ERP WORLD OFFICE (WO)
+# ============================================
+# Conexión local del agente a la BD SQL Server de World Office
+WO_SERVER=SERVERWO\WORLDOFFICE17
+WO_DB=FRIPARTS2021
+WO_USER=wo_cliente
+WO_PASSWORD=wo_cliente
+
+# Handshake seguro de API de Sincronización
+WO_SYNC_API_KEY=token_seguro_de_comunicacion_wo
+API_RENDER_URL=https://tu-app-en-render.com/api/wo/recibir_datos
+
+# ============================================
+# CONFIGURACIÓN DE INTELIGENCIA ARTIFICIAL
+# ============================================
+GOOGLE_API_KEY=api_key_para_google_ai_studio
+```
+
+---
+
+## 🔄 Integraciones y Flujos Críticos
+
+### 1. Sincronización con World Office ERP
+El sistema mantiene una comunicación fluida con la base de datos comercial y de inventario de World Office mediante un agente automatizado (`agente_wo_comercial.py` / `agente_wo.py`):
+1.  **Agente Local**: Lee de manera segura la base de datos del ERP en SQL Server.
+2.  **Handshake Seguro**: Empaqueta los datos y los envía a la API en Render usando cabeceras de autorización firmadas con `X-Sync-Token` (asociado a `WO_SYNC_API_KEY`).
+3.  **Procesamiento**: Los endpoints en `backend/routes/wo_routes.py` reciben y actualizan los saldos de inventario comprometido y de ventas acumuladas en PostgreSQL.
+
+### 2. Flujo de Satélite / Pulido
+*   El material inyectado se clasifica como "Por Pulir".
+*   Al enviarse a satélites de pulido, se crea un **Lote de Pulido** en estado "ACTIVO" en la base de datos.
+*   El frontend en `pulido.js` implementa campos "pegajosos" (Sticky Inputs) y notificaciones dinámicas basadas en caché de persistencia de sesión para acelerar el registro del operario.
+*   **Liquidación de Lote**: Cuando el lote retorna, el supervisor cierra el lote a través de la acción "Liquidar Lote", lo que transfiere automáticamente el stock pulido a "Producto Terminado" o "Producto Ensamblado" y registra diferencias de producción.
+
+---
+
+## 🔧 Reglas de Mantenimiento y Estructura de Limpieza
+
+Para mantener el repositorio limpio y el código en producción libre de archivos basura, se han establecido reglas estrictas de segregación de carpetas:
+
+```
+📂 proyecto_friparts/
+├── 📂 backend/           # Lógica del servidor Python/Flask, modelos y rutas
+├── 📂 frontend/          # Interfaz de usuario (HTML, CSS, módulos JS)
+├── 📂 scratch/           # Carpeta exclusiva para scripts de desarrollo
+└── 📂 tests/             # Carpeta para pruebas automáticas y de integración
+```
+
+*   **🚫 Cero Scripts en la Raíz**: Queda estrictamente prohibido crear scripts de prueba rápida o utilitarios sueltos en el directorio raíz o dentro de `backend/`.
+*   **📁 Carpeta `scratch/`**: Todos los scripts de migración de datos (`migrate.py`), pruebas de query rápidas (`test_query_cot.py`) o diagnósticos temporales deben guardarse en `scratch/`. Esta carpeta está diseñada para no interferir con las ejecuciones en producción.
+*   **📁 Carpeta `tests/`**: Los archivos que verifiquen el comportamiento de la aplicación de manera automatizada (e.g., pruebas unitarias o de integración como `test_wo_sync.py`) deben residir en esta sección.
+
+---
+
+## 🚀 Puesta en Marcha (Instalación Local)
+
+1.  **Clonar e ingresar al directorio del proyecto**:
     ```bash
     git clone https://github.com/juanse2309/Proyecto_friparts.git
     cd Proyecto_friparts
     ```
 
-2.  **Crear entorno virtual e instalar dependencias**:
+2.  **Crear el entorno virtual y activar**:
+    *   **En Windows:**
+        ```bash
+        python -m venv .venv
+        .venv\Scripts\activate
+        ```
+    *   **En macOS/Linux:**
+        ```bash
+        python3 -m venv .venv
+        source .venv/bin/activate
+        ```
+
+3.  **Instalar dependencias**:
     ```bash
-    python -m venv .venv
-    .venv\Scripts\activate  # Windows
     pip install -r requirements.txt
     ```
 
-3.  **Configurar credenciales**:
-    - Renombra `.env.example` a `.env`.
-    - Coloca `credentials_apps.json` en la raíz (está ignorado por seguridad).
+4.  **Configurar credenciales de acceso**:
+    *   Duplicar `.env.example`, renombrarlo a `.env` y configurar las credenciales correctas.
+    *   Ubicar el archivo de cuenta de servicio de Google Cloud (`credentials_apps.json`) en la raíz del proyecto (este archivo se encuentra en el `.gitignore` por seguridad).
 
-4.  **Ejecutar**:
+5.  **Ejecutar la aplicación**:
     ```bash
     python -m backend.app
     ```
-
-## 🌐 Despliegue en Render
-
-La aplicación utiliza un flujo CI/CD vía GitHub. 
-- **Start Command**: `gunicorn backend.app:app`
-- **Secret Files**: Subir `credentials_apps.json`, `token.json` y `client_secrets.json` a la sección "Secret Files" de Render.
-
----
-*Desarrollado con ❤️ por Juan Sebastian.*
+    La aplicación se iniciará en `http://localhost:5005` (o en el puerto definido en tus variables de entorno).
