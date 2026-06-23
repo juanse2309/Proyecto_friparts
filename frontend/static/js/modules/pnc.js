@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // pnc.js - Lógica de PNC (Producto No Conforme) - NAMESPACED
 // ============================================
 
@@ -55,10 +55,15 @@ const ModuloPNC = {
 
                 console.log(`🔍 [PNC] Buscando "${query}" en ${products.length} productos`);
 
+                const terms = query.split(/\s+/).filter(t => t.length > 0);
                 const resultados = products.filter(prod => {
                     const cod = String(prod.codigo_sistema || prod.codigo || '').toLowerCase();
                     const desc = String(prod.descripcion || '').toLowerCase();
-                    return cod.includes(query) || desc.includes(query);
+                    return terms.every(term => 
+                        cod.includes(term) || 
+                        desc.includes(term) ||
+                        cod.replace(/[-\s]/g, '').includes(term.replace(/[-\s]/g, ''))
+                    );
                 }).slice(0, 15);
 
                 this.renderSuggestions(suggestionsDiv, resultados, (item) => {

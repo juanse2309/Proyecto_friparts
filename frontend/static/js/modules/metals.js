@@ -338,10 +338,15 @@ const ModuloMetals = {
                 suggestionsDiv.classList.remove('active');
                 return;
             }
+            const terms = query.split(/\s+/).filter(t => t.length > 0);
             const resultados = this.productosData.filter(p => {
                 const cod = String(p.codigo || '').toLowerCase();
                 const desc = String(p.descripcion || '').toLowerCase();
-                return cod.includes(query) || desc.includes(query);
+                return terms.every(term => 
+                    cod.includes(term) || 
+                    desc.includes(term) ||
+                    cod.replace(/[-\s]/g, '').includes(term.replace(/[-\s]/g, ''))
+                );
             }).slice(0, 10);
 
             if (resultados.length === 0) {

@@ -486,10 +486,16 @@ const ModuloInyeccion = {
             }
 
             debounceTimer = setTimeout(() => {
-                const resultados = this.productosData.filter(prod =>
-                    String(prod.codigo_sistema || '').toLowerCase().includes(query) ||
-                    String(prod.descripcion || '').toLowerCase().includes(query)
-                ).slice(0, 15);
+                const terms = query.split(/\s+/).filter(t => t.length > 0);
+                const resultados = this.productosData.filter(prod => {
+                    const codigo = String(prod.codigo_sistema || '').toLowerCase();
+                    const descripcion = String(prod.descripcion || '').toLowerCase();
+                    return terms.every(term => 
+                        codigo.includes(term) || 
+                        descripcion.includes(term) ||
+                        codigo.replace(/[-\s]/g, '').includes(term.replace(/[-\s]/g, ''))
+                    );
+                }).slice(0, 15);
 
                 this.renderSuggestions(suggestionsDiv, resultados, (item) => {
                     input.value = item.codigo_sistema || item.codigo;
