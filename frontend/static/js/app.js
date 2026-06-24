@@ -246,12 +246,12 @@ window.applyRBACRules = function () {
     else removeOverlay('#panel-operacion');
 
     // Rule 3: Validación - Auxiliar Inventario, Administración
-    const canAccessVal = ['ADMIN', 'AUXILIAR INVENTARIO', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole);
+    const canAccessVal = ['ADMIN', 'AUXILIAR INVENTARIO', 'JEFE AUXILIAR INVENTARIO', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA'].includes(userRole) || userRole.includes('AUXILIAR INVENTARIO');
     if (!canAccessVal) applyOverlay('#panel-legacy');
     else removeOverlay('#panel-legacy');
 
     // Rule 4: Procura - Administración, Compras y Auxiliar Inventario
-    const canAccessProcura = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'COMPRAS', 'AUXILIAR INVENTARIO'].includes(userRole);
+    const canAccessProcura = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'COMPRAS', 'AUXILIAR INVENTARIO', 'JEFE AUXILIAR INVENTARIO'].includes(userRole) || userRole.includes('AUXILIAR INVENTARIO');
     if (!canAccessProcura) applyOverlay('#procura-page');
     else removeOverlay('#procura-page');
 

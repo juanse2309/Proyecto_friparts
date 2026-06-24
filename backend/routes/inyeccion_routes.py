@@ -204,7 +204,7 @@ def registrar_inyeccion_lote():
             registro.id_codigo      = id_cod
             registro.responsable    = responsable
             registro.maquina        = maquina
-            registro.fecha_inicia   = fecha_dt
+            registro.fecha_inicia   = datetime.combine(fecha_dt, datetime.min.time())
             registro.estado         = nuevo_estado
             registro.departamento   = 'Inyeccion'
             if es_validacion:
@@ -360,6 +360,8 @@ def registrar_inyeccion_lote():
                     else:
                         # Si no existe (registro manual en validación), lo creamos
                         fecha_ref = registro.fecha_inicia or datetime.now()
+                        if not isinstance(fecha_ref, datetime):
+                            fecha_ref = datetime.combine(fecha_ref, datetime.min.time())
                         maquina_clean = str(registro.maquina or 'MAQ').replace(' ', '')
                         op_clean = str(registro.orden_produccion or 'SIN_OP').replace(' ', '')
                         id_lote_key = f"{fecha_ref.strftime('%Y%m%d')}-{maquina_clean}-{op_clean}-{id_cod}"
