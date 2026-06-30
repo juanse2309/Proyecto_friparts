@@ -385,7 +385,9 @@ def get_ultimo_registro_pulido():
             "registro": {
                 "fecha_hora": fecha_hora_str,
                 "codigo_producto": registro.codigo or '—',
-                "cantidad": float(registro.cantidad_real or 0)
+                "cantidad": float(registro.cantidad_real or 0),
+                "cantidad_aprobada": float(registro.cantidad_real or 0),
+                "piezas": float(registro.cantidad_real or 0)
             }
         }), 200
 

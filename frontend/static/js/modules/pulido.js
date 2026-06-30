@@ -1306,8 +1306,12 @@ const ModuloPulido = {
                 return;
             }
 
-            // Pintar — solo datos, cero lógica aquí
-            const { fecha_hora, codigo_producto, cantidad } = data.registro;
+            // Pintar — con programación defensiva
+            const registro = data.registro || {};
+            const codigo_producto = registro.codigo_producto || '—';
+            const cantidad = registro.cantidad !== undefined && registro.cantidad !== null ? registro.cantidad : (registro.piezas || registro.cantidad_aprobada || 0);
+            const fecha_hora = registro.fecha_hora || '—';
+
             document.getElementById('banner-ur-codigo').textContent = codigo_producto;
             document.getElementById('banner-ur-cantidad').textContent = cantidad;
             document.getElementById('banner-ur-fecha').textContent = fecha_hora;
