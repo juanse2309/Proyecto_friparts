@@ -334,6 +334,10 @@ class CorteNomina(db.Model):
     usuario_que_corta = db.Column(db.String(150), nullable=False)
     periodo_inicio    = db.Column(db.Date,        nullable=True)
     periodo_fin       = db.Column(db.Date,        nullable=True)
+    total_registros   = db.Column(db.Integer,     nullable=True)
+    usuario_autoriza  = db.Column(db.String(150), nullable=True)
+    estado            = db.Column(db.String(50),  nullable=True)
+    division          = db.Column(db.String(50),  nullable=True)
 
 
 class Maquina(db.Model):

@@ -18,10 +18,43 @@ const ModuloNomina = (function () {
         const alertPeriodo = document.getElementById('nomina-alerta-periodo');
         const btnCorte = document.getElementById('btn-ejecutar-corte');
 
+        // Inyectar selector dinámicamente si el usuario es administrador global
+        const container = btnCorte ? btnCorte.parentElement : null;
+        if (container && !document.getElementById('nomina-select-division')) {
+            const userRole = (typeof AuthModule !== 'undefined' && AuthModule.currentUser) ? AuthModule.normalizeRole(AuthModule.currentUser.rol || AuthModule.currentUser.role) : '';
+            const isGlobalAdmin = ['ADMIN', 'GERENCIA'].includes(userRole);
+            
+            if (isGlobalAdmin) {
+                const selectEl = document.createElement('select');
+                selectEl.id = 'nomina-select-division';
+                selectEl.className = 'form-select form-select-sm bg-dark text-white border-secondary me-2';
+                selectEl.style.width = '200px';
+                selectEl.style.display = 'inline-block';
+                selectEl.innerHTML = `
+                    <option value="friparts">FriParts</option>
+                    <option value="frimetals">FriMetals</option>
+                    <option value="all">Consolidado Global</option>
+                `;
+                const userDiv = AuthModule.currentUser?.division?.toLowerCase() || 'friparts';
+                selectEl.value = userDiv;
+                
+                selectEl.addEventListener('change', () => {
+                    cargarConsolidado();
+                });
+                
+                container.insertBefore(selectEl, container.firstChild);
+            }
+        }
+
         body.innerHTML = '<tr><td colspan="4" class="text-center py-5"><i class="fas fa-spinner fa-spin text-primary me-2"></i> Consolidando información...</td></tr>';
 
         try {
-            const division = (typeof AuthModule !== 'undefined' && AuthModule.currentUser) ? AuthModule.currentUser.division?.toLowerCase() : 'friparts';
+            let division = (typeof AuthModule !== 'undefined' && AuthModule.currentUser) ? AuthModule.currentUser.division?.toLowerCase() : 'friparts';
+            const selectDiv = document.getElementById('nomina-select-division');
+            if (selectDiv) {
+                division = selectDiv.value;
+            }
+
             const response = await fetch(`/api/asistencia/consolidado_pendiente?division=${division}`);
             const data = await response.json();
 
@@ -73,16 +106,19 @@ const ModuloNomina = (function () {
     async function ejecutarCorte() {
         if (totalRegsPendientes === 0) return;
 
-        // ── GUARD DE SESIÓN (Rechazado por Arquitecto: no fallback a 'Sistema') ──
         const currentUser = (typeof AuthModule !== 'undefined') ? AuthModule.currentUser : null;
         const usuarioStr = currentUser?.nombre || currentUser?.username || null;
-        const division = currentUser?.division?.toLowerCase() || null;
+        
+        let division = currentUser?.division?.toLowerCase() || null;
+        const selectDiv = document.getElementById('nomina-select-division');
+        if (selectDiv) {
+            division = selectDiv.value;
+        }
 
         if (!usuarioStr || !division) {
             Swal.fire('Sesión no válida', 'No se puede autorizar el corte: sesión inválida o expirada. Recargue la página e intente nuevamente.', 'error');
             return;
         }
-        // ─────────────────────────────────────────────────────────────────────────
 
         const { isConfirmed } = await Swal.fire({
             title: '¿Ejecutar Corte de Nómina?',
@@ -126,10 +162,23 @@ const ModuloNomina = (function () {
     }
 
     function generarCSV() {
-        // Nombrado dinámico: Nomina_Friparts_Mes_Dia_Año.csv
         const fecha = new Date();
         const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-        const nombreArchivo = `Nomina_Friparts_${meses[fecha.getMonth()]}_${fecha.getDate()}_${fecha.getFullYear()}.csv`;
+        
+        let divLabel = 'FriParts';
+        const selectDiv = document.getElementById('nomina-select-division');
+        if (selectDiv) {
+            if (selectDiv.value === 'all') {
+                divLabel = 'Consolidada_Global';
+            } else {
+                divLabel = selectDiv.value === 'frimetals' ? 'FriMetals' : 'FriParts';
+            }
+        } else {
+            const currentUser = (typeof AuthModule !== 'undefined') ? AuthModule.currentUser : null;
+            divLabel = currentUser?.division?.toLowerCase() === 'frimetals' ? 'FriMetals' : 'FriParts';
+        }
+
+        const nombreArchivo = `Nomina_${divLabel}_${meses[fecha.getMonth()]}_${fecha.getDate()}_${fecha.getFullYear()}.csv`;
 
         // Agrupar detalle diario por colaborador
         const porColaborador = {};

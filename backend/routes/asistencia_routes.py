@@ -18,6 +18,9 @@ from backend.core.sql_database import db
 logger = logging.getLogger(__name__)
 asistencia_bp = Blueprint('asistencia', __name__)
 
+# Roles autorizados para gestionar nómina unificada cross-division (heredado del middleware central)
+ROLES_NOMINA_GLOBAL = ROL_ADMINS
+
 def seguro_formatear_fecha(valor, formato='%d/%m/%Y %H:%M'):
     """Convierte cualquier objeto (str, datetime, timestamp, null) a un string de fecha seguro."""
     if not valor: return ""
@@ -433,10 +436,33 @@ def obtener_registros_dia():
 @require_role(ROL_ADMINS)
 def obtener_consolidado_pendiente():
     """Orquestador de respuesta. Lógica de negocio en nomina_service."""
+    # 1. Validar sesión activa
+    if not session or not session.get('user'):
+        return jsonify({
+            'status': 'error',
+            'message': 'Sesión inválida o nula. Debe autenticarse en el sistema.'
+        }), 401
+
     try:
         from backend.models.sql_models import CorteNomina
 
         division = request.args.get('division', 'friparts').lower()
+
+        # 2. Validar rol para permitir bypass ('all')
+        user_role = str(session.get('role', '')).upper()
+        is_global_admin = user_role in ROLES_NOMINA_GLOBAL
+
+        if division == 'all':
+            if not is_global_admin:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Acceso denegado: Se requiere rol administrativo global para consultar información consolidada unificada.'
+                }), 403
+        elif division not in ('friparts', 'frimetals'):
+            return jsonify({
+                'status': 'error',
+                'message': f'División inválida: {division!r}. Las opciones válidas son "friparts", "frimetals" o "all".'
+            }), 400
 
         # Delegar al servicio
         consolidado_array = get_consolidado_pendiente(division)
@@ -458,27 +484,60 @@ def obtener_consolidado_pendiente():
     except Exception as e:
         logger.error(f"FALLO CRÍTICO CONSOLIDADO: {e}")
         return jsonify({
-            'status': 'success',
+            'status': 'error',
+            'message': f'Error en el servidor al consolidar la nómina: {str(e)}',
             'consolidado': [],
             'detalle_diario': [],
             'total_registros_pendientes': 0,
             'ultima_fecha_corte': 'Error en el servidor',
             'fecha': 'Error'
-        }), 200
+        }), 500
 
 @asistencia_bp.route('/ejecutar_corte', methods=['POST'])
 @require_role(ROL_ADMINS)
 def ejecutar_corte():
     """Orquestador de respuesta. Lógica de negocio en nomina_service.ejecutar_corte_db()."""
-    data = request.json or {}
+    # 1. Validar sesión activa
+    if not session or not session.get('user'):
+        return jsonify({
+            'status': 'error',
+            'message': 'Sesión inválida o nula. Debe autenticarse en el sistema.'
+        }), 401
+
+    # 2. Obtener y validar el payload de manera segura
+    try:
+        data = request.get_json(silent=True) or {}
+    except Exception:
+        return jsonify({
+            'status': 'error',
+            'message': 'El cuerpo de la solicitud no es un JSON válido.'
+        }), 400
+
     usuario = data.get('usuario', '').strip()
     division = data.get('division', '').strip().lower()
 
-    # Validación de entrada en la capa de ruta (no en el servicio)
+    # 3. Validar campos requeridos en el payload
     if not usuario:
-        return jsonify({'status': 'error', 'message': 'Campo usuario requerido.'}), 400
-    if division not in ('friparts', 'frimetals'):
-        return jsonify({'status': 'error', 'message': f'División inválida: {division!r}'}), 400
+        return jsonify({
+            'status': 'error',
+            'message': 'El payload no contiene la información del usuario que autoriza el corte ("usuario" requerido).'
+        }), 400
+
+    # 4. Validar privilegios sobre la división seleccionada
+    user_role = str(session.get('role', '')).upper()
+    is_global_admin = user_role in ROLES_NOMINA_GLOBAL
+
+    if division == 'all':
+        if not is_global_admin:
+            return jsonify({
+                'status': 'error',
+                'message': 'Acceso denegado: Se requiere rol administrativo global para ejecutar cortes consolidados (ALL).'
+            }), 403
+    elif division not in ('friparts', 'frimetals'):
+        return jsonify({
+            'status': 'error',
+            'message': f'División inválida: {division!r}. Las opciones válidas son "friparts", "frimetals" o "all".'
+        }), 400
 
     try:
         resultado = ejecutar_corte_db(division=division, usuario=usuario)
@@ -491,7 +550,7 @@ def ejecutar_corte():
             'message': f"Corte {resultado['id_corte']} ejecutado con éxito."
         }), 200
     except ValueError as e:
-        # Sin datos pendientes — no es un error 500
+        # Sin datos pendientes
         return jsonify({'status': 'error', 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()

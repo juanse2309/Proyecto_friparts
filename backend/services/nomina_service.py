@@ -36,6 +36,8 @@ def _parse_hours(val) -> float:
 
 def _condicion_rol(division: str) -> str:
     """Devuelve el fragmento SQL que aísla la división correcta."""
+    if division.lower() == 'all':
+        return ""
     if division == 'frimetals':
         return "AND u.rol ILIKE 'staff frimetals'"
     return "AND u.rol NOT ILIKE 'staff frimetals'"
@@ -73,19 +75,25 @@ def get_periodo_pendiente(division: str) -> tuple:
     return row[0], row[1]
 
 
-def registrar_corte_nomina(division: str, usuario: str, p_inicio, p_fin) -> str:
+def registrar_corte_nomina(division: str, usuario: str, p_inicio, p_fin, total_registros: Optional[int] = None) -> str:
     """
     Persiste el registro del corte en db_cortes_nomina.
     Retorna el id_corte generado.
     No hace commit — quien llama decide si hacer el commit junto con el UPDATE.
     """
-    id_corte = f"{str(uuid.uuid4())[:8].upper()}-{division.upper()}"
+    div_registro = 'GLOBAL_CONSOLIDADO' if division.lower() == 'all' else division.upper()
+    id_corte = f"{str(uuid.uuid4())[:8].upper()}-{div_registro}"
+    
     nuevo = CorteNomina(
         id_corte=id_corte,
         fecha_corte=datetime.now(),
         usuario_que_corta=usuario,
         periodo_inicio=p_inicio,
         periodo_fin=p_fin,
+        total_registros=total_registros,
+        usuario_autoriza=usuario,
+        estado='PROCESADO',
+        division=div_registro
     )
     db.session.add(nuevo)
     return id_corte
@@ -118,8 +126,8 @@ def ejecutar_corte_db(division: str, usuario: str) -> dict:
     """
     Orquesta el corte completo dentro de una transacción atómica:
       1. Detecta periodo pendiente.
-      2. Crea el registro histórico en db_cortes_nomina.
-      3. Actualiza masivamente db_asistencia.
+      2. Actualiza masivamente db_asistencia.
+      3. Crea el registro histórico en db_cortes_nomina con el total de filas.
       4. Commit único.
 
     Retorna un dict con claves: id_corte, periodo, filas_afectadas.
@@ -130,8 +138,8 @@ def ejecutar_corte_db(division: str, usuario: str) -> dict:
     if not p_inicio or not p_fin:
         raise ValueError("No hay registros pendientes para procesar.")
 
-    id_corte = registrar_corte_nomina(division, usuario, p_inicio, p_fin)
     filas = marcar_registros_procesados(division, p_inicio, p_fin)
+    id_corte = registrar_corte_nomina(division, usuario, p_inicio, p_fin, total_registros=filas)
     db.session.commit()
 
     logger.info(
