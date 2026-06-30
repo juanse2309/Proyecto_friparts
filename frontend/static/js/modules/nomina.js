@@ -73,6 +73,17 @@ const ModuloNomina = (function () {
     async function ejecutarCorte() {
         if (totalRegsPendientes === 0) return;
 
+        // ── GUARD DE SESIÓN (Rechazado por Arquitecto: no fallback a 'Sistema') ──
+        const currentUser = (typeof AuthModule !== 'undefined') ? AuthModule.currentUser : null;
+        const usuarioStr = currentUser?.nombre || currentUser?.username || null;
+        const division = currentUser?.division?.toLowerCase() || null;
+
+        if (!usuarioStr || !division) {
+            Swal.fire('Sesión no válida', 'No se puede autorizar el corte: sesión inválida o expirada. Recargue la página e intente nuevamente.', 'error');
+            return;
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
         const { isConfirmed } = await Swal.fire({
             title: '¿Ejecutar Corte de Nómina?',
             text: `Se procesarán ${totalRegsPendientes} registros y se generará el archivo CSV detallado. Esta acción sellará el periodo actual.`,
@@ -91,13 +102,12 @@ const ModuloNomina = (function () {
 
         // 2. Notificar al backend para sellar el periodo
         try {
-            const division = (typeof AuthModule !== 'undefined' && AuthModule.currentUser) ? AuthModule.currentUser.division?.toLowerCase() : 'friparts';
             const response = await fetch('/api/asistencia/ejecutar_corte', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     total_registros: totalRegsPendientes,
-                    usuario: user,
+                    usuario: usuarioStr,
                     division: division
                 })
             });

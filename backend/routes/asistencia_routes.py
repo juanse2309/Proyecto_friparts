@@ -5,6 +5,10 @@ from backend.services.nomina_service import (
     filtrar_registros_post_corte,
     consolidar_horas,
     construir_detalle_diario,
+    # ── Nuevas responsabilidades del servicio ──
+    ejecutar_corte_db,
+    get_consolidado_pendiente,
+    get_detalle_diario_pendiente,
 )
 import logging
 import pandas as pd
@@ -428,87 +432,25 @@ def obtener_registros_dia():
 @asistencia_bp.route('/consolidado_pendiente', methods=['GET'])
 @require_role(ROL_ADMINS)
 def obtener_consolidado_pendiente():
-    """Resumen de horas con blindaje total y soporte para registros antiguos (NULL -> PENDIENTE)."""
+    """Orquestador de respuesta. Lógica de negocio en nomina_service."""
     try:
-        from sqlalchemy import text
         from backend.models.sql_models import CorteNomina
-        
-        # 1. Obtener última fecha de corte con parseo seguro (Pandas)
+
+        division = request.args.get('division', 'friparts').lower()
+
+        # Delegar al servicio
+        consolidado_array = get_consolidado_pendiente(division)
+        detalle_diario = get_detalle_diario_pendiente(division)
+
+        # Último corte (solo para el label informativo del frontend)
         ultimo_corte = db.session.query(CorteNomina).order_by(CorteNomina.fecha_corte.desc()).first()
         ultima_fecha_str = seguro_formatear_fecha(ultimo_corte.fecha_corte) if ultimo_corte else "Sin cortes previos"
-
-        # 2. Query de Consolidado con filtro de división (Metales vs Global)
-        division = request.args.get('division', '').lower()
-        condicion_rol = ""
-        if division == 'frimetals':
-            condicion_rol = "AND u.rol ILIKE 'staff frimetals'"
-        else:
-            # Juan Sebastian: Para FriParts, excluimos personal de metales para total aislamiento
-            condicion_rol = "AND u.rol NOT ILIKE 'staff frimetals'"
-
-        sql = text(f"""
-            SELECT 
-                u.username as colaborador,
-                u.departamento as departamento,
-                COALESCE(SUM(CAST(a.horas_ordinarias AS NUMERIC)), 0) as horas_ordinarias,
-                COALESCE(SUM(CAST(a.horas_extras AS NUMERIC)), 0) as horas_extras,
-                COUNT(a.id) as registros_contados
-            FROM db_usuarios u
-            LEFT JOIN db_asistencia a 
-                ON u.username = a.colaborador 
-                AND COALESCE(a.estado_pago, 'PENDIENTE') = 'PENDIENTE'
-            WHERE u.activo = true
-            {condicion_rol}
-            GROUP BY u.username, u.departamento
-            ORDER BY u.username ASC
-        """)
-        rows = db.session.execute(sql).mappings().all()
-
-        consolidado_array = []
-        for r in rows:
-            consolidado_array.append({
-                'colaborador': r['colaborador'],
-                'departamento': r['departamento'] or 'N/A',
-                'horas_ordinarias': round(float(r['horas_ordinarias']), 2),
-                'horas_extras': round(float(r['horas_extras']), 2),
-                'estado': 'PENDIENTE',
-                'registros': int(r['registros_contados'])
-            })
-
-        # 3. Detalle para el CSV (incluyendo NULL -> PENDIENTE)
-        detalle_diario = []
-        try:
-            sql_detalle = text(f"""
-                SELECT 
-                    a.fecha, a.colaborador, a.ingreso_real, a.salida_real,
-                    a.horas_ordinarias, a.horas_extras, a.motivo, a.comentarios
-                FROM db_asistencia a
-                JOIN db_usuarios u ON a.colaborador = u.username
-                WHERE COALESCE(a.estado_pago, 'PENDIENTE') = 'PENDIENTE'
-                {condicion_rol}
-                ORDER BY a.colaborador, a.fecha
-            """)
-            registros_filtrados = db.session.execute(sql_detalle).mappings().all()
-            
-            for r in registros_filtrados:
-                detalle_diario.append({
-                    'colaborador': r['colaborador'],
-                    'fecha': seguro_formatear_fecha(r['fecha'], '%d/%m/%Y'),
-                    'ingreso': r['ingreso_real'],
-                    'salida': r['salida_real'],
-                    'horas_ordinarias': round(float(r['horas_ordinarias'] or 0), 2),
-                    'horas_extras': round(float(r['horas_extras'] or 0), 2),
-                    'motivo': r['motivo'] or '',
-                    'comentarios': r['comentarios'] or ''
-                })
-        except Exception as e_det:
-            logger.error(f"Error en detalle CSV: {e_det}")
 
         return jsonify({
             'status': 'success',
             'ultima_fecha_corte': ultima_fecha_str,
-            'fecha': ultima_fecha_str, # Sincronización para frontend
-            'consolidado': consolidado_array, 
+            'fecha': ultima_fecha_str,
+            'consolidado': consolidado_array,
             'detalle_diario': detalle_diario,
             'total_registros_pendientes': len(detalle_diario)
         }), 200
@@ -527,74 +469,30 @@ def obtener_consolidado_pendiente():
 @asistencia_bp.route('/ejecutar_corte', methods=['POST'])
 @require_role(ROL_ADMINS)
 def ejecutar_corte():
-    """Registra un nuevo corte en la tabla cortes_nomina existente y procesa registros."""
+    """Orquestador de respuesta. Lógica de negocio en nomina_service.ejecutar_corte_db()."""
+    data = request.json or {}
+    usuario = data.get('usuario', '').strip()
+    division = data.get('division', '').strip().lower()
+
+    # Validación de entrada en la capa de ruta (no en el servicio)
+    if not usuario:
+        return jsonify({'status': 'error', 'message': 'Campo usuario requerido.'}), 400
+    if division not in ('friparts', 'frimetals'):
+        return jsonify({'status': 'error', 'message': f'División inválida: {division!r}'}), 400
+
     try:
-        from sqlalchemy import text, func
-        from datetime import datetime
-        import uuid
-        from backend.core.sql_database import db
-        from backend.models.sql_models import CorteNomina, RegistroAsistencia
-
-        data = request.json
-        usuario = data.get('usuario', 'Sistema')
-        division = data.get('division', 'friparts').lower()
-        id_corte_uuid = str(uuid.uuid4())[:8].upper()
-        
-        # 1. Detectar Periodo Filtrado por División
-        # Un cierre en FriMetals no debe afectar registros de FriParts
-        from backend.models.sql_models import Usuario
-        
-        condicion_rol = "AND u.rol ILIKE 'staff frimetals'" if division == 'frimetals' else "AND u.rol NOT ILIKE 'staff frimetals'"
-
-        # Query para detectar p_inicio y p_fin localmente
-        sql_periodo = text(f"""
-            SELECT MIN(a.fecha), MAX(a.fecha)
-            FROM db_asistencia a
-            JOIN db_usuarios u ON a.colaborador = u.username
-            WHERE COALESCE(a.estado_pago, 'PENDIENTE') = 'PENDIENTE'
-            {condicion_rol}
-        """)
-        res_periodo = db.session.execute(sql_periodo).fetchone()
-        
-        p_inicio = res_periodo[0] if res_periodo else None
-        p_fin = res_periodo[1] if res_periodo else None
-
-        if not p_inicio or not p_fin:
-            return jsonify({'status': 'error', 'message': 'No hay registros pendientes para procesar.'}), 400
-
-        # 2. Histórico
-        nuevo_corte = CorteNomina(
-            id_corte=f"{id_corte_uuid}-{division.upper()}",
-            fecha_corte=datetime.now(),
-            usuario_que_corta=usuario,
-            periodo_inicio=p_inicio,
-            periodo_fin=p_fin
-        )
-        db.session.add(nuevo_corte)
-        
-        # 3. UPDATE Masivo aislado por división garantizando atomicidad
-        sql_update = text(f"""
-            UPDATE db_asistencia 
-            SET estado_pago = 'PROCESADO' 
-            FROM db_usuarios u
-            WHERE db_asistencia.colaborador = u.username
-            AND db_asistencia.fecha >= :p_inicio
-            AND db_asistencia.fecha <= :p_fin
-            AND COALESCE(db_asistencia.estado_pago, 'PENDIENTE') != 'PROCESADO'
-            {condicion_rol}
-        """)
-        db.session.execute(sql_update, {"p_inicio": p_inicio, "p_fin": p_fin})
-        
-        # Se ejecuta commit() único que envuelve tanto la creación del corte como la actualización de los registros.
-        db.session.commit()
-        logger.info(f"✅ Corte {id_corte_uuid} ({division}) finalizado: Registros de {p_inicio} a {p_fin} marcados como PROCESADO.")
-
+        resultado = ejecutar_corte_db(division=division, usuario=usuario)
         return jsonify({
             'status': 'success',
-            'periodo': f"{seguro_formatear_fecha(p_inicio, '%d/%m')} a {seguro_formatear_fecha(p_fin, '%d/%m')}",
-            'message': f'Corte {id_corte_uuid} ejecutado con éxito.'
+            'periodo': (
+                f"{seguro_formatear_fecha(resultado['p_inicio'], '%d/%m')} "
+                f"a {seguro_formatear_fecha(resultado['p_fin'], '%d/%m')}"
+            ),
+            'message': f"Corte {resultado['id_corte']} ejecutado con éxito."
         }), 200
-        
+    except ValueError as e:
+        # Sin datos pendientes — no es un error 500
+        return jsonify({'status': 'error', 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error ejecución corte: {e}")
