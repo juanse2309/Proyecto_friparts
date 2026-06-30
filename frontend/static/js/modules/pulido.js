@@ -99,6 +99,9 @@ const ModuloPulido = {
         // Verificación de reportes pendientes por fallo de red previo
         this.verificarReportesPendientes();
 
+        // Cargar el último registro guardado (banner satélite)
+        this.actualizarBannerUltimoRegistro();
+
         // Keep-Alive: Ping al servidor cada 5 min para evitar que Render se duerma
         this.iniciarPingServidor();
 
@@ -1278,6 +1281,43 @@ const ModuloPulido = {
         }
     },
 
+    // ──────────────────────────────────────────────────────────────────
+    // BANNER: Último registro guardado (Modo Satélite)
+    // Responsabilidad única: fetch → pintar. Cero lógica de negocio en DOM.
+    // ──────────────────────────────────────────────────────────────────
+    actualizarBannerUltimoRegistro: async function () {
+        const responsable = this.getOperarioActual();
+        const banner = document.getElementById('banner-ultimo-registro');
+        if (!banner) return; // El panel Satélite no está en el DOM actual
+
+        if (!responsable) {
+            banner.style.display = 'none';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/pulido/ultimo_registro?responsable=${encodeURIComponent(responsable)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            if (!data.success || !data.registro) {
+                // Sin registros previos: ocultar banner silenciosamente
+                banner.style.display = 'none';
+                return;
+            }
+
+            // Pintar — solo datos, cero lógica aquí
+            const { fecha_hora, codigo_producto, cantidad } = data.registro;
+            document.getElementById('banner-ur-codigo').textContent = codigo_producto;
+            document.getElementById('banner-ur-cantidad').textContent = cantidad;
+            document.getElementById('banner-ur-fecha').textContent = fecha_hora;
+            banner.style.display = 'flex';
+        } catch (e) {
+            console.warn('[Pulido] Banner último registro: no se pudo cargar.', e);
+            if (banner) banner.style.display = 'none';
+        }
+    },
+
     enviarAServidor: async function (data) {
         try {
             if (!navigator.onLine) {
@@ -1300,6 +1340,9 @@ const ModuloPulido = {
                 const modal = document.getElementById('modal-reporte-final');
                 if (modal) modal.style.display = 'none';
                 this.limpiarFormulario();
+
+                // Actualizar banner con el registro recién guardado (HTTP 200 confirmado)
+                this.actualizarBannerUltimoRegistro();
 
                 // Recargar productos reactivamente para actualizar stock
                 if (window.DataReloadHelpers && window.DataReloadHelpers.recargarProductos) {

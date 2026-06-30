@@ -2076,6 +2076,24 @@
 
                 <!-- PANEL A: MODO MANUAL (SATÉLITE) -->
                 <div id="panel-pulido-manual">
+
+                    <!-- BANNER: Último registro guardado (pintado por actualizarBannerUltimoRegistro) -->
+                    <div id="banner-ultimo-registro" class="d-flex align-items-center gap-3 px-4 py-2 mb-3 rounded-3 shadow-sm"
+                         style="display:none !important; background:linear-gradient(90deg,#f0fdf4,#dcfce7); border:1px solid #bbf7d0;">
+                        <i class="fas fa-check-circle text-success" style="font-size:1.3rem;flex-shrink:0;"></i>
+                        <div class="flex-grow-1">
+                            <div class="fw-bold text-success small text-uppercase" style="letter-spacing:.5px;">Último registro guardado</div>
+                            <div class="text-dark fw-bold" style="font-size:.95rem;">
+                                <span id="banner-ur-codigo">—</span>
+                                <span class="text-muted fw-normal mx-1">·</span>
+                                <span id="banner-ur-cantidad" class="text-primary fw-bold"></span>
+                                <span class="text-muted fw-normal ms-1">piezas</span>
+                            </div>
+                        </div>
+                        <div class="text-muted small text-end flex-shrink-0" id="banner-ur-fecha">—</div>
+                    </div>
+                    <!-- /BANNER -->
+
                     <form id="form-pulido" class="styled-form">
                         <div class="form-grid">
                             <!-- Fila 2: Horas -->

@@ -347,6 +347,53 @@ def debug_forzar_pulido(id_lote):
         db.session.rollback()
         return jsonify({"success": False, "error": str(e)}), 500
 
+@pulido_bp.route('/api/pulido/ultimo_registro', methods=['GET'])
+def get_ultimo_registro_pulido():
+    """
+    Devuelve el último registro de db_pulido insertado por el operario
+    indicado en el query param ?responsable=<nombre>.
+    Responde con: { success, registro: { fecha_hora, codigo_producto, cantidad } | null }
+    LIMIT 1 + ORDER BY id DESC → coste mínimo, usa el índice de id.
+    """
+    responsable = request.args.get('responsable', '').strip()
+    if not responsable:
+        return jsonify({"success": False, "error": "Falta parámetro 'responsable'"}), 400
+
+    try:
+        registro = (
+            ProduccionPulido.query
+            .filter(ProduccionPulido.responsable == responsable)
+            .order_by(ProduccionPulido.id.desc())
+            .first()
+        )
+
+        if not registro:
+            return jsonify({"success": True, "registro": None}), 200
+
+        # Construir la fecha_hora combinando fecha + hora_fin (o hora_inicio como fallback)
+        hora_ref = registro.hora_fin or registro.hora_inicio
+        if registro.fecha and hora_ref:
+            try:
+                fecha_hora_str = f"{registro.fecha.strftime('%d/%m/%Y')} {hora_ref.strftime('%H:%M')}"
+            except Exception:
+                fecha_hora_str = str(registro.fecha)
+        else:
+            fecha_hora_str = registro.fecha.strftime('%d/%m/%Y') if registro.fecha else '—'
+
+        return jsonify({
+            "success": True,
+            "registro": {
+                "fecha_hora": fecha_hora_str,
+                "codigo_producto": registro.codigo or '—',
+                "cantidad": float(registro.cantidad_real or 0)
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[ultimo_registro] Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @pulido_bp.route('/api/pulido/session_active', methods=['GET'])
 def get_active_pulido_session():
     try:
