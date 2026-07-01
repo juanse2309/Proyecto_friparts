@@ -368,6 +368,7 @@ const ModuloInyeccion = {
 
                 if (res && res.success) {
                     Swal.fire('¡Validado!', res.message, 'success');
+                    if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-inyeccion');
                     this.limpiarFormularioValidacion(true);
                     if (window.ModuloHistorial) window.ModuloHistorial.cargarHistorial();
                 } else {

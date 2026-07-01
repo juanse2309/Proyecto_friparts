@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, render_template, Response, request
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.utils.cache_manager import cached_route, invalidate_cache
 
 import difflib
 import csv
@@ -10,10 +11,8 @@ logger = logging.getLogger(__name__)
 
 admin_bp = Blueprint('admin_bp', __name__)
 
-# Cache para el endpoint de admin dashboard (10 min TTL)
+# Import time helper
 import time as _time
-ADMIN_DASHBOARD_CACHE = {}  # key: (start, end) -> {"timestamp": float, "data": dict}
-ADMIN_CACHE_TTL = 600  # 10 minutos
 
 # Helper function to clean currency strings to int/float (Precision Fix)
 def clean_currency(val):
@@ -39,23 +38,13 @@ def clean_number(val):
 
 @admin_bp.route('/api/admin/dashboard', methods=['GET'])
 @require_role(ROL_ADMINS)
+@cached_route(namespace='admin', ttl=600)
 def get_admin_dashboard_data():
     from flask import request
     from backend.core.repository_service import repository_service
     
     start_date_str = request.args.get('start')
     end_date_str = request.args.get('end')
-    
-    # --- CACHE CHECK ---
-    nocache = request.args.get('nocache') == '1'
-    cache_key = (start_date_str or '', end_date_str or '')
-    
-    if nocache:
-        ADMIN_DASHBOARD_CACHE.pop(cache_key, None)
-    
-    cached = ADMIN_DASHBOARD_CACHE.get(cache_key)
-    if cached and (_time.time() - cached["timestamp"] < ADMIN_CACHE_TTL):
-        return jsonify(cached["data"])
     
     # --- SQL NATIVE DATA FETCHING ---
     try:
@@ -94,8 +83,6 @@ def get_admin_dashboard_data():
             }
         }
 
-        # Guardar en cache
-        ADMIN_DASHBOARD_CACHE[cache_key] = {"timestamp": _time.time(), "data": response_data}
         return jsonify(response_data)
 
     except Exception as e:

@@ -8,6 +8,7 @@ import uuid
 import collections
 from datetime import datetime
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.utils.cache_manager import cached_route, invalidate_cache
 
 # TODO - Siguientes pasos estratégicos:
 # 1. [PENDIENTE] Transformar la pestaña "Órdenes de Compra" en módulo de Tránsito, Ubicación y Recepción de Insumos.
@@ -29,20 +30,21 @@ logger = logging.getLogger(__name__)
 
 procura_bp = Blueprint('procura', __name__, url_prefix='/api/procura')
 
-# Cache simple en memoria para los parámetros de inventario
-PARAMETROS_CACHE = {
-    "data": None,
-    "timestamp": 0,
-    "ttl": 300  # 5 minutos de cache
-}
-PROVEEDORES_CACHE = {
-    "data": None,
-    "timestamp": 0,
-    "ttl": 86400 # 1 día de cache
-}
+# Caches removidas - delegadas a cache_manager.py
+
+
+
+
+
+
+
+
+
+
 
 @procura_bp.route('/listar_parametros', methods=['GET'])
 @require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
+@cached_route(namespace='procura', ttl=300)
 def listar_parametros():
     """Obtiene el catálogo maestro desde SQL (db_productos)."""
     try:
@@ -64,6 +66,7 @@ def listar_parametros():
 
 @procura_bp.route('/listar_proveedores', methods=['GET'])
 @require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
+@cached_route(namespace='procura', ttl=86400)
 def listar_proveedores():
     """Lista los proveedores desde SQL (db_proveedores)."""
     try:
@@ -126,6 +129,7 @@ def registrar_oc():
                 actualizar_stock(item.get("producto"), cant_rec, "STOCK_BODEGA", "ENTRADA", f"OC {n_oc_ref}")
 
         db.session.commit()
+        invalidate_cache('procura')
         return jsonify({"success": True, "message": f"Orden {n_oc_ref} guardada en SQL"}), 200
     except Exception as e:
         db.session.rollback()
@@ -202,6 +206,7 @@ def alertas_abastecimiento():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @procura_bp.route('/rotacion/prioridades', methods=['GET'])
+@cached_route(namespace='procura', ttl=600)
 def rotacion_prioridades():
     """Combina stocks físicos y en tránsito (OC) desde SQL."""
     try:
@@ -377,6 +382,7 @@ def recibir_ingreso():
                     orden_item.estado_proceso = 'PARCIAL'
                     
         db.session.commit()
+        invalidate_cache('procura')
         return jsonify({"status": "success", "message": "Ingreso registrado correctamente y stock actualizado."}), 200
         
     except Exception as e:

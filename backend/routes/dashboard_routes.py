@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 from backend.core.repository_service import repository_service
 # from backend.utils.formatters import to_int as to_int_seguro, clean_currency, parsear_fecha_dashboard
 import logging
+from backend.utils.cache_manager import cached_route, invalidate_cache
 import collections
 import time
 import datetime
@@ -16,8 +17,7 @@ logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
-# Cache simple para el dashboard
-DASHBOARD_COMPLEX_CACHE = {}
+
 
 
 @dashboard_bp.route('/', methods=['GET'])
@@ -49,9 +49,7 @@ import collections
 import datetime
 from flask import request
 
-# Cache con llave por filtro (Timeout: 10 mins)
-# Estructura: {(desde, hasta): {"data": ..., "timestamp": ...}}
-DASHBOARD_COMPLEX_CACHE = {}
+
 
 def to_int_seguro(valor, default=0):
     try:
@@ -87,6 +85,7 @@ def parsear_fecha_dashboard(fecha_str):
 
 
 @dashboard_bp.route('/stats', methods=['GET'])
+@cached_route(namespace='dashboard', ttl=600)
 def obtener_metricas_bi():
     """
     Endpoint Unificado para Visión de Científico de Datos.
@@ -95,19 +94,9 @@ def obtener_metricas_bi():
     try:
         desde_str = request.args.get('desde')
         hasta_str = request.args.get('hasta')
-        nocache = request.args.get('nocache')
         
         desde = parsear_fecha_dashboard(desde_str) if desde_str else None
         hasta = parsear_fecha_dashboard(hasta_str) if hasta_str else None
-        
-        cache_key = (str(desde), str(hasta))
-        ahora = time.time()
-        
-        if nocache != '1' and cache_key in DASHBOARD_COMPLEX_CACHE:
-            entry = DASHBOARD_COMPLEX_CACHE[cache_key]
-            if ahora - entry["timestamp"] < 600:
-                print(f"DEBUG: Sirviendo /stats desde CACHE para {cache_key}")
-                return jsonify({"status": "success", "success": True, "data": entry["data"]}), 200
 
         # --- RECOPILACIÓN DE DATOS REFACTORIZADA (100% SQL-FIRST) ---
         # 1. KPIs Generales, Rankings y Máquinas (Todo vía SQL puro)
@@ -210,7 +199,6 @@ def obtener_metricas_bi():
             "insight_ia": insights[0]
         }
         
-        DASHBOARD_COMPLEX_CACHE[cache_key] = {"data": result_data, "timestamp": ahora}
         return jsonify({"status": "success", "success": True, "data": result_data}), 200
 
     except Exception as e:

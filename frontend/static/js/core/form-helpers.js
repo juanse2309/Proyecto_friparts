@@ -7,6 +7,8 @@
  * Consolida lógica duplicada en múltiples módulos (inyección, pulido, ensamble).
  */
 const FormHelpers = (() => {
+    // Mapa para almacenar instancias activas de FormAutoSave
+    const autosaveInstances = new Map();
 
     /**
      * Configura un datalist con la lista de productos disponibles.
@@ -232,8 +234,7 @@ const FormHelpers = (() => {
         configurarFormularioSubmit,
         configurarFormularioReset,
         /**
-         * Registra la persistencia automática de un formulario.
-         * Guarda los valores en localStorage al cambiar y los restaura al cargar.
+         * Registra la persistencia automática de un formulario utilizando FormAutoSave.
          * 
          * @param {string} formId - ID del formulario
          * @returns {void}
@@ -242,58 +243,36 @@ const FormHelpers = (() => {
             const form = document.getElementById(formId);
             if (!form) return;
 
-            const storageKey = `form_cache_${formId}`;
+            // Si ya existe una instancia para este formulario, no duplicar
+            if (autosaveInstances.has(formId)) return;
 
-            // 1. Restaurar valores guardados
             try {
-                const savedData = JSON.parse(localStorage.getItem(storageKey));
-                if (savedData) {
-                    console.log(`💾 Restaurando datos para formulario: ${formId}`);
-                    Object.keys(savedData).forEach(name => {
-                        const input = form.querySelector(`[name="${name}"], #${name}`);
-                        if (input) {
-                            if (input.type === 'checkbox' || input.type === 'radio') {
-                                input.checked = savedData[name];
-                            } else {
-                                input.value = savedData[name];
-                                // Disparar evento input para que otros cálculos se actualicen
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                            }
-                        }
-                    });
-                }
+                // Instanciar el nuevo módulo de autoguardado seguro
+                const autoSave = new window.FormAutoSave(form, formId);
+                autosaveInstances.set(formId, autoSave);
             } catch (e) {
-                console.warn(`Error restaurando persistencia para ${formId}:`, e);
+                console.error(`Error inicializando FormAutoSave para ${formId}:`, e);
             }
-
-            // 2. Guardar cambios automáticamente
-            form.addEventListener('input', (e) => {
-                const target = e.target;
-                if (!target.name && !target.id) return;
-
-                const currentData = JSON.parse(localStorage.getItem(storageKey) || '{}');
-                const key = target.name || target.id;
-
-                if (target.type === 'checkbox' || target.type === 'radio') {
-                    currentData[key] = target.checked;
-                } else {
-                    currentData[key] = target.value;
-                }
-
-                localStorage.setItem(storageKey, JSON.stringify(currentData));
-            });
-
-            // 3. Limpiar al hacer submit exitoso
-            // Nota: El módulo que maneje el submit debe llamar a limpiarPersistencia(formId)
         },
 
         /**
-         * Limpia los datos guardados de un formulario.
+         * Limpia los datos guardados de un formulario y destruye su instancia.
          * @param {string} formId 
          */
         limpiarPersistencia: function (formId) {
-            localStorage.removeItem(`form_cache_${formId}`);
-            console.log(`🧹 Caché de formulario limpiado: ${formId}`);
+            const instance = autosaveInstances.get(formId);
+            if (instance) {
+                instance.clearDraft();
+                autosaveInstances.delete(formId);
+            } else {
+                // Fallback manual de limpieza para el usuario activo
+                const user = window.AppState?.user || (typeof AuthModule !== 'undefined' ? AuthModule.currentUser : null);
+                const username = user?.name || user?.nombre || 'anonymous';
+                const userKey = encodeURIComponent(username.toLowerCase().trim().replace(/\s+/g, '_'));
+                localStorage.removeItem(`autosave_${userKey}_${formId}`);
+                localStorage.removeItem(`form_cache_${formId}`); // Limpiar caché obsoleta del sistema anterior
+                console.log(`🧹 Caché de formulario limpiado (fallback): ${formId}`);
+            }
         }
     };
 })();
