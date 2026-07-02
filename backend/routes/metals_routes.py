@@ -1,6 +1,8 @@
 from flask import Blueprint, jsonify, request
 from backend.models.sql_models import db, MetalsProduccion, MetalsPersonal, MetalsPedido
 from backend.repositories.producto_repository import ProductoRepository
+from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.config.constants import FALLBACK_OPERARIO
 import logging
 import uuid
 import json
@@ -41,7 +43,17 @@ def registrar_produccion_metals():
         maquina = data.get('maquina', '')
         codigo_producto = data.get('codigo_producto', '')
         descripcion = data.get('descripcion_producto', '')
-        responsable = data.get('responsable', '')
+        # Guard de ownership centralizado con AuditService
+        try:
+            responsable = AuditService.resolver_y_validar_propietario(None, data.get('responsable', ''))
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "METALS_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
         fecha_js = data.get('fecha', '')
         hora_inicio = data.get('hora_inicio', '')
         hora_fin = data.get('hora_fin', '')

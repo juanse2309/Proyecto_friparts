@@ -8,6 +8,9 @@ from flask import Blueprint, jsonify, request, session
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES
 from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion, DistribucionOpPedidos, Pedido, TrazabilidadLote
 from backend.config.settings import Settings
+from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.config.constants import FALLBACK_OPERARIO
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
@@ -79,6 +82,34 @@ def normalizar_criterio(criterio, area):
         
     return "Otros"
 
+def generar_id_lote_trazabilidad(fecha, maquina, op, codigo):
+    """
+    Genera un id_lote único con formato YYYYMMDD-Maquina-OP-Codigo.
+    Si ya existe en la base de datos de trazabilidad, le agrega un sufijo incremental
+    para evitar conflictos de llave primaria (pkey UniqueViolation).
+    """
+    from datetime import datetime
+    from backend.models.sql_models import TrazabilidadLote
+    
+    fecha_str = fecha.strftime('%Y%m%d') if fecha else datetime.now().strftime('%Y%m%d')
+    maquina_clean = str(maquina or 'MAQ').replace(' ', '')
+    op_clean = str(op or 'SIN_OP').replace(' ', '')
+    codigo_clean = str(codigo or 'COD').replace(' ', '')
+    
+    base_id = f"{fecha_str}-{maquina_clean}-{op_clean}-{codigo_clean}"
+    
+    existe = db.session.query(TrazabilidadLote).filter_by(id_lote=base_id).first()
+    if not existe:
+        return base_id
+        
+    idx = 1
+    while True:
+        candidate_id = f"{base_id}-{idx}"
+        existe_cand = db.session.query(TrazabilidadLote).filter_by(id_lote=candidate_id).first()
+        if not existe_cand:
+            return candidate_id
+        idx += 1
+
 def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=False, items_batch=None):
     """
     Versión interna para generación de PDF y subida a Drive.
@@ -140,7 +171,6 @@ def registrar_inyeccion_lote():
             return jsonify({'success': False, 'error': 'No hay items para registrar'}), 400
 
         from backend.utils.formatters import resolver_operario
-        responsable = resolver_operario(turno.get('responsable'))
         maquina = str(turno.get('maquina', '')).strip()
         fecha_str = turno.get('fecha_inicio', '')
         
@@ -157,7 +187,6 @@ def registrar_inyeccion_lote():
 
         # Extraer ID de Inyección del turno para unificar el lote
         id_iny_lote = turno.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
-        responsable_lote = turno.get('responsable')
         maquina_lote = turno.get('maquina')
         
         movimientos_inventario = []
@@ -185,13 +214,26 @@ def registrar_inyeccion_lote():
 
             # Fallback Manual: Si no hay ID de lote pero hay Maquina + Responsable + Código + Fecha hoy
             if not registro and not id_sql:
+                responsable_busqueda = resolver_operario(turno.get('responsable'))
                 registro = db.session.query(ProduccionInyeccion).filter(
                     ProduccionInyeccion.maquina == maquina,
-                    ProduccionInyeccion.responsable == responsable,
+                    ProduccionInyeccion.responsable == responsable_busqueda,
                     ProduccionInyeccion.id_codigo == id_cod,
                     db.func.date(ProduccionInyeccion.fecha_inicia) == fecha_dt,
                     ProduccionInyeccion.estado == 'EN_PROCESO'
                 ).order_by(ProduccionInyeccion.id.desc()).first()
+
+            # Guard de ownership centralizado con AuditService
+            try:
+                responsable = AuditService.resolver_y_validar_propietario(registro, turno.get('responsable'))
+            except OwnershipMismatchException as e:
+                return jsonify({
+                    "success": False,
+                    "error": e.message,
+                    "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+                    "responsable_db": e.responsable_db,
+                    "responsable_in": e.responsable_in
+                }), 409
 
             if not registro:
                 logger.info(f"🆕 [Inyeccion] Creando nuevo registro: {id_iny} - {id_cod}")
@@ -360,11 +402,12 @@ def registrar_inyeccion_lote():
                     else:
                         # Si no existe (registro manual en validación), lo creamos
                         fecha_ref = registro.fecha_inicia or datetime.now()
-                        if not isinstance(fecha_ref, datetime):
-                            fecha_ref = datetime.combine(fecha_ref, datetime.min.time())
-                        maquina_clean = str(registro.maquina or 'MAQ').replace(' ', '')
-                        op_clean = str(registro.orden_produccion or 'SIN_OP').replace(' ', '')
-                        id_lote_key = f"{fecha_ref.strftime('%Y%m%d')}-{maquina_clean}-{op_clean}-{id_cod}"
+                        id_lote_key = generar_id_lote_trazabilidad(
+                            fecha=fecha_ref,
+                            maquina=registro.maquina,
+                            op=registro.orden_produccion,
+                            codigo=id_cod
+                        )
                         lote_traz = TrazabilidadLote(
                             id_lote=id_lote_key,
                             orden_produccion=registro.orden_produccion,
@@ -373,12 +416,21 @@ def registrar_inyeccion_lote():
                             id_inyeccion=id_iny,
                             estado_actual='PENDIENTE_VALIDACION',
                             fecha_creacion=fecha_ref,
-                            responsable=registro.responsable or 'Paola',
+                            responsable=registro.responsable or FALLBACK_OPERARIO,
                             cantidad_inyectada=cant_real,
                             por_pulir=cant_real
                         )
-                        db.session.add(lote_traz)
-                        db.session.flush()
+                        try:
+                            db.session.add(lote_traz)
+                            db.session.flush()
+                        except (IntegrityError, SQLAlchemyError) as e_db:
+                            db.session.rollback()
+                            logger.error(f"❌ Error de persistencia/duplicado en TrazabilidadLote (validación): {str(e_db)}")
+                            return jsonify({
+                                'success': False,
+                                'error': 'Conflicto de integridad o clave duplicada al registrar el lote de trazabilidad.',
+                                'details': str(e_db)
+                            }), 400
 
                     # Consultar todos los reportes de pulido para este lote específico
                     from backend.models.sql_models import ProduccionPulido
@@ -541,8 +593,18 @@ def iniciar_turno_inyeccion():
         colombia_tz = pytz.timezone('America/Bogota')
         ahora = datetime.now(colombia_tz)
 
-        from backend.utils.formatters import resolver_operario
-        responsable = resolver_operario(data.get('responsable'))
+        # Guard de ownership centralizado con AuditService
+        try:
+            responsable = AuditService.resolver_y_validar_propietario(None, data.get('responsable'))
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
+
         maquina = str(data.get('maquina', '')).strip()
         fecha_str = data.get('fecha_inicio', ahora.strftime('%Y-%m-%d'))
 
@@ -626,9 +688,12 @@ def iniciar_turno_inyeccion():
         db.session.add(registro)
 
         # --- MES PASO 1: Crear Lote de Trazabilidad (Cabecera) ---
-        # id_lote con formato YYYYMMDD-Maquina-OP-idCodigo para evitar colisión PK
-        op_clean = str(data.get('orden_produccion') or 'SIN_OP').replace(' ', '')
-        id_lote_key = f"{fecha_dt.strftime('%Y%m%d')}-{maquina.replace(' ', '')}-{op_clean}-{id_codigo}"
+        id_lote_key = generar_id_lote_trazabilidad(
+            fecha=fecha_dt,
+            maquina=maquina,
+            op=data.get('orden_produccion'),
+            codigo=id_codigo
+        )
         if not db.session.get(TrazabilidadLote, id_lote_key):
             lote_traz = TrazabilidadLote(
                 id_lote=id_lote_key,
@@ -642,8 +707,18 @@ def iniciar_turno_inyeccion():
                 cantidad_inyectada=0,
                 por_pulir=0
             )
-            db.session.add(lote_traz)
-            logger.info(f"🟢 [Trazabilidad] Lote creado: {id_lote_key} | Estado: ABIERTO_PRODUCCION")
+            try:
+                db.session.add(lote_traz)
+                db.session.flush()
+                logger.info(f"🟢 [Trazabilidad] Lote creado: {id_lote_key} | Estado: ABIERTO_PRODUCCION")
+            except (IntegrityError, SQLAlchemyError) as e_db:
+                db.session.rollback()
+                logger.error(f"❌ Error de persistencia/duplicado en TrazabilidadLote (iniciar turno): {str(e_db)}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Conflicto de integridad o clave duplicada al iniciar el turno de trazabilidad.',
+                    'details': str(e_db)
+                }), 400
 
         db.session.commit()
 
@@ -1117,8 +1192,17 @@ def mes_iniciar_trabajo():
 
         logger.info(f"⚡ Iniciando trabajo para la máquina {prog_inicial.maquina}, Referencias: {len(programaciones_bloque)}")
         
-        from backend.utils.formatters import resolver_operario
-        operario_inicia = resolver_operario(data.get('responsable') or data.get('operario') or prog_inicial.responsable_planta)
+        # Guard de ownership centralizado con AuditService
+        try:
+            operario_inicia = AuditService.resolver_y_validar_propietario(None, data.get('responsable') or data.get('operario') or prog_inicial.responsable_planta)
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
 
         # 4. Procesar en bloque de forma atómica
         for prog in programaciones_bloque:
@@ -1214,9 +1298,6 @@ def mes_reportar():
         if not id_iny:
             return jsonify({"success": False, "error": "El campo id_inyeccion es obligatorio"}), 400
 
-        from backend.utils.formatters import resolver_operario
-        operario_final = resolver_operario(data.get('responsable') or data.get('operario'))
-
         # 1. Buscar registros en db_inyeccion asociados to este id_inyeccion
         prods_en_lote = db.session.query(ProduccionInyeccion).filter(
             ProduccionInyeccion.id_inyeccion == id_iny
@@ -1224,6 +1305,21 @@ def mes_reportar():
         
         if not prods_en_lote:
             return jsonify({"success": False, "error": "Lote de producción no encontrado"}), 404
+
+        # Guard de ownership centralizado con AuditService
+        try:
+            operario_final = AuditService.resolver_y_validar_propietario(
+                prods_en_lote[0], 
+                data.get('responsable') or data.get('operario')
+            )
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
 
         # 2. Procesar cada producto en el lote físicamente
         colombia_tz_rep = pytz.timezone('America/Bogota')

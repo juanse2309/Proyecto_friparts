@@ -7,6 +7,8 @@ from backend.core.sql_database import db
 from backend.models.sql_models import ProgramacionEnsamble, Ensamble, Producto, OperacionLog, PncEnsamble
 from backend.services.bom_service import calcular_descuentos_ensamble
 from sqlalchemy import text
+from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.config.constants import FALLBACK_OPERARIO
 
 ensamble_bp = Blueprint('ensamble_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -193,8 +195,24 @@ def reportar_ensamble_multi():
         # 1. Identificar el registro principal (es_final = True)
         main_reg = next((r for r in registros_data if r.get('es_final')), registros_data[0])
         estado_final = main_reg.get('estado', 'EN_PROCESO')
-        from backend.utils.formatters import resolver_operario
-        responsable = resolver_operario(main_reg.get('responsable'))
+        
+        # Buscar si ya existe el registro final en DB para validar propiedad
+        registro_final_db = Ensamble.query.filter_by(
+            id_ensamble=id_ensamble_global, 
+            buje_ensamble=main_reg.get('buje_ensamble')
+        ).first()
+
+        # Guard de ownership centralizado con AuditService
+        try:
+            responsable = AuditService.resolver_y_validar_propietario(registro_final_db, main_reg.get('responsable'))
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "ENSAMBLE_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
         
         logger.info(f"[ENSAMBLE-MULTI] Procesando {len(registros_data)} registros para id_ensamble={id_ensamble_global}")
 
@@ -207,18 +225,20 @@ def reportar_ensamble_multi():
             # UPSERT: Solo intentamos recuperar el registro si es el producto final (fila de sesión)
             registro = None
             if es_final_flag:
-                # Usamos id_ensamble y buje_ensamble (que para el final es igual al id_codigo)
-                registro = Ensamble.query.filter_by(
-                    id_ensamble=id_ensamble_global, 
-                    buje_ensamble=buje_detalle
-                ).first()
+                registro = registro_final_db
             
             if not registro:
-                registro = Ensamble(id_ensamble=id_ensamble_global, id_codigo=id_codigo_ancla)
-                if es_final_flag:
-                    # Si es nuevo y es el final, marcamos el inicio de la operación
-                    registro.hora_inicio = datetime.now()
-                db.session.add(registro)
+                # Si no es el final o es nuevo, buscar si existe por combinación
+                if not es_final_flag:
+                    registro = Ensamble.query.filter_by(
+                        id_ensamble=id_ensamble_global, 
+                        buje_ensamble=buje_detalle
+                    ).first()
+                if not registro:
+                    registro = Ensamble(id_ensamble=id_ensamble_global, id_codigo=id_codigo_ancla)
+                    if es_final_flag:
+                        registro.hora_inicio = datetime.now()
+                    db.session.add(registro)
 
             # Mapeo de datos (solo columnas físicas en db_ensambles)
             registro.id_codigo = id_codigo_ancla

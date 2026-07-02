@@ -4,6 +4,7 @@ from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo
+from backend.services.audit_service import AuditService, OwnershipMismatchException
 import uuid
 from datetime import datetime
 import pytz
@@ -12,6 +13,250 @@ import json
 
 logger = logging.getLogger(__name__)
 pulido_bp = Blueprint('pulido_bp', __name__)
+
+def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
+    """
+    Función privada auxiliar para encapsular la persistencia y la lógica de negocio
+    compleja del módulo de pulido. Mantiene la ruta compacta (< 50 líneas).
+    """
+    id_pulido = data.get('id_pulido')
+
+    if not registro:
+        # Si no existe (o fue borrado de la DB), crear uno nuevo para evitar Error 500
+        if id_pulido:
+            logger.warning(f" [RECOVERY] id_pulido {id_pulido} no encontrado en DB. Creando nuevo registro.")
+        registro = ProduccionPulido(id_pulido=id_pulido or f"PUL-{ahora.strftime('%Y%m%d%H%M%S')}")
+        db.session.add(registro)
+
+    # Mapeo y Estandarización
+    registro.fecha = datetime.strptime(data.get('fecha_inicio', ahora.strftime('%Y-%m-%d')), '%Y-%m-%d').date()
+    # ── Blindaje Dual: preservar prefijo MT-/CAR- o agregar FR- por defecto ──
+    registro.codigo = preservar_o_normalizar_prefijo(data.get('codigo_producto'))
+    registro.responsable = responsable
+    registro.cantidad_real = float(data.get('cantidad_real') or 0)
+    registro.pnc_inyeccion = int(data.get('pnc_inyeccion') or 0)
+    registro.pnc_pulido = int(data.get('pnc_pulido') or 0)
+    registro.criterio_pnc_inyeccion = data.get('criterio_pnc_inyeccion')
+    registro.criterio_pnc_pulido = data.get('criterio_pnc_pulido')
+    registro.orden_produccion = data.get('orden_produccion') or 'SIN OP'
+    registro.observaciones = data.get('observaciones', '')
+    registro.estado = data.get('estado', 'FINALIZADO')
+    registro.departamento = 'Pulido'  # Estandarización exigida
+    registro.lote = data.get('lote') or 'SIN LOTE'
+    registro.cantidad_recibida = float(data.get('cantidad_recibida') or 0)
+    registro.almacen_destino = data.get('almacen_destino', 'P. TERMINADO')
+
+    # Validación de consistencia (Bujes Buenos + PNC <= Total)
+    total_reportado = registro.cantidad_real + registro.pnc_inyeccion + registro.pnc_pulido
+    if registro.cantidad_recibida < total_reportado:
+        logger.warning(f" [VALIDATION] Inconsistencia en {registro.id_pulido}: Total {registro.cantidad_recibida} < Suma {total_reportado}")
+
+    # Manejo de Horas y Cálculos de Tiempo
+    if data.get('hora_inicio'):
+        h_h, h_m = data['hora_inicio'].split(':')
+        dt_ini = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
+        registro.hora_inicio = dt_ini.replace(tzinfo=None)
+    
+    if data.get('hora_fin'):
+        h_h, h_m = data['hora_fin'].split(':')
+        dt_fin = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
+        registro.hora_fin = dt_fin.replace(tzinfo=None)
+
+    # Cálculo de Métricas
+    if data.get('hora_inicio') and data.get('hora_fin'):
+        hi_h, hi_m = data['hora_inicio'].split(':')
+        hf_h, hf_m = data['hora_fin'].split(':')
+        
+        t_ini = ahora.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0)
+        t_fin = ahora.replace(hour=int(hf_h), minute=int(hf_m), second=0, microsecond=0)
+        
+        diff = t_fin - t_ini
+        segundos_segmento = int(diff.total_seconds())
+        if segundos_segmento < 0: segundos_segmento += 86400
+        
+        tiempo_acumulado_ms = float(data.get('tiempo_acumulado_ms') or 0)
+        segundos_totales = segundos_segmento + int(tiempo_acumulado_ms / 1000)
+
+        descuento_programado_ms = float(data.get('descuento_programado_ms') or 0)
+        if descuento_programado_ms > 0:
+            segundos_totales = max(0, segundos_totales - int(descuento_programado_ms / 1000))
+        
+        registro.duracion_segundos = segundos_totales
+        registro.tiempo_total_minutos = float(round(segundos_totales / 60.0, 2))
+        
+        cant = float(registro.cantidad_real or 0)
+        if cant > 0:
+            registro.segundos_por_unidad = float(round(segundos_totales / cant, 2))
+        else:
+            registro.segundos_por_unidad = 0.0
+        
+        try:
+            detalle = data.get('detalle_descuento_programado')
+            if isinstance(detalle, str):
+                detalle = json.loads(detalle)
+            if isinstance(detalle, list) and descuento_programado_ms > 0:
+                payload = {
+                    "descuento_programado_min": round(descuento_programado_ms / 60000.0, 2),
+                    "detalle": detalle
+                }
+                tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
+                obs = (registro.observaciones or "")
+                if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
+                    pre = obs.split("[AUTO_BREAK]")[0]
+                    post = obs.split("[/AUTO_BREAK]")[-1]
+                    registro.observaciones = (pre + tag + post).strip()
+                else:
+                    registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
+        except Exception as e:
+            logger.warning(f"[AUTO_BREAK] No se pudo persistir detalle: {e}")
+
+        logger.info(f" [TIME-DEBUG] {registro.id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, DescProg: {descuento_programado_ms}ms, Total: {segundos_totales}s")
+    else:
+        registro.duracion_segundos = 0
+        registro.tiempo_total_minutos = 0.0
+        registro.segundos_por_unidad = 0.0
+
+    db.session.flush()
+ 
+    # Sincronización de PNC Detallado
+    pnc_detail = data.get('pnc_detail', [])
+    if pnc_detail:
+        db.session.query(PncInyeccion).filter_by(id_inyeccion=registro.id_pulido).delete()
+        db.session.query(PncPulido).filter_by(id_pulido=registro.id_pulido).delete()
+        db.session.query(PncEnsamble).filter_by(id_ensamble=registro.id_pulido).delete()
+
+        for pnc_item in pnc_detail:
+            proc = pnc_item.get('proceso', '').upper()
+            cant = float(pnc_item.get('cantidad') or 0)
+            crit = pnc_item.get('criterio', '')
+            if cant <= 0: continue
+
+            if proc == 'INYECCION':
+                db.session.add(PncInyeccion(
+                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                    id_inyeccion=registro.id_pulido,
+                    id_codigo=registro.codigo,
+                    cantidad=cant,
+                    criterio=crit
+                ))
+            elif proc == 'PULIDO':
+                db.session.add(PncPulido(
+                    id_pnc_pulido=uuid.uuid4().hex[:8],
+                    id_pulido=registro.id_pulido,
+                    codigo=registro.codigo,
+                    cantidad=cant,
+                    criterio=crit
+                ))
+            elif proc == 'ENSAMBLE':
+                db.session.add(PncEnsamble(
+                    id_pnc_ensamble=uuid.uuid4().hex[:8],
+                    id_ensamble=registro.id_pulido,
+                    id_codigo=registro.codigo,
+                    cantidad=cant,
+                    criterio=crit
+                ))
+
+    db.session.flush()
+
+    # Manejo de Bujes Revueltos
+    revueltos_list = data.get('revueltos', [])
+    logger.info(f" [REVUELTOS-DEBUG] Payload recibido: {revueltos_list}")
+    
+    db.session.query(BujeRevuelto).filter_by(id_pulido=registro.id_pulido).delete()
+
+    for rev_item in revueltos_list:
+        cod_rev = preservar_o_normalizar_prefijo(rev_item.get('id_codigo'))
+        cant_rev = float(rev_item.get('cantidad') or 0)
+        
+        if cant_rev <= 0 or not cod_rev: 
+            continue
+
+        db.session.add(BujeRevuelto(
+            id_bujes_revueltos=uuid.uuid4().hex[:8],
+            id_pulido=registro.id_pulido,
+            id_codigo=cod_rev,
+            cantidad=cant_rev,
+            codigo_ensamble=cod_rev,
+            responsable=registro.responsable
+        ))
+
+    # Distribución FIFO OP/Pedidos
+    op_actual = registro.orden_produccion
+    if op_actual and str(op_actual).strip() != 'SIN OP':
+        from backend.models.sql_models import DistribucionOpPedidos
+        op_limpia = str(registro.orden_produccion or '').strip()
+        codigo_limpio = normalizar_codigo(registro.codigo)
+        
+        cubetas = db.session.query(DistribucionOpPedidos).filter(
+            DistribucionOpPedidos.op_world_office == op_limpia,
+            DistribucionOpPedidos.codigo_producto == codigo_limpio
+        ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+        piezas_por_repartir = float(registro.cantidad_real or 0)
+        
+        if not cubetas and piezas_por_repartir > 0:
+            pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
+                DistribucionOpPedidos.op_world_office == op_limpia
+            ).first()
+            id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
+            
+            nueva_cubeta = DistribucionOpPedidos(
+                op_world_office=op_limpia,
+                id_pedido=id_pedido_final,
+                codigo_producto=codigo_limpio,
+                cant_requerida=piezas_por_repartir,
+                cant_inyectada=piezas_por_repartir,
+                cant_pulida=piezas_por_repartir,
+                cant_ensamblada=0,
+                cant_alistada=0
+            )
+            db.session.add(nueva_cubeta)
+            db.session.flush()
+            cubetas = [nueva_cubeta]
+            piezas_por_repartir = 0.0
+        
+        for cubeta in cubetas:
+            if piezas_por_repartir <= 0:
+                break
+            falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_pulida or 0))
+            if falta > 0:
+                if piezas_por_repartir >= falta:
+                    cubeta.cant_pulida = (cubeta.cant_pulida or 0) + falta
+                    piezas_por_repartir -= falta
+                else:
+                    cubeta.cant_pulida = (cubeta.cant_pulida or 0) + piezas_por_repartir
+                    piezas_por_repartir = 0
+
+    # Cierre de Lote con Saldo a WIP
+    lote_traz = db.session.get(TrazabilidadLote, registro.id_pulido)
+    if lote_traz:
+        lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
+        cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
+        buenas = float(registro.cantidad_real or 0)
+        pnc_total = float(registro.pnc_inyeccion or 0) + float(registro.pnc_pulido or 0)
+        rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_list)
+        
+        wip = cant_inyectada - (buenas + pnc_total + rev_total)
+        
+        if wip > 0:
+            es_prueba_wip = '9999' in str(registro.orden_produccion).upper() or 'PRUEBA' in str(registro.orden_produccion).upper() or '9999' in str(registro.id_pulido).upper() or 'PRUEBA' in str(registro.id_pulido).upper() or '9999' in str(lote_traz.id_lote).upper() or 'PRUEBA' in str(lote_traz.id_lote).upper()
+            
+            if not es_prueba_wip:
+                prod_wip = db.session.query(Producto).filter_by(
+                    codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
+                ).first()
+                if prod_wip:
+                    prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
+            else:
+                logger.info(f"🧪 [SANDBOX] Lote de prueba {registro.id_pulido}. Se ignoró suma de {wip} al WIP.")
+
+    db.session.commit()
+    return {
+        "success": True, 
+        "message": "Registro de pulido sincronizado",
+        "id_pulido": registro.id_pulido,
+        "upsert": "UPDATE" if id_pulido and registro.id else "INSERT"
+    }
 
 @pulido_bp.route('/api/pulido', methods=['POST'])
 def registrar_pulido():
@@ -27,295 +272,22 @@ def registrar_pulido():
         id_pulido = data.get('id_pulido')
         registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first() if id_pulido else None
 
-        # Guard de ownership: evita que un operario sobrescriba el registro de otro
-        from backend.utils.formatters import resolver_operario
-        incoming_responsable = resolver_operario(data.get('responsable'))
-        if registro and registro.responsable and incoming_responsable:
-            if str(registro.responsable).strip().upper() != incoming_responsable.upper():
-                return jsonify({
-                    "success": False,
-                    "error": "La sesión pertenece a otro operario. Cierra sesión y vuelve a ingresar.",
-                    "code": "PULIDO_SESSION_OWNERSHIP_MISMATCH",
-                    "id_pulido": id_pulido,
-                    "responsable_db": registro.responsable,
-                    "responsable_in": incoming_responsable
-                }), 409
+        # Guard de ownership centralizado con AuditService
+        try:
+            responsable = AuditService.resolver_y_validar_propietario(registro, data.get('responsable'))
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "PULIDO_SESSION_OWNERSHIP_MISMATCH",
+                "id_pulido": id_pulido,
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
 
-        if not registro:
-            # Si no existe (o fue borrado de la DB), crear uno nuevo para evitar Error 500
-            if id_pulido:
-                logger.warning(f" [RECOVERY] id_pulido {id_pulido} no encontrado en DB. Creando nuevo registro.")
-            registro = ProduccionPulido(id_pulido=id_pulido or f"PUL-{ahora.strftime('%Y%m%d%H%M%S')}")
-            db.session.add(registro)
-
-        # Mapeo y Estandarización
-        registro.fecha = datetime.strptime(data.get('fecha_inicio', ahora.strftime('%Y-%m-%d')), '%Y-%m-%d').date()
-        # ── Blindaje Dual: preservar prefijo MT-/CAR- o agregar FR- por defecto ──
-        registro.codigo = preservar_o_normalizar_prefijo(data.get('codigo_producto'))
-        registro.responsable = incoming_responsable
-        registro.cantidad_real = float(data.get('cantidad_real') or 0)
-        registro.pnc_inyeccion = int(data.get('pnc_inyeccion') or 0)
-        registro.pnc_pulido = int(data.get('pnc_pulido') or 0)
-        registro.criterio_pnc_inyeccion = data.get('criterio_pnc_inyeccion')
-        registro.criterio_pnc_pulido = data.get('criterio_pnc_pulido')
-        registro.orden_produccion = data.get('orden_produccion') or 'SIN OP'
-        registro.observaciones = data.get('observaciones', '')
-        registro.estado = data.get('estado', 'FINALIZADO')
-        registro.departamento = 'Pulido'  # Estandarización exigida
-        registro.lote = data.get('lote') or 'SIN LOTE'
-        registro.cantidad_recibida = float(data.get('cantidad_recibida') or 0)
-        registro.almacen_destino = data.get('almacen_destino', 'P. TERMINADO')
-
-        # Validación de consistencia (Bujes Buenos + PNC <= Total)
-        # Se usa <= porque puede haber otros tipos de PNC no mapeados a columnas fijas
-        total_reportado = registro.cantidad_real + registro.pnc_inyeccion + registro.pnc_pulido
-        if registro.cantidad_recibida < total_reportado:
-            logger.warning(f" [VALIDATION] Inconsistencia en {id_pulido}: Total {registro.cantidad_recibida} < Suma {total_reportado}")
-            # No bloqueamos el guardado para evitar pérdida de datos en planta, pero registramos el evento.
-            # Opcional: podrías retornar error 400 aquí si prefieres rigidez total.
-
-
-        # Manejo de Horas y Cálculos de Tiempo
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz)
-
-        if data.get('hora_inicio'):
-            h_h, h_m = data['hora_inicio'].split(':')
-            dt_ini = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
-            registro.hora_inicio = dt_ini.replace(tzinfo=None) # Guardar como naive Bogota
-        
-        if data.get('hora_fin'):
-            h_h, h_m = data['hora_fin'].split(':')
-            dt_fin = ahora.replace(hour=int(h_h), minute=int(h_m), second=0, microsecond=0)
-            registro.hora_fin = dt_fin.replace(tzinfo=None) # Guardar como naive Bogota
-
-        # Cálculo de Métricas (Usando objetos localizados para precisión)
-        if data.get('hora_inicio') and data.get('hora_fin'):
-            hi_h, hi_m = data['hora_inicio'].split(':')
-            hf_h, hf_m = data['hora_fin'].split(':')
-            
-            t_ini = ahora.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0)
-            t_fin = ahora.replace(hour=int(hf_h), minute=int(hf_m), second=0, microsecond=0)
-            
-            # Tiempo del segmento actual
-            diff = t_fin - t_ini
-            segundos_segmento = int(diff.total_seconds())
-            if segundos_segmento < 0: segundos_segmento += 86400
-            
-            # Sumar tiempo acumulado de sesiones previas (enviado desde el frontend en ms)
-            tiempo_acumulado_ms = float(data.get('tiempo_acumulado_ms') or 0)
-            segundos_totales = segundos_segmento + int(tiempo_acumulado_ms / 1000)
-
-            # Descuento automático por pausas programadas (enviado por frontend, en ms)
-            descuento_programado_ms = float(data.get('descuento_programado_ms') or 0)
-            if descuento_programado_ms > 0:
-                segundos_totales = max(0, segundos_totales - int(descuento_programado_ms / 1000))
-            
-            registro.duracion_segundos = segundos_totales
-            registro.tiempo_total_minutos = float(round(segundos_totales / 60.0, 2))
-            
-            cant = float(registro.cantidad_real or 0)
-            if cant > 0:
-                registro.segundos_por_unidad = float(round(segundos_totales / cant, 2))
-            else:
-                registro.segundos_por_unidad = 0.0
-            
-            # Persistir evidencia del descuento en observaciones (sin migración de DB)
-            try:
-                detalle = data.get('detalle_descuento_programado')
-                if isinstance(detalle, str):
-                    detalle = json.loads(detalle)
-                if isinstance(detalle, list) and descuento_programado_ms > 0:
-                    payload = {
-                        "descuento_programado_min": round(descuento_programado_ms / 60000.0, 2),
-                        "detalle": detalle
-                    }
-                    tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
-                    obs = (registro.observaciones or "")
-                    # Reemplazar tag si ya existía
-                    if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
-                        pre = obs.split("[AUTO_BREAK]")[0]
-                        post = obs.split("[/AUTO_BREAK]")[-1]
-                        registro.observaciones = (pre + tag + post).strip()
-                    else:
-                        registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
-            except Exception as e:
-                logger.warning(f"[AUTO_BREAK] No se pudo persistir detalle: {e}")
-
-            logger.info(f" [TIME-DEBUG] {id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, DescProg: {descuento_programado_ms}ms, Total: {segundos_totales}s")
-        else:
-            registro.duracion_segundos = 0
-            registro.tiempo_total_minutos = 0.0
-            registro.segundos_por_unidad = 0.0
-
-        db.session.flush() # Asegurar que el registro principal tenga ID en la sesión
- 
-        # Sincronización de PNC Detallado (vaya esa info donde debe)
-        pnc_detail = data.get('pnc_detail', [])
-        if pnc_detail:
-            # Limpiar registros previos de PNC vinculados a este id_pulido
-            # Usar registro.id_pulido que es el identificador confirmado en este punto
-            db.session.query(PncInyeccion).filter_by(id_inyeccion=registro.id_pulido).delete()
-            db.session.query(PncPulido).filter_by(id_pulido=registro.id_pulido).delete()
-            db.session.query(PncEnsamble).filter_by(id_ensamble=registro.id_pulido).delete()
-
-            for pnc_item in pnc_detail:
-                proc = pnc_item.get('proceso', '').upper()
-                cant = float(pnc_item.get('cantidad') or 0)
-                crit = pnc_item.get('criterio', '')
-                if cant <= 0: continue
-
-                if proc == 'INYECCION':
-                    db.session.add(PncInyeccion(
-                        id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                        id_inyeccion=registro.id_pulido,
-                        id_codigo=registro.codigo,
-                        cantidad=cant,
-                        criterio=crit
-                    ))
-                elif proc == 'PULIDO':
-                    db.session.add(PncPulido(
-                        id_pnc_pulido=uuid.uuid4().hex[:8],
-                        id_pulido=registro.id_pulido,
-                        codigo=registro.codigo,
-                        cantidad=cant,
-                        criterio=crit
-                    ))
-                elif proc == 'ENSAMBLE':
-                    db.session.add(PncEnsamble(
-                        id_pnc_ensamble=uuid.uuid4().hex[:8],
-                        id_ensamble=registro.id_pulido,
-                        id_codigo=registro.codigo,
-                        cantidad=cant,
-                        criterio=crit
-                    ))
-
-        db.session.flush() # Asegurar que el registro principal tenga ID en la sesión
-
-        # ---------------------------------------------------------
-        # Manejo de Bujes Revueltos (NUEVO)
-        # ---------------------------------------------------------
-        revueltos_list = data.get('revueltos', [])
-        logger.info(f" [REVUELTOS-DEBUG] Payload recibido: {revueltos_list}")
-        logger.info(f" [REVUELTOS] Procesando {len(revueltos_list)} items para {registro.id_pulido}")
-        
-        # Limpiar registros previos de revueltos vinculados a este id_pulido
-        db.session.query(BujeRevuelto).filter_by(id_pulido=registro.id_pulido).delete()
-
-        for rev_item in revueltos_list:
-            cod_rev = preservar_o_normalizar_prefijo(rev_item.get('id_codigo'))  # Prefijo obligatorio
-            cant_rev = float(rev_item.get('cantidad') or 0)
-            logger.info(f" [REVUELTOS] Intentando agregar: {cod_rev} | Cant: {cant_rev}")
-            
-            if cant_rev <= 0 or not cod_rev: 
-                logger.warning(f" [REVUELTOS] Item omitido por validación: {rev_item}")
-                continue
-
-            db.session.add(BujeRevuelto(
-                id_bujes_revueltos=uuid.uuid4().hex[:8],
-                id_pulido=registro.id_pulido,
-                id_codigo=cod_rev,
-                cantidad=cant_rev,
-                codigo_ensamble=cod_rev,
-                responsable=registro.responsable
-            ))
-            logger.info(f" [REVUELTOS] Registro agregado a sesión: {cod_rev}")
-
-        # --- Propagación de avances a cubetas FIFO (db_distribucion_op_pedidos) ---
-        op_actual = registro.orden_produccion
-        if op_actual and str(op_actual).strip() != 'SIN OP':
-            from backend.models.sql_models import DistribucionOpPedidos
-            
-            # ── Blindaje Dual ──
-            # op_limpia   → tal cual (db_distribucion_op_pedidos no usa prefijo)
-            # codigo_limpio → SIN prefijo (db_distribucion_op_pedidos guarda '9890')
-            # registro.codigo ya tiene FR- (escrito arriba con con_prefijo_fr)
-            op_limpia = str(registro.orden_produccion or '').strip()
-            codigo_limpio = normalizar_codigo(registro.codigo)  # quita FR- para el cruce
-            
-            # Buscar las cubetas por OP y Referencia ordenadas de forma ascendente
-            cubetas = db.session.query(DistribucionOpPedidos).filter(
-                DistribucionOpPedidos.op_world_office == op_limpia,
-                DistribucionOpPedidos.codigo_producto == codigo_limpio
-            ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
-
-            piezas_por_repartir = float(registro.cantidad_real or 0)
-            
-            # Validación y creación de cubeta de contingencia
-            if not cubetas and piezas_por_repartir > 0:
-                # Intentar buscar el id_pedido de otra cubeta asociada a la misma OP
-                pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
-                    DistribucionOpPedidos.op_world_office == op_limpia
-                ).first()
-                id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
-                
-                logger.info(f" ⚠️ [PULIDO-CONTINGENCIA] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
-                nueva_cubeta = DistribucionOpPedidos(
-                    op_world_office=op_limpia,
-                    id_pedido=id_pedido_final,
-                    codigo_producto=codigo_limpio,
-                    cant_requerida=piezas_por_repartir,
-                    cant_inyectada=piezas_por_repartir, # Nivelar inyección
-                    cant_pulida=piezas_por_repartir,
-                    cant_ensamblada=0,
-                    cant_alistada=0
-                )
-                db.session.add(nueva_cubeta)
-                db.session.flush() # Sincronizar temporalmente en sesión
-                cubetas = [nueva_cubeta]
-                piezas_por_repartir = 0.0 # Consumido por completo
-            
-            logger.info(f" 📦 [PULIDO-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
-            
-            for cubeta in cubetas:
-                if piezas_por_repartir <= 0:
-                    break
-                
-                # Cuánto le falta a esta cubeta en la etapa de pulido
-                falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_pulida or 0))
-                if falta > 0:
-                    if piezas_por_repartir >= falta:
-                        cubeta.cant_pulida = (cubeta.cant_pulida or 0) + falta
-                        piezas_por_repartir -= falta
-                    else:
-                        cubeta.cant_pulida = (cubeta.cant_pulida or 0) + piezas_por_repartir
-                        piezas_por_repartir = 0
-
-        # ---------------------------------------------------------
-        # Cierre de Lote con Saldo a WIP "Por Pulir"
-        # ---------------------------------------------------------
-        lote_traz = db.session.get(TrazabilidadLote, registro.id_pulido)
-        if lote_traz:
-            lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
-            
-            cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
-            buenas = float(registro.cantidad_real or 0)
-            pnc_total = float(registro.pnc_inyeccion or 0) + float(registro.pnc_pulido or 0)
-            rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_list)
-            
-            wip = cant_inyectada - (buenas + pnc_total + rev_total)
-            
-            if wip > 0:
-                es_prueba_wip = '9999' in str(registro.orden_produccion).upper() or 'PRUEBA' in str(registro.orden_produccion).upper() or '9999' in str(registro.id_pulido).upper() or 'PRUEBA' in str(registro.id_pulido).upper() or '9999' in str(lote_traz.id_lote).upper() or 'PRUEBA' in str(lote_traz.id_lote).upper()
-                
-                if not es_prueba_wip:
-                    # ── WIP: buscar en db_productos respetando prefijo ──
-                    prod_wip = db.session.query(Producto).filter_by(
-                        codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
-                    ).first()
-                    if prod_wip:
-                        prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
-                        logger.info(f" [WIP] Agregando {wip} piezas a por_pulir del producto {registro.codigo}")
-                else:
-                    logger.info(f"🧪 [SANDBOX] Lote de prueba {registro.id_pulido}. Se ignoró suma de {wip} al WIP (por_pulir).")
-
-        db.session.commit()
-        return jsonify({
-            "success": True, 
-            "message": "Registro de pulido sincronizado",
-            "id_pulido": registro.id_pulido,
-            "upsert": "UPDATE" if id_pulido and registro.id else "INSERT"
-        }), 201
+        # Delegar la persistencia compleja a la función privada
+        res = _ejecutar_persistencia_pulido(registro, data, responsable, ahora)
+        return jsonify(res), 201
 
     except Exception as e:
         db.session.rollback()

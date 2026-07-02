@@ -1,6 +1,8 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
 from flask import Blueprint, jsonify, request, session
 from backend.models.sql_models import db, Pedido, MetalsPedido, DespachoPedido
+from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy import text
 from backend.core.tenant import get_tenant_from_request
 from datetime import datetime
@@ -895,7 +897,17 @@ def registrar_despacho():
             return jsonify({"success": False, "error": "No se recibieron datos"}), 400
 
         id_pedido = data.get('id_pedido')
-        responsable = data.get('responsable')
+        # Guard de ownership centralizado con AuditService
+        try:
+            responsable = AuditService.resolver_y_validar_propietario(None, data.get('responsable'))
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "PEDIDOS_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
         transportadora = data.get('transportadora')
         guia = data.get('guia')
         items = data.get('items', [])
