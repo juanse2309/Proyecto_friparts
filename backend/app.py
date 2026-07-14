@@ -37,7 +37,17 @@ CORS(app)
 
 # Required for Flask Sessions
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_friparts_key_2026")
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True
 
+@app.before_request
+def debug_login_headers():
+    if request.path.startswith('/api/auth/login') or request.path.startswith('/api/auth/metals/login'):
+        logger.info(f"--- DEBUG PWA LOGIN HEADERS ({request.path}) ---")
+        logger.info(f"Origin: {request.headers.get('Origin')}")
+        logger.info(f"Cookie: {request.headers.get('Cookie')}")
+        logger.info(f"User-Agent: {request.headers.get('User-Agent')}")
+        logger.info("----------------------------------")
 # --- GLOBAL TIMEZONE CONFIG (Colombia UTC-5) ---
 COLOMBIA_TZ = pytz.timezone('America/Bogota')
 
