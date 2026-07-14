@@ -67,7 +67,9 @@ def enviar_masivo():
             "icon": "/static/img/icon-192.png",
             "badge": "/static/img/icon-192.png",
             "url": url_destino,
-            "segmento": segmento
+            "segmento": segmento,
+            "requireInteraction": False,
+            "urgency": "high"
         }
 
         # Delegar ejecución al motor asíncrono
@@ -132,7 +134,9 @@ def test_notificacion():
            "title": "🚨 FriTech: Prueba de Planta",
            "body": "El puente de notificaciones PWA está operando al 100% en FRITECH.",
            "icon": "/static/img/icon-192.png",
-           "badge": "/static/img/icon-192.png"
+           "badge": "/static/img/icon-192.png",
+           "requireInteraction": False,
+           "urgency": "high"
         }
 
         sub_info = {

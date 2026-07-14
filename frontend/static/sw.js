@@ -87,6 +87,7 @@ self.addEventListener('push', event => {
         body: data.body || 'Tienes un nuevo mensaje.',
         icon: '/static/img/icon-192.png',
         badge: '/static/img/icon-192.png',
+        requireInteraction: data.requireInteraction !== undefined ? data.requireInteraction : false,
         data: {
             url: data.url || '/'
         }
