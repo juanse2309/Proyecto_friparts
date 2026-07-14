@@ -20,6 +20,19 @@ if ('serviceWorker' in navigator) {
                 console.error('❌ Error al registrar el ServiceWorker:', err);
             });
     });
+
+    // Recargar automáticamente cuando un nuevo Service Worker tome el control
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+            console.log('🔄 Nueva versión de la app detectada. Recargando para aplicar actualización...');
+            if (window.AuthModule && typeof window.AuthModule.mostrarNotificacion === 'function') {
+                window.AuthModule.mostrarNotificacion('Actualizando la aplicación a la última versión...', 'info');
+            }
+            refreshing = true;
+            setTimeout(() => window.location.reload(), 1500); // Dar un momento para mostrar el mensaje
+        }
+    });
 }
 
 // --- PWA INSTALL PROMPT ---
