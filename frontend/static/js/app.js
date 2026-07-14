@@ -12,7 +12,7 @@ window.addEventListener('unhandledrejection', event => {
 // --- REGISTRO DEL SERVICE WORKER (PWA) ---
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js')
+        navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
             .then(registration => {
                 console.log('SW Registro OK. Scope:', registration.scope);
             })

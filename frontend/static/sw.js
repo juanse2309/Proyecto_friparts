@@ -2,8 +2,7 @@ const CACHE_NAME = 'friparts-cache-v1';
 const STATIC_ASSETS = [
     '/',
     '/static/css/styles.css',
-    '/static/js/app.js',
-    '/static/manifest.json'
+    '/static/js/app.js'
 ];
 
 // Install Event - Precache static assets
