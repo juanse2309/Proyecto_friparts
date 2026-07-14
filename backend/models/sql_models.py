@@ -635,5 +635,16 @@ class InventarioWO(db.Model):
     codigo_alterno  = db.Column(db.String(100), nullable=True)
     referencia      = db.Column(db.String(100), nullable=True)
 
+class SuscripcionesPush(db.Model):
+    """
+    Entidad plana (SQL-First) para almacenar los endpoints de Web Push de cada dispositivo/usuario.
+    """
+    __tablename__ = 'db_suscripciones_push'
+    __table_args__ = {'extend_existing': True}
 
-
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    usuario_id      = db.Column(db.String(150), index=True, nullable=False) # Puede ser documento, username o id
+    endpoint        = db.Column(db.Text, nullable=False)
+    p256dh          = db.Column(db.String(255), nullable=False)
+    auth            = db.Column(db.String(255), nullable=False)
+    fecha_creacion  = db.Column(db.DateTime, default=datetime.utcnow)

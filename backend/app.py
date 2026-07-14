@@ -104,6 +104,18 @@ app.register_blueprint(ia_bp)
 app.register_blueprint(gerencia_bp)
 app.register_blueprint(wo_bp)
 
+from backend.routes.pwa_routes import pwa_bp
+app.register_blueprint(pwa_bp)
+
+
+# --- PWA SERVICE WORKER ---
+@app.route('/service-worker.js')
+def service_worker():
+    """Sirve el Service Worker desde la raíz para evitar conflictos de scope (/static/)."""
+    import os
+    from flask import send_from_directory
+    static_path = os.path.join(app.root_path, '../frontend/static')
+    return send_from_directory(static_path, 'sw.js', mimetype='application/javascript')
 
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
@@ -875,7 +887,7 @@ def registrar_inyeccion():
         # 3. Registrar en SQL
         nuevo_registro = ProduccionInyeccion(
             id_inyeccion=id_inyeccion,
-            fecha=datetime.date.today(),
+            fecha=date.today(),
             codigo_sistema=codigo_norm,
             responsable=responsable,
             maquina=data.get('maquina'),
@@ -933,9 +945,9 @@ def mes_programar():
             try:
                 fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
             except:
-                fecha_obj = datetime.date.today()
+                fecha_obj = date.today()
         else:
-            fecha_obj = datetime.date.today()
+            fecha_obj = date.today()
 
         if not productos:
             return jsonify({'success': False, 'error': 'No se enviaron productos para programar'}), 400

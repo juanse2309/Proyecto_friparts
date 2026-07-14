@@ -9,6 +9,105 @@ window.addEventListener('unhandledrejection', event => {
     console.error('🚨 Unhandled Promise Rejection:', event.reason);
 });
 
+// --- REGISTRO DEL SERVICE WORKER (PWA) ---
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js')
+            .then(registration => {
+                console.log('SW Registro OK. Scope:', registration.scope);
+            })
+            .catch(err => {
+                console.error('❌ Error al registrar el ServiceWorker:', err);
+            });
+    });
+}
+
+// --- PWA INSTALL PROMPT ---
+let deferredPrompt = null;
+let promptFired = false;
+
+// Ocultar botón inmediatamente si la app ya está instalada, si no, lo oculta hasta que el evento o el timeout lo reactiven
+document.addEventListener('DOMContentLoaded', () => {
+    const installBtn = document.getElementById('btn-instalar-app');
+    if (installBtn) {
+        installBtn.style.display = 'none'; // Estado inicial oculto manejado por JS
+    }
+});
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevenir el comportamiento por defecto (infobar nativo)
+    e.preventDefault();
+    promptFired = true;
+    
+    // Si ya está marcada como instalada, no hacer nada
+    if (localStorage.getItem('app_instalada_friparts') === 'true') {
+        return;
+    }
+    
+    // Guardar el evento
+    deferredPrompt = e;
+    
+    // Mostrar el botón en la UI de Login
+    const installBtn = document.getElementById('btn-instalar-app');
+    if (installBtn) {
+        installBtn.style.display = 'inline-block';
+        
+        installBtn.onclick = async () => {
+            if (!deferredPrompt) {
+                alert('La instalación nativa no está disponible en este momento. Por favor, instala la aplicación desde el menú de opciones de tu navegador ("Añadir a la pantalla de inicio" o "Instalar aplicación").');
+                return;
+            }
+            
+            // Disparar el prompt nativo
+            deferredPrompt.prompt();
+            
+            // Esperar la elección del usuario
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`Elección del usuario: ${outcome}`);
+            
+            if (outcome === 'accepted') {
+                localStorage.setItem('app_instalada_friparts', 'true');
+            }
+            
+            deferredPrompt = null;
+            installBtn.style.display = 'none';
+        };
+    }
+});
+
+// Timeout para fallback manual
+setTimeout(() => {
+    if (!promptFired && localStorage.getItem('app_instalada_friparts') !== 'true') {
+        console.log('Instalación manual habilitada por timeout');
+        const installBtn = document.getElementById('btn-instalar-app');
+        if (installBtn) {
+            installBtn.style.display = 'inline-block';
+            installBtn.onclick = () => {
+                // Fallback instruccional
+                alert('La instalación automática no fue activada por el navegador. Por favor, instala la aplicación desde el menú de opciones de tu navegador (los tres puntos arriba a la derecha -> "Instalar aplicación" o "Añadir a inicio").');
+            };
+        }
+    }
+}, 3000);
+
+window.addEventListener('appinstalled', () => {
+    localStorage.setItem('app_instalada_friparts', 'true');
+    const installBtn = document.getElementById('btn-instalar-app');
+    if (installBtn) installBtn.style.display = 'none';
+    deferredPrompt = null;
+    console.log('✅ PWA FriParts instalada exitosamente');
+});
+
+// Suscripción Automática PWA
+window.addEventListener('user-ready', () => {
+    if (window.PWAPushManager) {
+        // Ejecución silenciosa: el navegador solo pedirá permiso si no se ha otorgado/denegado antes
+        console.log("🔔 Iniciando suscripción push automática (Silent)...");
+        window.PWAPushManager.initPush();
+    }
+});
+
+
 // GLOBAL FIX: Prevenir que el scroll del ratón cambie los valores de los input type="number"
 // Y LÓGICA DE AUTO-LIMPIEZA (Evitar 05, 050, etc.)
 document.addEventListener('wheel', function (event) {

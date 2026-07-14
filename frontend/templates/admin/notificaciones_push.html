@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing - Notificaciones Push | Friparts</title>
+    <!-- Usamos Bootstrap por compatibilidad con el entorno heredado -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .admin-card {
+            max-width: 600px;
+            margin: 2rem auto;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card admin-card">
+            <div class="card-header bg-primary text-white p-3 rounded-top">
+                <h4 class="mb-0"><i class="fas fa-bullhorn me-2"></i> Panel de Web Push</h4>
+            </div>
+            <div class="card-body p-4">
+                <p class="text-muted mb-4">Envía notificaciones push a todos los usuarios suscritos en la aplicación (Desktop y Móvil).</p>
+                
+                <div id="alert-container"></div>
+
+                <form id="formPush" onsubmit="enviarPush(event)">
+                    <div class="mb-3">
+                        <label for="titulo" class="form-label fw-bold">Título de la Notificación</label>
+                        <input type="text" class="form-control" id="titulo" placeholder="Ej: ¡Nueva Orden Asignada!" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="mensaje" class="form-label fw-bold">Mensaje</label>
+                        <textarea class="form-control" id="mensaje" rows="3" placeholder="Detalles de la notificación..." required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="url_destino" class="form-label fw-bold">URL de Destino</label>
+                        <input type="text" class="form-control" id="url_destino" placeholder="Ej: /#pedidos" value="/">
+                        <div class="form-text">Ruta a la que navegará el usuario al hacer clic en la notificación.</div>
+                    </div>
+                    <div class="mb-4">
+                        <label for="segmento" class="form-label fw-bold">Segmento (Audiencia)</label>
+                        <select class="form-select" id="segmento" required>
+                            <option value="Todos" selected>Todos (General Broadcast)</option>
+                            <option value="Clientes">Sólo Clientes (B2B)</option>
+                            <option value="Empleados">Sólo Empleados (Staff/Planta)</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-100 py-2" id="btnSubmit">
+                        <i class="fas fa-paper-plane me-2"></i> Enviar Notificación
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function enviarPush(event) {
+            event.preventDefault();
+            
+            const btnSubmit = document.getElementById('btnSubmit');
+            const alertContainer = document.getElementById('alert-container');
+            const titulo = document.getElementById('titulo').value;
+            const mensaje = document.getElementById('mensaje').value;
+            const url_destino = document.getElementById('url_destino').value;
+            const segmento = document.getElementById('segmento').value;
+
+            btnSubmit.disabled = true;
+            btnSubmit.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Procesando...';
+            alertContainer.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/pwa/admin/enviar', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ titulo, mensaje, url_destino, segmento })
+                });
+
+                if (response.status === 202) {
+                    mostrarAlerta('success', '¡Notificaciones encoladas! Se enviarán en segundo plano.');
+                    document.getElementById('formPush').reset();
+                } else {
+                    const data = await response.json();
+                    mostrarAlerta('danger', 'Error: ' + (data.message || 'Error desconocido'));
+                }
+            } catch (error) {
+                mostrarAlerta('danger', 'Error de red: ' + error.message);
+            } finally {
+                btnSubmit.disabled = false;
+                btnSubmit.innerHTML = '<i class="fas fa-paper-plane me-2"></i> Enviar Notificación';
+            }
+        }
+
+        function mostrarAlerta(tipo, mensaje) {
+            const container = document.getElementById('alert-container');
+            container.innerHTML = `
+                <div class="alert alert-${tipo} alert-dismissible fade show" role="alert">
+                    ${mensaje}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -74,8 +74,18 @@ def metals_login():
             user.ultimo_acceso = datetime.datetime.utcnow()
             db.session.commit()
 
+            # --- JWT para PWA Offline Auth ---
+            import jwt, os
+            secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+            pwa_token = jwt.encode({
+                'user': user.username,
+                'role': rol_upper,
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(days=15)
+            }, secret, algorithm='HS256')
+
             return jsonify({
                 "success": True,
+                "pwa_token": pwa_token,
                 "user": {
                     "nombre": user.username,
                     "rol": user.rol.capitalize(),
@@ -182,8 +192,18 @@ def login():
              # Determinar rol a retornar (Estandarizado a ADMIN para administradores)
              rol_display = "ADMIN" if user.rol.lower() in ['admin', 'administrador', 'administracion'] else user.rol.capitalize()
              
+             # --- JWT para PWA Offline Auth ---
+             import jwt, os
+             secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+             pwa_token = jwt.encode({
+                 'user': user.username,
+                 'role': rol_display,
+                 'exp': datetime.datetime.utcnow() + datetime.timedelta(days=15)
+             }, secret, algorithm='HS256')
+
              return jsonify({
                  "success": True, 
+                 "pwa_token": pwa_token,
                  "user": {
                      "nombre": user.nombre_completo if user.nombre_completo else user.username,
                      "username": user.username,
@@ -303,8 +323,18 @@ def login_client():
         session['user'] = user.username
         session['role'] = 'CLIENTE'
         
+        # --- JWT para PWA Offline Auth ---
+        import jwt, os
+        secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+        pwa_token = jwt.encode({
+            'user': user.username,
+            'role': 'CLIENTE',
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=15)
+        }, secret, algorithm='HS256')
+
         return jsonify({
             "success": True,
+            "pwa_token": pwa_token,
             "requires_password_change": False, # Simplificado para SQL
             "user": {
                 "nombre": user.nombre_completo,

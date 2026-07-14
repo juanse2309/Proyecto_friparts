@@ -191,8 +191,10 @@ def get_metals_historial():
             })
 
         # Estadísticas (Juan Sebastian)
-        hoy_str = datetime.date.today().strftime("%d/%m/%Y")
-        mes_str = datetime.date.today().strftime("/%m/%Y")
+        bogota_tz = timezone(timedelta(hours=-5))
+        hoy_dt = datetime.now(bogota_tz)
+        hoy_str = hoy_dt.strftime("%d/%m/%Y")
+        mes_str = hoy_dt.strftime("/%m/%Y")
         
         stats = {"hoy": 0, "mes": 0, "pnc": 0, "procesos": 0}
         procesos_hoy = set()

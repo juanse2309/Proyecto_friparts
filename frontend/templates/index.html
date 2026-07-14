@@ -451,6 +451,11 @@
             <i class="fas fa-industry fa-4x mb-3 text-secondary"></i>
             <h1 style="font-weight: 800;">FriTech <span class="text-secondary">Portal</span></h1>
             <p class="text-white-50 px-3">Sistema Integral de Producción y Gestión B2B</p>
+            
+            <!-- Banner de Instalación PWA -->
+            <button id="btn-instalar-app" class="btn btn-outline-info rounded-pill px-4 py-2 mt-3 fw-bold" style="box-shadow: 0 4px 15px rgba(14, 165, 233, 0.2); transition: all 0.3s ease;">
+                <i class="fas fa-download me-2"></i> Instalar App en este Dispositivo
+            </button>
         </div>
 
         <div class="d-flex gap-4 flex-wrap justify-content-center animate-fade-in-up" style="animation-delay: 0.2s;">
@@ -589,6 +594,9 @@
                 </div>
             </div>
             <div class="current-date" id="fecha-actual"></div>
+            <button id="btn-push-subscribe" class="btn btn-outline-info btn-sm w-100 mt-2" onclick="if(window.PWAPushManager) { window.PWAPushManager.initPush().then(res => { if(res) alert('Notificaciones configuradas correctamente.'); else alert('No se pudo activar las notificaciones.'); }) }">
+                <i class="fas fa-bell"></i> Activar Notificaciones
+            </button>
             <button id="btn-logout" class="btn btn-outline-danger btn-sm w-100 mt-2" onclick="AuthModule.logout()">
                 <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
             </button>
@@ -5365,6 +5373,8 @@
             </div>
         </div>
     </div>
+    
+    <script src="/static/js/modules/pwa_push.js"></script>
 </body>
 
 </html>
