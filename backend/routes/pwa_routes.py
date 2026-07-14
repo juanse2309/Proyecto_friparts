@@ -110,3 +110,46 @@ def debug_pwa_info():
     except Exception as e:
         logger.error(f"Error en /api/pwa/debug/info: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+@pwa_bp.route('/api/pwa/test-notificacion', methods=['POST'])
+def test_notificacion():
+    """Dispara un mensaje a la última suscripción generada para pruebas en caliente."""
+    try:
+        from backend.models.sql_models import SuscripcionesPush
+        import json
+        from pywebpush import webpush, WebPushException
+
+        # Obtener la suscripción más reciente
+        ultima_sub = SuscripcionesPush.query.order_by(SuscripcionesPush.creado_en.desc()).first()
+        
+        if not ultima_sub:
+            return jsonify({"success": False, "message": "No hay suscripciones en la BD."}), 404
+
+        payload = {
+           "title": "🚨 FriTech: Prueba de Planta",
+           "body": "El puente de notificaciones PWA está operando al 100% en FRITECH.",
+           "icon": "/static/img/icon-192.png",
+           "badge": "/static/img/icon-192.png"
+        }
+
+        try:
+            sub_info = ultima_sub.suscripcion_info
+            if isinstance(sub_info, str):
+                sub_info = json.loads(sub_info)
+                
+            webpush(
+                subscription_info=sub_info,
+                data=json.dumps(payload),
+                vapid_private_key=os.environ.get("VAPID_PRIVATE_KEY"),
+                vapid_claims={"sub": os.environ.get("VAPID_SUBJECT", "mailto:soporte@fritech.com")}
+            )
+            return jsonify({
+                "success": True, 
+                "message": "Notificación disparada con éxito.",
+                "endpoint_usado": sub_info.get("endpoint")
+            }), 200
+        except WebPushException as ex:
+            return jsonify({"success": False, "message": "Error WebPush", "detail": repr(ex)}), 500
+    except Exception as e:
+        logger.error(f"Error en /api/pwa/test-notificacion: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
