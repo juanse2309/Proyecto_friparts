@@ -277,6 +277,10 @@ const AuthModule = {
             const data = await response.json();
 
             if (data.success) {
+                if (data.pwa_token) {
+                    localStorage.setItem('pwa_token', data.pwa_token);
+                }
+                
                 if (data.requires_password_change) {
                     this.closeClientAuth();
                     this.showChangePasswordModal(email, password); // Pass current creds
@@ -482,6 +486,11 @@ const AuthModule = {
             const data = await response.json();
 
             if (data.success) {
+                // Guardar token PWA si viene en la respuesta (Fallback Offline/Standalone)
+                if (data.pwa_token) {
+                    localStorage.setItem('pwa_token', data.pwa_token);
+                }
+
                 // Agregar división actual al objeto de usuario para persistencia
                 data.user.division = this.currentStaffType;
 
@@ -626,7 +635,7 @@ const AuthModule = {
         
         // LIMPIEZA TOTAL DE ESTADOS DE PRODUCCIÓN (Juan Sebastian request)
         // 1. Limpiar llaves estáticas conocidas
-        const legacyKeys = ['pulido_state', 'inyeccion_state', 'ensamble_state', 'mezcla_state', 'mes_maquina_ref', 'ensamble_responsable'];
+        const legacyKeys = ['pulido_state', 'inyeccion_state', 'ensamble_state', 'mezcla_state', 'mes_maquina_ref', 'ensamble_responsable', 'pwa_token'];
         legacyKeys.forEach(k => localStorage.removeItem(k));
 
         // 2. Limpiar llaves namespaced (ej: pulido_state::JUAN, pulido_last_responsable::JUAN)

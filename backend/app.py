@@ -48,6 +48,31 @@ def debug_login_headers():
         logger.info(f"Cookie: {request.headers.get('Cookie')}")
         logger.info(f"User-Agent: {request.headers.get('User-Agent')}")
         logger.info("----------------------------------")
+
+@app.before_request
+def restore_session_from_token():
+    # Ignorar endpoints estáticos o de login
+    if request.path.startswith('/static/') or request.path.startswith('/api/auth/login') or request.path.startswith('/api/auth/metals/login'):
+        return
+
+    # Si la sesión ya existe, perfecto
+    if 'user' in session and 'role' in session:
+        return
+
+    # Fallback PWA Standalone: Buscar Header Authorization
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        try:
+            import jwt
+            secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+            payload = jwt.decode(token, secret, algorithms=['HS256'])
+            
+            session['user'] = payload['user']
+            session['role'] = payload['role']
+            logger.info(f"🔄 Sesión restaurada vía JWT para PWA (Usuario: {payload['user']})")
+        except Exception as e:
+            logger.warning(f"Error decodificando JWT PWA: {e}")
 # --- GLOBAL TIMEZONE CONFIG (Colombia UTC-5) ---
 COLOMBIA_TZ = pytz.timezone('America/Bogota')
 

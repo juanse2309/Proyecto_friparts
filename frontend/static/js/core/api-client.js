@@ -4,7 +4,11 @@ const apiClient = {
     async get(endpoint) {
         try {
             const url = endpoint.startsWith(this.baseURL) ? endpoint : `${this.baseURL}${endpoint}`;
-            const response = await fetch(url);
+            const headers = {};
+            const token = localStorage.getItem('pwa_token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const response = await fetch(url, { headers });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.json();
         } catch (error) {
@@ -16,9 +20,13 @@ const apiClient = {
     async post(endpoint, data) {
         try {
             const url = endpoint.startsWith(this.baseURL) ? endpoint : `${this.baseURL}${endpoint}`;
+            const headers = { 'Content-Type': 'application/json' };
+            const token = localStorage.getItem('pwa_token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
             const response = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify(data)
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);

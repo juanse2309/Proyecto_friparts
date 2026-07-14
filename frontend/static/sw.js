@@ -27,6 +27,12 @@ self.addEventListener('fetch', event => {
     const { request } = event;
     const url = new URL(request.url);
 
+    // CRÍTICO: Nunca interceptar el manifest.json, el navegador necesita acceso directo para la instalación
+    if (url.pathname.endsWith('manifest.json')) {
+        event.respondWith(fetch(request));
+        return;
+    }
+
     // Estrategia: Network-First para la API (/api/...)
     if (url.pathname.startsWith('/api/')) {
         event.respondWith(
