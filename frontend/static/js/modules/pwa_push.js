@@ -25,7 +25,12 @@ class PWAPushManager {
         }
 
         try {
-            const permission = await Notification.requestPermission();
+            // Verificar estado actual del permiso antes de solicitar
+            let permission = Notification.permission;
+            if (permission === 'default' || permission === 'denied') {
+                permission = await Notification.requestPermission();
+            }
+            
             if (permission !== 'granted') {
                 console.warn('Permiso de notificaciones denegado.');
                 return false;
@@ -47,6 +52,8 @@ class PWAPushManager {
             }
 
             const applicationServerKey = this.urlB64ToUint8Array(this.vapidPublicKey);
+            console.log("VAPID Key validada y codificada en Uint8Array:", applicationServerKey);
+            
             const subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: applicationServerKey
@@ -56,6 +63,7 @@ class PWAPushManager {
             await this.enviarSuscripcionBackend(subscription);
             return true;
         } catch (error) {
+            console.log("Error de suscripción:", error);
             console.error('Error inicializando Web Push:', error);
             return false;
         }

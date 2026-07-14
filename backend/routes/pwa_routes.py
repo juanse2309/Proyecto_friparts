@@ -27,6 +27,7 @@ def suscribir():
     """Recibe y guarda la suscripción Push del cliente."""
     try:
         raw_json = request.get_json(silent=True)
+        print(f"DEBUG PUSH: Suscripción recibida desde {request.remote_addr}")
 
         # Extraemos el usuario desde la cookie de sesión de Flask
         usuario_id = session.get('user')
