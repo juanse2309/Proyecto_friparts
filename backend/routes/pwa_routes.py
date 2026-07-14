@@ -1,18 +1,13 @@
 import os
+import json
 import logging
 from flask import Blueprint, jsonify, request, session, render_template
+from backend.core.sql_database import db
+from backend.models.sql_models import SuscripcionesPush
 from backend.services.notification_service import NotificationService
 
 pwa_bp = Blueprint('pwa', __name__)
 logger = logging.getLogger(__name__)
-
-@pwa_bp.route('/admin/notificaciones', methods=['GET'])
-def render_notificaciones_admin():
-    """Renderiza el panel de envío de notificaciones (Protegido)."""
-    role = session.get('role', '')
-    if role not in ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION', 'MARKETING']:
-        return "Acceso denegado: Se requieren privilegios de administrador o marketing.", 403
-    return render_template('admin/notificaciones_push.html')
 
 @pwa_bp.route('/api/pwa/vapid-public', methods=['GET'])
 def get_vapid_public():
@@ -27,9 +22,7 @@ def suscribir():
     """Recibe y guarda la suscripción Push del cliente."""
     try:
         raw_json = request.get_json(silent=True)
-        print(f"DEBUG PUSH: Suscripción recibida desde {request.remote_addr}")
 
-        # Extraemos el usuario desde la cookie de sesión de Flask
         usuario_id = session.get('user')
         if not usuario_id:
             return jsonify({"success": False, "message": "Usuario no autenticado"}), 401
@@ -43,7 +36,6 @@ def suscribir():
         if not suscripcion.get('endpoint') or not suscripcion.get('keys'):
             return jsonify({"success": False, "message": "Estructura de suscripción inválida"}), 400
 
-        # Delegamos en el NotificationService puro
         NotificationService.guardar_suscripcion(usuario_id, suscripcion)
         return jsonify({"success": True, "message": "Suscripción guardada exitosamente"}), 200
 
@@ -51,23 +43,29 @@ def suscribir():
         logger.error(f"Error en /api/pwa/suscribir: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
-@pwa_bp.route('/api/pwa/admin/enviar', methods=['POST'])
+# ====================================================================
+# ENVÍO MASIVO (Panel Administrativo integrado en SPA)
+# ====================================================================
+
+@pwa_bp.route('/api/pwa/enviar-masivo', methods=['POST'])
 def enviar_masivo():
-    """Recibe datos para enviar una notificación masiva (Protegido)."""
+    """Recibe datos para enviar una notificación masiva. Protegido por rol."""
     try:
         role = session.get('role', '')
         if role not in ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION', 'MARKETING']:
-            return jsonify({"status": "error", "message": "Acceso denegado"}), 403
+            return jsonify({"success": False, "message": "Acceso denegado"}), 403
 
         data = request.json
-        titulo = data.get('titulo', 'Notificación Friparts')
-        mensaje = data.get('mensaje', '')
+        titulo = data.get('title', data.get('titulo', 'Notificación FriTech'))
+        mensaje = data.get('body', data.get('mensaje', ''))
         url_destino = data.get('url_destino', '/')
         segmento = data.get('segmento', 'Todos')
 
         payload_dict = {
             "title": titulo,
             "body": mensaje,
+            "icon": "/static/img/icon-192.png",
+            "badge": "/static/img/icon-192.png",
             "url": url_destino,
             "segmento": segmento
         }
@@ -76,12 +74,21 @@ def enviar_masivo():
         NotificationService.enviar_notificacion_masiva(payload_dict)
 
         # Retornar inmediatamente (HTTP 202 Accepted)
-        return jsonify({"status": "procesando"}), 202
+        return jsonify({"success": True, "status": "procesando", "message": "Notificaciones encoladas para envío en segundo plano."}), 202
 
     except Exception as e:
-        logger.error(f"Error en /api/pwa/admin/enviar: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"Error en /api/pwa/enviar-masivo: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
+# Mantener compatibilidad con el endpoint anterior
+@pwa_bp.route('/api/pwa/admin/enviar', methods=['POST'])
+def enviar_masivo_legacy():
+    """Alias de compatibilidad para el endpoint antiguo."""
+    return enviar_masivo()
+
+# ====================================================================
+# DEBUG Y PRUEBAS
+# ====================================================================
 
 @pwa_bp.route('/api/pwa/debug/info', methods=['GET'])
 def debug_pwa_info():
@@ -91,7 +98,6 @@ def debug_pwa_info():
         if role not in ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION']:
             return jsonify({"success": False, "message": "Acceso denegado"}), 403
 
-        from backend.models.sql_models import SuscripcionesPush
         total_suscripciones = SuscripcionesPush.query.count()
         
         vapid_pub_exists = bool(os.environ.get('VAPID_PUBLIC_KEY'))
@@ -113,13 +119,10 @@ def debug_pwa_info():
 
 @pwa_bp.route('/api/pwa/test-notificacion', methods=['POST'])
 def test_notificacion():
-    """Dispara un mensaje a la última suscripción generada para pruebas en caliente."""
+    """Dispara un mensaje de prueba a la última suscripción registrada."""
     try:
-        from backend.models.sql_models import SuscripcionesPush
-        import json
         from pywebpush import webpush, WebPushException
 
-        # Obtener la suscripción más reciente
         ultima_sub = SuscripcionesPush.query.order_by(SuscripcionesPush.id.desc()).first()
         
         if not ultima_sub:
@@ -132,11 +135,15 @@ def test_notificacion():
            "badge": "/static/img/icon-192.png"
         }
 
+        sub_info = {
+            "endpoint": ultima_sub.endpoint,
+            "keys": {
+                "p256dh": ultima_sub.p256dh,
+                "auth": ultima_sub.auth
+            }
+        }
+
         try:
-            sub_info = ultima_sub.suscripcion_info
-            if isinstance(sub_info, str):
-                sub_info = json.loads(sub_info)
-                
             webpush(
                 subscription_info=sub_info,
                 data=json.dumps(payload),
@@ -146,9 +153,14 @@ def test_notificacion():
             return jsonify({
                 "success": True, 
                 "message": "Notificación disparada con éxito.",
-                "endpoint_usado": sub_info.get("endpoint")
+                "endpoint_usado": sub_info["endpoint"][:80] + "..."
             }), 200
         except WebPushException as ex:
+            # Auto-limpieza si el token expiró
+            if ex.response is not None and ex.response.status_code in [404, 410]:
+                db.session.delete(ultima_sub)
+                db.session.commit()
+                return jsonify({"success": False, "message": "Token expirado. Suscripción eliminada automáticamente."}), 410
             return jsonify({"success": False, "message": "Error WebPush", "detail": repr(ex)}), 500
     except Exception as e:
         logger.error(f"Error en /api/pwa/test-notificacion: {e}")

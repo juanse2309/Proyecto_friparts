@@ -571,6 +571,7 @@
                         Procura y Rotación</span></a> </li>
             <li class="menu-item" data-page="asistencia"> <a href="#"><i class="fas fa-user-clock"></i><span>Control de
                         Asistencia</span></a> </li>
+            <li class="menu-item" data-page="notificaciones"> <a href="#"><i class="fas fa-bullhorn"></i><span>Notificaciones Push</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i
@@ -616,6 +617,87 @@
 
 
 
+            <!-- ============================================================ -->
+            <!-- NOTIFICACIONES PUSH PAGE -->
+            <!-- ============================================================ -->
+            <div id="notificaciones-page" class="page" style="display: none;">
+                <header class="top-bar">
+                    <button class="btn-icon" id="toggle-sidebar-notificaciones">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-bullhorn"></i> Panel de Notificaciones Push</h1>
+                        <p class="subtitle">Envío masivo a dispositivos suscritos (Planta y Clientes)</p>
+                    </div>
+                </header>
+
+                <div class="container-fluid py-4">
+                    <div class="row justify-content-center">
+                        <div class="col-lg-7 col-md-10">
+                            <!-- Métricas rápidas -->
+                            <div class="row g-3 mb-4">
+                                <div class="col-6">
+                                    <div class="card border-0 shadow-sm text-center py-3" style="border-radius: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                        <div class="card-body p-2">
+                                            <h2 class="text-white mb-0" id="push-metric-total">—</h2>
+                                            <small class="text-white-50">Dispositivos Suscritos</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card border-0 shadow-sm text-center py-3" style="border-radius: 12px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                                        <div class="card-body p-2">
+                                            <h2 class="text-white mb-0" id="push-metric-keys">—</h2>
+                                            <small class="text-white-50">Estado VAPID</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Formulario de envío -->
+                            <div class="card border-0 shadow-sm" style="border-radius: 12px;">
+                                <div class="card-header text-white p-3" style="border-radius: 12px 12px 0 0; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%);">
+                                    <h5 class="mb-0"><i class="fas fa-paper-plane me-2"></i>Componer Notificación</h5>
+                                </div>
+                                <div class="card-body p-4">
+                                    <div id="push-alert-container"></div>
+
+                                    <form id="formPushMasivo" onsubmit="window.ModuloNotificaciones.enviar(event)">
+                                        <div class="mb-3">
+                                            <label for="push-titulo" class="form-label fw-bold">Título de la Notificación</label>
+                                            <input type="text" class="form-control form-control-lg" id="push-titulo" placeholder="Ej: ¡Nuevo Pedido Asignado!" required maxlength="80">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="push-mensaje" class="form-label fw-bold">Mensaje</label>
+                                            <textarea class="form-control" id="push-mensaje" rows="4" placeholder="Detalles de la notificación para la planta o clientes..." required maxlength="300"></textarea>
+                                            <div class="form-text text-end"><span id="push-char-count">0</span>/300</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="push-segmento" class="form-label fw-bold">Segmento (Audiencia)</label>
+                                            <select class="form-select" id="push-segmento" required>
+                                                <option value="Todos" selected>🌐 Todos (General Broadcast)</option>
+                                                <option value="Clientes">🏢 Sólo Clientes (B2B)</option>
+                                                <option value="Empleados">🏭 Sólo Empleados (Staff / Planta)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-lg w-100 py-3 fw-bold text-white" id="btn-push-enviar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; border-radius: 10px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: all 0.3s ease;">
+                                            🚀 Disparar Notificación Masiva a toda la Planta/Clientes
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <!-- Prueba rápida -->
+                            <div class="text-center mt-3">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="window.ModuloNotificaciones.testRapido()">
+                                    <i class="fas fa-vial me-1"></i> Enviar Prueba Rápida (Último dispositivo)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- ADMIN CLIENTES PAGE -->
             <div id="admin-clientes-page" class="page">
@@ -5376,6 +5458,119 @@
     </div>
     
     <script src="/static/js/modules/pwa_push.js"></script>
+
+    <!-- Módulo Notificaciones Push (Panel Admin SPA) -->
+    <script>
+    window.ModuloNotificaciones = {
+        init() {
+            // Cargar métricas al abrir la página
+            this.cargarMetricas();
+            // Contador de caracteres
+            const msgField = document.getElementById('push-mensaje');
+            if (msgField) {
+                msgField.addEventListener('input', () => {
+                    const counter = document.getElementById('push-char-count');
+                    if (counter) counter.textContent = msgField.value.length;
+                });
+            }
+        },
+
+        async cargarMetricas() {
+            try {
+                const headers = {};
+                const token = localStorage.getItem('pwa_token');
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const res = await fetch('/api/pwa/debug/info', { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    const m = data.metrics;
+                    document.getElementById('push-metric-total').textContent = m.total_suscripciones;
+                    document.getElementById('push-metric-keys').textContent = 
+                        (m.keys_status.public_key_loaded && m.keys_status.private_key_loaded) ? '✅ OK' : '❌ Error';
+                }
+            } catch (e) {
+                console.warn('No se pudieron cargar métricas Push:', e);
+            }
+        },
+
+        async enviar(event) {
+            event.preventDefault();
+            const btn = document.getElementById('btn-push-enviar');
+            const alertBox = document.getElementById('push-alert-container');
+            const titulo = document.getElementById('push-titulo').value.trim();
+            const mensaje = document.getElementById('push-mensaje').value.trim();
+            const segmento = document.getElementById('push-segmento').value;
+
+            if (!titulo || !mensaje) {
+                this.mostrarAlerta('warning', 'Por favor completa el título y el mensaje.');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Enviando a dispositivos...';
+            alertBox.innerHTML = '';
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                const token = localStorage.getItem('pwa_token');
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const response = await fetch('/api/pwa/enviar-masivo', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ title: titulo, body: mensaje, segmento: segmento })
+                });
+
+                const data = await response.json();
+
+                if (response.status === 202 || data.success) {
+                    this.mostrarAlerta('success', '🚀 ¡Notificaciones encoladas! Se enviarán en segundo plano a todos los dispositivos del segmento "' + segmento + '".');
+                    document.getElementById('formPushMasivo').reset();
+                    document.getElementById('push-char-count').textContent = '0';
+                } else {
+                    this.mostrarAlerta('danger', 'Error: ' + (data.message || 'Error desconocido'));
+                }
+            } catch (error) {
+                this.mostrarAlerta('danger', 'Error de red: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🚀 Disparar Notificación Masiva a toda la Planta/Clientes';
+            }
+        },
+
+        async testRapido() {
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                const token = localStorage.getItem('pwa_token');
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const res = await fetch('/api/pwa/test-notificacion', { method: 'POST', headers });
+                const data = await res.json();
+                
+                if (data.success) {
+                    this.mostrarAlerta('success', '✅ Notificación de prueba enviada al último dispositivo registrado.');
+                } else {
+                    this.mostrarAlerta('danger', 'Error: ' + data.message);
+                }
+            } catch (e) {
+                this.mostrarAlerta('danger', 'Error de red: ' + e.message);
+            }
+        },
+
+        mostrarAlerta(tipo, mensaje) {
+            const container = document.getElementById('push-alert-container');
+            if (container) {
+                container.innerHTML = `
+                    <div class="alert alert-${tipo} alert-dismissible fade show" role="alert">
+                        ${mensaje}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                `;
+            }
+        }
+    };
+    </script>
 </body>
 
 </html>

@@ -402,7 +402,8 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'metals-dashboard': window.ModuloMetals,
         'procura': window.ModuloProcura,
         'rotacion': window.ModuloProcura, // Alias por si acaso
-        'asistencia': window.ModuloAsistencia
+        'asistencia': window.ModuloAsistencia,
+        'notificaciones': window.ModuloNotificaciones
     };
 
     if (window.AppState.paginaActual) {
