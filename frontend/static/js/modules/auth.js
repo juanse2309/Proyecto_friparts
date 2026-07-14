@@ -676,6 +676,102 @@ const AuthModule = {
         }
     },
 
+    applySidebarVisibility: function () {
+        if (!this.currentUser) return;
+        const role = this.normalizeRole(this.currentUser.rol || this.currentUser.role);
+        const division = this.currentUser.division || window.AppState.user?.division || 'FRIPARTS';
+        
+        let allowedPages = [];
+        if (this.currentUser.tipo === 'METALS_STAFF') {
+            const metalsPages = [
+                'metals-dashboard', 'metals-produccion', 'metals-torno', 'metals-laser', 'metals-soldadura',
+                'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura',
+                'metals-zincado', 'metals-horno', 'metals-pulido-m',
+                'asistencia', 'pedidos'
+            ];
+            if (this.permissions[role]) {
+                allowedPages = [...this.permissions[role]];
+            } else {
+                allowedPages = [...metalsPages];
+            }
+            if (role.toUpperCase().includes('ADMIN') || role.toUpperCase().includes('GERENCIA')) {
+                if (!allowedPages.includes('inventario')) allowedPages.push('inventario');
+                if (!allowedPages.includes('historial')) allowedPages.push('historial');
+            }
+        } else {
+            allowedPages = this.getPagesForRole(role);
+        }
+
+        // Filtro estricto de división
+        if (division === 'FRIPARTS') {
+            allowedPages = allowedPages.filter(p => !p.startsWith('metals-'));
+        } else if (division === 'FRIMETALS') {
+            let forbiddenInMetals = [
+                'dashboard', 'inyeccion', 'pulido', 'ensamble', 'pnc',
+                'facturacion', 'mezcla', 'reportes',
+                'admin-clientes', 'portal-cliente', 'rotacion'
+            ];
+            if (role.includes('ADMIN') || role.includes('GERENCIA')) {
+                forbiddenInMetals = forbiddenInMetals.filter(p => !['admin-clientes'].includes(p));
+            }
+            allowedPages = allowedPages.filter(p => !forbiddenInMetals.includes(p));
+            if (!allowedPages.includes('metals-dashboard')) {
+                allowedPages.push('metals-dashboard');
+            }
+        }
+
+        const sidebarEntries = document.querySelectorAll('.sidebar-menu .menu-item, .sidebar-menu .sidebar-divider');
+        
+        if (sidebarEntries.length === 0) {
+            console.warn("⚠️ Elementos del sidebar no detectados en el DOM aún. Configurando MutationObserver y retry...");
+            // Reintento rápido por si acaso
+            setTimeout(() => this.applySidebarVisibility(), 100);
+            
+            // MutationObserver para re-evaluar si se dibuja dinámicamente más tarde
+            if (!this._sidebarObserver) {
+                this._sidebarObserver = new MutationObserver((mutations, observer) => {
+                    if (document.querySelector('.sidebar-menu .menu-item')) {
+                        this.applySidebarVisibility();
+                        observer.disconnect();
+                        this._sidebarObserver = null;
+                    }
+                });
+                this._sidebarObserver.observe(document.body, { childList: true, subtree: true });
+            }
+            return;
+        }
+
+        sidebarEntries.forEach(item => {
+            if (item.classList.contains('sidebar-divider')) {
+                const isMetalsDivider = item.textContent.toUpperCase().includes('METALS');
+                if (division === 'FRIPARTS' && isMetalsDivider) {
+                    item.style.setProperty('display', 'none', 'important');
+                } else if (division === 'FRIMETALS' && !isMetalsDivider) {
+                    item.style.setProperty('display', 'none', 'important');
+                } else {
+                    item.style.display = 'block';
+                }
+                return;
+            }
+
+            const pageName = item.getAttribute('data-page');
+            if (allowedPages.includes(pageName)) {
+                item.style.display = 'block';
+            } else {
+                item.style.setProperty('display', 'none', 'important');
+            }
+        });
+
+        // Garantía absoluta de visualización para el rol ADMIN en notificaciones push
+        if (role === 'ADMIN') {
+            const navNotif = document.getElementById('nav-notificaciones') || document.querySelector('[data-page="notificaciones"]');
+            if (navNotif) {
+                console.log("🚀 Módulo de Notificaciones Push forzado como inmutable (Visible) para ADMIN.");
+                navNotif.style.setProperty('display', 'block', 'important');
+            }
+        }
+    },
+
     applyPermissions: function (isLogin = false, skipRedirect = false) {
         if (!this.currentUser) return;
 
@@ -744,34 +840,10 @@ const AuthModule = {
         console.log(`✅ Páginas autorizadas para ${role}:`, allowedPages);
 
         // LOGICA EXCEPCIONES STAFF FRIPARTS (Solo si no es METALS_STAFF)
+        let firstAllowed = allowedPages[0] || null;
 
-        // 1. Mostrar/Ocultar Menú Sidebar (Items y Divisores)
-        const sidebarEntries = document.querySelectorAll('.sidebar-menu .menu-item, .sidebar-menu .sidebar-divider');
-        let firstAllowed = null;
-
-        sidebarEntries.forEach(item => {
-            if (item.classList.contains('sidebar-divider')) {
-                // Ocultar divisores de Metals si estamos en FRIPARTS y viceversa
-                const isMetalsDivider = item.textContent.toUpperCase().includes('METALS');
-                if (division === 'FRIPARTS' && isMetalsDivider) {
-                    item.style.setProperty('display', 'none', 'important');
-                } else if (division === 'FRIMETALS' && !isMetalsDivider) {
-                    // Ocultar cualquier divisor que no diga METALS si estamos en FRIMETALS
-                    item.style.setProperty('display', 'none', 'important');
-                } else {
-                    item.style.display = 'block';
-                }
-                return;
-            }
-
-            const pageName = item.getAttribute('data-page');
-            if (allowedPages.includes(pageName)) {
-                item.style.display = 'block';
-                if (!firstAllowed) firstAllowed = pageName;
-            } else {
-                item.style.setProperty('display', 'none', 'important');
-            }
-        });
+        // 1. Mostrar/Ocultar Menú Sidebar (Items y Divisores) con lógica tolerante a race conditions
+        this.applySidebarVisibility();
 
         // 1.5 Colapso Forzado del Sidebar para Metales (Solo en login fresco para no molestar)
         if (division === 'FRIMETALS' && isLogin) {
@@ -917,4 +989,21 @@ window.AuthModule = AuthModule;
 
 document.addEventListener('DOMContentLoaded', () => {
     AuthModule.init();
+    // Ejecutar re-evaluación diferida por si acaso
+    setTimeout(() => {
+        if (AuthModule.currentUser) {
+            AuthModule.applySidebarVisibility();
+        }
+    }, 150);
+});
+
+// Listener global para el evento de usuario listo
+document.addEventListener('user-ready', () => {
+    console.log("👤 Re-evaluando sidebar en evento user-ready (document)");
+    AuthModule.applySidebarVisibility();
+});
+
+window.addEventListener('user-ready', () => {
+    console.log("👤 Re-evaluando sidebar en evento user-ready (window)");
+    AuthModule.applySidebarVisibility();
 });
