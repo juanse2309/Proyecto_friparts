@@ -152,6 +152,13 @@ def service_worker():
     static_path = os.path.join(app.root_path, '../frontend/static')
     return send_from_directory(static_path, 'sw.js', mimetype='application/javascript')
 
+@app.route('/manifest.json')
+def serve_manifest():
+    import os
+    from flask import send_from_directory
+    root_path = os.path.join(app.root_path, '..')
+    return send_from_directory(root_path, 'manifest.json', mimetype='application/manifest+json')
+
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')
 def index():
