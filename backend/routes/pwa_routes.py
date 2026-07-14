@@ -120,7 +120,7 @@ def test_notificacion():
         from pywebpush import webpush, WebPushException
 
         # Obtener la suscripción más reciente
-        ultima_sub = SuscripcionesPush.query.order_by(SuscripcionesPush.creado_en.desc()).first()
+        ultima_sub = SuscripcionesPush.query.order_by(SuscripcionesPush.id.desc()).first()
         
         if not ultima_sub:
             return jsonify({"success": False, "message": "No hay suscripciones en la BD."}), 404
