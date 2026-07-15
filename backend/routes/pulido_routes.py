@@ -227,33 +227,33 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                     cubeta.cant_pulida = (cubeta.cant_pulida or 0) + piezas_por_repartir
                     piezas_por_repartir = 0
 
-    # Cierre de Lote con Saldo a WIP
-    lote_traz = db.session.get(TrazabilidadLote, registro.id_pulido)
-    if lote_traz:
-        lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
-        cant_inyectada = float(lote_traz.cantidad_inyectada or 0)
+    # Flujo directo: Actualizar inventario final en db_productos sin usar TrazabilidadLote
+    try:
         buenas = float(registro.cantidad_real or 0)
         pnc_total = float(registro.pnc_inyeccion or 0) + float(registro.pnc_pulido or 0)
         rev_total = sum(float(r.get('cantidad', 0)) for r in revueltos_list)
+        total_descuento_por_pulir = buenas + pnc_total + rev_total
+
+        es_prueba = '9999' in str(registro.orden_produccion).upper() or 'PRUEBA' in str(registro.orden_produccion).upper() or '9999' in str(registro.id_pulido).upper() or 'PRUEBA' in str(registro.id_pulido).upper()
         
-        wip = cant_inyectada - (buenas + pnc_total + rev_total)
-        
-        if wip > 0:
-            es_prueba_wip = '9999' in str(registro.orden_produccion).upper() or 'PRUEBA' in str(registro.orden_produccion).upper() or '9999' in str(registro.id_pulido).upper() or 'PRUEBA' in str(registro.id_pulido).upper() or '9999' in str(lote_traz.id_lote).upper() or 'PRUEBA' in str(lote_traz.id_lote).upper()
-            
-            if not es_prueba_wip:
-                prod_wip = db.session.query(Producto).filter_by(
-                    codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
-                ).first()
-                if prod_wip:
-                    prod_wip.por_pulir = float(prod_wip.por_pulir or 0) + wip
-            else:
-                logger.info(f"🧪 [SANDBOX] Lote de prueba {registro.id_pulido}. Se ignoró suma de {wip} al WIP.")
+        if not es_prueba and total_descuento_por_pulir > 0:
+            prod_wip = db.session.query(Producto).filter_by(
+                codigo_sistema=preservar_o_normalizar_prefijo(registro.codigo)
+            ).first()
+            if prod_wip:
+                # Restar de por_pulir, evitando negativos de forma preventiva
+                prod_wip.por_pulir = max(0, float(prod_wip.por_pulir or 0) - total_descuento_por_pulir)
+                # Sumar las buenas a p_terminado
+                prod_wip.p_terminado = float(prod_wip.p_terminado or 0) + buenas
+        else:
+            logger.info(f"🧪 [SANDBOX] Lote de prueba {registro.id_pulido}. Se ignoró impacto en inventario.")
+    except Exception as err:
+        logger.error(f"Error actualizando inventario directo en pulido: {err}")
 
     db.session.commit()
     return {
         "success": True, 
-        "message": "Registro de pulido sincronizado",
+        "message": "Registro de pulido sincronizado (Flujo directo)",
         "id_pulido": registro.id_pulido,
         "upsert": "UPDATE" if id_pulido and registro.id else "INSERT"
     }
@@ -300,24 +300,7 @@ def registrar_pulido():
             "detail": "Error interno al procesar el reporte de pulido (Revisa logs del servidor)"
         }), 500
 
-@pulido_bp.route('/api/debug/forzar_a_pulido/<id_lote>', methods=['GET', 'POST'])
-def debug_forzar_pulido(id_lote):
-    try:
-        from backend.models.sql_models import TrazabilidadLote
-        lote = TrazabilidadLote.query.filter_by(id_lote=id_lote).first()
-        if not lote:
-            return jsonify({"success": False, "error": f"Lote {id_lote} no encontrado"}), 404
-        
-        lote.estado_actual = 'ABIERTO_PULIDO'
-        if not lote.por_pulir or lote.por_pulir <= 0:
-            lote.por_pulir = 100
-        
-        db.session.commit()
-        logger.info(f"🛠️ [DEBUG] Lote {id_lote} forzado a ABIERTO_PULIDO con por_pulir={lote.por_pulir}")
-        return jsonify({"success": True, "message": f"Lote {id_lote} forzado a ABIERTO_PULIDO"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+
 
 @pulido_bp.route('/api/pulido/ultimo_registro', methods=['GET'])
 def get_ultimo_registro_pulido():

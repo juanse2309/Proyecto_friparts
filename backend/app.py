@@ -994,22 +994,55 @@ def mes_programar():
         if not productos:
             return jsonify({'success': False, 'error': 'No se enviaron productos para programar'}), 400
 
-        # Guardar cada producto del montaje
+        # Guardar o actualizar cada producto del montaje (UPSERT)
         ids_creados = []
         for p in productos:
-            nueva_prog = ProgramacionInyeccion(
-                fecha=fecha_obj,
-                codigo_sistema=str(p.get('codigo')).strip(),
-                maquina=maquina,
-                molde=molde_capacidad,
-                cavidades=int(p.get('cavidades', 1)),
-                responsable_planta=responsable,
-                observaciones=observaciones,
-                estado='PROGRAMADO'
-            )
-            db.session.add(nueva_prog)
-            db.session.flush()
-            ids_creados.append(nueva_prog.id)
+            cod_sistema = str(p.get('codigo')).strip()
+            cav_val = int(p.get('cavidades', 1))
+
+            try:
+                # Buscar si ya existe la programación para hacer UPSERT
+                existente = db.session.query(ProgramacionInyeccion).filter(
+                    ProgramacionInyeccion.fecha == fecha_obj,
+                    ProgramacionInyeccion.maquina == maquina,
+                    ProgramacionInyeccion.codigo_sistema == cod_sistema,
+                    db.func.coalesce(ProgramacionInyeccion.molde, 0) == (molde_capacidad if molde_capacidad is not None else 0)
+                ).first()
+
+                if existente:
+                    # UPDATE
+                    existente.cavidades = cav_val
+                    existente.responsable_planta = responsable
+                    existente.observaciones = observaciones
+                    existente.estado = 'PROGRAMADO'
+                    # Nota: 'cantidad' se podría actualizar aquí si viene en el payload p.get('cantidad')
+                    if 'cantidad' in p:
+                        existente.cantidad = float(p.get('cantidad', 0))
+                    
+                    db.session.flush()
+                    ids_creados.append(existente.id)
+                else:
+                    # INSERT
+                    nueva_prog = ProgramacionInyeccion(
+                        fecha=fecha_obj,
+                        codigo_sistema=cod_sistema,
+                        maquina=maquina,
+                        molde=molde_capacidad,
+                        cavidades=cav_val,
+                        responsable_planta=responsable,
+                        observaciones=observaciones,
+                        estado='PROGRAMADO'
+                    )
+                    if 'cantidad' in p:
+                        nueva_prog.cantidad = float(p.get('cantidad', 0))
+                        
+                    db.session.add(nueva_prog)
+                    db.session.flush()
+                    ids_creados.append(nueva_prog.id)
+
+            except Exception as e_item:
+                # Si falla un producto, fallamos todo el bloque atómico
+                raise e_item
         
         db.session.commit()
         
@@ -1407,38 +1440,31 @@ def mes_pendientes_validacion():
         from sqlalchemy import text
         sql = """
             SELECT 
-                i.id as id_sql, t.id_inyeccion, i.fecha_inicia as fecha, i.fecha_fin as fecha_fin, 
-                t.id_codigo, i.responsable, t.maquina, i.molde, i.cavidades, 
+                i.id as id_sql, 
+                i.id_inyeccion, 
+                i.fecha_inicia as fecha, 
+                i.fecha_fin, 
+                i.id_codigo, 
+                i.responsable, 
+                i.maquina, 
+                i.molde, 
+                i.cavidades, 
                 i.estado, 
-                t.cantidad_inyectada,
-                COALESCE(pul.total_buenos, 0) as cantidad_real,
-                i.hora_inicio, i.hora_termina as hora_fin,
-                i.cant_contador, i.almacen_destino, t.orden_produccion,
-                i.observaciones, COALESCE(i.pnc_total, 0) as pnc_total,
-                i.pnc_detalle, i.peso_lote,
-                i.entrada, i.salida,
-                COALESCE(pnc_pul.total_pnc, 0) as total_pnc_sql,
-                COALESCE(rev.total_rev, 0) as total_revueltos
-            FROM db_trazabilidad_lotes t
-            LEFT JOIN db_inyeccion i ON t.id_inyeccion = i.id_inyeccion AND t.id_codigo = i.id_codigo
-            LEFT JOIN (
-                SELECT lote, SUM(COALESCE(cantidad_real, 0)) as total_buenos
-                FROM db_pulido
-                GROUP BY lote
-            ) pul ON t.id_lote = pul.lote
-            LEFT JOIN (
-                SELECT pu.lote, SUM(COALESCE(NULLIF(regexp_replace(p.cantidad::text, '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as total_pnc
-                FROM db_pnc_pulido p
-                INNER JOIN db_pulido pu ON p.id_pulido = pu.id_pulido
-                GROUP BY pu.lote
-            ) pnc_pul ON t.id_lote = pnc_pul.lote
-            LEFT JOIN (
-                SELECT pu.lote, SUM(COALESCE(NULLIF(regexp_replace(r.cantidad::text, '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as total_rev
-                FROM db_bujes_revueltos r
-                INNER JOIN db_pulido pu ON r.id_pulido = pu.id_pulido
-                GROUP BY pu.lote
-            ) rev ON t.id_lote = rev.lote
-            WHERE t.estado_actual = 'PENDIENTE_VALIDACION'
+                i.cantidad_real,
+                i.hora_inicio, 
+                i.hora_termina as hora_fin,
+                i.cant_contador, 
+                i.almacen_destino, 
+                i.orden_produccion,
+                i.observaciones, 
+                COALESCE(i.pnc_total, 0) as pnc_total,
+                i.pnc_detalle, 
+                i.peso_lote,
+                i.entrada, 
+                i.salida
+            FROM db_inyeccion i
+            WHERE i.estado IN ('PENDIENTE', 'FINALIZADO')
+            ORDER BY i.fecha_inicia DESC
         """
         pendientes = db.session.execute(text(sql)).mappings().all()
 
@@ -1452,11 +1478,8 @@ def mes_pendientes_validacion():
             return float(clean) if clean else 0
 
         for p in pendientes:
-            cant_inyectada = _clean_num(p['cantidad_inyectada'])
             buenas = _clean_num(p['cantidad_real'])
-            pnc = _clean_num(p['pnc_total'] or p['total_pnc_sql'])
-            revueltos = _clean_num(p['total_revueltos'])
-            wip = max(0, cant_inyectada - (buenas + pnc + revueltos))
+            pnc = _clean_num(p['pnc_total'])
             
             data.append({
                 'id_sql': p['id_sql'],
@@ -1466,11 +1489,11 @@ def mes_pendientes_validacion():
                 'hora_fin': p['hora_fin'] or (p['fecha_fin'].strftime('%H:%M') if p.get('fecha_fin') else ''),
                 'id_codigo': p['id_codigo'], 
                 'responsable': p['responsable'],
-                'cantidad_inyectada': cant_inyectada,
-                'cantidad_real': buenas,
+                'cantidad_inyectada': buenas + pnc, # total bruto inyectado
+                'cantidad_real': buenas, # buenas reportadas
                 'pnc': pnc,
-                'revueltos': revueltos,
-                'wip': wip,
+                'revueltos': 0,
+                'wip': 0,
                 'maquina': p['maquina'],
                 'molde': p['molde'],
                 'cavidades': p['cavidades'],

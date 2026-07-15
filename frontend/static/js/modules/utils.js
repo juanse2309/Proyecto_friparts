@@ -398,6 +398,13 @@ function mostrarLoading(mostrar) {
  */
 async function fetchData(url, options = {}) {
     try {
+        // Inyectar Token de Autenticación
+        const token = localStorage.getItem('pwa_token');
+        options.headers = options.headers || {};
+        if (token && !options.headers['Authorization']) {
+            options.headers['Authorization'] = `Bearer ${token}`;
+        }
+        
         console.log(`📡 [Fetching]: ${url}`);
         const response = await fetch(url, options);
 

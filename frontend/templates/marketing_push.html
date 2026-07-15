@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing B2B - Campañas Push | Friparts</title>
+    <meta name="description" content="Panel de envío de campañas push masivas a clientes B2B de Friparts">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --mkt-primary: #6366f1;
+            --mkt-primary-dark: #4f46e5;
+            --mkt-accent: #f59e0b;
+            --mkt-bg: #0f172a;
+            --mkt-surface: #1e293b;
+            --mkt-surface-light: #334155;
+            --mkt-text: #f1f5f9;
+            --mkt-muted: #94a3b8;
+            --mkt-border: #475569;
+            --mkt-success: #22c55e;
+            --mkt-danger: #ef4444;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--mkt-bg);
+            color: var(--mkt-text);
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .mkt-header {
+            background: linear-gradient(135deg, var(--mkt-primary) 0%, #8b5cf6 50%, var(--mkt-accent) 100%);
+            padding: 2rem 1.5rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .mkt-header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            opacity: 0.6;
+        }
+
+        .mkt-header h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin: 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        .mkt-header p {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin: 0.4rem 0 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        .mkt-container {
+            max-width: 680px;
+            margin: -1.5rem auto 2rem;
+            padding: 0 1rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .mkt-card {
+            background: var(--mkt-surface);
+            border: 1px solid var(--mkt-border);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .mkt-label {
+            display: block;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--mkt-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .mkt-input,
+        .mkt-textarea {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--mkt-bg);
+            border: 1px solid var(--mkt-border);
+            border-radius: 10px;
+            color: var(--mkt-text);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
+        }
+
+        .mkt-input:focus,
+        .mkt-textarea:focus {
+            border-color: var(--mkt-primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+        }
+
+        .mkt-input::placeholder,
+        .mkt-textarea::placeholder {
+            color: var(--mkt-border);
+        }
+
+        .mkt-textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .mkt-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .mkt-hint {
+            font-size: 0.78rem;
+            color: var(--mkt-border);
+            margin-top: 0.35rem;
+        }
+
+        .mkt-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            width: 100%;
+            padding: 0.9rem;
+            background: linear-gradient(135deg, var(--mkt-primary), var(--mkt-primary-dark));
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.2s;
+            margin-top: 0.5rem;
+        }
+
+        .mkt-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .mkt-btn:active {
+            transform: translateY(0);
+        }
+
+        .mkt-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .mkt-btn .spinner {
+            display: none;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        .mkt-btn.loading .spinner { display: inline-block; }
+        .mkt-btn.loading .btn-label { display: none; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Preview de imagen */
+        .mkt-preview {
+            margin-top: 0.75rem;
+            border-radius: 10px;
+            overflow: hidden;
+            max-height: 200px;
+            display: none;
+            border: 1px solid var(--mkt-border);
+        }
+
+        .mkt-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .mkt-preview.visible { display: block; }
+
+        /* Alert */
+        .mkt-alert {
+            padding: 0.85rem 1rem;
+            border-radius: 10px;
+            font-size: 0.88rem;
+            font-weight: 500;
+            margin-bottom: 1.25rem;
+            display: none;
+            align-items: center;
+            gap: 0.6rem;
+            animation: slideIn 0.3s ease;
+        }
+
+        .mkt-alert.visible { display: flex; }
+
+        .mkt-alert.success {
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: var(--mkt-success);
+        }
+
+        .mkt-alert.error {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--mkt-danger);
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Separador visual */
+        .mkt-divider {
+            height: 1px;
+            background: var(--mkt-border);
+            margin: 1.5rem 0;
+            opacity: 0.4;
+        }
+
+        /* Stat chip */
+        .mkt-stat-row {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .mkt-stat {
+            background: var(--mkt-bg);
+            border: 1px solid var(--mkt-border);
+            border-radius: 10px;
+            padding: 0.65rem 1rem;
+            text-align: center;
+            min-width: 120px;
+        }
+
+        .mkt-stat-val {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--mkt-primary);
+        }
+
+        .mkt-stat-label {
+            font-size: 0.72rem;
+            color: var(--mkt-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--mkt-muted);
+            text-decoration: none;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover { color: var(--mkt-text); }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="mkt-header">
+        <h1><i class="fas fa-bullhorn me-2"></i>Campañas Push B2B</h1>
+        <p>Envía notificaciones masivas a tus clientes directamente a sus dispositivos</p>
+    </div>
+
+    <!-- Main Card -->
+    <div class="mkt-container">
+        <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Volver al Panel</a>
+
+        <div class="mkt-card">
+            <!-- Alert -->
+            <div id="mktAlert" class="mkt-alert">
+                <i id="mktAlertIcon"></i>
+                <span id="mktAlertText"></span>
+            </div>
+
+            <form id="formBroadcast" autocomplete="off">
+                <div class="mkt-group">
+                    <label class="mkt-label" for="mkt-titulo">Título de la Campaña</label>
+                    <input type="text" class="mkt-input" id="mkt-titulo" placeholder="Ej: 🔥 ¡Descuento Exclusivo!" required maxlength="80">
+                </div>
+
+                <div class="mkt-group">
+                    <label class="mkt-label" for="mkt-cuerpo">Mensaje</label>
+                    <textarea class="mkt-textarea" id="mkt-cuerpo" placeholder="Describe tu campaña. Máximo 200 caracteres para máxima legibilidad en móvil." required maxlength="200"></textarea>
+                </div>
+
+                <div class="mkt-divider"></div>
+
+                <div class="mkt-group">
+                    <label class="mkt-label" for="mkt-destino">Audiencia de Destino</label>
+                    <select class="mkt-input" id="mkt-destino" required>
+                        <option value="todos">📡 Todos los Dispositivos</option>
+                        <option value="planta">🏭 Solo Personal de Planta</option>
+                        <option value="clientes" selected>🤝 Solo Clientes</option>
+                    </select>
+                    <div class="mkt-hint">Segmenta quién recibirá esta campaña.</div>
+                </div>
+
+                <div class="mkt-group">
+                    <label class="mkt-label" for="mkt-image">URL de Imagen (Opcional)</label>
+                    <input type="url" class="mkt-input" id="mkt-image" placeholder="https://ejemplo.com/promo-banner.jpg">
+                    <div class="mkt-hint">Imagen del banner promocional. Recomendado: 1200×628px</div>
+                    <!-- Vista previa -->
+                    <div class="mkt-preview" id="mkt-preview">
+                        <img id="mkt-preview-img" src="" alt="Vista previa">
+                    </div>
+                </div>
+
+                <div class="mkt-group">
+                    <label class="mkt-label" for="mkt-url">URL de Destino</label>
+                    <input type="text" class="mkt-input" id="mkt-url" placeholder="Ej: /catalogo" value="/">
+                    <div class="mkt-hint">Ruta donde aterriza el cliente al hacer clic en la notificación.</div>
+                </div>
+
+                <button type="submit" class="mkt-btn" id="mkt-submit">
+                    <span class="spinner"></span>
+                    <span class="btn-label"><i class="fas fa-paper-plane"></i> Lanzar Campaña</span>
+                </button>
+            </form>
+
+            <!-- Métricas rápidas -->
+            <div class="mkt-stat-row">
+                <div class="mkt-stat">
+                    <div class="mkt-stat-val" id="stat-subs">—</div>
+                    <div class="mkt-stat-label">Suscripciones</div>
+                </div>
+                <div class="mkt-stat">
+                    <div class="mkt-stat-val" id="stat-vapid">—</div>
+                    <div class="mkt-stat-label">VAPID Status</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/modules/marketing.js"></script>
+</body>
+</html>

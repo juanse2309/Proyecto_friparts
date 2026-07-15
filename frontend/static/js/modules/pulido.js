@@ -341,30 +341,7 @@ const ModuloPulido = {
         }
     },
 
-    /**
-     * Activa el Modo Lotes en Vivo (Panel C MES).
-     * Oculta los paneles A y B, muestra el Panel C
-     * y carga automáticamente la lista de lotes activos.
-     */
-    activarModoLotes: function() {
-        const panelManual = document.getElementById('panel-pulido-manual');
-        const panelPro    = document.getElementById('panel-pulido-pro');
-        const panelLotes  = document.getElementById('panel-pulido-lotes');
-        const btnVoz      = document.getElementById('btn-dictar-voz');
 
-        if (panelManual) panelManual.style.display = 'none';
-        if (panelPro)    panelPro.style.display    = 'none';
-        if (panelLotes)  panelLotes.style.display  = 'block';
-        if (btnVoz)      btnVoz.style.display      = 'none';
-
-        // Asegurarse de que el toggle quede en posición correcta visualmente
-        const toggleEl = document.getElementById('toggle-pulido-mode');
-        if (toggleEl) toggleEl.checked = true;
-
-        // Cargar lotes en tiempo real inmediatamente
-        this.cargarLotesActivos();
-        console.log('🟢 [Modo Lotes] Panel C activado — cargando lotes activos...');
-    },
 
 
     verificarTrabajoActivo: async function(idEspecifico = null) {

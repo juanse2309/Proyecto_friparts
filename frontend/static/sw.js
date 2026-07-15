@@ -87,7 +87,6 @@ self.addEventListener('push', event => {
         body: data.body || 'Tienes un nuevo mensaje.',
         icon: '/static/img/icon-192.png',
         badge: '/static/img/icon-192.png',
-        requireInteraction: data.requireInteraction !== undefined ? data.requireInteraction : false,
         data: {
             url: data.url || '/'
         }
@@ -103,28 +102,9 @@ self.addEventListener('notificationclick', event => {
     console.log('[SW] Click en notificación');
     event.notification.close();
 
-    const urlToOpen = new URL(event.notification.data.url, self.location.origin).href;
-
-    const promiseChain = clients.matchAll({
-        type: 'window',
-        includeUncontrolled: true
-    }).then(windowClients => {
-        let matchingClient = null;
-
-        for (let i = 0; i < windowClients.length; i++) {
-            const windowClient = windowClients[i];
-            if (windowClient.url === urlToOpen) {
-                matchingClient = windowClient;
-                break;
-            }
-        }
-
-        if (matchingClient) {
-            return matchingClient.focus();
-        } else {
-            return clients.openWindow(urlToOpen);
-        }
-    });
-
-    event.waitUntil(promiseChain);
+    const targetUrl = event.notification.data && event.notification.data.url ? event.notification.data.url : '/';
+    
+    event.waitUntil(
+        clients.openWindow(targetUrl)
+    );
 });

@@ -113,12 +113,86 @@ window.addEventListener('appinstalled', () => {
 
 // Suscripción Automática PWA
 window.addEventListener('user-ready', () => {
-    if (window.PWAPushManager) {
-        // Ejecución silenciosa: el navegador solo pedirá permiso si no se ha otorgado/denegado antes
-        console.log("🔔 Iniciando suscripción push automática (Silent)...");
-        window.PWAPushManager.initPush();
-    }
+    console.log("🔔 Iniciando suscripción push automática...");
+    suscribirUsuarioAPush();
 });
+
+// Implementación de suscripción PWA (Refactor)
+async function suscribirUsuarioAPush() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.warn('Push messaging no soportado por el navegador.');
+        return;
+    }
+
+    try {
+        let permission = Notification.permission;
+        if (permission === 'default') {
+            permission = await Notification.requestPermission();
+        }
+        
+        if (permission !== 'granted') {
+            console.warn('Permiso de notificaciones denegado.');
+            return;
+        }
+
+        const registration = await navigator.serviceWorker.ready;
+        
+        // Obtener la llave pública VAPID del backend
+        const res = await fetch('/api/pwa/vapid-public');
+        const vapidData = await res.json();
+        
+        if (!vapidData.success) throw new Error("No se pudo obtener VAPID key");
+        
+        const applicationServerKey = urlB64ToUint8Array(vapidData.vapid_public_key);
+        
+        // Comprobar si ya existe una suscripción
+        const existingSubscription = await registration.pushManager.getSubscription();
+        if (existingSubscription) {
+            console.log('Usuario ya suscrito, actualizando backend.');
+            await enviarSuscripcionBackend(existingSubscription);
+            return;
+        }
+
+        // Suscribir al PushManager
+        const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: applicationServerKey
+        });
+
+        await enviarSuscripcionBackend(subscription);
+        console.log('✅ Suscripción Push generada y guardada.');
+
+    } catch (error) {
+        console.error('❌ Error en suscribirUsuarioAPush:', error);
+    }
+}
+
+async function enviarSuscripcionBackend(subscription) {
+    try {
+        const response = await fetch('/api/pwa/suscribir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            console.error('Error guardando suscripción en backend:', data.message);
+        }
+    } catch (err) {
+        console.error('Error de red al enviar suscripción:', err);
+    }
+}
+
+function urlB64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
 
 
 // GLOBAL FIX: Prevenir que el scroll del ratón cambie los valores de los input type="number"

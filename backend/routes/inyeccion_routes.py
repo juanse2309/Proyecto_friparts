@@ -389,58 +389,6 @@ def registrar_inyeccion_lote():
             # --- PASO 2: Actualizar Stock (Sólo si es validación) ---
             if es_validacion:
                 try:
-                    # Encontrar o crear el lote de trazabilidad
-                    lote_traz = db.session.query(TrazabilidadLote).filter_by(
-                        id_inyeccion=id_iny,
-                        id_codigo=id_cod
-                    ).first()
-                    
-                    if lote_traz:
-                        # Si existe, actualizamos su cantidad inyectada
-                        lote_traz.cantidad_inyectada = cant_real
-                        lote_traz.por_pulir = cant_real
-                    else:
-                        # Si no existe (registro manual en validación), lo creamos
-                        fecha_ref = registro.fecha_inicia or datetime.now()
-                        id_lote_key = generar_id_lote_trazabilidad(
-                            fecha=fecha_ref,
-                            maquina=registro.maquina,
-                            op=registro.orden_produccion,
-                            codigo=id_cod
-                        )
-                        lote_traz = TrazabilidadLote(
-                            id_lote=id_lote_key,
-                            orden_produccion=registro.orden_produccion,
-                            id_codigo=id_cod,
-                            maquina=registro.maquina,
-                            id_inyeccion=id_iny,
-                            estado_actual='PENDIENTE_VALIDACION',
-                            fecha_creacion=fecha_ref,
-                            responsable=registro.responsable or FALLBACK_OPERARIO,
-                            cantidad_inyectada=cant_real,
-                            por_pulir=cant_real
-                        )
-                        try:
-                            db.session.add(lote_traz)
-                            db.session.flush()
-                        except (IntegrityError, SQLAlchemyError) as e_db:
-                            db.session.rollback()
-                            logger.error(f"❌ Error de persistencia/duplicado en TrazabilidadLote (validación): {str(e_db)}")
-                            return jsonify({
-                                'success': False,
-                                'error': 'Conflicto de integridad o clave duplicada al registrar el lote de trazabilidad.',
-                                'details': str(e_db)
-                            }), 400
-
-                    # Consultar todos los reportes de pulido para este lote específico
-                    from backend.models.sql_models import ProduccionPulido
-                    pulidos = db.session.query(ProduccionPulido).filter_by(lote=lote_traz.id_lote).all()
-                    pulido_buenos = sum(p.cantidad_real for p in pulidos if p.cantidad_real)
-                    pnc_pulido = sum(p.pnc_pulido for p in pulidos if p.pnc_pulido)
-
-                    # Cruce aritmético del WIP
-                    sobrante = max(0, cant_real - (pulido_buenos + pnc_pulido))
-
                     # Descontar materia prima según el BOM
                     from backend.services.bom_service import calcular_descuentos_ensamble
                     bom_res = calcular_descuentos_ensamble(id_cod, cant_real)
@@ -450,18 +398,11 @@ def registrar_inyeccion_lote():
                             if mov and "error" not in mov:
                                 movimientos_inventario.append(mov)
 
-                    # Actualizar inventario final (Validation is single point of entry)
-                    if pulido_buenos > 0:
-                        mov_ent = registrar_entrada(id_cod, pulido_buenos, "P. TERMINADO")
+                    # Actualizar inventario final (Flujo directo: todo va a POR PULIR)
+                    if cant_real > 0:
+                        mov_ent = registrar_entrada(id_cod, cant_real, "POR PULIR")
                         if mov_ent and "error" not in mov_ent:
                             movimientos_inventario.append(mov_ent)
-                    if sobrante > 0:
-                        mov_ent_sobrante = registrar_entrada(id_cod, sobrante, "POR PULIR")
-                        if mov_ent_sobrante and "error" not in mov_ent_sobrante:
-                            movimientos_inventario.append(mov_ent_sobrante)
-
-                    # Actualizar estado de la trazabilidad
-                    lote_traz.estado_actual = 'APROBADO_CERRADO'
 
                 except Exception as e_stock:
                     logger.error(f"Error stock en validación form {id_cod}: {e_stock}")
@@ -581,159 +522,15 @@ def registrar_inyeccion_lote():
 @inyeccion_bp.route('/api/inyeccion/iniciar_turno', methods=['POST'])
 def iniciar_turno_inyeccion():
     """
-    Persistencia inmediata al iniciar turno de inyección.
-    Crea un registro PENDIENTE en db_inyeccion para que sea visible en el PC de inmediato.
-    Sigue el patrón de Pulido: persistirInicioSQL.
+    [DEPRECATED] Lógica de lotes en vivo eliminada.
+    Se mantiene ruta como dummy para retrocompatibilidad segura.
     """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
-
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz)
-
-        # Guard de ownership centralizado con AuditService
-        try:
-            responsable = AuditService.resolver_y_validar_propietario(None, data.get('responsable'))
-        except OwnershipMismatchException as e:
-            return jsonify({
-                "success": False,
-                "error": e.message,
-                "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-                "responsable_db": e.responsable_db,
-                "responsable_in": e.responsable_in
-            }), 409
-
-        maquina = str(data.get('maquina', '')).strip()
-        fecha_str = data.get('fecha_inicio', ahora.strftime('%Y-%m-%d'))
-
-        if not responsable or not maquina:
-            return jsonify({"success": False, "error": "Responsable y máquina requeridos"}), 400
-
-        try:
-            fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-        except:
-            fecha_dt = ahora.date()
-
-        id_inyeccion = data.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
-        id_codigo = data.get('id_codigo')
-
-        # [RESTRICCIÓN PAOLA] No permitir registros sin código para evitar huérfanos
-        if not id_codigo:
-            logger.warning(f"⚠️ [Inyeccion] Intento de iniciar_turno rechazado: falta id_codigo. Responsable: {responsable}")
-            return jsonify({
-                "success": False, 
-                "error": "El código de producto es obligatorio para iniciar el registro en SQL."
-            }), 400
-
-        # Buscar si ya existe (evitar duplicados)
-        existente = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_inyeccion).first()
-        if existente:
-            return jsonify({"success": True, "message": "Turno ya registrado", "id_inyeccion": id_inyeccion}), 200
-
-        # Validar Máquina Ocupada (Permitir Modo Overlap para pruebas - DESACTIVADO PARA PRODUCCIÓN)
-        # es_prueba = '9999' in str(id_inyeccion) or 'PRUEBA' in str(id_inyeccion).upper() or '9999' in str(data.get('orden_produccion', '')) or 'PRUEBA' in str(data.get('orden_produccion', '')).upper()
-        # 
-        # if not es_prueba:
-        #     maquina_ocupada = db.session.query(ProduccionInyeccion).filter(
-        #         ProduccionInyeccion.maquina == maquina,
-        #         ProduccionInyeccion.estado.in_(['ABIERTO', 'EN_PROCESO'])
-        #     ).first()
-        #     if maquina_ocupada:
-        #         return jsonify({
-        #             "success": False, 
-        #             "error": f"Máquina Ocupada: La máquina {maquina} ya tiene una orden activa. Finalice la orden actual antes de iniciar una nueva."
-        #         }), 400
-        # else:
-        #     logger.info(f"🧪 [SANDBOX] Permitiendo Modo Overlap para lote de prueba {id_inyeccion} en máquina {maquina}.")
-
-        # Lógica estándar de producción estricta:
-        maquina_ocupada = db.session.query(ProduccionInyeccion).filter(
-            ProduccionInyeccion.maquina == maquina,
-            ProduccionInyeccion.estado.in_(['ABIERTO', 'EN_PROCESO'])
-        ).first()
-        
-        if maquina_ocupada:
-            return jsonify({
-                "success": False, 
-                "error": f"Máquina Ocupada: La máquina {maquina} ya tiene una orden activa. Finalice la orden actual antes de iniciar una nueva."
-            }), 400
-
-        # Crear registro PENDIENTE (visible inmediatamente en el PC)
-        h_inicio = data.get('hora_inicio')
-        dt_inicio = None
-        if h_inicio:
-            try:
-                hi_h, hi_m = h_inicio.split(':')
-                dt_inicio = ahora.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0).replace(tzinfo=None)
-            except:
-                dt_inicio = ahora.replace(tzinfo=None)
-        else:
-            dt_inicio = ahora.replace(tzinfo=None)
-
-        registro = ProduccionInyeccion(
-            id_inyeccion=id_inyeccion,
-            id_codigo=id_codigo,
-            fecha_inicia=dt_inicio or fecha_dt,
-            responsable=responsable,
-            maquina=maquina,
-            estado='ABIERTO',
-            departamento='Inyeccion',
-            molde=data.get('molde') or 0,
-            cavidades=data.get('cavidades') or 1,
-            almacen_destino=data.get('almacen_destino') or 'PRODUCCION',
-            cantidad_real=0
-        )
-        db.session.add(registro)
-
-        # --- MES PASO 1: Crear Lote de Trazabilidad (Cabecera) ---
-        id_lote_key = generar_id_lote_trazabilidad(
-            fecha=fecha_dt,
-            maquina=maquina,
-            op=data.get('orden_produccion'),
-            codigo=id_codigo
-        )
-        if not db.session.get(TrazabilidadLote, id_lote_key):
-            lote_traz = TrazabilidadLote(
-                id_lote=id_lote_key,
-                orden_produccion=data.get('orden_produccion'),
-                id_codigo=id_codigo,
-                maquina=maquina,
-                id_inyeccion=id_inyeccion,
-                estado_actual='ABIERTO_PRODUCCION',
-                fecha_creacion=ahora.replace(tzinfo=None),
-                responsable=responsable,
-                cantidad_inyectada=0,
-                por_pulir=0
-            )
-            try:
-                db.session.add(lote_traz)
-                db.session.flush()
-                logger.info(f"🟢 [Trazabilidad] Lote creado: {id_lote_key} | Estado: ABIERTO_PRODUCCION")
-            except (IntegrityError, SQLAlchemyError) as e_db:
-                db.session.rollback()
-                logger.error(f"❌ Error de persistencia/duplicado en TrazabilidadLote (iniciar turno): {str(e_db)}")
-                return jsonify({
-                    'success': False,
-                    'error': 'Conflicto de integridad o clave duplicada al iniciar el turno de trazabilidad.',
-                    'details': str(e_db)
-                }), 400
-
-        db.session.commit()
-
-        logger.info(f"✅ [Inyeccion] Turno iniciado y persistido: {id_inyeccion} ({responsable} en {maquina})")
-
-        return jsonify({
-            "success": True,
-            "message": "Turno iniciado y persistido en SQL",
-            "id_inyeccion": id_inyeccion
-        }), 201
-
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error en iniciar_turno_inyeccion: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+    import uuid
+    return jsonify({
+        "success": True,
+        "message": "Turno iniciado (Flujo Directo)",
+        "id_inyeccion": f"INY-DUMMY-{uuid.uuid4().hex[:4].upper()}"
+    }), 201
 
 @inyeccion_bp.route('/api/inyeccion/validar/<id_inyeccion>', methods=['POST'])
 @require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD'])
@@ -743,73 +540,57 @@ def validar_lote_inyeccion(id_inyeccion):
     Calcula el cruce aritmético del WIP y actualiza el inventario de forma atómica.
     """
     try:
-        from backend.models.sql_models import TrazabilidadLote, ProduccionPulido, ProduccionInyeccion
-        from backend.app import registrar_entrada, registrar_salida
+        from backend.models.sql_models import ProduccionInyeccion
+        from backend.app import registrar_entrada, registrar_salida, db_productos, db
         from backend.services.bom_service import calcular_descuentos_ensamble
 
         payload = request.get_json(silent=True) or {}
         items_payload = payload.get('items', [])
         items_dict = { str(item.get('codigo', '')): item for item in items_payload }
 
-        lotes_traz = TrazabilidadLote.query.filter_by(id_inyeccion=id_inyeccion).all()
-        if not lotes_traz:
-            # Intentar por id_lote directamente
-            single_lote = TrazabilidadLote.query.get(id_inyeccion)
-            if single_lote:
-                lotes_traz = [single_lote]
+        # Buscar por id_inyeccion en db_inyeccion
+        registros_iny = ProduccionInyeccion.query.filter_by(id_inyeccion=id_inyeccion).all()
+        if not registros_iny:
+            # Fallback a ID numerico de SQL por si el front manda id_sql
+            single_reg = ProduccionInyeccion.query.get(id_inyeccion)
+            if single_reg:
+                registros_iny = [single_reg]
 
-        if not lotes_traz:
-            return jsonify({"success": False, "error": "Lote no encontrado en trazabilidad"}), 404
+        if not registros_iny:
+            return jsonify({"success": False, "error": "Reporte de inyección no encontrado"}), 404
 
-        for lote_traz in lotes_traz:
-            if lote_traz.estado_actual == 'APROBADO_CERRADO':
+        for reg in registros_iny:
+            if reg.estado == 'CERRADO':
                 continue
 
-            codigo = str(lote_traz.id_codigo)
-            cantidad_inyectada = lote_traz.cantidad_inyectada or 0
-
-            # Consultar todos los reportes de pulido para este lote específico
-            pulidos = ProduccionPulido.query.filter_by(lote=lote_traz.id_lote).all()
-            pulido_buenos = sum(p.cantidad_real for p in pulidos if p.cantidad_real)
+            codigo = str(reg.id_codigo)
+            cantidad_inyectada = reg.cantidad_real or 0
             
             # Sobreescritura oficial desde el Payload de Validación
             pnc_inyeccion = 0
-            pnc_pulido = 0
             if codigo in items_dict:
                 pnc_inyeccion = float(items_dict[codigo].get('pnc_inyeccion', 0))
-                pnc_pulido = float(items_dict[codigo].get('pnc_pulido', 0))
 
-            from backend.models.sql_models import PncInyeccion, PncPulido
+            from backend.models.sql_models import PncInyeccion
             import uuid
 
             # Eliminar registros PNC anteriores creados en validaciones previas para este lote/código
-            db.session.query(PncInyeccion).filter_by(id_inyeccion=lote_traz.id_inyeccion, id_codigo=codigo).delete()
-            db.session.query(PncPulido).filter_by(codigo=codigo, codigo_ensamble='AUDITORIA PULIDO').filter(PncPulido.id_pulido.like(f"VAL-{lote_traz.id_lote}%")).delete()
+            db.session.query(PncInyeccion).filter_by(id_inyeccion=reg.id_inyeccion, id_codigo=codigo).delete()
 
             if pnc_inyeccion > 0:
                 db.session.add(PncInyeccion(
                     id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                    id_inyeccion=lote_traz.id_inyeccion,
+                    id_inyeccion=reg.id_inyeccion,
                     id_codigo=codigo,
                     cantidad=int(pnc_inyeccion),
                     criterio='PNC Reportado en Validación',
                     codigo_ensamble='AUDITORIA INYECCION'
                 ))
 
-            if pnc_pulido > 0:
-                db.session.add(PncPulido(
-                    id_pnc_pulido=uuid.uuid4().hex[:8],
-                    id_pulido=f"VAL-{lote_traz.id_lote}",
-                    codigo=codigo,
-                    cantidad=int(pnc_pulido),
-                    criterio='PNC Pulido en Validación',
-                    codigo_ensamble='AUDITORIA PULIDO'
-                ))
+            # Flujo Directo de Inventario: Sumamos a por_pulir lo que se inyectó (menos defectuosas PNC)
+            buenas_por_pulir = max(0, cantidad_inyectada - pnc_inyeccion)
 
-            # Cruce aritmético del WIP: se resta lo bueno y TODO el PNC oficial reportado en validación
-            sobrante = max(0, cantidad_inyectada - (pulido_buenos + pnc_inyeccion + pnc_pulido))
-
-            es_prueba = '9999' in str(lote_traz.id_lote) or 'PRUEBA' in str(lote_traz.id_lote).upper() or '9999' in str(lote_traz.orden_produccion) or 'PRUEBA' in str(lote_traz.orden_produccion).upper()
+            es_prueba = '9999' in str(reg.id_inyeccion) or 'PRUEBA' in str(reg.id_inyeccion).upper() or '9999' in str(reg.orden_produccion) or 'PRUEBA' in str(reg.orden_produccion).upper()
 
             if not es_prueba:
                 # Descontar materia prima según el BOM
@@ -819,29 +600,23 @@ def validar_lote_inyeccion(id_inyeccion):
                         for comp in bom_res.get('componentes', []):
                             registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
 
-                # Actualizar inventario final (Validation is single point of entry)
-                if pulido_buenos > 0:
-                    registrar_entrada(codigo, pulido_buenos, "P. TERMINADO")
-                if sobrante > 0:
-                    registrar_entrada(codigo, sobrante, "POR PULIR")
+                # Actualizar inventario final (Validation is single point of entry para Inyeccion)
+                if buenas_por_pulir > 0:
+                    producto = db.session.query(db_productos).filter_by(codigo_sistema=codigo).first()
+                    if producto:
+                        producto.por_pulir = (producto.por_pulir or 0) + buenas_por_pulir
+                    else:
+                        logger.warning(f"Producto {codigo} no encontrado en db_productos para actualizar por_pulir")
             else:
-                logger.info(f"🧪 [SANDBOX] Lote {lote_traz.id_lote} validado en MODO PRUEBA. Se ignoró cruce de inventario.")
+                logger.info(f"🧪 [SANDBOX] Reporte {reg.id_inyeccion} validado en MODO PRUEBA. Se ignoró cruce de inventario.")
 
-            # Actualizar estados
-            lote_traz.estado_actual = 'APROBADO_CERRADO'
-
-            # Marcar registros de inyeccion asociados como CERRADOS
-            registros_iny = ProduccionInyeccion.query.filter_by(
-                id_inyeccion=lote_traz.id_inyeccion,
-                id_codigo=codigo
-            ).all()
-            for r in registros_iny:
-                r.estado = 'CERRADO'
-                from datetime import datetime
-                r.fecha_fin = datetime.now()
-                r.cantidad_real = pulido_buenos
-                r.cant_contador = pulido_buenos + pnc_inyeccion + pnc_pulido
-                r.pnc_total = pnc_inyeccion
+            # Marcar registro de inyeccion como CERRADO
+            reg.estado = 'CERRADO'
+            from datetime import datetime
+            reg.fecha_fin = datetime.now()
+            # Mantener la cantidad_real original (bruto inyectado) o actualizarla? 
+            # Como el requerimiento es que cantidad_real sea la produccion teórica, la dejamos.
+            reg.pnc_total = pnc_inyeccion
 
         db.session.commit()
         # Invalidar caché del MES
@@ -939,36 +714,46 @@ def guardar_programacion_diaria():
             except (ValueError, TypeError) as e_num:
                 raise ValueError(f"Error en campos numéricos para producto {cod_sistema}: {e_num}")
 
-            # Sentencia de inserción/upsert nativa de postgres
-            stmt = insert(ProgramacionInyeccion).values(
-                fecha=fecha_dt,
-                codigo_sistema=cod_sistema,
-                maquina=maquina,
-                cantidad=cant_val,
-                estado='PROGRAMADO',
-                molde=molde_val,
-                cavidades=cav_val,
-                responsable_planta=responsable_planta,
-                observaciones=observaciones,
-                op_world_office=None
-            )
+            try:
+                # Buscar si ya existe la programación para hacer UPSERT
+                existente = db.session.query(ProgramacionInyeccion).filter(
+                    ProgramacionInyeccion.fecha == fecha_dt,
+                    ProgramacionInyeccion.maquina == maquina,
+                    ProgramacionInyeccion.codigo_sistema == cod_sistema,
+                    db.func.coalesce(ProgramacionInyeccion.molde, 0) == (molde_val if molde_val is not None else 0)
+                ).first()
 
-            # Si hay conflicto en la restricción única (fecha, maquina, codigo_sistema, COALESCE(molde, 0)),
-            # hacemos update de los datos de planificación.
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['fecha', 'maquina', 'codigo_sistema', text('COALESCE(molde, 0)')],
-                set_={
-                    'cantidad': stmt.excluded.cantidad,
-                    'cavidades': stmt.excluded.cavidades,
-                    'responsable_planta': stmt.excluded.responsable_planta,
-                    'observaciones': stmt.excluded.observaciones,
-                    'estado': stmt.excluded.estado
-                }
-            ).returning(ProgramacionInyeccion.id)
+                if existente:
+                    # UPDATE
+                    existente.cantidad = cant_val
+                    existente.cavidades = cav_val
+                    existente.responsable_planta = responsable_planta
+                    existente.observaciones = observaciones
+                    existente.estado = 'PROGRAMADO'
+                    db.session.flush()
+                    programaciones_ids.append(existente.id)
+                else:
+                    # INSERT
+                    nueva_prog = ProgramacionInyeccion(
+                        fecha=fecha_dt,
+                        codigo_sistema=cod_sistema,
+                        maquina=maquina,
+                        cantidad=cant_val,
+                        estado='PROGRAMADO',
+                        molde=molde_val,
+                        cavidades=cav_val,
+                        responsable_planta=responsable_planta,
+                        observaciones=observaciones,
+                        op_world_office=None
+                    )
+                    db.session.add(nueva_prog)
+                    db.session.flush()
+                    programaciones_ids.append(nueva_prog.id)
 
-            res = db.session.execute(stmt).fetchone()
-            if res:
-                programaciones_ids.append(res[0])
+            except SQLAlchemyError as err:
+                db.session.rollback()
+                logger.error(f"Error en UPSERT de programación {cod_sistema}: {err}")
+                raise ValueError(f"No se pudo guardar la programación para el producto {cod_sistema}")
 
         # Para evitar cubetas duplicadas al reprogramar (UPSERT)
         # Limpiamos las distribuciones planificadas previas (con OP = None) para los productos del montaje

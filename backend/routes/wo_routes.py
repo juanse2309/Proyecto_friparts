@@ -125,12 +125,9 @@ def recibir_datos():
                         "error": "El reporte de World Office viene vacío o todos los saldos son 0. Verifique las columnas del reporte exportado."
                     }), 400
 
-                # PASO 1: TRUNCATE — limpiar tabla sin bloqueos residuales
-                db.session.execute(text("TRUNCATE TABLE inventario_wo"))
-                db.session.flush()
-                logger.info("[DEBUG] TRUNCATE de inventario_wo ejecutado.")
+                # PASO 1 y 2: UPSERT Atómico (DELETE previo + INSERT en transacción)
+                logger.info("[AUDITORIA] Estrategia de UPSERT Atómica iniciada. No se usará TRUNCATE.")
 
-                # PASO 2: INSERT masivo por lotes de 500 (SQL puro, sin ORM)
                 BATCH_SIZE = 500
                 rows_insertados = 0
 
@@ -138,6 +135,8 @@ def recibir_datos():
                     batch = datos_normalizados[i:i + BATCH_SIZE]
                     values_parts = []
                     params = {}
+                    
+                    ids_lote = []
 
                     for j, r in enumerate(batch):
                         codigo_producto = str(
@@ -146,22 +145,31 @@ def recibir_datos():
                         ).strip()
                         if not codigo_producto:
                             continue
+                            
+                        ids_lote.append(codigo_producto)
 
                         descripcion    = str(r.get('descripcion') or r.get('nombre') or "").strip()[:500]
                         codigo_alterno = str(r.get('codigo_alterno') or "").strip()[:100]
                         referencia     = str(r.get('referencia') or r.get('ref') or "").strip()[:100]
 
-                        # Obtención de stock ampliada a posibles columnas de WO
-                        stock_raw = (r.get('stock_wo') or r.get('stock') or r.get('cantidad') or 
-                                     r.get('saldo') or r.get('saldos') or r.get('existencia') or 0)
+                        # Mapeo Explícito y Constante de Columna
+                        columna_stock_leida = 'stock_wo' if 'stock_wo' in r else 'existencia' if 'existencia' in r else 'stock'
+                        stock_raw = r.get(columna_stock_leida)
                         
-                        if j < 5 and i == 0:  # Imprimir log preventivo para los primeros 5 registros de muestra
-                            logger.info(f"[CARGA WO] Procesando Ref: {codigo_producto} | Valor Stock Detectado: {stock_raw}")
+                        if j == 0 and i == 0:
+                            logger.info(f"[AUDITORIA EXPLICITA] Leyendo valor de stock desde la clave: '{columna_stock_leida}'")
 
-                        try:
-                            stock_wo = float(stock_raw)
-                        except (ValueError, TypeError):
-                            stock_wo = 0.0
+                        if j < 5 and i == 0:  
+                            logger.info(f"[CARGA WO] Procesando Ref: {codigo_producto} | Valor Detectado: {stock_raw}")
+
+                        # Validación de Datos Segura contra NULL o vacíos
+                        if stock_raw is None or str(stock_raw).strip() == "":
+                            stock_wo = None # Se preservará como NULL para no sobreescribir con 0
+                        else:
+                            try:
+                                stock_wo = float(stock_raw)
+                            except (ValueError, TypeError):
+                                stock_wo = None
 
                         try:
                             precio_wo = float(r.get('precio_wo') or r.get('precio') or r.get('precio_venta') or 0)
@@ -178,6 +186,14 @@ def recibir_datos():
                         values_parts.append(
                             f"(:cod_{k}, :desc_{k}, :stock_{k}, :precio_{k}, :alt_{k}, :ref_{k})"
                         )
+
+                    if values_parts and ids_lote:
+                        # 1. DELETE atómico de los IDs que vamos a actualizar (Evita duplicados sin vaciar la tabla)
+                        ids_placeholders = [f":del_{idx}" for idx in range(len(ids_lote))]
+                        del_params = {f"del_{idx}": id_val for idx, id_val in enumerate(ids_lote)}
+                        sql_del = text(f"DELETE FROM inventario_wo WHERE codigo_producto IN ({', '.join(ids_placeholders)})")
+                        db.session.execute(sql_del, del_params)
+                        
 
                     if values_parts:
                         sql = text(
@@ -238,16 +254,15 @@ def unificar_inventario_wo():
                 "actualizados": 0
             }), 400
 
-        # NOTA: Este UPDATE sincroniza ÚNICAMENTE el stock físico (p_terminado)
-        # por coincidencia exacta (Exact Match) de strings para evitar colisiones.
+        # NOTA: Este UPDATE sincroniza el stock validando nulos.
         sql_update = text("""
             UPDATE db_productos AS p
             SET 
-                p_terminado = COALESCE(n.stock_wo, 0)
+                p_terminado = COALESCE(n.stock_wo, p.p_terminado)
             FROM inventario_wo n
             WHERE 
-                p.codigo_sistema = n.codigo_producto
-                OR p.id_codigo = n.codigo_producto;
+                (p.codigo_sistema = n.codigo_producto OR p.id_codigo = n.codigo_producto)
+                AND n.stock_wo IS NOT NULL AND n.stock_wo >= 0;
         """)
         
         result = db.session.execute(sql_update)

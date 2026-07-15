@@ -213,10 +213,18 @@ def sincronizar_datos_comerciales():
             else:
                 row_dict['clasificacion'] = 'desconocido'
                 
-            # Mapeo de Producto en Memoria
+            # Mapeo de Producto en Memoria (POLÍTICA FAIL-FAST sin Fallback)
             prod_id = str(row_dict.get('productos', '')).strip()
-            mapped_prod = mapping.get(prod_id, prod_id)
-            row_dict['productos'] = str(mapped_prod or '').strip()
+            mapped_prod = mapping.get(prod_id)
+            
+            if not mapped_prod or str(mapped_prod).strip() == "":
+                error_msg = f"Fallo de Mapeo: Producto con ID Interno '{prod_id}' no tiene SKU real. Documento: {row_dict.get('documento', 'N/A')}. Omitiendo."
+                logger.warning(error_msg)
+                with open("sync_errors.log", "a", encoding="utf-8") as f_err:
+                    f_err.write(f"{datetime.datetime.now()} - {error_msg}\n")
+                continue
+                
+            row_dict['productos'] = str(mapped_prod).strip()
 
             registros.append(row_dict)
 

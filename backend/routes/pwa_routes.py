@@ -1,9 +1,10 @@
 import os
 import json
 import logging
+import threading
 from flask import Blueprint, jsonify, request, session, render_template
 from backend.core.sql_database import db
-from backend.models.sql_models import SuscripcionesPush
+from backend.models.sql_models import SuscripcionesPush, Usuario
 from backend.services.notification_service import NotificationService
 
 pwa_bp = Blueprint('pwa', __name__)
@@ -169,3 +170,188 @@ def test_notificacion():
     except Exception as e:
         logger.error(f"Error en /api/pwa/test-notificacion: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+@pwa_bp.route('/api/pwa/test-push', methods=['POST'])
+def test_push_individual():
+    """Ruta de prueba que envía un Push al usuario actual en sesión invocando el motor principal."""
+    usuario_id = session.get('user')
+    if not usuario_id:
+        return jsonify({"success": False, "message": "Usuario no autenticado"}), 401
+
+    try:
+        titulo = "🚀 Prueba de Push Exitosa"
+        cuerpo = f"Hola {usuario_id}, tu motor nativo de notificaciones PWA funciona perfectamente."
+        
+        exito = NotificationService.enviar_notificacion_push(
+            user_id=usuario_id,
+            titulo=titulo,
+            cuerpo=cuerpo,
+            url_destino='/'
+        )
+        
+        if exito:
+            return jsonify({"success": True, "message": f"Notificación enviada a todos los dispositivos de {usuario_id}"}), 200
+        else:
+            return jsonify({"success": False, "message": "No se encontraron suscripciones válidas o falló el envío"}), 404
+            
+    except Exception as e:
+        logger.error(f"Error en /api/pwa/test-push: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+# ====================================================================
+# BROADCAST B2B MARKETING (Asíncrono)
+# ====================================================================
+
+def _worker_broadcast(app, titulo, cuerpo, url_destino, image_url, destino):
+    """Función worker que ejecuta el envío masivo en un hilo separado."""
+    with app.app_context():
+        try:
+            # Segmentación dinámica según el destino seleccionado
+            if destino == 'todos':
+                # Sin filtro de rol: todas las suscripciones registradas
+                suscripciones = SuscripcionesPush.query.all()
+            elif destino == 'planta':
+                # Personal operativo de la fábrica
+                roles_planta = ['INYECCION', 'PULIDO', 'ENSAMBLE', 'MEZCLA',
+                                'CALIDAD', 'JEFE', 'SUPERVISOR', 'OPERARIO', 'MOLIDO']
+                filtros_rol = [Usuario.rol.ilike(f'%{r}%') for r in roles_planta]
+                suscripciones = db.session.query(SuscripcionesPush).join(
+                    Usuario, SuscripcionesPush.user_id == Usuario.username
+                ).filter(
+                    db.or_(*filtros_rol)
+                ).all()
+            else:
+                # Default: solo clientes
+                suscripciones = db.session.query(SuscripcionesPush).join(
+                    Usuario, SuscripcionesPush.user_id == Usuario.username
+                ).filter(
+                    Usuario.rol.ilike('cliente')
+                ).all()
+
+            logger.info(f"[BROADCAST] Segmento='{destino}'. Endpoints encontrados: {len(suscripciones)}")
+
+            import os
+            from pywebpush import webpush, WebPushException
+
+            vapid_private_key = os.environ.get('VAPID_PRIVATE_KEY')
+            vapid_subject = os.environ.get('VAPID_SUBJECT', 'mailto:admin@friparts.com')
+
+            if not vapid_private_key:
+                logger.error("[BROADCAST B2B] VAPID_PRIVATE_KEY no configurada.")
+                return
+
+            payload_dict = {
+                "title": titulo,
+                "body": cuerpo,
+                "icon": "/static/img/icon-192.png",
+                "badge": "/static/img/icon-192.png",
+                "data": {"url": url_destino}
+            }
+            if image_url:
+                payload_dict["image"] = image_url
+
+            payload_str = json.dumps(payload_dict)
+            enviados = 0
+
+            for sub in suscripciones:
+                sub_info = {
+                    "endpoint": sub.endpoint,
+                    "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
+                }
+                try:
+                    webpush(
+                        subscription_info=sub_info,
+                        data=payload_str,
+                        vapid_private_key=vapid_private_key,
+                        vapid_claims={"sub": vapid_subject}
+                    )
+                    enviados += 1
+                except WebPushException as ex:
+                    if ex.response is not None and ex.response.status_code in [404, 410]:
+                        logger.warning(f"[BROADCAST B2B] Endpoint muerto ({sub.user_id}). Eliminando...")
+                        try:
+                            db.session.delete(sub)
+                            db.session.commit()
+                        except Exception as e_del:
+                            db.session.rollback()
+                            logger.error(f"[BROADCAST B2B] Error limpiando suscripción: {e_del}")
+                    else:
+                        logger.error(f"[BROADCAST B2B] Error WebPush para {sub.user_id}: {ex}")
+                except Exception as e:
+                    logger.error(f"[BROADCAST B2B] Error inesperado para {sub.user_id}: {e}")
+
+            logger.info(f"[BROADCAST B2B] Finalizado. Enviados: {enviados}/{len(suscripciones)}")
+        except Exception as e:
+            logger.error(f"[BROADCAST B2B] Error fatal en worker: {e}")
+        finally:
+            # Liberar conexión al pool de SQLAlchemy (previene Connection Pool Leak)
+            db.session.remove()
+
+
+@pwa_bp.route('/api/pwa/broadcast', methods=['POST'])
+def broadcast_clientes():
+    """Broadcast masivo a todos los clientes B2B. Retorna 202 inmediatamente."""
+    role = session.get('role', '')
+    if role not in ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION', 'MARKETING']:
+        return jsonify({"success": False, "message": "Acceso denegado"}), 403
+
+    try:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"success": False, "message": "JSON requerido"}), 400
+
+        titulo = data.get('titulo', 'Friparts')
+        cuerpo = data.get('cuerpo', '')
+        url_destino = data.get('url_destino', '/')
+        image_url = data.get('image_url') or None
+        destino = data.get('destino', 'clientes')
+
+        # Validar destino contra valores permitidos
+        if destino not in ('todos', 'planta', 'clientes'):
+            destino = 'clientes'
+
+        # Guard: Protección contra Payload Overflow (límite 4KB Push API)
+        if image_url:
+            if image_url.startswith('data:image'):
+                logger.warning(f"[BROADCAST] image_url rechazada: base64 embebido detectado.")
+                return jsonify({"success": False, "message": "No se permiten imágenes base64 embebidas. Usa una URL pública."}), 400
+            if len(image_url) > 250:
+                logger.warning(f"[BROADCAST] image_url rechazada: {len(image_url)} chars (máx 250).")
+                return jsonify({"success": False, "message": f"La URL de imagen es demasiado larga ({len(image_url)} chars). Máximo 250."}), 400
+
+        if not cuerpo:
+            return jsonify({"success": False, "message": "El campo 'cuerpo' es obligatorio"}), 400
+
+        from flask import current_app
+        app = current_app._get_current_object()
+
+        hilo = threading.Thread(
+            target=_worker_broadcast,
+            args=(app, titulo, cuerpo, url_destino, image_url, destino),
+            daemon=True
+        )
+        hilo.start()
+
+        return jsonify({
+            "success": True,
+            "status": "procesando",
+            "destino": destino,
+            "message": f"Campaña encolada para segmento '{destino}' en segundo plano."
+        }), 202
+
+    except Exception as e:
+        logger.error(f"Error en /api/pwa/broadcast: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ====================================================================
+# VISTA: Panel de Marketing Push
+# ====================================================================
+
+@pwa_bp.route('/marketing-push')
+def vista_marketing_push():
+    """Sirve la interfaz de Marketing Push para administradores."""
+    role = session.get('role', '')
+    if role not in ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION', 'MARKETING']:
+        return jsonify({"success": False, "message": "Acceso denegado"}), 403
+    return render_template('marketing_push.html')

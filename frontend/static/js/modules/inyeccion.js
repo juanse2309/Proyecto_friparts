@@ -54,66 +54,11 @@ const ModuloInyeccion = {
             window.FormHelpers.registrarPersistencia('form-inyeccion');
         }
 
-        // Persistir inicio al definir hora (patrón Pulido - visible en PC inmediatamente)
-        document.getElementById('hora-inicio-inyeccion')?.addEventListener('change', () => {
-            // Bloqueo crítico: Si estamos en modo VALIDACIÓN, NO crear un registro nuevo ni persistir inicio
-            if (this.currentModule === 'validation' || this.esValidacionMode) {
-                console.log('🚫 [Inyeccion] Persistencia bloqueada: Modo Validación activo.');
-                return;
-            }
-            this.persistirInicioSQL();
-        });
-
         this.isInitialized = true;
     },
 
-    _idTurnoActivo: null, // ID para persistencia inmediata (patrón Pulido)
+    _idTurnoActivo: null, // ID para persistencia (Flujo directo)
 
-    /**
-     * Persistencia inmediata al iniciar turno de inyección.
-     * Crea un registro EN_PROCESO en db_inyeccion visible en el PC al instante.
-     */
-    persistirInicioSQL: async function () {
-        // SEGURIDAD: No persistir si estamos en modo validación (Paola)
-        if (this.currentModule === 'validation' || this.esValidacionMode) return;
-
-        const responsable = document.getElementById('responsable-inyeccion')?.value || '';
-        const maquina = document.getElementById('maquina-inyeccion')?.value || '';
-        const id_codigo = document.getElementById('codigo-producto-inyeccion')?.value || '';
-
-        if (!responsable || !maquina || !id_codigo) return;
-
-        // Evitar múltiples llamadas al mismo tiempo
-        if (this._persisting) return;
-        this._persisting = true;
-
-        const payload = {
-            responsable: responsable,
-            maquina: maquina,
-            id_codigo: id_codigo,
-            fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
-            hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
-            id_inyeccion: this._idTurnoActivo || undefined
-        };
-
-        try {
-            const res = await fetchData('/api/iniciar_turno_inyeccion', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (res && res.success) {
-                this._idTurnoActivo = res.id_inyeccion;
-                this._idSqlActivo = res.id_sql; // Guardar ID primario para evitar duplicados
-                console.log(`✅ [Inyeccion] Turno persistido en SQL: ${this._idTurnoActivo} (ID: ${this._idSqlActivo})`);
-            }
-        } catch (e) {
-            console.error('Error persistencia inicio inyección:', e);
-        } finally {
-            this._persisting = false;
-        }
-    },
 
     cargarDatos: async function () {
         if (this.isFetching) return;
