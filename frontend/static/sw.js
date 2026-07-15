@@ -85,12 +85,18 @@ self.addEventListener('push', event => {
     const title = data.title || 'Friparts PWA';
     const options = {
         body: data.body || 'Tienes un nuevo mensaje.',
-        icon: '/static/img/icon-192.png',
-        badge: '/static/img/icon-192.png',
+        icon: data.icon || '/static/img/icon-192.png',
+        badge: data.badge || '/static/img/icon-192.png',
+        vibrate: [200, 100, 200, 100, 200],
+        requireInteraction: true,
         data: {
-            url: data.url || '/'
+            url: data.url || (data.data && data.data.url) || '/'
         }
     };
+    // Imagen enriquecida para campañas B2B Marketing
+    if (data.image) {
+        options.image = data.image;
+    }
 
     event.waitUntil(
         self.registration.showNotification(title, options)
