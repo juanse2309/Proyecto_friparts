@@ -925,9 +925,9 @@
                                     <div
                                         class="card-header bg-white border-bottom-0 pb-0 d-flex justify-content-between align-items-center mt-3 mx-2">
                                         <h5 class="card-title fw-bold mb-0" style="color: #1e293b;">
-                                            <i class="fas fa-chart-area text-primary me-2"></i>Rendimiento Mensual
+                                            <i class="fas fa-chart-area text-primary me-2"></i>Análisis Comparativo Anual
                                             <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
-                                                title="Comparativa de facturación vs presupuesto mensual (Datos desde PostgreSQL - Histórico)."></i>
+                                                title="Comparación de rendimiento del año actual frente al año anterior (YoY)"></i>
                                         </h5>
                                         <div class="d-flex gap-2">
                                             <button class="chart-toggle-btn active" id="toggle-mensual-units"
@@ -945,6 +945,36 @@
                                     <div class="card-body p-4">
                                         <div style="position: relative; height: 350px; width: 100%;">
                                             <canvas id="chartMensual"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 1.5: Rendimiento Mensual Nuevo (Ventas vs Pedidos) -->
+                        <div class="row g-4 mb-4 mt-2">
+                            <div class="col-12">
+                                <div class="card h-100 shadow-sm border-0 rounded-4">
+                                    <div class="card-header bg-white border-bottom-0 pb-0 d-flex justify-content-between align-items-center mt-3 mx-2">
+                                        <h5 class="card-title fw-bold mb-0" style="color: #1e293b;">
+                                            <i class="fas fa-chart-bar text-success me-2"></i>Rendimiento Mensual
+                                            <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
+                                                title="Ventas vs Pedidos mes a mes"></i>
+                                        </h5>
+                                        <div class="d-flex gap-2">
+                                            <button class="chart-toggle-btn" id="btnRendimientoMensualUnidades"
+                                                title="Ver en Unidades">
+                                                <i class="fas fa-box"></i>
+                                            </button>
+                                            <button class="chart-toggle-btn active" id="btnRendimientoMensualDinero"
+                                                title="Ver en Dinero">
+                                                <i class="fas fa-dollar-sign"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="card-body p-4">
+                                        <div style="position: relative; height: 350px; width: 100%;">
+                                            <canvas id="chartRendimientoMensualNew"></canvas>
                                         </div>
                                     </div>
                                 </div>

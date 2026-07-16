@@ -18,6 +18,7 @@ window.ModuloDashboard = (function () {
     let chartPulidoEvolucionInst = null;
     let chartPulidoRankingInst = null;
     let chartMensualInst = null;
+    let chartRendimientoMensualNewInst = null;
     let inc_unidades_original = [];
     let inc_dinero_original = [];
     let chartTopMejoresInst = null;
@@ -111,7 +112,20 @@ window.ModuloDashboard = (function () {
             if (nocache) params.append('nocache', '1');
             if (params.toString()) url += `?${params.toString()}`;
 
-            const responseStats = fetch(url).then(res => res.json());
+            const pwaToken = localStorage.getItem('pwa_token');
+            const getAuthHeaders = (extraHeaders = {}) => {
+                const headers = { ...extraHeaders };
+                if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+                return headers;
+            };
+
+            const responseStats = fetch(url, { 
+                headers: getAuthHeaders(),
+                credentials: 'include' 
+            }).then(async res => {
+                if (!res.ok) throw new Error(`Error al obtener stats (HTTP ${res.status})`);
+                return res.json();
+            });
 
             // RBAC: Solo cargar datos de Jefatura / Finanzas si es Admin, Gerencia o Comercial
             let isAdminOrManagement = false;
@@ -137,9 +151,18 @@ window.ModuloDashboard = (function () {
 
                 try {
                     const reqJefatura = fetch(jefUrl, {
-                        headers: { 'Accept': 'application/json' },
+                        headers: getAuthHeaders({ 'Accept': 'application/json' }),
+                        credentials: 'include',
                         signal: controller.signal
-                    }).then(res => res.json());
+                    }).then(async res => {
+                        if (!res.ok) {
+                            const msg = res.status === 401 ? 'Sesión expirada. Por favor recarga la página e inicia sesión.'
+                                      : res.status === 403 ? 'Sin permisos para el panel gerencial.'
+                                      : `Error del servidor al obtener datos de Jefatura (${res.status})`;
+                            throw new Error(msg);
+                        }
+                        return res.json();
+                    });
 
                     const [result, jefaturaData] = await Promise.all([responseStats, reqJefatura]);
                     clearTimeout(timeoutId);
@@ -190,6 +213,20 @@ window.ModuloDashboard = (function () {
 
         } catch (error) {
             console.error("Error en Dashboard BI / Jefatura:", error);
+            
+            // Inyectar o mostrar banner de error
+            let errBanner = document.getElementById('dashboard-error-banner');
+            if (!errBanner) {
+                // Fallback: Si no existe el div en el HTML, lo creamos y lo insertamos arriba
+                errBanner = document.createElement('div');
+                errBanner.id = 'dashboard-error-banner';
+                errBanner.className = 'alert alert-danger mx-3 mt-3 shadow-sm';
+                const container = document.querySelector('.main-content .container-fluid') || document.body;
+                container.prepend(errBanner);
+            }
+            errBanner.innerHTML = `<i class="fas fa-exclamation-triangle me-2"></i> <strong>Error crítico:</strong> ${error.message}`;
+            errBanner.style.display = 'block';
+            
         } finally {
             isFetching = false;
             showLoading(false);
@@ -312,6 +349,7 @@ window.ModuloDashboard = (function () {
 
                 if (lastJefaturaData.mensual) {
                     renderChartMensual(lastJefaturaData.mensual, currentIncSortMode);
+                    renderChartRendimientoMensualNew(lastJefaturaData.mensual, currentIncSortMode);
                 }
                 
                 // Iniciar Pre-fetching Seguro (Sin bloquear UI)
@@ -1876,6 +1914,96 @@ window.ModuloDashboard = (function () {
         }
     }
 
+    // === 3. Gráfico Nuevo: Ventas vs Pedidos Mensual ===
+    function renderChartRendimientoMensualNew(datosMensuales, mode = 'money') {
+        const ctx = document.getElementById('chartRendimientoMensualNew');
+        if (!ctx || !Array.isArray(datosMensuales) || datosMensuales.length === 0) return;
+
+        try {
+            const labels = datosMensuales.map(d => d.mes);
+            const isMoney = mode === 'money';
+
+            const hastaInput = document.getElementById('db-fecha-hasta');
+            const yearActual = hastaInput?.value
+                ? new Date(hastaInput.value).getFullYear()
+                : new Date().getFullYear();
+
+            // Datos del año actual (Ventas vs Pedidos)
+            const dataVentas = datosMensuales.map(d => isMoney ? (d.actual_dinero || 0) : (d.actual_unidades || 0));
+            const dataPedidos = datosMensuales.map(d => isMoney ? (d.actual_pedidos || 0) : (d.actual_pedidos_unidades || 0));
+
+            if (chartRendimientoMensualNewInst) chartRendimientoMensualNewInst.destroy();
+
+            // Colores Contrastantes
+            const COLOR_VENTAS = 'rgba(16, 185, 129, 0.9)'; // Verde Esmeralda (Éxito)
+            const COLOR_PEDIDOS = 'rgba(245, 158, 11, 0.9)'; // Naranja Ambar (Alerta/Pendiente)
+
+            chartRendimientoMensualNewInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: isMoney ? `Ventas ${yearActual} ($)` : `Ventas ${yearActual} (Unds)`,
+                            data: dataVentas,
+                            backgroundColor: COLOR_VENTAS,
+                            borderRadius: 4,
+                            barPercentage: 0.8,
+                            categoryPercentage: 0.8
+                        },
+                        {
+                            label: isMoney ? `Pedidos ${yearActual} ($)` : `Pedidos ${yearActual} (Unds)`,
+                            data: dataPedidos,
+                            backgroundColor: COLOR_PEDIDOS,
+                            borderRadius: 4,
+                            barPercentage: 0.8,
+                            categoryPercentage: 0.8
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let val = context.raw || 0;
+                                    let formattedVal = new Intl.NumberFormat('es-CO').format(val);
+                                    if (isMoney) return context.dataset.label + ': $' + formattedVal;
+                                    return context.dataset.label + ': ' + formattedVal + ' Unds';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    let val = value || 0;
+                                    if (!isMoney) return new Intl.NumberFormat('es-CO').format(val);
+                                    if (val >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
+                                    return '$' + new Intl.NumberFormat('es-CO').format(val);
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error("Error renderizando chartRendimientoMensualNew:", e);
+        }
+    }
+
     /**
      * DRILL-DOWN: Carga y muestra el desglose de ventas de un mes específico en un modal.
      * Refactorizado según requerimiento de Juan Sebastian (ventasCache y UI instantánea).
@@ -2197,6 +2325,7 @@ window.ModuloDashboard = (function () {
             // Gráfico Principal
             const dataMensual = lastJefaturaData.mensual || lastJefaturaData.grafico_mensual || [];
             renderChartMensual(dataMensual, mode);
+            renderChartRendimientoMensualNew(dataMensual, mode);
             
             // Rankings
             const arrMejores = lastJefaturaData.top_productos || lastJefaturaData.top_mejores || [];
@@ -2502,6 +2631,212 @@ window.ModuloDashboard = (function () {
         document.body.removeChild(link);
     }
 
+    // ── GRÁFICO CENTRALIZADO: Análisis Comparativo Anual (Ventas vs Pedidos) ──────
+    // Mapa de instancias keyed por containerId → evita memory leaks con múltiples canvas
+    const _monthlyChartInstances = {};
+
+    /**
+     * Renderiza el gráfico 'Análisis Comparativo Anual' en el canvas indicado.
+     * @param {Object} data  - Payload de /api/dashboard/performance/monthly
+     * @param {string} containerId - id del elemento <canvas> destino
+     */
+    function renderChartMonthlyPerformance(data, containerId = 'chartMensual') {
+        const ctx = document.getElementById(containerId);
+        if (!ctx || !data || !Array.isArray(data.mensual) || data.mensual.length === 0) return;
+
+        try {
+            const yearActual = data.year_actual || new Date().getFullYear();
+            const yearPrev   = data.year_prev   || (yearActual - 1);
+            const labels     = data.mensual.map(d => d.mes);
+
+            // Datos — garantizado 0 en meses sin registro
+            const ventasAct  = data.mensual.map(d => d.actual_dinero  || 0);
+            const ventasPrev = data.mensual.map(d => d.prev_dinero    || 0);
+            const pedidosAct = data.mensual.map(d => d.actual_pedidos || 0);
+            const pedidosPrev= data.mensual.map(d => d.prev_pedidos   || 0);
+
+            // Reusar instancia existente para evitar leak de memoria
+            if (_monthlyChartInstances[containerId]) {
+                _monthlyChartInstances[containerId].destroy();
+            }
+
+            const AZUL_OSCURO   = 'rgba(30, 58, 138, 0.9)';
+            const GRIS_CLARO    = 'rgba(156, 163, 175, 0.75)';
+            const VERDE_PEDIDOS = 'rgba(16, 185, 129, 1)';
+            const AMBER_PEDIDOS = 'rgba(245, 158, 11, 0.8)';
+
+            const _fmtCOP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
+            const _fmtNum = v => new Intl.NumberFormat('es-CO').format(v);
+
+            _monthlyChartInstances[containerId] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: `Ventas ${yearActual}`,
+                            data: ventasAct,
+                            backgroundColor: AZUL_OSCURO,
+                            borderRadius: 4,
+                            barPercentage: 0.8,
+                            categoryPercentage: 0.7,
+                            order: 4
+                        },
+                        {
+                            label: `Ventas ${yearPrev}`,
+                            data: ventasPrev,
+                            backgroundColor: GRIS_CLARO,
+                            borderRadius: 4,
+                            barPercentage: 0.8,
+                            categoryPercentage: 0.7,
+                            order: 3
+                        },
+                        {
+                            label: `Pedidos ${yearActual}`,
+                            data: pedidosAct,
+                            type: 'line',
+                            borderColor: VERDE_PEDIDOS,
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            backgroundColor: 'transparent',
+                            pointStyle: 'circle',
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: VERDE_PEDIDOS,
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 1.5,
+                            tension: 0,
+                            order: 1
+                        },
+                        {
+                            label: `Pedidos ${yearPrev}`,
+                            data: pedidosPrev,
+                            type: 'line',
+                            borderColor: AMBER_PEDIDOS,
+                            borderWidth: 1.5,
+                            borderDash: [3, 3],
+                            backgroundColor: 'transparent',
+                            pointStyle: 'rect',
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            pointBackgroundColor: AMBER_PEDIDOS,
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 1,
+                            tension: 0,
+                            order: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 400, easing: 'easeOutCubic' },
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            labels: { usePointStyle: true, font: { size: 11 }, padding: 16 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: c => c.raw > 0
+                                    ? ` ${c.dataset.label}: ${_fmtCOP(c.raw)}`
+                                    : null
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { borderDash: [4, 4], color: 'rgba(0,0,0,0.04)' },
+                            ticks: {
+                                callback: v => {
+                                    if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M';
+                                    return '$' + _fmtNum(v);
+                                }
+                            }
+                        },
+                        x: { grid: { display: false } }
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const label = _monthlyChartInstances[containerId].data.labels[index];
+                            const dsIdx  = elements[0].datasetIndex;
+                            const ds     = _monthlyChartInstances[containerId].data.datasets[dsIdx];
+                            let anio = yearActual;
+                            if (ds.label.includes(String(yearPrev))) anio = yearPrev;
+                            const mesNum = index + 1;
+                            // Delegar al drill-down existente si está disponible
+                            if (typeof mostrarDrillDownVentas === 'function') {
+                                mostrarDrillDownVentas(mesNum, anio, label);
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error(`[renderChartMonthlyPerformance] Error en canvas '${containerId}':`, e);
+        }
+    }
+
+    /**
+     * Carga datos del endpoint /api/dashboard/performance/monthly y renderiza el gráfico.
+     * @param {string} containerId - id del canvas destino
+     * @param {string} [desde]     - Fecha inicio YYYY-MM-DD (opcional)
+     * @param {string} [hasta]     - Fecha fin YYYY-MM-DD (opcional)
+     */
+    async function fetchAndRenderMonthlyPerformance(containerId = 'chartMensual', desde = '', hasta = '') {
+        try {
+            const params = new URLSearchParams();
+            if (desde) params.append('desde', desde);
+            if (hasta) params.append('hasta', hasta);
+            const url = '/api/dashboard/performance/monthly' + (params.toString() ? '?' + params.toString() : '');
+
+            const pwaToken = localStorage.getItem('pwa_token');
+            const headers = { 'Accept': 'application/json' };
+            if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+
+            const res  = await fetch(url, { headers, credentials: 'include' });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status} al cargar el gráfico comparativo mensual`);
+            }
+            if (res.status === 403) {
+                console.warn('[fetchAndRenderMonthlyPerformance] Acceso restringido (403). Sin permiso para este gráfico.');
+                return;
+            }
+            const json = await res.json();
+            if (json.success && json.data) {
+                renderChartMonthlyPerformance(json.data, containerId);
+            }
+        } catch (e) {
+            console.error('[fetchAndRenderMonthlyPerformance] Error:', e);
+        }
+    }
+
+    // ── INTERACTIVIDAD INDEPENDIENTE: Gráfico Rendimiento Mensual Nuevo ──
+    document.addEventListener('click', (e) => {
+        const btnDinero = e.target.closest('#btnRendimientoMensualDinero');
+        const btnUnidades = e.target.closest('#btnRendimientoMensualUnidades');
+        
+        if (btnDinero || btnUnidades) {
+            e.preventDefault();
+            if (!lastJefaturaData || !lastJefaturaData.mensual) return;
+            
+            const mode = btnDinero ? 'money' : 'units';
+            
+            // 1. Renderizar sólo la gráfica nueva (Aislado)
+            renderChartRendimientoMensualNew(lastJefaturaData.mensual, mode);
+            
+            // 2. Actualizar estados visuales de los botones (en todas las instancias donde existan)
+            document.querySelectorAll('#btnRendimientoMensualDinero').forEach(b => {
+                b.classList.toggle('active', mode === 'money');
+            });
+            document.querySelectorAll('#btnRendimientoMensualUnidades').forEach(b => {
+                b.classList.toggle('active', mode === 'units');
+            });
+        }
+    });
+
     // Attach to windows for HTML access
     window.ModuloDashboard = {
         inicializar: iniciar,
@@ -2536,7 +2871,10 @@ window.ModuloDashboard = (function () {
         exportarBackorderCliente: exportarBackorderCliente,
         sortIncumplimiento: sortIncumplimiento,
         toggleOperatorSelection,
-        abrirModalComparativa
+        abrirModalComparativa,
+        // ── API pública del gráfico centralizado ──
+        renderChartMonthlyPerformance,
+        fetchAndRenderMonthlyPerformance
     };
 
     return window.ModuloDashboard;

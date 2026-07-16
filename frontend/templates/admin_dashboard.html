@@ -263,9 +263,11 @@
                 <div class="col-12 col-xl-7">
                     <div class="card h-100">
                         <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="card-title"><i class="fas fa-chart-area text-primary me-2"></i>Rendimiento
-                                Mensual</h5>
-                            <span class="badge bg-light text-primary border border-primary">Pedidos vs Ventas</span>
+                            <div>
+                                <h5 class="card-title"><i class="fas fa-chart-area text-primary me-2"></i>Análisis Comparativo Anual</h5>
+                                <p class="text-muted mb-0 small">Comparación de rendimiento del año actual frente al año anterior (YoY)</p>
+                            </div>
+                            <span class="badge bg-light text-primary border border-primary">Pedidos vs Ventas YoY</span>
                         </div>
                         <div class="card-body">
                             <div class="chart-container">
@@ -300,6 +302,33 @@
                                         <!-- Generado dinámicamente -->
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 1.5: Rendimiento Mensual (Ventas vs Pedidos) -->
+            <div class="row g-4 mb-4">
+                <div class="col-12">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="card-title"><i class="fas fa-chart-bar text-success me-2"></i>Rendimiento Mensual</h5>
+                                <p class="text-muted mb-0 small">Ventas vs Pedidos mes a mes</p>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-primary" id="btnRendimientoMensualUnidades" title="Ver en Unidades">
+                                    <i class="fas fa-box"></i> Unidades
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary active" id="btnRendimientoMensualDinero" title="Ver en Dinero">
+                                    <i class="fas fa-dollar-sign"></i> Dinero
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container" style="height: 350px;">
+                                <canvas id="chartRendimientoMensualNew"></canvas>
                             </div>
                         </div>
                     </div>
@@ -347,14 +376,15 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/modules/auth.js"></script>
+    <!-- dashboard.js: expone window.ModuloDashboard con renderChartMonthlyPerformance centralizado -->
+    <script src="/static/js/modules/dashboard.js"></script>
 
     <script>
         // Formateadores de moneda
         const formatCOP = (num) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(num);
         const formatNumber = (num) => new Intl.NumberFormat('es-CO').format(num);
 
-        // Variables globales de las gráficas
-        let chartMensualInst = null;
+        // Variables globales de las gráficas (el máx. comparativo anual se gestiona en dashboard.js)
         let chartTopMejoresInst = null;
         let chartTopPeoresInst = null;
 
@@ -421,96 +451,27 @@
         }
 
         function renderizarDashboard(data) {
-            renderChartMensual(data.mensual);
+            // Delegar el gráfico 'Análisis Comparativo Anual' al módulo centralizado en dashboard.js
+            // Esto elimina la implementación duplicada y garantiza DRY.
+            if (window.ModuloDashboard && typeof window.ModuloDashboard.renderChartMonthlyPerformance === 'function') {
+                // El payload de /api/admin/dashboard incluye data.mensual y años.
+                // Se adapta a la interfaz del módulo centralizado.
+                const perfData = {
+                    year_actual: data.year_actual || new Date().getFullYear(),
+                    year_prev:   data.year_prev   || (new Date().getFullYear() - 1),
+                    mensual:     data.mensual     || []
+                };
+                window.ModuloDashboard.renderChartMonthlyPerformance(perfData, 'chartMensual');
+            }
             renderChartTopMejores(data.top_productos);
             renderChartTopPeores(data.peores_productos);
             renderTablaBackorder(data.backorder);
         }
 
-        function renderChartMensual(datosMensuales) {
-            const ctx = document.getElementById('chartMensual');
-            if (!ctx) return;
+        // renderChartMensual ELIMINADA: la lógica fue centralizada en dashboard.js
+        // dentro de window.ModuloDashboard.renderChartMonthlyPerformance(data, containerId)
+        // Ver: /api/dashboard/performance/monthly
 
-            const labels = datosMensuales.map(d => d.mes);
-            
-            // Año Actual vs Anterior
-            const yearActual = new Date().getFullYear();
-            const yearPrev = yearActual - 1;
-
-            const dataPedidosActual = datosMensuales.map(d => d.actual_pedidos || d.pedidos_dinero || 0);
-            const dataVentasActual = datosMensuales.map(d => d.actual_dinero || d.ventas_dinero || 0);
-            const dataPedidosPrev = datosMensuales.map(d => d.prev_pedidos || 0);
-            const dataVentasPrev = datosMensuales.map(d => d.prev_dinero || 0);
-
-            if (chartMensualInst) chartMensualInst.destroy();
-
-            chartMensualInst = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: `Ventas ${yearActual} ($)`,
-                            data: dataVentasActual,
-                            backgroundColor: 'rgba(59, 130, 246, 0.85)', // Azul
-                            borderRadius: 4,
-                            barPercentage: 0.8,
-                            categoryPercentage: 0.8,
-                            order: 1
-                        },
-                        {
-                            label: `Ventas ${yearPrev} ($)`,
-                            data: dataVentasPrev,
-                            backgroundColor: '#CCCCCC', // Gris YoY
-                            borderRadius: 4,
-                            barPercentage: 0.8,
-                            categoryPercentage: 0.8,
-                            order: 2
-                        },
-                        {
-                            label: `Pedidos ${yearActual} ($)`,
-                            data: dataPedidosActual,
-                            type: 'line',
-                            borderColor: '#f59e0b', // Ámbar
-                            borderDash: [5, 5],
-                            backgroundColor: 'transparent',
-                            pointStyle: 'diamond',
-                            pointRadius: 4,
-                            tension: 0.3,
-                            order: 0
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: {
-                            labels: { usePointStyle: true, font: { size: 11 } }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: (context) => ` ${context.dataset.label}: ${formatCOP(context.raw)}`
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { borderDash: [4, 4] },
-                            ticks: {
-                                callback: function (value) {
-                                    if (value >= 1000000) return '$' + (value / 1000000).toFixed(1) + 'M';
-                                    return '$' + value;
-                                }
-                            }
-                        },
-                        x: { grid: { display: false } }
-                    }
-                }
-            });
-        }
 
         function renderChartTopMejores(datos) {
             const ctx = document.getElementById('chartTopMejores');
