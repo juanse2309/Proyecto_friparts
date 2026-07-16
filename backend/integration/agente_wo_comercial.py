@@ -175,9 +175,12 @@ def ejecutar_extraccion():
         sys.exit(1)
     finally:
         # Garantía de cierre de recursos: Cero fugas de sockets en SQL Server
-        if conn:
-            conn.close()
-            print("[INFO] Conexión a SQL Server cerrada limpiamente.")
+        if 'conn' in locals() and conn:
+            try:
+                conn.close()
+                print("[INFO] Conexión a SQL Server cerrada limpiamente.")
+            except Exception as close_err:
+                print(f"[INFO] La conexión a SQL Server ya estaba cerrada o no requiere cierre explícito: {close_err}")
 
 def main():
     import sys

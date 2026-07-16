@@ -347,9 +347,7 @@ def recibir_comercial():
         # Paso 1: Si es el primer lote, inicializamos la tabla Staging en PostgreSQL
         if index == 0:
             logger.info("Lote inicial (index 0). Preparando tabla Staging 'db_ventas_staging'...")
-            # Creamos la tabla de Staging si no existe, replicando el esquema de db_ventas
-            db.session.execute(text("CREATE TABLE IF NOT EXISTS db_ventas_staging (LIKE db_ventas INCLUDING ALL)"))
-            # Vaciamos la tabla de Staging para empezar de cero el nuevo volcado
+            # Asumimos que db_ventas_staging ya existe estáticamente. Vaciamos la tabla para el nuevo volcado.
             db.session.execute(text("TRUNCATE db_ventas_staging"))
             db.session.commit()
 
