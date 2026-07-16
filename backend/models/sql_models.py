@@ -320,6 +320,7 @@ class Usuario(db.Model):
     nombre_completo = db.Column(db.String(150), nullable=True)
     rol             = db.Column(db.String(50),  default='operario')
     cedula          = db.Column(db.String(20),  nullable=True) # Identificación oficial del usuario
+    nit_empresa     = db.Column(db.String(50),  nullable=True, index=True) # Identificación empresarial para clientes B2B
     departamento    = db.Column(db.String(100), nullable=True) # Area asignada (ej: INYECCION, PULIDO)
     hora_entrada    = db.Column(db.String(20),  nullable=True) # Horario oficial
     hora_salida     = db.Column(db.String(20),  nullable=True) # Horario oficial
