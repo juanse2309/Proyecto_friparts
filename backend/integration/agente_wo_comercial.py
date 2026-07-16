@@ -1,153 +1,84 @@
-# -*- coding: utf-8 -*-
-"""
-Agente Sincronizador Local Comercial - World Office <-> FriTech
--------------------------------------------------------------
-Este script se ejecuta localmente en la red on-premise de la empresa.
-Extrae los datos comerciales de ventas (FV), pedidos (PD) y devoluciones (NC) del año actual
-de la base de datos de SQL Server de World Office y los envía al endpoint
-de FriTech en la nube (Render).
-
-Requisitos:
-    pip install pyodbc requests python-dotenv
-
-Ejecución:
-    python agente_wo_comercial.py
-"""
-
 import os
-import sys
-import json
-import logging
-from decimal import Decimal
-import datetime
 import pyodbc
 import requests
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 
-# Cargar variables de entorno locales si existe un archivo .env
+# Cargar variables de entorno locales si existe un archivo .env (y para que tome el token correcto)
 load_dotenv()
-
-# Configurar logging local
-import io
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace'))
-    ]
-)
-logger = logging.getLogger("AgenteWOComercial")
 
 # ====================================================================
 # CONFIGURACIÓN DE CONEXIÓN Y SEGURIDAD
 # ====================================================================
-DB_DRIVER = os.getenv("WO_DB_DRIVER", "{SQL Server}")
-DB_SERVER = os.getenv("WO_DB_SERVER", r"SERVERWO\WORLDOFFICE17")
-DB_DATABASE = os.getenv("WO_DB_DATABASE", "FRIPARTS2021")
-DB_UID = os.getenv("WO_DB_UID", "wo_cliente")
-DB_PWD = os.getenv("WO_DB_PWD", "wo_cliente")
+DB_DRIVER   = os.getenv("WO_DB_DRIVER",  "{ODBC Driver 17 for SQL Server}")
+DB_SERVER   = os.getenv("WO_SERVER",     r"SERVERWO\WORLDOFFICE17")
+DB_DATABASE = os.getenv("WO_DB",         "FRIPARTS2021")
+DB_UID      = os.getenv("WO_USER",       "wo_cliente")
+DB_PWD      = os.getenv("WO_PASSWORD",   "wo_cliente")
 
-# URLs de la API de FriTech en Render
-FRITECH_API_URL = os.getenv("FRITECH_API_URL", "https://proyecto-friparts.onrender.com/api/wo/recibir_datos")
-FRITECH_COMERCIAL_API_URL = os.getenv("FRITECH_COMERCIAL_API_URL")
+API_URL = os.getenv("API_RENDER_URL_COMERCIAL", "https://proyecto-friparts.onrender.com/api/wo/recibir_comercial")
+API_KEY = os.getenv("WO_SYNC_API_KEY", "FriParts-WO-Sync-2026!")
 
-if not FRITECH_COMERCIAL_API_URL:
-    if "recibir_datos" in FRITECH_API_URL:
-        FRITECH_COMERCIAL_API_URL = FRITECH_API_URL.replace("recibir_datos", "recibir_comercial")
-    else:
-        FRITECH_COMERCIAL_API_URL = "https://proyecto-friparts.onrender.com/api/wo/recibir_comercial"
+# Construir el string de conexión a SQL Server exactamente como en agente_wo.py
+conn_str = (
+    f"DRIVER={{SQL Server}};"
+    f"SERVER={DB_SERVER};"
+    f"DATABASE={DB_DATABASE};"
+    f"UID={DB_UID};"
+    f"PWD={DB_PWD};"
+    # Opciones recomendadas para redes locales/on-premise
+    "Timeout=30;"
+)
 
-# API Key para autenticar contra la app en la nube
-WO_SYNC_API_KEY = os.getenv("WO_SYNC_API_KEY", "FriParts-WO-Sync-2026!")
+CHUNK_SIZE = 2000
 
-
-# ====================================================================
-# SERIALIZACIÓN PERSONALIZADA PARA JSON
-# ====================================================================
-class SQLServerJSONEncoder(json.JSONEncoder):
+def enviar_datos_por_lotes(datos, url_api, headers):
     """
-    Encoder de JSON personalizado para manejar tipos de datos típicos de SQL Server.
+    Divide el payload masivo en lotes pequeños para evitar 
+    timeouts en Render y locks en PostgreSQL.
     """
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return float(obj)
-        if isinstance(obj, (datetime.date, datetime.datetime)):
-            return obj.isoformat()
-        if isinstance(obj, bytes):
-            return obj.decode('utf-8', errors='ignore')
-        return super(SQLServerJSONEncoder, self).default(obj)
-
-
-# ====================================================================
-# FUNCIONES DE EXTRACT & SYNC
-# ====================================================================
-def sincronizar_datos_comerciales():
-    """
-    Extrae los datos comerciales de ventas, pedidos y devoluciones del año actual 
-    de World Office y los envía al backend en Render.
-    """
-    # Obtener parámetros de entorno
-    driver_env = os.getenv("WO_DB_DRIVER", "{ODBC Driver 17 for SQL Server}")
-    server_env = os.getenv("WO_DB_SERVER", r"SERVERWO\WORLDOFFICE17")
-    db_env = os.getenv("WO_DB_DATABASE", "FRIPARTS2021")
-    uid_env = os.getenv("WO_DB_UID", "wo_cliente")
-    pwd_env = os.getenv("WO_DB_PWD", "wo_cliente")
-
-    # Lista de cadenas de conexión para intentar de forma robusta
-    cadenas_conexion = [
-        {
-            "nombre": "ODBC Driver 17 (Trusted Connection)",
-            "str": f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server_env};DATABASE={db_env};Trusted_Connection=yes;Timeout=30;"
-        },
-        {
-            "nombre": "SQL Server Legacy (Trusted Connection)",
-            "str": f"DRIVER={{SQL Server}};SERVER={server_env};DATABASE={db_env};Trusted_Connection=yes;Timeout=30;"
-        },
-        {
-            "nombre": "SQL Server Legacy (Con Credenciales de agente_wo.py)",
-            "str": f"DRIVER={{SQL Server}};SERVER={server_env};DATABASE={db_env};UID={uid_env};PWD={pwd_env};Timeout=30;"
-        },
-        {
-            "nombre": "ODBC Driver 17 (Con Credenciales)",
-            "str": f"DRIVER={driver_env};SERVER={server_env};DATABASE={db_env};UID={uid_env};PWD={pwd_env};Timeout=30;"
+    total_registros = len(datos)
+    for i in range(0, total_registros, CHUNK_SIZE):
+        lote = datos[i:i + CHUNK_SIZE]
+        payload = {
+            "is_chunk": True,
+            "index": i // CHUNK_SIZE,
+            "total_chunks": (total_registros + CHUNK_SIZE - 1) // CHUNK_SIZE,
+            "data": lote
         }
-    ]
+        
+        try:
+            # Enviamos cada lote con un timeout prudente
+            response = requests.post(url_api, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            print(f"[OK] Lote {(i // CHUNK_SIZE) + 1}/{(total_registros + CHUNK_SIZE - 1) // CHUNK_SIZE} enviado correctamente.")
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Falló el envío del lote {i // CHUNK_SIZE}: {e}")
+            if e.response is not None:
+                print(e.response.text)
+            raise e
 
-    logger.info("📡 Iniciando proceso de sincronización comercial...")
-    logger.info(f"🔑 Servidor SQL Server: {server_env}")
-    logger.info(f"📂 Base de Datos: {db_env}")
-    logger.info(f"🌐 Enviando datos a: {FRITECH_COMERCIAL_API_URL}")
-
+def ejecutar_extraccion():
+    print("=" * 60)
+    print("[>>] INICIANDO EXTRACCION COMERCIAL (AÑO ACTUAL) DESDE WO")
+    print("=" * 60)
+    
     conn = None
-    for opcion in cadenas_conexion:
-        try:
-            logger.info(f"Intentando conectar con {opcion['nombre']}...")
-            conn = pyodbc.connect(opcion["str"])
-            logger.info(f"✅ Conectado exitosamente usando: {opcion['nombre']}")
-            break
-        except pyodbc.Error as e_conn:
-            logger.warning(f"⚠️ Intento fallido con {opcion['nombre']}. Detalles: {e_conn}")
-
-    if not conn:
-        logger.critical("❌ Todos los intentos de conexión SQL Server fallaron.")
-        try:
-            available_drivers = pyodbc.drivers()
-            logger.info(f"🔍 Drivers ODBC disponibles en este equipo: {available_drivers}")
-        except Exception as e_drv:
-            logger.error(f"No se pudo consultar pyodbc.drivers(): {e_drv}")
-        return False
-
     try:
+        conn = pyodbc.connect(conn_str, timeout=15)
         cursor = conn.cursor()
-
+        
         # 1. Crear Diccionario de Mapeo en Memoria (Catálogo Maestro)
-        logger.info("Cargando catálogo maestro de inventarios en memoria...")
+        print(">> Cargando catálogo maestro de inventarios en memoria...")
         cursor.execute("SELECT Autonumerico, Codigo_Producto FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios]")
         mapping = {}
         for row in cursor.fetchall():
+            # Autonumerico puede venir como numérico o string, lo forzamos a string para cruzar
             mapping[str(row[0])] = row[1]
-
-        sql_query = """
+            
+        # 2. Consulta SQL Definitiva simplificada
+        sql = """
         SELECT 
             E.Fecha AS fecha,
             (E.prefijo + '-' + CAST(E.Numero_de_Documento AS VARCHAR)) AS documento,
@@ -164,163 +95,127 @@ def sincronizar_datos_comerciales():
           AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL')
           AND E.Anulado = 0;
         """
-
-        logger.info("Ejecutando consulta comercial SQL Server...")
-        cursor.execute(sql_query)
         
-        registros = []
-        cant_pd = 0
-        cant_fv = 0
-        cant_nc = 0
-        total_ingresos_fv = 0.0
-
-        # Obtener columnas descriptivas
-        columns = [column[0] for column in cursor.description]
-
+        print(">> Ejecutando consulta SQL...")
+        cursor.execute(sql)
+        
+        columnas = [column[0] for column in cursor.description]
+        datos = []
+        total_ventas = 0.0
+        
         for row in cursor.fetchall():
-            row_dict = dict(zip(columns, row))
+            item = dict(zip(columnas, row))
             
-            # Sanitizar ingresos/subtotal
-            subtotal = row_dict.get('total_ingresos') or 0.0
-            try:
-                subtotal_f = float(subtotal)
-            except (ValueError, TypeError):
-                subtotal_f = 0.0
+            # Formatear la fecha para que sea serializable en JSON
+            if item['fecha']:
+                item['fecha'] = item['fecha'].strftime('%Y-%m-%d')
             
             # Mapeo de Clasificación y Ajuste Matemático
-            tipo_doc = row_dict.get('tipo_doc', '').strip()
+            tipo_doc = item.get('tipo_doc', '').strip()
             
             if tipo_doc == 'PED':
-                row_dict['clasificacion'] = 'pedido'
-                cant_pd += 1
+                item['clasificacion'] = 'pedido'
             elif tipo_doc in ['FV', 'COT', 'NC', 'NCV', 'NCCL']:
-                row_dict['clasificacion'] = 'venta'
+                item['clasificacion'] = 'venta'
                 
                 # Ajuste matemático para devoluciones/notas crédito
                 if tipo_doc in ['NC', 'NCV', 'NCCL']:
                     # Se asume que total_ingresos viene en positivo, lo volvemos negativo
-                    subtotal_f = subtotal_f * -1
-                    row_dict['total_ingresos'] = subtotal_f
-                    cant_nc += 1
+                    item['total_ingresos'] = float(item.get('total_ingresos', 0)) * -1
                 
                 # Para el control de seguridad local (solo FV suma al control)
                 if tipo_doc == 'FV':
-                    cant_fv += 1
-                    total_ingresos_fv += subtotal_f
-                elif tipo_doc == 'COT':
-                    # Opcional, lo sumamos a cant_fv localmente para mantener el log consistente
-                    cant_fv += 1
+                    total_ventas += float(item.get('total_ingresos', 0))
             else:
-                row_dict['clasificacion'] = 'desconocido'
-                
-            # Mapeo de Producto en Memoria (POLÍTICA FAIL-FAST sin Fallback)
-            prod_id = str(row_dict.get('productos', '')).strip()
-            mapped_prod = mapping.get(prod_id)
+                item['clasificacion'] = 'desconocido'
+            # Mapeo de Producto en Memoria
+            prod_id = str(item.get('productos', '')).strip()
+            # Buscar en el diccionario el código real, si no lo halla, usar el original
+            mapped_prod = mapping.get(prod_id, prod_id)
             
-            if not mapped_prod or str(mapped_prod).strip() == "":
-                error_msg = f"Fallo de Mapeo: Producto con ID Interno '{prod_id}' no tiene SKU real. Documento: {row_dict.get('documento', 'N/A')}. Omitiendo."
-                logger.warning(error_msg)
-                with open("sync_errors.log", "a", encoding="utf-8") as f_err:
-                    f_err.write(f"{datetime.datetime.now()} - {error_msg}\n")
-                continue
+            # Priorización de datos reales: asignamos exactamente lo que devolvió el mapeo (o el original si falló) sin prefijos inventados
+            item['productos'] = str(mapped_prod or '').strip()
+            
+            # Eliminar la columna tipo_doc original
+            if 'tipo_doc' in item:
+                del item['tipo_doc']
                 
-            row_dict['productos'] = str(mapped_prod).strip()
-
-            registros.append(row_dict)
-
-        logger.info(f"Extracción completada: {len(registros)} registros encontrados.")
-        logger.info(f"Desglose: {cant_pd} pedidos (PD), {cant_fv} ventas (FV), {cant_nc} devoluciones (NC).")
-        
-        # ====================================================================
-        # FRENO DE SEGURIDAD CONTABLE
-        # ====================================================================
-        print("\n" + "="*80)
-        print(" [SECURITY] FRENO DE SEGURIDAD - AUDITORÍA FINANCIERA")
-        print(f" TOTAL DE INGRESOS CALCULADO PARA VENTAS ('FV'): ${total_ingresos_fv:,.2f}")
-        print(" POR FAVOR, VALIDE ESTE NÚMERO CONTRA EL BALANCE DE WORLD OFFICE ANTES DE VALIDAR LOS REPORTES EN EL B2B.")
-        print("="*80 + "\n")
-
-        cursor.close()
+            datos.append(item)
+            
         conn.close()
-        conn = None
-
-        if not registros:
-            logger.warning("No se encontraron registros comerciales válidos para el año actual. Cancelando envío.")
-            return True
-
-        # Preparar envío HTTP
+        
+        print(f"[OK] Extraccion completada. {len(datos)} registros encontrados.")
+        
+        # 🔒 FRENO DE SEGURIDAD OBLIGATORIO
+        print("\n" + "=" * 60)
+        print(f"[SECURITY] FRENO DE SEGURIDAD - AUDITORIA FINANCIERA:")
+        print(f"   TOTAL VENTAS (FEV) = $ {total_ventas:,.2f}")
+        print("=" * 60)
+        
+        import sys
+        is_auto = "--auto" in sys.argv or os.getenv("AUTO_SYNC") == "True"
+        if not is_auto:
+            confirmacion = input("\nPresiona ENTER para enviar los datos a Render (o Ctrl+C para cancelar)...")
+        else:
+            print("\n[INFO] Modo automático detectado. Omitiendo freno de seguridad manual...")
+        
+        # Envío POST
+        print("\n>> Enviando datos a Render por lotes...")
         headers = {
             "Content-Type": "application/json",
-            "X-API-Key": WO_SYNC_API_KEY
+            "X-API-Key": API_KEY,
+            "X-Sync-Token": API_KEY
         }
-
-        payload = {
-            "nombre_vista": "Vista_Documentos_Detalle",
-            "datos": registros
-        }
-
-        payload_json = json.dumps(payload, cls=SQLServerJSONEncoder)
-
-        logger.info(f"[DEBUG] Tamaño del Payload: {len(payload_json)} bytes")
-
-        import time as _time
-        MAX_INTENTOS = 3
-        for intento in range(1, MAX_INTENTOS + 1):
-            try:
-                logger.info(f"Enviando datos al servidor (intento {intento}/{MAX_INTENTOS})...")
-                response = requests.post(
-                    FRITECH_COMERCIAL_API_URL,
-                    data=payload_json,
-                    headers=headers,
-                    timeout=90
-                )
-
-                logger.info(f"[DEBUG] Código de Respuesta del Servidor: {response.status_code}")
-                logger.info(f"[DEBUG] Respuesta Completa del Servidor: {response.text}")
-
-                if response.status_code == 200:
-                    logger.info("🎉 ¡Sincronización comercial exitosa!")
-                    return True
-                elif response.status_code == 401:
-                    logger.error("Error 401: No autorizado. Verifica la API Key (WO_SYNC_API_KEY).")
-                    return False
-                elif response.status_code == 400:
-                    logger.error(f"Error 400 (datos inválidos): {response.text}")
-                    return False
-                else:
-                    logger.warning(f"Error en el servidor (Status {response.status_code}). Reintentando...")
-
-            except requests.exceptions.RequestException as e_net:
-                logger.warning(f"Error de red (intento {intento}): {e_net}")
-
-            if intento < MAX_INTENTOS:
-                espera = 5 * intento
-                logger.info(f"Esperando {espera}s antes del siguiente intento...")
-                _time.sleep(espera)
-
-        logger.error(f"Fallaron los {MAX_INTENTOS} intentos de envío al servidor.")
-        return False
-
-    except pyodbc.Error as e_sql:
-        logger.error(f"❌ Error de base de datos (SQL Server): {e_sql}")
-        return False
+        
+        enviar_datos_por_lotes(datos, API_URL, headers)
+        print("[OK] Sincronización comercial finalizada exitosamente.")
+            
     except Exception as e:
-        logger.error(f"❌ Error inesperado en el agente comercial: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-                logger.info("Conexión de base de datos cerrada.")
-            except Exception:
-                pass
-
-
-if __name__ == '__main__':
-    exito = sincronizar_datos_comerciales()
-    if exito:
-        logger.info("Proceso comercial terminado con éxito.")
-        sys.exit(0)
-    else:
-        logger.error("Proceso comercial terminado con errores.")
+        print(f"[FATAL] Error fatal en el proceso: {e}")
         sys.exit(1)
+    finally:
+        # Garantía de cierre de recursos: Cero fugas de sockets en SQL Server
+        if conn:
+            conn.close()
+            print("[INFO] Conexión a SQL Server cerrada limpiamente.")
+
+def main():
+    import sys
+    modo_forzado = "--forzar" in sys.argv
+    
+    check_url = "https://proyecto-friparts.onrender.com/api/wo/verificar_sync"
+    sync_requerida = False
+    
+    print(f"Verificando si hay solicitud de sincronización en el servidor...")
+    try:
+        resp = requests.get(check_url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("sync_pendiente"):
+                print("[>>] Solicitud de sincronización pendiente detectada.")
+                sync_requerida = True
+            else:
+                print("[>>] No hay solicitud pendiente.")
+        else:
+            print(f"[WARN] No se pudo verificar el flag (HTTP {resp.status_code}).")
+    except Exception as e:
+        print(f"[WARN] Error al conectar con el servidor para verificar flag: {e}")
+        
+    if sync_requerida or modo_forzado or ("--auto" in sys.argv):
+        if sync_requerida:
+            os.environ["AUTO_SYNC"] = "True"
+            
+        ejecutar_extraccion()
+        
+        if sync_requerida:
+            print(">> Limpiando flag de sincronización en el servidor...")
+            try:
+                requests.post("https://proyecto-friparts.onrender.com/api/wo/solicitar_sync", json={"sync_pendiente": False}, timeout=10)
+                print("[OK] Flag limpio.")
+            except Exception as e:
+                print(f"[WARN] No se pudo limpiar el flag: {e}")
+    else:
+        print("[>>] Ejecución cancelada. Usa --forzar o --auto para extraer de todas formas.")
+
+if __name__ == "__main__":
+    main()

@@ -305,19 +305,28 @@ def recibir_comercial():
 
     try:
         payload = request.json or {}
-        if isinstance(payload, dict):
-            datos = payload.get("datos", [])
+        
+        # Detectar si es un lote (chunk) o un payload tradicional
+        is_chunk = payload.get("is_chunk", False)
+        if is_chunk:
+            index = payload.get("index", 0)
+            total_chunks = payload.get("total_chunks", 1)
+            datos = payload.get("data", [])
+            logger.info(f"Recibiendo lote {index + 1}/{total_chunks} de datos comerciales de WO: {len(datos)} registros")
         else:
-            datos = payload
-
-        if not isinstance(datos, list):
-            datos = [datos] if datos else []
-
-        logger.info(f"Datos comerciales de WO recibidos: {len(datos)} registros")
+            index = 0
+            total_chunks = 1
+            if isinstance(payload, dict):
+                datos = payload.get("datos", [])
+            else:
+                datos = payload
+            if not isinstance(datos, list):
+                datos = [datos] if datos else []
+            logger.info(f"Datos comerciales de WO recibidos (sin chunking): {len(datos)} registros")
 
         from backend.models.sql_models import RawVentas
         from backend.core.sql_database import db
-        from sqlalchemy import extract
+        from sqlalchemy import text
         from datetime import datetime
 
         # Helper para parseo seguro de fechas
@@ -335,15 +344,17 @@ def recibir_comercial():
                 except ValueError:
                     return None
 
-        # Paso 1: Obtener año actual de Colombia / Servidor
-        current_year = datetime.now().year
+        # Paso 1: Si es el primer lote, inicializamos la tabla Staging en PostgreSQL
+        if index == 0:
+            logger.info("Lote inicial (index 0). Preparando tabla Staging 'db_ventas_staging'...")
+            # Creamos la tabla de Staging si no existe, replicando el esquema de db_ventas
+            db.session.execute(text("CREATE TABLE IF NOT EXISTS db_ventas_staging (LIKE db_ventas INCLUDING ALL)"))
+            # Vaciamos la tabla de Staging para empezar de cero el nuevo volcado
+            db.session.execute(text("TRUNCATE db_ventas_staging"))
+            db.session.commit()
 
-        # Paso 2: Ejecutar DELETE e INSERT en la misma transacción lógica
-        # DELETE TOTAL de todos los registros en db_ventas para eliminar basura histórica
-        db.session.query(RawVentas).delete(synchronize_session=False)
-
-        # Paso 3: Mapear y preparar datos
-        mappings = []
+        # Paso 2: Mapear y preparar datos del chunk actual
+        mappings_chunk = []
         conteo_prefijos = {}
         cant_pd = 0
         cant_fv = 0
@@ -394,8 +405,10 @@ def recibir_comercial():
             except (ValueError, TypeError):
                 precio_promedio = 0.0
 
-            mappings.append({
-                'fecha': parse_date(item.get('fecha')),
+            fecha_parsed = parse_date(item.get('fecha'))
+            
+            mappings_chunk.append({
+                'fecha': fecha_parsed,
                 'documento': str(item.get('documento') or '').strip()[:80],
                 'nombres': str(item.get('nombres') or '').strip()[:200],
                 'productos': str(item.get('productos') or '').strip()[:100],
@@ -405,30 +418,50 @@ def recibir_comercial():
                 'clasificacion': clasif
             })
 
-        if mappings:
-            db.session.bulk_insert_mappings(RawVentas, mappings)
+        # Persistir el chunk actual en la tabla Staging
+        if mappings_chunk:
+            sql_insert = text("""
+                INSERT INTO db_ventas_staging 
+                (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion) 
+                VALUES (:fecha, :documento, :nombres, :productos, :cantidad, :total_ingresos, :precio_promedio, :clasificacion)
+            """)
+            db.session.execute(sql_insert, mappings_chunk)
             db.session.commit()
-            logger.info(f"✅ Inserción comercial completada en una única transacción. Insertados: {len(mappings)} registros. Desglose: {conteo_prefijos}")
-        else:
-            db.session.commit()
-            logger.info("ℹ️ No se recibieron registros comerciales válidos para insertar.")
+
+        # Paso 3: Si llegamos al último chunk, procedemos con la transacción atómica
+        if index == total_chunks - 1:
+            logger.info("Último lote recibido. Iniciando Volcado Atómico desde Staging a db_ventas...")
+            try:
+                # Transacción ultrarrápida: Swap de tablas en el motor SQL
+                db.session.execute(text("TRUNCATE db_ventas"))
+                db.session.execute(text("""
+                    INSERT INTO db_ventas (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion)
+                    SELECT fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion 
+                    FROM db_ventas_staging
+                """))
+                db.session.commit()
+                logger.info("✅ Sincronización comercial completada con volcado atómico desde Staging Table.")
+            except Exception as db_err:
+                db.session.rollback()
+                logger.error(f"❌ Error en volcado de staging a producción: {db_err}")
+                raise db_err
 
         detalles_response = {
-            "total_insertados": len(mappings)
+            "total_insertados_chunk": len(mappings_chunk),
+            "lote_actual": index + 1,
+            "total_lotes": total_chunks,
+            "estado": "En progreso (Staging)" if index < total_chunks - 1 else "Completado y Volcado a Producción"
         }
-        # Agregar los contadores dinámicos al response
-        for pref, qty in conteo_prefijos.items():
-            detalles_response[f"insertados_{pref.lower()}"] = qty
 
         return jsonify({
             "success": True,
-            "message": "Sincronización comercial exitosa",
+            "message": f"Sincronización comercial del lote {index + 1}/{total_chunks} exitosa",
             "detalles": detalles_response
         }), 200
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"❌ Transacción fallida. Sincronización comercial abortada y revertida (Rollback). Error: {e}")
+        logger.error(f"❌ Transacción fallida en recepción de chunk. Error: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500

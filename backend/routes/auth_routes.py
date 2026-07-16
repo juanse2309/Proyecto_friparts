@@ -161,24 +161,31 @@ def login():
     try:
         data = request.json
         usuario_nombre = data.get('responsable')
-        password = str(data.get('password', '')).strip() # ⚡ Limpiar espacios
+        password = str(data.get('password', '')).strip()
 
         if not usuario_nombre or not password:
             return jsonify({"success": False, "message": "Faltan datos"}), 400
 
-        user = Usuario.query.filter_by(username=usuario_nombre, activo=True).first()
+        from sqlalchemy import or_
+        user = Usuario.query.filter(or_(Usuario.username == usuario_nombre, Usuario.cedula == usuario_nombre)).first()
         
         # --- DEBUG LOGIN ---
-        print("--- DEBUG LOGIN ---")
-        print(f"1. Usuario buscado: '{usuario_nombre}'")
-        print(f"2. ¿Usuario encontrado en BD?: {user is not None}")
+        logger.info("--- DEBUG LOGIN (STAFF) ---")
+        logger.info(f"1. Identificador buscado (email/cedula): '{usuario_nombre}'")
+        logger.info(f"2. ¿Usuario encontrado en BD?: {user is not None}")
         if user:
-            print(f"3. Hash/Password en BD: '{user.password_hash}'")
-        print(f"4. Contraseña enviada por frontend: '{password}'")
-        print("-------------------")
+            logger.info(f"3. Rol del usuario: {user.rol}")
+            logger.info(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'") # Sin exponer hash completo
+        logger.info("-------------------")
 
         if not user:
              return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
+
+        if user.rol == 'CLIENTE_PENDIENTE':
+            return jsonify({"success": False, "message": "Tu cuenta está en proceso de revisión por un administrador"}), 401
+
+        if getattr(user, 'activo', None) is False:
+             return jsonify({"success": False, "message": "Usuario inactivo"}), 401
 
         if check_password_hash(user.password_hash, password):
              # Guardar rol en sesión en MAYÚSCULAS para matching estricto
@@ -312,11 +319,32 @@ def login_client():
         email = str(data.get('email', '')).strip().lower()
         password = str(data.get('password', '')).strip()
 
-        user = Usuario.query.filter_by(username=email, rol='cliente', activo=True).first()
-                
+        from sqlalchemy import or_
+        user = Usuario.query.filter(or_(Usuario.username == email, Usuario.cedula == email)).first()
+        
+        # --- DEBUG LOGIN CLIENTE ---
+        logger.info("--- DEBUG LOGIN (CLIENTE) ---")
+        logger.info(f"1. Identificador buscado (email/cedula): '{email}'")
+        logger.info(f"2. ¿Usuario encontrado en BD?: {user is not None}")
+        if user:
+            logger.info(f"3. Rol del usuario: {user.rol}")
+            logger.info(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'")
+        logger.info("-------------------")
+
         if not user:
              return jsonify({"success": False, "message": "Usuario o contraseña incorrectos"}), 401
-             
+
+        # Control del Sandboxing
+        if user.rol == 'CLIENTE_PENDIENTE':
+            return jsonify({"success": False, "message": "Tu cuenta está en proceso de revisión por un administrador"}), 401
+            
+        if user.rol.lower() != 'cliente':
+            # Solo permitir login si el rol final es cliente
+            return jsonify({"success": False, "message": "Acceso denegado al portal B2B"}), 403
+
+        if getattr(user, 'activo', None) is False:
+             return jsonify({"success": False, "message": "Usuario inactivo"}), 401
+
         if not check_password_hash(user.password_hash, password):
             return jsonify({"success": False, "message": "Usuario o contraseña incorrectos"}), 401
 
