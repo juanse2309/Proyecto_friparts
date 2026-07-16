@@ -349,6 +349,48 @@ def login_client():
         logger.error(f"Error in client SQL login: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+@auth_bp.route('/api/auth/client/register', methods=['POST'])
+def register_client():
+    """Registro público para Clientes B2B con patrón Sandboxing"""
+    try:
+        data = request.json
+        email = str(data.get('email', '')).strip().lower()
+        password = str(data.get('password', '')).strip()
+        nit = str(data.get('nit', '')).strip()
+        nombre_empresa = str(data.get('nombre_empresa', '')).strip()
+
+        if not all([email, password, nit, nombre_empresa]):
+            return jsonify({"success": False, "message": "Faltan datos obligatorios"}), 400
+
+        # Validar duplicados de Email o NIT
+        if Usuario.query.filter_by(username=email).first():
+            return jsonify({"success": False, "message": "El correo ya está registrado"}), 400
+            
+        if Usuario.query.filter_by(nit_empresa=nit).first():
+            return jsonify({"success": False, "message": "El NIT ya está registrado"}), 400
+
+        # Hashear la contraseña obligatoriamente con scrypt
+        hashed_pw = generate_password_hash(password, method='scrypt')
+
+        # Crear Usuario en Sala de Espera (Sandboxing)
+        nuevo_cliente = Usuario(
+            username=email,
+            password_hash=hashed_pw,
+            nombre_completo=nombre_empresa,
+            rol='CLIENTE_PENDIENTE',
+            nit_empresa=nit
+        )
+
+        db.session.add(nuevo_cliente)
+        db.session.commit()
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error en el registro público de cliente: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
 @auth_bp.route('/api/auth/client/change-password', methods=['POST'])
 def change_password_client():
     """Cambio de contraseña CLIENTE en SQL"""

@@ -5104,13 +5104,33 @@
 
             <!-- REGISTER FORM (Hidden) -->
             <form id="client-register-form" style="display: none;">
-                <!-- Removed: Public Registration -->
-                <div class="text-center py-4 px-3 bg-light rounded-3 border" style="margin-top: 20px;">
-                    <i class="fas fa-info-circle text-primary fa-2x mb-3"></i>
-                    <h6 class="fw-bold mb-2">¿No tienes cuenta?</h6>
-                    <p class="text-muted small mb-0">
-                        Contacta a nuestro equipo de ventas para obtener tus credenciales de acceso.
-                    </p>
+                <div class="mb-3">
+                    <label class="form-label fw-bold small">Nombre de Empresa</label>
+                    <input type="text" id="register-nombre" class="form-control" required placeholder="Mi Empresa S.A.S.">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold small">NIT</label>
+                    <input type="text" id="register-nit" class="form-control" required placeholder="900123456-7">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold small">Correo Electrónico</label>
+                    <input type="email" id="register-email" class="form-control" required placeholder="correo@empresa.com">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold small">Contraseña</label>
+                    <input type="password" id="register-password" class="form-control" required placeholder="******" minlength="6">
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold small">Confirmar Contraseña</label>
+                    <input type="password" id="register-confirm-password" class="form-control" required placeholder="******" minlength="6">
+                </div>
+                <button type="submit" class="btn btn-success w-100 py-2 fw-bold rounded-pill">
+                    Crear Cuenta <i class="fas fa-user-plus ms-2"></i>
+                </button>
+                <div class="text-center mt-3">
+                    <a href="#" onclick="AuthModule.toggleClientForms()" class="small text-decoration-none text-secondary">
+                        <i class="fas fa-arrow-left me-1"></i> Volver al Login
+                    </a>
                 </div>
             </form>
 

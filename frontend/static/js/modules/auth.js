@@ -156,6 +156,11 @@ const AuthModule = {
             });
         }
 
+        const clientRegisterForm = document.getElementById('client-register-form');
+        if (clientRegisterForm) {
+            clientRegisterForm.addEventListener('submit', (e) => this.handleClientRegister(e));
+        }
+
         const passwordInput = document.getElementById('login-password');
         if (passwordInput) {
             passwordInput.addEventListener('input', function (e) {
@@ -242,10 +247,65 @@ const AuthModule = {
     },
 
     toggleClientForms: function () {
-        // Disabled public registration
-        // const loginForm = document.getElementById('client-login-form');
-        // ...
-        return;
+        const loginForm = document.getElementById('client-login-form');
+        const registerForm = document.getElementById('client-register-form');
+        const authTitle = document.getElementById('auth-title');
+
+        if (loginForm.style.display === 'none') {
+            loginForm.style.display = 'block';
+            registerForm.style.display = 'none';
+            if (authTitle) authTitle.textContent = 'Bienvenido Cliente';
+        } else {
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'block';
+            if (authTitle) authTitle.textContent = 'Registro de Cliente';
+        }
+    },
+
+    handleClientRegister: async function (e) {
+        e.preventDefault();
+        
+        const nombre_empresa = document.getElementById('register-nombre').value;
+        const nit = document.getElementById('register-nit').value;
+        const email = document.getElementById('register-email').value;
+        const password = document.getElementById('register-password').value;
+        const confirm_password = document.getElementById('register-confirm-password').value;
+
+        if (password !== confirm_password) {
+            this.mostrarNotificacion("Las contraseñas no coinciden", 'error');
+            return;
+        }
+
+        const btn = document.querySelector('#client-register-form button');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registrando...';
+
+        try {
+            const response = await fetch('/api/auth/client/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nombre_empresa, nit, email, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.mostrarNotificacion("Registro exitoso. Tu cuenta está en revisión por un administrador", 'success');
+                // Limpiar formulario
+                document.getElementById('client-register-form').reset();
+                // Volver al login
+                this.toggleClientForms();
+            } else {
+                this.mostrarNotificacion(data.message || "Error al registrar", 'error');
+            }
+        } catch (error) {
+            console.error(error);
+            this.mostrarNotificacion("Error de conexión", 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     },
 
     // =================================================================
