@@ -1419,5 +1419,61 @@ class RepositoryService:
             return []
 
 
+    def get_monthly_performance_comparison(self, start_date: str = None, end_date: str = None) -> dict:
+        """
+        Fachada semántica para el endpoint /api/dashboard/performance/monthly.
+        Retorna comparativa mensual Ventas vs Pedidos (Año Actual vs Anterior)
+        con metadatos de año incluidos, garantizando 0 en meses sin datos.
+        """
+        from datetime import datetime
+
+        # Determinar años desde los parámetros (mismo criterio que get_rendimiento_mensual_sql)
+        year_actual = datetime.now().year
+        year_prev = year_actual - 1
+        if start_date:
+            try:
+                year_actual = datetime.strptime(start_date, '%Y-%m-%d').year
+                year_prev = year_actual - 1
+            except ValueError:
+                pass
+
+        mensual = self.get_rendimiento_mensual_sql(start_date, end_date)
+
+        return {
+            "year_actual": year_actual,
+            "year_prev": year_prev,
+            "mensual": mensual,        # Lista de 12 meses, 0s en meses sin datos
+        }
+
+    def upsert_cartera_wo(self, datos_cartera):
+        """
+        Realiza un UPSERT masivo y eficiente en la tabla cartera_wo.
+        Procesa los datos usando Decimal para la precisión monetaria.
+        """
+        if not datos_cartera:
+            return 0
+
+        try:
+            sql = text("""
+                INSERT INTO cartera_wo (documento, identificacion, nombre, vendedor, moneda, empresa, fecha_vencimiento, saldo_documento, ultima_actualizacion)
+                VALUES (:documento, :identificacion, :nombre, :vendedor, :moneda, :empresa, :fecha_vencimiento, :saldo_documento, CURRENT_TIMESTAMP)
+                ON CONFLICT (documento) DO UPDATE SET 
+                    identificacion = EXCLUDED.identificacion,
+                    nombre = EXCLUDED.nombre,
+                    vendedor = EXCLUDED.vendedor,
+                    moneda = EXCLUDED.moneda,
+                    empresa = EXCLUDED.empresa,
+                    fecha_vencimiento = EXCLUDED.fecha_vencimiento,
+                    saldo_documento = EXCLUDED.saldo_documento,
+                    ultima_actualizacion = CURRENT_TIMESTAMP
+            """)
+            db.session.execute(sql, datos_cartera)
+            db.session.commit()
+            return len(datos_cartera)
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"[upsert_cartera_wo] Error en el UPSERT: {e}")
+            raise e
+
 # Instancia global única
 repository_service = RepositoryService()

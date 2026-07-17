@@ -7,6 +7,19 @@ ROL_JEFES = ['JEFE ALMACEN', 'JEFE INYECCION', 'JEFE PULIDO', 'JEFE DE PLANTA', 
 ROL_COMERCIALES = ['COMERCIAL', 'COMERCIAL FRIMETALS', 'STAFF FRIMETALS']
 ROL_OPERARIOS = ['INYECCION', 'PULIDO', 'ALISTAMIENTO', 'ENSAMBLE', 'AUXILIAR INVENTARIO']
 
+def decode_pwa_token(request):
+    """
+    Extrae y decodifica el token JWT del header Authorization si existe.
+    Retorna el payload decodificado o None. Lanza excepciones jwt en caso de error.
+    """
+    import os, jwt
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+        return jwt.decode(token, secret, algorithms=['HS256'])
+    return None
+
 def require_role(allowed_roles_input):
     """
     Examines the current user's session role with strict UPPERCASE normalization.
@@ -16,8 +29,27 @@ def require_role(allowed_roles_input):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            # 1. Check if user is logged in
-            if 'role' not in session:
+            from flask import request
+            import jwt
+            
+            raw_role = None
+            
+            # A. Revisar JWT en Header Authorization
+            try:
+                payload = decode_pwa_token(request)
+                if payload:
+                    raw_role = payload.get('rol') or payload.get('role')
+            except jwt.ExpiredSignatureError:
+                return jsonify({'success': False, 'error': 'Token expirado', 'needs_login': True}), 401
+            except jwt.InvalidTokenError:
+                return jsonify({'success': False, 'error': 'Token inválido', 'needs_login': True}), 401
+
+            # B. Fallback a Sesión de Flask
+            if not raw_role and 'role' in session:
+                raw_role = session.get('role')
+            
+            # Si no hay rol por ninguno de los dos métodos, rechazar
+            if not raw_role:
                 return jsonify({
                     'success': False, 
                     'error': 'No auth token/session found', 
@@ -26,8 +58,8 @@ def require_role(allowed_roles_input):
             
             import unicodedata
             
-            # 2. Extract user's role and normalize (Accents removed + UPPERCASE)
-            raw_role = str(session.get('role', '')).upper() # ⚡ ALWAYS UPPERCASE
+            # 2. Extract user's role and normalize (Accents removed + UPPERCASE + strip)
+            raw_role = str(raw_role).strip().upper() # ⚡ ALWAYS UPPERCASE
             user_role = ''.join((c for c in unicodedata.normalize('NFD', raw_role) if unicodedata.category(c) != 'Mn'))
             
             # 3. Handle input: Convert nested lists (from constants) to a flat list of upper cases

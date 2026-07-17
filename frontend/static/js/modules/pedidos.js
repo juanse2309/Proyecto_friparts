@@ -480,7 +480,15 @@ const ModuloPedidos = {
             // Mostrar loading local si es posible
             if (window.mostrarLoading) window.mostrarLoading(true);
 
-            const response = await fetch(`/api/pedidos/detalle/${id}`);
+            const response = await fetch(`/api/pedidos/detalle/${id}`, {
+                method: 'GET',
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
             const result = await response.json();
 
             if (result.success) {

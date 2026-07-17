@@ -916,6 +916,59 @@
                         </div>
                     </div>
 
+                    <!-- NUEVA FILA: Cartera / Cuentas por Cobrar -->
+                    <div class="row g-4 mb-4" id="dashboard-section-cartera" data-role-access="ADMIN,GERENCIA,COMERCIAL">
+                        <div class="col-md-6">
+                            <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                                <div class="card-header bg-white border-0 pt-4 pb-2">
+                                    <h5 class="fw-bold mb-0 text-dark">
+                                        <i class="fas fa-wallet text-success me-2"></i> Estado de Cartera
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Total de cuentas por cobrar desde World Office."></i>
+                                    </h5>
+                                    <button id="btn-exportar-cartera" class="btn btn-sm btn-outline-success shadow-sm d-none" onclick="window.ModuloDashboard.exportarCartera()">
+                                        <i class="fas fa-file-excel me-1"></i> <span id="text-exportar-cartera">Exportar</span>
+                                    </button>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-6 text-center">
+                                            <h6 class="text-muted text-uppercase fw-bold small">Total Cartera</h6>
+                                            <h3 class="fw-bold text-success" id="cartera-total-val">$0</h3>
+                                        </div>
+                                        <div class="col-6 text-center border-start">
+                                            <h6 class="text-muted text-uppercase fw-bold small">Cartera Vencida</h6>
+                                            <h3 class="fw-bold text-danger" id="cartera-vencida-val">$0</h3>
+                                        </div>
+                                    </div>
+                                    <div class="mt-4">
+                                        <div class="progress" style="height: 10px; border-radius: 5px; background-color: #e2e8f0;">
+                                            <div id="cartera-progress-bar" class="progress-bar bg-danger" role="progressbar" style="width: 0%"></div>
+                                        </div>
+                                        <div class="text-center mt-2 small text-muted fw-bold"><span id="cartera-pct-val">0</span>% de la cartera está vencida</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card shadow-sm border-0 h-100" style="border-radius: 16px; border-left: 4px solid #ef4444 !important;">
+                                <div class="card-header bg-white border-0 pt-4 pb-2">
+                                    <h5 class="fw-bold mb-0 text-danger">
+                                        <i class="fas fa-exclamation-circle me-2"></i> Top 5 Clientes en Mora
+                                    </h5>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover align-middle mb-0">
+                                            <tbody id="cartera-clientes-criticos">
+                                                <!-- Llenado por JS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- NUEVOS PANELES DE JEFATURA (Reordenado: Prioridad Gerencia) -->
                     <div id="dashboard-section-jefatura" data-role-access="ADMIN,GERENCIA,COMERCIAL">
                         <!-- Row 1: Rendimiento Mensual -->

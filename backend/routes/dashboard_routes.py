@@ -11,7 +11,8 @@ import time
 import datetime
 import pandas as pd
 import io
-from flask import send_file
+from flask import send_file, Response
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES
 
 logger = logging.getLogger(__name__)
 
@@ -299,3 +300,95 @@ def exportar_desglose_mensual():
         logger.error(f"❌ Error Crítico en Exportación Excel: {e}")
         return jsonify({"success": False, "error": f"Fallo en la generación del reporte: {str(e)}"}), 500
         return str(e), 500
+
+
+# ── NUEVO ENDPOINT: Rendimiento Mensual Dedicado ──────────────────────────────
+_ROLES_FINANCIEROS = {'ADMIN', 'ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA', 'COMERCIAL'}
+
+
+def _get_current_rol() -> str:
+    """Extrae el rol del usuario desde Flask session o JWT, normalizado a mayúsculas."""
+    try:
+        from flask import session, request
+        from backend.utils.auth_middleware import decode_pwa_token
+        
+        payload = decode_pwa_token(request)
+        raw_role = payload.get('rol') or payload.get('role') if payload else None
+        
+        if not raw_role:
+            raw_role = session.get('role', '')
+            
+        return str(raw_role).strip().upper()
+    except Exception:
+        return ''
+
+
+@dashboard_bp.route('/performance/monthly', methods=['GET'])
+def get_monthly_performance():
+    """
+    Endpoint exclusivo para el gráfico 'Análisis Comparativo Anual'.
+    Retorna comparativa mensual Ventas vs Pedidos (Año Actual vs Anterior).
+    Requiere rol ADMIN, GERENCIA o COMERCIAL.
+    """
+    rol = _get_current_rol()
+    if rol not in _ROLES_FINANCIEROS:
+        return jsonify({"success": False, "error": "Acceso restringido"}), 403
+
+    try:
+        desde_str = request.args.get('desde')
+        hasta_str = request.args.get('hasta')
+        desde = parsear_fecha_dashboard(desde_str) if desde_str else None
+        hasta = parsear_fecha_dashboard(hasta_str) if hasta_str else None
+
+        # Normalizar a string ISO para el servicio (acepta str o None)
+        start = str(desde) if desde else None
+        end = str(hasta) if hasta else None
+
+        data = repository_service.get_monthly_performance_comparison(start, end)
+        return jsonify({"success": True, "data": data}), 200
+
+    except Exception as e:
+        import traceback
+        logger.error(f"[/performance/monthly] {e}\n{traceback.format_exc()}")
+        return jsonify({
+            "success": True,
+            "data": {"year_actual": 0, "year_prev": 0, "mensual": []}
+        }), 200
+
+@dashboard_bp.route('/cartera', methods=['GET'])
+def get_dashboard_cartera():
+    """Consulta la tabla cartera_wo para mostrar KPIs de cartera en el dashboard."""
+    try:
+        from backend.services.dashboard_service import DashboardService
+        
+        datos_cartera = DashboardService.get_cartera_wo_stats()
+        
+        return jsonify({
+            "success": True,
+            "data": datos_cartera
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en endpoint /dashboard/cartera: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@dashboard_bp.route('/cartera/exportar', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
+def exportar_cartera():
+    """
+    Exporta la cartera completa a CSV mediante streaming para no colapsar la RAM.
+    Protegido por RBAC (Admin y Comercial).
+    """
+    from backend.services.cartera_service import CarteraService
+    
+    # Se genera el CSV al vuelo y se transmite directamente
+    generador_csv = CarteraService.generar_export_csv()
+    
+    return Response(
+        generador_csv,
+        mimetype='text/csv',
+        headers={
+            "Content-Disposition": "attachment; filename=estado_cartera.csv",
+            "Cache-Control": "no-cache"
+        }
+    )

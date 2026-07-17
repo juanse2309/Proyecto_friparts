@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, render_template, Response, request
-from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES
 from backend.utils.cache_manager import cached_route, invalidate_cache
 
 import difflib
@@ -37,7 +37,7 @@ def clean_number(val):
 
 
 @admin_bp.route('/api/admin/dashboard', methods=['GET'])
-@require_role(ROL_ADMINS)
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 @cached_route(namespace='admin', ttl=600)
 def get_admin_dashboard_data():
     from flask import request

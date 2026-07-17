@@ -792,3 +792,69 @@ def verificar_sync():
     except Exception as e:
         logger.error(f"❌ Error al verificar flag de sincronización: {e}")
         return jsonify({"sync_pendiente": False, "error": str(e)}), 500
+
+# ====================================================================
+# ENDPOINT: SINCRONIZAR CARTERA DESDE WO
+# ====================================================================
+
+@wo_bp.route('/api/wo/sincronizar_cartera', methods=['POST'])
+def sincronizar_cartera():
+    """Recibe y procesa el estado de cartera desde el Agente WO con chunking."""
+    api_key_header = request.headers.get('X-API-Key') or request.headers.get('X-Sync-Token')
+    api_key_env = os.environ.get('SYNC_TOKEN') or os.environ.get('WO_SYNC_API_KEY')
+    
+    if not api_key_env or api_key_header != api_key_env:
+        return jsonify({"success": False, "error": "No autorizado."}), 401
+        
+    try:
+        from decimal import Decimal, InvalidOperation
+        
+        payload = request.json or {}
+        datos = payload.get("datos", payload) if isinstance(payload, dict) else payload
+        
+        if not isinstance(datos, list):
+            datos = [datos] if datos else []
+            
+        from backend.core.repository_service import repository_service
+        
+        # Validar y limpiar datos
+        datos_limpios = []
+        for item in datos:
+            if not item.get('documento'):
+                continue
+            
+            try:
+                saldo_documento = Decimal(str(item.get('saldo_documento', '0')))
+            except InvalidOperation:
+                saldo_documento = Decimal('0')
+                
+            datos_limpios.append({
+                'documento': str(item.get('documento')).strip(),
+                'identificacion': str(item.get('identificacion')).strip(),
+                'nombre': str(item.get('nombre') or 'Desconocido').strip(),
+                'vendedor': str(item.get('vendedor') or '').strip(),
+                'moneda': str(item.get('moneda') or '').strip(),
+                'empresa': str(item.get('empresa') or '').strip(),
+                'fecha_vencimiento': item.get('fecha_vencimiento') or None,
+                'saldo_documento': saldo_documento
+            })
+            
+        # Procesamiento por lotes (chunking) de 500 en 500
+        BATCH_SIZE = 500
+        procesados_totales = 0
+        
+        for i in range(0, len(datos_limpios), BATCH_SIZE):
+            chunk = datos_limpios[i:i+BATCH_SIZE]
+            procesados = repository_service.upsert_cartera_wo(chunk)
+            procesados_totales += procesados
+            logger.info(f"Procesado chunk {i//BATCH_SIZE + 1} de Cartera: {procesados} registros")
+        
+        return jsonify({
+            "success": True,
+            "message": "Cartera sincronizada correctamente",
+            "procesados": procesados_totales
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error en sincronizar_cartera: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

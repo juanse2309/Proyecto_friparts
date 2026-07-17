@@ -164,9 +164,15 @@ window.ModuloDashboard = (function () {
                         return res.json();
                     });
 
-                    const [result, jefaturaData] = await Promise.all([responseStats, reqJefatura]);
+                    const reqCartera = fetch(`/api/dashboard/cartera`, {
+                        headers: getAuthHeaders({ 'Accept': 'application/json' }),
+                        credentials: 'include',
+                        signal: controller.signal
+                    }).then(res => res.ok ? res.json() : null).catch(() => null);
+
+                    const [result, jefaturaData, carteraData] = await Promise.all([responseStats, reqJefatura, reqCartera]);
                     clearTimeout(timeoutId);
-                    console.log("📊 Datos recibidos (Admin):", { result, jefaturaData });
+                    console.log("📊 Datos recibidos (Admin):", { result, jefaturaData, carteraData });
 
                     if (result && result.status === 'success') {
                         // Actualizar cache completo
@@ -175,7 +181,7 @@ window.ModuloDashboard = (function () {
                         lastFetchTime = Date.now();
                         lastCachedParams = currentParams;
 
-                        renderizarTodo(result.data, jefaturaData);
+                        renderizarTodo(result.data, jefaturaData, carteraData);
                     }
                 } catch (fetchErr) {
                     clearTimeout(timeoutId);
@@ -183,7 +189,7 @@ window.ModuloDashboard = (function () {
                         console.warn("⏰ Timeout en /api/admin/dashboard - mostrando stats sin datos de Jefatura");
                         const result = await responseStats;
                         if (result && result.status === 'success') {
-                            renderizarTodo(result.data, null);
+                            renderizarTodo(result.data, null, null);
                         }
                     } else {
                         throw fetchErr;
@@ -198,7 +204,7 @@ window.ModuloDashboard = (function () {
                     lastFetchTime = Date.now();
                     lastCachedParams = currentParams;
                     
-                    renderizarTodo(result.data, null);
+                    renderizarTodo(result.data, null, null);
                 }
             }
 
@@ -233,8 +239,8 @@ window.ModuloDashboard = (function () {
         }
     }
 
-    function renderizarTodo(data, jefaturaData) {
-        console.log("🚀 Iniciando renderizado de componentes...", { data, jefaturaData });
+    function renderizarTodo(data, jefaturaData, carteraData = null) {
+        console.log("🚀 Iniciando renderizado de componentes...", { data, jefaturaData, carteraData });
         window.lastDashboardData = data;
 
         // Limpiar cache de filas al renderizar datos nuevos
@@ -386,9 +392,133 @@ window.ModuloDashboard = (function () {
                     renderTablaIncumplimientoConsolidada(inc_consolidado_original);
                 }
             }
+
+            // 7. Datos de Cartera
+            if (carteraData && carteraData.success && carteraData.data) {
+                renderCartera(carteraData.data);
+            }
+
             console.log("✅ Renderizado completado sin errores.");
         } catch (err) {
             console.error("❌ Error crítico durante el renderizado del dashboard:", err);
+        }
+    }
+
+    function renderCartera(data) {
+        const formatCOP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+        
+        const total = data.total_cartera || 0;
+        const vencida = data.total_vencida || 0;
+        const pct = total > 0 ? ((vencida / total) * 100).toFixed(1) : 0;
+
+        document.getElementById('cartera-total-val').textContent = formatCOP.format(total);
+        document.getElementById('cartera-vencida-val').textContent = formatCOP.format(vencida);
+        document.getElementById('cartera-pct-val').textContent = pct;
+        
+        const progressBar = document.getElementById('cartera-progress-bar');
+        progressBar.style.width = `${pct}%`;
+
+        // Renderizar tabla de clientes
+        const tbody = document.getElementById('cartera-clientes-criticos');
+        tbody.innerHTML = '';
+
+        if (!data.clientes_criticos || data.clientes_criticos.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="2" class="text-center py-4 text-success"><i class="fas fa-check-circle me-2"></i>No hay cartera en mora.</td></tr>`;
+            return;
+        }
+
+        data.clientes_criticos.forEach(cliente => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="fw-medium text-dark">
+                    <i class="fas fa-user text-secondary me-2"></i>
+                    ${cliente.nombre}
+                </td>
+                <td class="text-end fw-bold text-danger">
+                    ${formatCOP.format(cliente.saldo_vencido)}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // Habilitar botón de exportar solo para ADMIN o COMERCIAL
+        if (window.AppState && window.AppState.user && window.AppState.user.rol) {
+            const rol = window.AppState.user.rol.toUpperCase();
+            if (['ADMIN', 'ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'COMERCIAL'].includes(rol)) {
+                const btnExportar = document.getElementById('btn-exportar-cartera');
+                if (btnExportar) btnExportar.classList.remove('d-none');
+            }
+        }
+    }
+
+    async function exportarCartera() {
+        const btn = document.getElementById('btn-exportar-cartera');
+        const icon = btn.querySelector('i');
+        const text = document.getElementById('text-exportar-cartera');
+        
+        if (!btn || btn.disabled) return;
+
+        try {
+            // Estado de carga
+            btn.disabled = true;
+            icon.className = 'fas fa-spinner fa-spin me-1';
+            text.textContent = 'Procesando...';
+
+            const pwaToken = localStorage.getItem('pwa_token');
+            const headers = {};
+            if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+
+            const response = await fetch('/api/dashboard/cartera/exportar', {
+                method: 'GET',
+                headers: headers
+            });
+
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    throw new Error('No tienes permisos para exportar la cartera.');
+                }
+                throw new Error('Error al generar el archivo de exportación.');
+            }
+
+            // Manejo de Blob para forzar descarga
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'estado_cartera.csv';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            if (window.Swal) {
+                Swal.fire({
+                    toast: true,
+                    position: 'top-end',
+                    icon: 'success',
+                    title: 'Exportación completada exitosamente',
+                    showConfirmButton: false,
+                    timer: 3000
+                });
+            }
+        } catch (error) {
+            console.error('Error exportando cartera:', error);
+            if (window.Swal) {
+                Swal.fire({
+                    toast: true,
+                    position: 'top-end',
+                    icon: 'error',
+                    title: error.message || 'Error al exportar la cartera',
+                    showConfirmButton: false,
+                    timer: 3000
+                });
+            }
+        } finally {
+            // Restaurar estado visual
+            btn.disabled = false;
+            icon.className = 'fas fa-file-excel me-1';
+            text.textContent = 'Exportar';
         }
     }
 
@@ -2869,6 +2999,7 @@ window.ModuloDashboard = (function () {
         toggleChartView: toggleChartView,
         mostrarDetalleIncumplimiento: mostrarDetalleIncumplimiento,
         exportarBackorderCliente: exportarBackorderCliente,
+        exportarCartera: exportarCartera,
         sortIncumplimiento: sortIncumplimiento,
         toggleOperatorSelection,
         abrirModalComparativa,

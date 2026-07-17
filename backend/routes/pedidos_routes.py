@@ -1,5 +1,5 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, make_response
 from backend.models.sql_models import db, Pedido, MetalsPedido, DespachoPedido
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 from backend.config.constants import FALLBACK_OPERARIO
@@ -352,10 +352,14 @@ def obtener_detalle_pedido(id_pedido):
                 "progreso": item.progreso or "0%"
             })
         
-        return jsonify({
+        response = make_response(jsonify({
             "success": True,
             "pedido": pedido
-        })
+        }))
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     except Exception as e:
         logger.error(f"❌ ERROR obteniendo detalle pedido SQL: {str(e)}")
@@ -419,10 +423,14 @@ def obtener_pedidos_pendientes():
         # 4. DEBUG EN TERMINAL (Solicitado por el usuario)
         print(f"DEBUG ALMACEN: Rol detectado: {rol_session}, Usuario normalizado: {username_user} ({nombre_completo_user}), Pedidos totales SQL: {len(pedidos)}, Pedidos filtrados: {len(filtrados)}")
 
-        return jsonify({
+        response = make_response(jsonify({
             "success": True, 
             "pedidos": filtrados
-        })
+        }))
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
     except Exception as e:
         logger.error(f"Error cargando pedidos pendientes (SQL): {e}")
         return jsonify({"success": False, "error": str(e)}), 500
