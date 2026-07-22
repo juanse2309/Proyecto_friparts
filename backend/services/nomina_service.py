@@ -18,7 +18,12 @@ from typing import Optional
 
 from sqlalchemy import text
 from backend.core.sql_database import db
-from backend.models.sql_models import CorteNomina, RegistroAsistencia
+from backend.models.sql_models import CorteNomina, RegistroAsistencia as RegistroAsistenciaSQL
+from backend.models.nomina_models import RegistroAsistencia
+from backend.config.nomina_config import (
+    HORA_INICIO_JORNADA, HORA_FIN_JORNADA_L_J, HORA_FIN_JORNADA_VIERNES,
+    MINUTOS_DEDUCCION_ALIMENTACION_L_J, MINUTOS_DEDUCCION_ALIMENTACION_VIERNES, MINUTOS_DEDUCCION_ALIMENTACION_SABADO
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +156,45 @@ def ejecutar_corte_db(division: str, usuario: str) -> dict:
         "p_inicio": p_inicio,
         "p_fin": p_fin,
         "filas_afectadas": filas,
+    }
+
+
+def actualizar_registro_asistencia(registro_id: int, nuevo_ingreso: str, nueva_salida: str, motivo: str, usuario_actual: str) -> dict:
+    """
+    Actualiza horas de un registro verificando que no esté bloqueado (PROCESADO).
+    Ejecuta el recálculo con el motor de reglas y guarda auditoría.
+    """
+    motivo_limpio = motivo.strip() if motivo else ""
+    if not motivo_limpio:
+        raise ValueError("El motivo de edición es obligatorio y no puede estar vacío.")
+
+    registro = db.session.query(RegistroAsistenciaSQL).get(registro_id)
+    if not registro:
+        raise ValueError("El registro no existe.")
+        
+    if registro.estado_pago == 'PROCESADO':
+        raise ValueError("No se puede editar un registro perteneciente a una nómina procesada.")
+
+    dto = RegistroAsistencia(
+        fecha=registro.fecha,
+        ingreso_real=nuevo_ingreso,
+        salida_real=nueva_salida
+    )
+    
+    calculo = ReglasAsistencia.calcular_jornada_y_extras(dto)
+    
+    registro.ingreso_real = nuevo_ingreso
+    registro.salida_real = nueva_salida
+    registro.horas_ordinarias = calculo["horas_ordinarias"]
+    registro.horas_extras = calculo["horas_extras"]
+    registro.editado_por = usuario_actual
+    registro.fecha_edicion = datetime.now()
+    registro.motivo_edicion = motivo
+    
+    db.session.commit()
+    return {
+        "horas_ordinarias": registro.horas_ordinarias,
+        "horas_extras": registro.horas_extras
     }
 
 
@@ -305,3 +349,72 @@ def construir_detalle_diario(registros_filtrados: list) -> list:
         })
     detalle.sort(key=lambda x: (x["colaborador"], x["fecha"]))
     return detalle
+
+
+class ReglasAsistencia:
+    @classmethod
+    def calcular_jornada_y_extras(cls, registro: RegistroAsistencia) -> dict:
+        if not registro.ingreso_real or not registro.salida_real or registro.ingreso_real.upper() == 'AUSENTE':
+            return {"horas_ordinarias": 0.0, "horas_extras": 0.0}
+
+        try:
+            fmt = "%H:%M"
+            t_in = datetime.strptime(registro.ingreso_real, fmt)
+            t_out = datetime.strptime(registro.salida_real, fmt)
+        except ValueError:
+            return {"horas_ordinarias": 0.0, "horas_extras": 0.0}
+
+        t_in_mins = t_in.hour * 60 + t_in.minute
+        t_out_mins = t_out.hour * 60 + t_out.minute
+        
+        if t_out_mins <= t_in_mins:
+            return {"horas_ordinarias": 0.0, "horas_extras": 0.0}
+
+        total_mins = t_out_mins - t_in_mins
+        
+        if isinstance(registro.fecha, str):
+            try:
+                dt_fecha = datetime.strptime(registro.fecha, '%Y-%m-%d').date()
+                weekday = dt_fecha.weekday()
+            except ValueError:
+                weekday = 0
+        else:
+            weekday = registro.fecha.weekday()
+
+        if weekday >= 5: # Sábado y Domingo
+            return {
+                "horas_ordinarias": 0.0,
+                "horas_extras": round(total_mins / 60.0, 2)
+            }
+
+        w_start_dt = datetime.strptime(HORA_INICIO_JORNADA, fmt)
+        w_start_mins = w_start_dt.hour * 60 + w_start_dt.minute
+
+        if weekday <= 3: # Lunes a Jueves
+            w_end_dt = datetime.strptime(HORA_FIN_JORNADA_L_J, fmt)
+            deduccion_mins = MINUTOS_DEDUCCION_ALIMENTACION_L_J
+        else: # Viernes
+            w_end_dt = datetime.strptime(HORA_FIN_JORNADA_VIERNES, fmt)
+            deduccion_mins = MINUTOS_DEDUCCION_ALIMENTACION_VIERNES
+
+        w_end_mins = w_end_dt.hour * 60 + w_end_dt.minute
+
+        # Tiempo ordinario: intersección
+        ord_start = max(t_in_mins, w_start_mins)
+        ord_end = min(t_out_mins, w_end_mins)
+        ord_mins = max(0, ord_end - ord_start)
+
+        if ord_mins > deduccion_mins:
+            ord_mins -= deduccion_mins
+        elif ord_mins > 0:
+            ord_mins = 0
+
+        # Tiempo extra: antes del inicio o después del fin
+        extra_start_mins = max(0, w_start_mins - t_in_mins)
+        extra_end_mins = max(0, t_out_mins - w_end_mins)
+        extra_mins = extra_start_mins + extra_end_mins
+
+        return {
+            "horas_ordinarias": round(ord_mins / 60.0, 2),
+            "horas_extras": round(extra_mins / 60.0, 2)
+        }

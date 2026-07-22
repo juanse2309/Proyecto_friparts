@@ -1,19 +1,29 @@
+import logging
+import pandas as pd
+from datetime import datetime
 from flask import Blueprint, jsonify, request, session
-from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, ROL_COMERCIALES, ROL_OPERARIOS
+
+from backend.core.sql_database import db
+from backend.models.sql_models import RegistroAsistencia
+from backend.models.nomina_models import RegistroAsistencia as RegistroAsistenciaDTO
 from backend.services.nomina_service import (
+    ReglasAsistencia,
     get_ultima_fecha_corte,
     filtrar_registros_post_corte,
     consolidar_horas,
     construir_detalle_diario,
-    # ── Nuevas responsabilidades del servicio ──
     ejecutar_corte_db,
     get_consolidado_pendiente,
     get_detalle_diario_pendiente,
 )
-import logging
-import pandas as pd
-from datetime import datetime
-from backend.core.sql_database import db
+from backend.utils.auth_middleware import (
+    require_role,
+    obtener_identidad_segura,
+    ROL_ADMINS,
+    ROL_JEFES,
+    ROL_COMERCIALES,
+    ROL_OPERARIOS
+)
 
 logger = logging.getLogger(__name__)
 asistencia_bp = Blueprint('asistencia', __name__)
@@ -79,16 +89,22 @@ def normalizar_hora(hora_str):
 @asistencia_bp.route('/personal_a_cargo', methods=['GET'])
 def obtener_colaboradores():
     """Obtiene lista de colaboradores filtrada por Áreas de Responsabilidad. Incluye al Jefe."""
+    user, role = obtener_identidad_segura(request)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+
+    roles_autorizados = [r.upper() for r in (ROL_ADMINS + ROL_JEFES)]
+    user_role = str(role).strip().upper() if role else ''
+    if not any(allowed in user_role for allowed in roles_autorizados):
+        return jsonify({'status': 'error', 'message': 'Acceso denegado: permisos insuficientes'}), 403
+
     try:
         from sqlalchemy import text
         from datetime import datetime
         
-        user_name = session.get('user')
-        user_role = session.get('role', '').upper()
+        user_name = user
+        user_role = str(role).upper() if role else ''
         hoy = datetime.now().strftime('%Y-%m-%d')
-
-        if not user_name:
-            return jsonify({'status': 'error', 'message': 'Sesión no válida'}), 401
 
         # Helper AGRESIVO para normalizar horas locas (ej: "5:00:00 p. m.")
         def formatear_a_24h(hora_str):
@@ -211,36 +227,50 @@ def obtener_colaboradores():
 @asistencia_bp.route('/guardar', methods=['POST'])
 @asistencia_bp.route('/registrar_masivo', methods=['POST'])
 def guardar_asistencia():
-    """Guarda los registros de asistencia masivos en PostgreSQL."""
+    """Guarda los registros de asistencia masivos en PostgreSQL recalculando horas server-side."""
+    user, role = obtener_identidad_segura(request)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'Sesión no válida o expirada'}), 401
+
+    roles_autorizados = [r.upper() for r in ROL_ADMINS]
+    user_role = str(role).strip().upper() if role else ''
+    es_autorizado = any(allowed in user_role for allowed in roles_autorizados) or 'JEFE' in user_role
+    
+    if not es_autorizado:
+        return jsonify({'status': 'error', 'message': 'No tiene permisos para reportar asistencia'}), 403
+
     try:
-        # Validación de Permisos Manual para permitir 'JEFE' wildcard
-        user_role = session.get('role', '').upper()
-        ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
-        es_autorizado = any(r in user_role for r in ADMS) or 'JEFE' in user_role
-        
-        if not es_autorizado:
-            return jsonify({'status': 'error', 'message': 'No tiene permisos para reportar asistencia'}), 403
         data = request.json
         if not data or 'registros' not in data:
             return jsonify({'status': 'error', 'message': 'Datos inválidos o vacíos'}), 400
-        
-        from backend.models.sql_models import RegistroAsistencia
-        from backend.core.sql_database import db
 
         registros_recibidos = data['registros']
-        usuario_registra = session.get('user', 'Sistema')
+        usuario_registra = user
         conteo = 0
 
         for reg in registros_recibidos:
             nombre = reg.get('colaborador') or reg.get('nombre')
             if not nombre: continue
 
-            # Determinar fecha (ISO -> Date)
+            # Determinar fecha (ISO -> Date) de forma estricta
             f_str = reg.get('fecha') or datetime.now().strftime('%Y-%m-%d')
             try:
                 fecha_dt = datetime.strptime(f_str, '%Y-%m-%d').date()
-            except:
+            except (ValueError, TypeError):
                 fecha_dt = datetime.now().date()
+
+            ing_real = reg.get('ingreso_real') or reg.get('hora_entrada', '')
+            sal_real = reg.get('salida_real') or reg.get('hora_salida', '')
+
+            # Recálculo de Reglas de Negocio en Servidor (Descarte de horas provenientes del cliente)
+            dto = RegistroAsistenciaDTO(
+                fecha=fecha_dt,
+                ingreso_real=ing_real,
+                salida_real=sal_real
+            )
+            calculo = ReglasAsistencia.calcular_jornada_y_extras(dto)
+            h_ord = calculo['horas_ordinarias']
+            h_ext = calculo['horas_extras']
 
             # Buscar si ya existe registro para ese colaborador-día para evitar duplicados
             existente = RegistroAsistencia.query.filter_by(
@@ -248,38 +278,43 @@ def guardar_asistencia():
                 colaborador=nombre
             ).first()
 
-            h_ord = float(reg.get('horas_ordinarias', 0) or reg.get('horas_normales', 0) or 0)
-            h_ext = float(reg.get('horas_extras', 0) or 0)
-
             if existente:
-                # Actualización
-                existente.ingreso_real = reg.get('ingreso_real') or reg.get('hora_entrada', '')
-                existente.salida_real = reg.get('salida_real') or reg.get('hora_salida', '')
+                # Protección de Periodos Liquidados (Inmutabilidad Contable)
+                if existente.estado_pago == 'PROCESADO' or getattr(existente, 'corte_id', None) is not None:
+                    logger.warning(
+                        f"[INMUTABILIDAD] Omiso intento de sobreescritura en registro sellado "
+                        f"ID {existente.id} del colaborador '{nombre}'."
+                    )
+                    continue
+
+                # Actualización de registro en periodo abierto
+                existente.ingreso_real = ing_real
+                existente.salida_real = sal_real
                 existente.horas_ordinarias = h_ord
                 existente.horas_extras = h_ext
-                # Columna 'jefe' eliminada para evitar caídas del servidor
                 existente.estado = reg.get('estado', 'REGISTRADO')
                 existente.comentarios = reg.get('comentarios', '')
+                existente.registrado_por = usuario_registra
             else:
-                # Inserción
+                # Inserción de nuevo registro
                 nuevo = RegistroAsistencia(
                     fecha=fecha_dt,
                     colaborador=nombre,
-                    ingreso_real=reg.get('ingreso_real') or reg.get('hora_entrada', ''),
-                    salida_real=reg.get('salida_real') or reg.get('hora_salida', ''),
+                    ingreso_real=ing_real,
+                    salida_real=sal_real,
                     horas_ordinarias=h_ord,
                     horas_extras=h_ext,
-                    # Columna 'jefe' eliminada
                     estado=reg.get('estado', 'REGISTRADO'),
                     estado_pago='PENDIENTE',
-                    comentarios=reg.get('comentarios', '')
+                    comentarios=reg.get('comentarios', ''),
+                    registrado_por=usuario_registra
                 )
                 db.session.add(nuevo)
             
             conteo += 1
 
         db.session.commit()
-        logger.info(f"💾 SQL: {conteo} registros de asistencia procesados exitosamente.")
+        logger.info(f"💾 SQL: {conteo} registros de asistencia procesados exitosamente por usuario '{usuario_registra}'.")
         
         return jsonify({
             'status': 'success',
@@ -288,7 +323,7 @@ def guardar_asistencia():
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error guardando asistencia en SQL: {e}")
+        logger.error(f"Error guardando asistencia masiva: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/guardar_ausencia', methods=['POST'])
@@ -335,17 +370,19 @@ def guardar_ausencia():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @asistencia_bp.route('/mis_horas', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_JEFES + ROL_COMERCIALES + ROL_OPERARIOS)
 def obtener_mis_horas():
     """Obtiene el historial de asistencia del usuario logueado usando SQL crudo con blindaje total."""
+    user, role = obtener_identidad_segura(request)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+
     try:
         from sqlalchemy import text
         from datetime import datetime
         from backend.core.sql_database import db
 
-        colaborador = session.get('user')
-        if not colaborador:
-            return jsonify({'status': 'error', 'message': 'Acceso denegado'}), 401
+        colaborador = user
+        user_role = str(role).upper() if role else 'OPERARIO'
 
         # Obtener nombre completo para búsqueda robusta
         from backend.models.sql_models import Usuario
@@ -396,7 +433,7 @@ def obtener_mis_horas():
         return jsonify({
             'status': 'success',
             'registros': mis_registros,
-            'rol': session.get('role', 'OPERARIO').upper()
+            'rol': user_role
         }), 200
         
     except Exception as e:
@@ -412,6 +449,10 @@ def obtener_mis_horas():
 @asistencia_bp.route('/registros_dia', methods=['GET'])
 def obtener_registros_dia():
     """Obtiene registros de una fecha específica desde SQL."""
+    user, role = obtener_identidad_segura(request)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+
     fecha = request.args.get('fecha')
     if not fecha: return jsonify({'status': 'error', 'message': 'Fecha inválida'}), 400
         
@@ -422,9 +463,10 @@ def obtener_registros_dia():
         res = []
         for r in registros:
             res.append({
-                'colaborador': r.colaborador, 'ingreso_real': r.ingreso_real,
+                'id': r.id, 'colaborador': r.colaborador, 'ingreso_real': r.ingreso_real,
                 'salida_real': r.salida_real, 'horas_ordinarias': r.horas_ordinarias,
-                'horas_extras': r.horas_extras, 'estado': r.estado, 'motivo': r.motivo
+                'horas_extras': r.horas_extras, 'estado': r.estado, 'motivo': r.motivo,
+                'estado_pago': r.estado_pago
             })
         
         return jsonify({'status': 'success', 'registros': res}), 200
@@ -556,3 +598,48 @@ def ejecutar_corte():
         db.session.rollback()
         logger.error(f"Error ejecución corte: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@asistencia_bp.route('/editar/<int:id>', methods=['PUT'])
+@require_role(ROL_ADMINS + ROL_JEFES)
+def editar_asistencia(id):
+    """Edita un registro existente de asistencia aplicando auditoría."""
+    user, role = obtener_identidad_segura(request)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+        
+    from backend.services.nomina_service import actualizar_registro_asistencia
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'Datos no proporcionados'}), 400
+            
+        ing_real = data.get('ingreso_real')
+        sal_real = data.get('salida_real')
+        motivo = data.get('motivo_edicion')
+        
+        if not motivo or not str(motivo).strip():
+            return jsonify({'status': 'error', 'message': 'El motivo de edición es obligatorio'}), 400
+            
+        usuario = user
+        
+        resultado = actualizar_registro_asistencia(
+            registro_id=id,
+            nuevo_ingreso=ing_real,
+            nueva_salida=sal_real,
+            motivo=motivo,
+            usuario_actual=usuario
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Registro actualizado exitosamente',
+            'datos': resultado
+        }), 200
+        
+    except ValueError as ve:
+        return jsonify({'status': 'error', 'message': str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error al editar registro {id}: {e}")
+        return jsonify({'status': 'error', 'message': 'Error interno del servidor'}), 500

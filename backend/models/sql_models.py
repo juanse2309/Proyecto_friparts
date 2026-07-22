@@ -211,6 +211,12 @@ class RegistroAsistencia(db.Model):
     estado_pago         = db.Column(db.String(50),  default='PENDIENTE')
     motivo              = db.Column(db.String(255), nullable=True)
     comentarios         = db.Column(db.Text,        nullable=True)
+    
+    # --- Auditoría de Creación y Edición ---
+    registrado_por      = db.Column(db.String(150), nullable=True)
+    editado_por         = db.Column(db.String(150), nullable=True)
+    fecha_edicion       = db.Column(db.DateTime,    nullable=True)
+    motivo_edicion      = db.Column(db.String(255), nullable=True)
 
 
 class Pedido(db.Model):

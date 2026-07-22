@@ -2,6 +2,42 @@ window.ModuloAsistencia = (function () {
     let colaboradoresData = [];
     let currentUserContext = null;
 
+    function obtenerHeadersAutenticados() {
+        const token = (typeof AuthModule !== 'undefined' && AuthModule.getToken) 
+            ? AuthModule.getToken() 
+            : (localStorage.getItem('pwa_token') || localStorage.getItem('token') || localStorage.getItem('jwt'));
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
+    }
+
+    function limpiarTokensInvalidos() {
+        console.warn("⚠️ Limpiando tokens inválidos de localStorage...");
+        localStorage.removeItem('pwa_token');
+        localStorage.removeItem('token');
+        localStorage.removeItem('jwt');
+
+        if (typeof AuthModule !== 'undefined' && AuthModule.logout) {
+            AuthModule.logout();
+        } else {
+            window.location.reload();
+        }
+    }
+
+    function sanitizarHoraHtml5(val) {
+        if (!val || val === 'AUSENTE' || typeof val !== 'string') return '';
+        const match = val.trim().match(/^\d{2}:\d{2}$/);
+        if (match) return val.trim();
+        if (val.includes(':')) {
+            const parts = val.trim().split(':');
+            return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`.substring(0, 5);
+        }
+        return '';
+    }
+
     function inicializar() {
         console.log("🕒 ModuloAsistencia: Inicializando con RBAC...");
 
@@ -117,13 +153,25 @@ window.ModuloAsistencia = (function () {
         if (overlay) { overlay.style.display = 'flex'; if (document.getElementById('loading-overlay-text')) document.getElementById('loading-overlay-text').textContent = 'Consultando registros existentes...'; }
 
         try {
+            const headers = obtenerHeadersAutenticados();
+
             // 1. Obtener colaboradores base (Añadir división para filtro estricto en Metales)
             const division = currentUserContext?.division?.toLowerCase() || 'friparts';
-            const resColab = await fetch(`/api/asistencia/colaboradores?division=${division}`);
+            const resColab = await fetch(`/api/asistencia/colaboradores?division=${division}`, { headers, credentials: 'include' });
+            if (resColab.status === 401) {
+                limpiarTokensInvalidos();
+                Swal.fire('Sesión Expirada', 'Sus credenciales expiraron o son inválidas.', 'error');
+                return;
+            }
             const dataColab = await resColab.json();
 
             // 2. Obtener registros existentes del día para PERSISTENCIA
-            const resReg = await fetch(`/api/asistencia/registros_dia?fecha=${fechaInput.value}`);
+            const resReg = await fetch(`/api/asistencia/registros_dia?fecha=${fechaInput.value}`, { headers, credentials: 'include' });
+            if (resReg.status === 401) {
+                limpiarTokensInvalidos();
+                Swal.fire('Sesión Expirada', 'Sus credenciales expiraron o son inválidas.', 'error');
+                return;
+            }
             const dataReg = await resReg.json();
 
             if (dataColab.status === 'success') {
@@ -136,10 +184,12 @@ window.ModuloAsistencia = (function () {
                     if (findReg) {
                         return {
                             ...c,
+                            _id: findReg.id,
                             hora_entrada: findReg.ingreso_real,
                             hora_salida: findReg.salida_real,
                             _yaRegistrado: true,
                             _estado: findReg.estado || 'PRESENTE',
+                            _estado_pago: findReg.estado_pago || 'PENDIENTE',
                             _motivo: findReg.motivo || '',
                             _comentarios: findReg.comentarios || ''
                         };
@@ -147,6 +197,7 @@ window.ModuloAsistencia = (function () {
                     return {
                         ...c,
                         _estado: 'PRESENTE',
+                        _estado_pago: 'PENDIENTE',
                         _motivo: '',
                         _comentarios: ''
                     };
@@ -189,14 +240,22 @@ window.ModuloAsistencia = (function () {
 
         // Render Tabla (Desktop)
         body.innerHTML = lista.map((c) => {
+            const valIngreso = sanitizarHoraHtml5(c.hora_entrada || c.hora_entrada_oficial);
+            const valSalida = sanitizarHoraHtml5(c.hora_salida || c.hora_salida_oficial);
+
             const isAbsent = c._estado === 'AUSENTE';
             const hEntrada = formatTimeDisplay(c.hora_entrada);
             const hSalida = formatTimeDisplay(c.hora_salida);
             const statusClass = c._yaRegistrado ? (isAbsent ? 'table-warning' : 'table-success') : '';
 
+            const isProcessed = c._estado_pago === 'PROCESADO';
+            const disableAttr = isAbsent || isProcessed ? 'disabled' : '';
+
             const badgeContent = isAbsent
                 ? `<span class="badge bg-warning ms-2 shadow-sm text-dark"><i class="fas fa-exclamation-triangle me-1"></i> ${c._motivo}</span>`
                 : (c._yaRegistrado ? '<i class="fas fa-check-circle text-success ms-2" title="Ya guardado"></i>' : '');
+            
+            const processedBadge = isProcessed ? '<span class="badge bg-info ms-2"><i class="fas fa-lock"></i> Procesado</span>' : '';
 
             return `
                 <tr data-oficial-entrada="${c.hora_entrada}" data-oficial-salida="${c.hora_salida}" data-nombre="${c.nombre}" class="${statusClass}">
@@ -205,6 +264,7 @@ window.ModuloAsistencia = (function () {
                             <i class="fas fa-user-circle text-primary opacity-50 me-2"></i>
                             <span>${c.nombre}</span>
                             ${badgeContent}
+                            ${processedBadge}
                         </div>
                     </td>
                     <td><small class="badge bg-light text-dark border"><i class="fas fa-tag me-1 text-muted"></i>${c.departamento}</small></td>
@@ -213,14 +273,14 @@ window.ModuloAsistencia = (function () {
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0 text-success"><i class="fas fa-sign-in-alt"></i></span>
                             <input type="time" class="form-control border-start-0 ps-0 bg-white" 
-                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${c.hora_entrada || c.hora_entrada_oficial}" ${isAbsent ? 'disabled' : ''}>
+                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${valIngreso}" ${disableAttr}>
                         </div>
                     </td>
                     <td style="width: 160px;">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0 text-danger"><i class="fas fa-sign-out-alt"></i></span>
                             <input type="time" class="form-control border-start-0 ps-0 bg-white" 
-                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${c.hora_salida || c.hora_salida_oficial}" ${isAbsent ? 'disabled' : ''}>
+                                   onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${valSalida}" ${disableAttr}>
                         </div>
                     </td>
                     <td class="text-center fw-bold text-primary" style="background: rgba(30, 64, 175, 0.02);">
@@ -236,12 +296,17 @@ window.ModuloAsistencia = (function () {
                         </div>
                     </td>
                     <td class="text-center" style="width: 180px;">
-                        <input type="text" class="form-control form-control-sm border-0 bg-light" placeholder="Nota..." data-tipo="comentarios" value="${c._comentarios || ''}" ${isAbsent ? 'disabled' : ''}>
+                        <input type="text" class="form-control form-control-sm border-0 bg-light" placeholder="Nota..." data-tipo="comentarios" value="${c._comentarios || ''}" ${disableAttr}>
                     </td>
                     <td class="text-center">
-                        <button class="btn btn-sm btn-outline-warning rounded-pill border-0 shadow-sm px-3" onclick="ModuloAsistencia.abrirModalAusencia('${c.nombre}')" title="Marcar Ausencia" ${isAbsent ? 'disabled' : ''}>
+                        <button class="btn btn-sm btn-outline-warning rounded-pill border-0 shadow-sm px-3" onclick="ModuloAsistencia.abrirModalAusencia('${c.nombre}')" title="Marcar Ausencia" ${disableAttr}>
                             <i class="fas fa-user-times"></i> Ausente
                         </button>
+                        ${c._yaRegistrado ? `
+                        <button class="btn btn-sm btn-outline-primary rounded-pill border-0 shadow-sm px-3 ms-1" onclick="ModuloAsistencia.editarRegistro(${c._id}, '${valIngreso}', '${valSalida}')" title="Editar Registro" ${isProcessed ? 'disabled' : ''}>
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        ` : ''}
                     </td>
                 </tr>
             `;
@@ -249,6 +314,9 @@ window.ModuloAsistencia = (function () {
 
         // Render Tarjetas (Mobile)
         cardsContainer.innerHTML = lista.map((c) => {
+            const valIngreso = sanitizarHoraHtml5(c.hora_entrada || c.hora_entrada_oficial);
+            const valSalida = sanitizarHoraHtml5(c.hora_salida || c.hora_salida_oficial);
+
             const isAbsent = c._estado === 'AUSENTE';
             const hOficial = `${formatTimeDisplay(c.hora_entrada)} - ${formatTimeDisplay(c.hora_salida)}`;
 
@@ -289,13 +357,13 @@ window.ModuloAsistencia = (function () {
                                     <label class="small fw-bold text-muted mb-1 d-block"><i class="fas fa-sign-in-alt me-1 text-success"></i>Llegada</label>
                                     <input type="time" class="form-control form-control-lg border-0 bg-light shadow-none text-center mx-auto" 
                                            style="border-radius: 15px; font-size: 1.1rem; width: 80%;"
-                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${c.hora_entrada || c.hora_entrada_oficial}" ${isAbsent ? 'disabled' : ''}>
+                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="ingreso" value="${valIngreso}" ${isAbsent ? 'disabled' : ''}>
                                 </div>
                                 <div class="col-12 text-center">
                                     <label class="small fw-bold text-muted mb-1 d-block"><i class="fas fa-sign-out-alt me-1 text-danger"></i>Salida</label>
                                     <input type="time" class="form-control form-control-lg border-0 bg-light shadow-none text-center mx-auto" 
                                            style="border-radius: 15px; font-size: 1.1rem; width: 80%;"
-                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${c.hora_salida || c.hora_salida_oficial}" ${isAbsent ? 'disabled' : ''}>
+                                           onchange="ModuloAsistencia.calcularFila(this)" data-tipo="salida" value="${valSalida}" ${isAbsent ? 'disabled' : ''}>
                                 </div>
                                 
                                 <div class="col-12">
@@ -332,9 +400,12 @@ window.ModuloAsistencia = (function () {
                 const hEntradaInput = row.querySelector('[data-tipo="ingreso"]');
                 const hSalidaInput = row.querySelector('[data-tipo="salida"]');
                 
-                // Si están vacíos, inyectar el horario oficial
-                if (!hEntradaInput.value) hEntradaInput.value = row.dataset.oficialEntrada || "07:00";
-                if (!hSalidaInput.value) hSalidaInput.value = row.dataset.oficialSalida || "17:00";
+                // Si están vacíos o dicen AUSENTE, limpiar e inyectar el horario oficial si aplica
+                if (hEntradaInput.value === 'AUSENTE') hEntradaInput.value = '';
+                if (hSalidaInput.value === 'AUSENTE') hSalidaInput.value = '';
+
+                if (!hEntradaInput.value && !hEntradaInput.disabled) hEntradaInput.value = (row.dataset.oficialEntrada && row.dataset.oficialEntrada !== 'AUSENTE') ? row.dataset.oficialEntrada : "07:00";
+                if (!hSalidaInput.value && !hSalidaInput.disabled) hSalidaInput.value = (row.dataset.oficialSalida && row.dataset.oficialSalida !== 'AUSENTE') ? row.dataset.oficialSalida : "17:00";
                 
                 // Trigger del cálculo por fila
                 calcularFila(hEntradaInput);
@@ -444,7 +515,7 @@ window.ModuloAsistencia = (function () {
     }
 
     function formatTimeDisplay(timeStr) {
-        if (!timeStr || typeof timeStr !== 'string') return '-';
+        if (!timeStr || typeof timeStr !== 'string' || timeStr === 'AUSENTE') return '-';
 
         // Limpiar y separar
         const match = timeStr.trim().match(/(\d{1,2}):(\d{2})/);
@@ -506,11 +577,21 @@ window.ModuloAsistencia = (function () {
         if (overlayText) overlayText.textContent = 'Guardando registros...';
         mostrarLoading(true);
         try {
+            const headers = obtenerHeadersAutenticados();
+
             const response = await fetch('/api/asistencia/guardar', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
+                credentials: 'include',
                 body: JSON.stringify({ registros })
             });
+
+            if (response.status === 401) {
+                limpiarTokensInvalidos();
+                Swal.fire('Sesión Expirada', 'Sus credenciales no son válidas.', 'error');
+                return;
+            }
+
             const result = await response.json();
 
             if (result.status === 'success') {
@@ -582,11 +663,21 @@ window.ModuloAsistencia = (function () {
         mostrarLoading(true);
 
         try {
+            const headers = obtenerHeadersAutenticados();
+
             const response = await fetch('/api/asistencia/guardar_ausencia', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
+                credentials: 'include',
                 body: JSON.stringify({ registro: registroAusencia })
             });
+
+            if (response.status === 401) {
+                limpiarTokensInvalidos();
+                Swal.fire('Sesión Expirada', 'Sus credenciales no son válidas.', 'error');
+                return;
+            }
+
             const result = await response.json();
 
             if (result.status === 'success') {
@@ -673,8 +764,15 @@ window.ModuloAsistencia = (function () {
         body.innerHTML = '<tr><td colspan="5" class="py-4 text-center"><i class="fas fa-spinner fa-spin text-success me-2"></i> Cargando mis horas...</td></tr>';
 
         try {
-            // El backend ahora usa session['user'] en lugar de leer parámetros inseguros por GET
-            const response = await fetch('/api/asistencia/mis_horas');
+            const headers = obtenerHeadersAutenticados();
+
+            // El backend ahora usa JWT de forma segura
+            const response = await fetch('/api/asistencia/mis_horas', { headers, credentials: 'include' });
+            if (response.status === 401) {
+                limpiarTokensInvalidos();
+                body.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Sesión expirada. Inicie sesión nuevamente.</td></tr>';
+                return;
+            }
             const data = await response.json();
 
             if (data.status === 'success') {
@@ -741,6 +839,89 @@ window.ModuloAsistencia = (function () {
         }
     }
 
+    async function editarRegistro(id, ingresoActual, salidaActual) {
+        if (!id) {
+            Swal.fire('Error', 'ID de registro no válido', 'error');
+            return;
+        }
+
+        let ingVal = sanitizarHoraHtml5(ingresoActual);
+        let salVal = sanitizarHoraHtml5(salidaActual);
+
+        if ((!ingVal || !salVal) && colaboradoresData.length > 0) {
+            const regFound = colaboradoresData.find(c => c._id === id || c.id === id);
+            if (regFound) {
+                if (!ingVal) ingVal = sanitizarHoraHtml5(regFound.hora_entrada || regFound.hora_entrada_oficial);
+                if (!salVal) salVal = sanitizarHoraHtml5(regFound.hora_salida || regFound.hora_salida_oficial);
+            }
+        }
+
+        if (!ingVal) ingVal = '07:00';
+        if (!salVal) salVal = '17:00';
+
+        const { value: formValues } = await Swal.fire({
+            title: 'Editar Registro de Asistencia',
+            html: `
+                <div class="mb-3 text-start">
+                    <label class="form-label fw-bold">Hora de Ingreso</label>
+                    <input id="swal-edit-ingreso" type="time" class="form-control" value="${ingVal}">
+                </div>
+                <div class="mb-3 text-start">
+                    <label class="form-label fw-bold">Hora de Salida</label>
+                    <input id="swal-edit-salida" type="time" class="form-control" value="${salVal}">
+                </div>
+                <div class="mb-3 text-start">
+                    <label class="form-label fw-bold">Motivo de Edición <span class="text-danger">*</span></label>
+                    <input id="swal-edit-motivo" type="text" class="form-control" placeholder="Describa la razón del cambio...">
+                </div>
+            `,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Guardar Edición',
+            cancelButtonText: 'Cancelar',
+            preConfirm: () => {
+                const ing = document.getElementById('swal-edit-ingreso').value;
+                const sal = document.getElementById('swal-edit-salida').value;
+                const mot = document.getElementById('swal-edit-motivo').value;
+
+                if (!mot || !mot.trim()) {
+                    Swal.showValidationMessage('El motivo de edición es obligatorio');
+                    return false;
+                }
+                return { ingreso_real: ing, salida_real: sal, motivo_edicion: mot.trim() };
+            }
+        });
+
+        if (!formValues) return;
+
+        try {
+            const headers = obtenerHeadersAutenticados();
+            const response = await fetch(`/api/asistencia/editar/${id}`, {
+                method: 'PUT',
+                headers: headers,
+                credentials: 'include',
+                body: JSON.stringify(formValues)
+            });
+
+            if (response.status === 401) {
+                limpiarTokensInvalidos();
+                Swal.fire('Sesión No Válida', 'Sus credenciales no son válidas o han expirado.', 'error');
+                return;
+            }
+
+            const data = await response.json();
+            if (data.status === 'success') {
+                Swal.fire('Éxito', data.message || 'Registro actualizado exitosamente', 'success');
+                cargarPlanilla();
+            } else {
+                throw new Error(data.message || 'Error al actualizar registro');
+            }
+        } catch (error) {
+            console.error("Error editando registro:", error);
+            Swal.fire('Error', error.message, 'error');
+        }
+    }
+
     return {
         inicializar,
         cargarPlanilla,
@@ -750,6 +931,7 @@ window.ModuloAsistencia = (function () {
         cargarMisHoras,
         abrirModalAusencia,
         cerrarModalAusencia,
-        guardarAusencia
+        guardarAusencia,
+        editarRegistro
     };
 })();

@@ -12,7 +12,7 @@ DB_DATABASE = os.getenv("WO_DB", "FRIPARTS2021")
 DB_UID = os.getenv("WO_USER", "wo_cliente")
 DB_PWD = os.getenv("WO_PASSWORD", "wo_cliente")
 
-API_URL = os.getenv("SYNC_API_URL", "http://172.16.1.109:5005")
+API_URL = os.getenv("SYNC_API_URL", "https://proyecto-friparts.onrender.com")
 SYNC_TOKEN = os.getenv("SYNC_TOKEN", "FriParts-WO-Sync-2026!")
 
 conn_str = (

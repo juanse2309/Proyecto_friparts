@@ -48,3 +48,53 @@ class DashboardService:
                 "total_vencida": 0.0,
                 "clientes_criticos": []
             }
+
+    @staticmethod
+    def get_rendimiento():
+        """
+        Devuelve el desglose de rendimiento de los últimos 12 meses con el índice del mes actual.
+        """
+        try:
+            from backend.core.repository_service import repository_service
+            import datetime
+            now = datetime.datetime.now()
+            current_month = now.month
+            current_year = now.year
+            
+            mensual_data = repository_service.get_rendimiento_mensual_sql()
+            
+            rendimiento = []
+            mes_actual_idx = 0
+            
+            # mensual_data contains data mapping from 1 to 12
+            for idx, item in enumerate(mensual_data):
+                p_monto = float(item.get('actual_pedidos') or 0)
+                v_monto = float(item.get('actual_dinero') or 0)
+                p_und = float(item.get('actual_pedidos_unidades') or 0)
+                v_und = float(item.get('actual_unidades') or 0)
+                
+                pct_monto = (v_monto / p_monto * 100) if p_monto > 0 else 0.0
+                pct_unidades = (v_und / p_und * 100) if p_und > 0 else 0.0
+                
+                rendimiento.append({
+                    "mes": item.get('mes', str(idx+1)),
+                    "anio": current_year,
+                    "ventas_monto": v_monto,
+                    "pedidos_monto": p_monto,
+                    "ventas_unidades": v_und,
+                    "pedidos_unidades": p_und,
+                    "pct_cumplimiento_monto": round(float(pct_monto), 2),
+                    "pct_cumplimiento_unidades": round(float(pct_unidades), 2)
+                })
+                
+                if (idx + 1) == current_month:
+                    mes_actual_idx = idx
+
+            return {
+                "mes_actual_idx": mes_actual_idx,
+                "data": rendimiento
+            }
+            
+        except Exception as e:
+            logger.error(f"Error consultando rendimiento: {e}")
+            return {"mes_actual_idx": 0, "data": []}

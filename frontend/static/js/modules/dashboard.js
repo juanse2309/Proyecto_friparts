@@ -164,11 +164,12 @@ window.ModuloDashboard = (function () {
                         return res.json();
                     });
 
-                    const reqCartera = fetch(`/api/dashboard/cartera`, {
+                    const ENABLE_CARTERA = false;
+                    const reqCartera = ENABLE_CARTERA ? fetch(`/api/dashboard/cartera`, {
                         headers: getAuthHeaders({ 'Accept': 'application/json' }),
                         credentials: 'include',
                         signal: controller.signal
-                    }).then(res => res.ok ? res.json() : null).catch(() => null);
+                    }).then(res => res.ok ? res.json() : null).catch(() => null) : Promise.resolve(null);
 
                     const [result, jefaturaData, carteraData] = await Promise.all([responseStats, reqJefatura, reqCartera]);
                     clearTimeout(timeoutId);
@@ -355,7 +356,7 @@ window.ModuloDashboard = (function () {
 
                 if (lastJefaturaData.mensual) {
                     renderChartMensual(lastJefaturaData.mensual, currentIncSortMode);
-                    renderChartRendimientoMensualNew(lastJefaturaData.mensual, currentIncSortMode);
+                    cargarRendimientoDedicado(currentIncSortMode);
                 }
                 
                 // Iniciar Pre-fetching Seguro (Sin bloquear UI)
@@ -405,6 +406,10 @@ window.ModuloDashboard = (function () {
     }
 
     function renderCartera(data) {
+        if (!data || (typeof ENABLE_CARTERA !== 'undefined' && !ENABLE_CARTERA)) {
+            return;
+        }
+
         const formatCOP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
         
         const total = data.total_cartera || 0;
@@ -2044,14 +2049,222 @@ window.ModuloDashboard = (function () {
         }
     }
 
+    let rendimientoDataCompleto = [];
+    let mesActualGlobalIdx = 0;
+    let mesActivoIdx = 0; // Guarda el índice del mes seleccionado
+    let tacometroChartInstance = null;
+    let currentRendimientoMode = 'money'; // can be 'money' or 'units'
+
+    async function cargarRendimientoDedicado(mode = 'money') {
+        currentRendimientoMode = mode;
+        try {
+            const res = await fetch('/api/dashboard/rendimiento');
+            const data = await res.json();
+            if (data.success && data.data) {
+                rendimientoDataCompleto = data.data.data;
+                mesActualGlobalIdx = data.data.mes_actual_idx || 0;
+                mesActivoIdx = mesActualGlobalIdx; // Por defecto es el actual
+                
+                // En el caso inicial, dibuja el chart y el tacómetro
+                renderChartRendimientoMensualNew(rendimientoDataCompleto, mode, mesActivoIdx === mesActualGlobalIdx ? -1 : mesActivoIdx);
+                renderTacometro(rendimientoDataCompleto[mesActivoIdx]);
+                
+                // Mostrar el botón de restaurar si el mes seleccionado no es el actual
+                const btnRestaurar = document.getElementById('btn-ver-mes-actual');
+                if (btnRestaurar) {
+                    if (mesActivoIdx !== mesActualGlobalIdx) btnRestaurar.classList.remove('d-none');
+                    else btnRestaurar.classList.add('d-none');
+                }
+            }
+        } catch (e) {
+            console.error("Error fetching rendimiento:", e);
+        }
+    }
+
+    function restaurarTacometroMesActual() {
+        if (rendimientoDataCompleto.length > mesActualGlobalIdx) {
+            mesActivoIdx = mesActualGlobalIdx;
+            renderTacometro(rendimientoDataCompleto[mesActivoIdx]);
+            const btnRestaurar = document.getElementById('btn-ver-mes-actual');
+            if (btnRestaurar) btnRestaurar.classList.add('d-none');
+            // Remove highlight from chart by rerendering
+            renderChartRendimientoMensualNew(rendimientoDataCompleto, currentRendimientoMode);
+        }
+    }
+    
+    function reRenderizarVistaActiva() {
+        // Mantiene el mes seleccionado al cambiar entre $ / Unidades
+        if (rendimientoDataCompleto && rendimientoDataCompleto.length > 0) {
+            mesActivoIdx = Math.max(0, Math.min(mesActivoIdx, rendimientoDataCompleto.length - 1));
+            renderChartRendimientoMensualNew(rendimientoDataCompleto, currentRendimientoMode, mesActivoIdx === mesActualGlobalIdx ? -1 : mesActivoIdx);
+            renderTacometro(rendimientoDataCompleto[mesActivoIdx]);
+        }
+    }
+
+    // Export function so HTML can use it
+    window.ModuloDashboard = window.ModuloDashboard || {};
+    window.ModuloDashboard.restaurarTacometroMesActual = restaurarTacometroMesActual;
+    window.ModuloDashboard.reRenderizarVistaActiva = reRenderizarVistaActiva;
+    window.ModuloDashboard.setModoRendimiento = function(nuevoModo) {
+        currentRendimientoMode = nuevoModo;
+        // Actualizar clases activas/inactivas en los botones UI
+        document.querySelectorAll('.btn-toggle-rendimiento, [data-mode-rendimiento]').forEach(b => {
+            const m = b.dataset.modeRendimiento || b.dataset.mode;
+            b.classList.toggle('active', m === nuevoModo);
+        });
+        window.ModuloDashboard.reRenderizarVistaActiva();
+    };
+
+    function renderTacometro(dataMes) {
+        if (!dataMes) return;
+        
+        const isMoney = currentRendimientoMode === 'money';
+        const pct = isMoney ? dataMes.pct_cumplimiento_monto : dataMes.pct_cumplimiento_unidades;
+        
+        const ctx = document.getElementById('chartTacometroRendimiento');
+        if (!ctx) return;
+        
+        if (tacometroChartInstance) {
+            tacometroChartInstance.destroy();
+        }
+        
+        const pctVal = Math.max(0, Number(pct) || 0);
+        const chartColor = pctVal >= 100 ? '#10b981' : (pctVal >= 80 ? '#f59e0b' : '#ef4444');
+        
+        // Normalización > 100%: Escalar el Gauge
+        const maxGaugeValue = Math.max(100, Math.ceil(pctVal / 10) * 10);
+        const resto = Math.max(0, maxGaugeValue - pctVal);
+        
+        const montoVentas = dataMes.ventas_monto || 0;
+        const undsVentas = dataMes.ventas_unidades || 0;
+        const montoPedidos = dataMes.pedidos_monto || 0;
+        const undsPedidos = dataMes.pedidos_unidades || 0;
+        
+        document.getElementById('titulo-tacometro').innerHTML = `<i class="fas fa-tachometer-alt me-2"></i>Cumplimiento: ${dataMes.mes}`;
+        
+        document.getElementById('detalle-tacometro').innerHTML = isMoney ? 
+            `Ventas: $${montoVentas.toLocaleString('es-CO')} | Meta: $${montoPedidos.toLocaleString('es-CO')}` :
+            `Ventas: ${undsVentas.toLocaleString('es-CO')} Unds | Meta: ${undsPedidos.toLocaleString('es-CO')} Unds`;
+
+        const centerTextPlugin = {
+            id: 'centerText',
+            beforeDraw: function(chart) {
+                const width = chart.width;
+                const height = chart.height;
+                const chartCtx = chart.ctx;
+                
+                chartCtx.restore();
+                chartCtx.font = `bold 26px sans-serif`;
+                chartCtx.textBaseline = "bottom";
+                chartCtx.textAlign = "center";
+                
+                const text = `${pctVal}%`;
+                const x = width / 2;
+                // Since it's a half-doughnut, the center is at the bottom of the chart area
+                const y = chart.chartArea.bottom;
+                
+                chartCtx.fillStyle = chartColor;
+                chartCtx.fillText(text, x, y);
+                chartCtx.save();
+            }
+        };
+
+        const gaugeScaleTicks = {
+            id: 'gaugeScaleTicks',
+            afterDraw: function(chart) {
+                const ctx = chart.ctx;
+                const { chartArea } = chart;
+                if (!chartArea) return;
+                
+                const width = chartArea.right - chartArea.left;
+                const height = chartArea.bottom - chartArea.top;
+                
+                const outerRadius = Math.min(width, height) / 2;
+                const centerX = chartArea.left + width / 2;
+                const centerY = chartArea.bottom;
+                
+                ctx.restore();
+                ctx.font = '10px sans-serif';
+                ctx.fillStyle = '#8898aa';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // UNICAMENTE 4 marcas de referencia
+                const ticks = [...new Set([0, 50, 100, maxGaugeValue])];
+                const tickRadius = outerRadius + 18;
+                
+                ticks.forEach(tick => {
+                    const angle = Math.PI + (tick / maxGaugeValue) * Math.PI; // -180 to 0 degrees relative to maxGaugeValue
+                    const x = centerX + Math.cos(angle) * tickRadius;
+                    const y = centerY + Math.sin(angle) * tickRadius;
+                    ctx.fillText(`${tick}%`, x, y);
+                });
+                
+                ctx.save();
+            }
+        };
+
+        tacometroChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Fondo', 'Cumplimiento', 'Restante'],
+                datasets: [
+                    {
+                        data: [maxGaugeValue],
+                        backgroundColor: ['rgba(200, 200, 200, 0.2)'],
+                        borderWidth: 0,
+                        circumference: 180,
+                        rotation: 270,
+                        weight: 1
+                    },
+                    {
+                        data: [pctVal, resto],
+                        backgroundColor: [chartColor, 'transparent'],
+                        borderWidth: 0,
+                        circumference: 180,
+                        rotation: 270,
+                        weight: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '75%',
+                layout: {
+                    padding: { top: 25, bottom: 20, left: 30, right: 30 }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { 
+                        enabled: true,
+                        filter: (tooltipItem) => tooltipItem.datasetIndex === 1,
+                        callbacks: {
+                            label: function() {
+                                return [
+                                    'Cumplimiento: ' + pctVal.toFixed(1) + '%',
+                                    'Ventas: $' + montoVentas.toLocaleString('es-CO') + ' (' + undsVentas.toLocaleString('es-CO') + ' Unds)',
+                                    'Pedidos: $' + montoPedidos.toLocaleString('es-CO') + ' (' + undsPedidos.toLocaleString('es-CO') + ' Unds)'
+                                ];
+                            }
+                        }
+                    }
+                }
+            },
+            plugins: [centerTextPlugin, gaugeScaleTicks]
+        });
+    }
+
     // === 3. Gráfico Nuevo: Ventas vs Pedidos Mensual ===
-    function renderChartRendimientoMensualNew(datosMensuales, mode = 'money') {
+    function renderChartRendimientoMensualNew(datosMensuales, mode = 'money', highlightIndex = -1) {
         const ctx = document.getElementById('chartRendimientoMensualNew');
         if (!ctx || !Array.isArray(datosMensuales) || datosMensuales.length === 0) return;
 
         try {
             const labels = datosMensuales.map(d => d.mes);
             const isMoney = mode === 'money';
+            currentRendimientoMode = mode;
+            rendimientoDataCompleto = datosMensuales; // Update cache if called from elsewhere
 
             const hastaInput = document.getElementById('db-fecha-hasta');
             const yearActual = hastaInput?.value
@@ -2059,14 +2272,28 @@ window.ModuloDashboard = (function () {
                 : new Date().getFullYear();
 
             // Datos del año actual (Ventas vs Pedidos)
-            const dataVentas = datosMensuales.map(d => isMoney ? (d.actual_dinero || 0) : (d.actual_unidades || 0));
-            const dataPedidos = datosMensuales.map(d => isMoney ? (d.actual_pedidos || 0) : (d.actual_pedidos_unidades || 0));
+            const dataVentas = datosMensuales.map(d => ({
+                x: d.mes,
+                y: isMoney ? (d.ventas_monto ?? d.actual_dinero ?? 0) : (d.ventas_unidades ?? d.actual_unidades ?? 0),
+                monto: (d.ventas_monto ?? d.actual_dinero ?? 0),
+                unidades: (d.ventas_unidades ?? d.actual_unidades ?? 0),
+                pedidos_monto: (d.pedidos_monto ?? d.actual_pedidos ?? 0),
+                pedidos_unidades: (d.pedidos_unidades ?? d.actual_pedidos_unidades ?? 0)
+            }));
+            const dataPedidos = datosMensuales.map(d => ({
+                x: d.mes,
+                y: isMoney ? (d.pedidos_monto ?? d.actual_pedidos ?? 0) : (d.pedidos_unidades ?? d.actual_pedidos_unidades ?? 0),
+                monto: (d.pedidos_monto ?? d.actual_pedidos ?? 0),
+                unidades: (d.pedidos_unidades ?? d.actual_pedidos_unidades ?? 0),
+                pedidos_monto: (d.pedidos_monto ?? d.actual_pedidos ?? 0),
+                pedidos_unidades: (d.pedidos_unidades ?? d.actual_pedidos_unidades ?? 0)
+            }));
 
             if (chartRendimientoMensualNewInst) chartRendimientoMensualNewInst.destroy();
 
             // Colores Contrastantes
-            const COLOR_VENTAS = 'rgba(16, 185, 129, 0.9)'; // Verde Esmeralda (Éxito)
-            const COLOR_PEDIDOS = 'rgba(245, 158, 11, 0.9)'; // Naranja Ambar (Alerta/Pendiente)
+            const COLOR_VENTAS = dataVentas.map((_, idx) => highlightIndex !== -1 && highlightIndex !== idx ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.9)');
+            const COLOR_PEDIDOS = dataPedidos.map((_, idx) => highlightIndex !== -1 && highlightIndex !== idx ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.9)');
 
             chartRendimientoMensualNewInst = new Chart(ctx, {
                 type: 'bar',
@@ -2098,15 +2325,31 @@ window.ModuloDashboard = (function () {
                         mode: 'index',
                         intersect: false,
                     },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            mesActivoIdx = index;
+                            renderTacometro(rendimientoDataCompleto[index]);
+                            const btnRestaurar = document.getElementById('btn-ver-mes-actual');
+                            if (btnRestaurar) {
+                                if (mesActivoIdx !== mesActualGlobalIdx) btnRestaurar.classList.remove('d-none');
+                                else btnRestaurar.classList.add('d-none');
+                            }
+                            
+                            // Re-render chart to highlight selected index
+                            renderChartRendimientoMensualNew(rendimientoDataCompleto, currentRendimientoMode, index);
+                        }
+                    },
                     plugins: {
                         legend: { position: 'top' },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    let val = context.raw || 0;
-                                    let formattedVal = new Intl.NumberFormat('es-CO').format(val);
-                                    if (isMoney) return context.dataset.label + ': $' + formattedVal;
-                                    return context.dataset.label + ': ' + formattedVal + ' Unds';
+                                    const raw = context.raw || {};
+                                    const $monto = '$' + (raw.monto || 0).toLocaleString('es-CO');
+                                    const $unds = (raw.unidades || 0).toLocaleString('es-CO') + ' Unds';
+                                    const prefix = context.dataset.label.split(' ')[0];
+                                    return `${prefix}: ${$monto} (${$unds})`;
                                 }
                             }
                         }
@@ -2944,26 +3187,15 @@ window.ModuloDashboard = (function () {
     }
 
     // ── INTERACTIVIDAD INDEPENDIENTE: Gráfico Rendimiento Mensual Nuevo ──
-    document.addEventListener('click', (e) => {
-        const btnDinero = e.target.closest('#btnRendimientoMensualDinero');
-        const btnUnidades = e.target.closest('#btnRendimientoMensualUnidades');
-        
-        if (btnDinero || btnUnidades) {
+    // Escuchar clicks globales para los toggles de Rendimiento Mensual (Dinero/Unidades)
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-toggle-rendimiento, [data-mode-rendimiento]');
+        if (btn) {
             e.preventDefault();
-            if (!lastJefaturaData || !lastJefaturaData.mensual) return;
-            
-            const mode = btnDinero ? 'money' : 'units';
-            
-            // 1. Renderizar sólo la gráfica nueva (Aislado)
-            renderChartRendimientoMensualNew(lastJefaturaData.mensual, mode);
-            
-            // 2. Actualizar estados visuales de los botones (en todas las instancias donde existan)
-            document.querySelectorAll('#btnRendimientoMensualDinero').forEach(b => {
-                b.classList.toggle('active', mode === 'money');
-            });
-            document.querySelectorAll('#btnRendimientoMensualUnidades').forEach(b => {
-                b.classList.toggle('active', mode === 'units');
-            });
+            const mode = btn.dataset.modeRendimiento || btn.dataset.mode;
+            if (mode && window.ModuloDashboard && typeof window.ModuloDashboard.setModoRendimiento === 'function') {
+                window.ModuloDashboard.setModoRendimiento(mode);
+            }
         }
     });
 
@@ -3006,6 +3238,19 @@ window.ModuloDashboard = (function () {
         // ── API pública del gráfico centralizado ──
         renderChartMonthlyPerformance,
         fetchAndRenderMonthlyPerformance
+    };
+    
+    // Add dynamically added methods back to the new ModuloDashboard object
+    window.ModuloDashboard.restaurarTacometroMesActual = restaurarTacometroMesActual;
+    window.ModuloDashboard.reRenderizarVistaActiva = reRenderizarVistaActiva;
+    window.ModuloDashboard.setModoRendimiento = function(nuevoModo) {
+        currentRendimientoMode = nuevoModo;
+        // Actualizar clases activas/inactivas en los botones UI
+        document.querySelectorAll('.btn-toggle-rendimiento, [data-mode-rendimiento]').forEach(b => {
+            const m = b.dataset.modeRendimiento || b.dataset.mode;
+            b.classList.toggle('active', m === nuevoModo);
+        });
+        window.ModuloDashboard.reRenderizarVistaActiva();
     };
 
     return window.ModuloDashboard;

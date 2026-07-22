@@ -916,8 +916,8 @@
                         </div>
                     </div>
 
-                    <!-- NUEVA FILA: Cartera / Cuentas por Cobrar -->
-                    <div class="row g-4 mb-4" id="dashboard-section-cartera" data-role-access="ADMIN,GERENCIA,COMERCIAL">
+                    <!-- NUEVA FILA: Cartera / Cuentas por Cobrar (Temporalmente Oculta) -->
+                    <div class="row g-4 mb-4 d-none" id="dashboard-section-cartera" data-role-access="ADMIN,GERENCIA,COMERCIAL">
                         <div class="col-md-6">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
                                 <div class="card-header bg-white border-0 pt-4 pb-2">
@@ -1006,7 +1006,7 @@
 
                         <!-- Row 1.5: Rendimiento Mensual Nuevo (Ventas vs Pedidos) -->
                         <div class="row g-4 mb-4 mt-2">
-                            <div class="col-12">
+                            <div class="col-12 col-md-8">
                                 <div class="card h-100 shadow-sm border-0 rounded-4">
                                     <div class="card-header bg-white border-bottom-0 pb-0 d-flex justify-content-between align-items-center mt-3 mx-2">
                                         <h5 class="card-title fw-bold mb-0" style="color: #1e293b;">
@@ -1014,13 +1014,16 @@
                                             <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
                                                 title="Ventas vs Pedidos mes a mes"></i>
                                         </h5>
-                                        <div class="d-flex gap-2">
-                                            <button class="chart-toggle-btn" id="btnRendimientoMensualUnidades"
-                                                title="Ver en Unidades">
+                                        <div class="d-flex gap-2 align-items-center">
+                                            <button class="btn btn-sm btn-outline-secondary me-2 d-none" id="btn-ver-mes-actual" onclick="window.ModuloDashboard.restaurarTacometroMesActual()" style="border-radius: 20px;">
+                                                <i class="fas fa-undo-alt me-1"></i> Ver Mes Actual
+                                            </button>
+                                            <button class="chart-toggle-btn btn-toggle-rendimiento" id="btnRendimientoMensualUnidades"
+                                                data-mode-rendimiento="units" title="Ver en Unidades">
                                                 <i class="fas fa-box"></i>
                                             </button>
-                                            <button class="chart-toggle-btn active" id="btnRendimientoMensualDinero"
-                                                title="Ver en Dinero">
+                                            <button class="chart-toggle-btn active btn-toggle-rendimiento" id="btnRendimientoMensualDinero"
+                                                data-mode-rendimiento="money" title="Ver en Dinero">
                                                 <i class="fas fa-dollar-sign"></i>
                                             </button>
                                         </div>
@@ -1029,6 +1032,22 @@
                                         <div style="position: relative; height: 350px; width: 100%;">
                                             <canvas id="chartRendimientoMensualNew"></canvas>
                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- SECCION TACÓMETRO -->
+                            <div class="col-12 col-md-4">
+                                <div class="card h-100 shadow-sm border-0 rounded-4 text-center">
+                                    <div class="card-header bg-white border-bottom-0 pb-0 mt-3 mx-2">
+                                        <h5 class="card-title fw-bold mb-0 text-primary" id="titulo-tacometro">
+                                            <i class="fas fa-tachometer-alt me-2"></i>Cumplimiento: Actual
+                                        </h5>
+                                    </div>
+                                    <div class="card-body p-4 d-flex flex-column justify-content-center align-items-center">
+                                        <div style="position: relative; height: 240px; width: 100%; max-width: 300px; margin: 0 auto;">
+                                            <canvas id="chartTacometroRendimiento"></canvas>
+                                        </div>
+                                        <div class="text-muted small text-center mt-2" id="detalle-tacometro">Ventas: $0 | Meta: $0</div>
                                     </div>
                                 </div>
                             </div>

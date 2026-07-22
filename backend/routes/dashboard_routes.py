@@ -372,6 +372,23 @@ def get_dashboard_cartera():
         logger.error(f"Error en endpoint /dashboard/cartera: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@dashboard_bp.route('/rendimiento', methods=['GET'])
+def get_dashboard_rendimiento():
+    """Retorna el rendimiento mensual para el tacómetro."""
+    try:
+        from backend.services.dashboard_service import DashboardService
+        
+        datos_rendimiento = DashboardService.get_rendimiento()
+        
+        return jsonify({
+            "success": True,
+            "data": datos_rendimiento
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en endpoint /dashboard/rendimiento: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @dashboard_bp.route('/cartera/exportar', methods=['GET'])
 @require_role(ROL_ADMINS + ROL_COMERCIALES)
 def exportar_cartera():
