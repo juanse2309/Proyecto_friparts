@@ -30,6 +30,26 @@ def format_time_py(dt_obj):
     # Si ya es un string, intentar limpiar
     return safe_str(dt_obj)
 
+def format_maquina(val, tipo_proceso=None):
+    """
+    Normaliza el campo máquina al estándar 'Máquina No. X' o 'N/A'.
+    """
+    procesos_sin_maquina = {'PULIDO', 'ENSAMBLE', 'VENTA', 'VENTAS', 'FACTURACION', 'PNC'}
+    if tipo_proceso and str(tipo_proceso).upper() in procesos_sin_maquina:
+        return 'N/A'
+    if val is None:
+        return 'N/A'
+    val_str = str(val).strip()
+    if not val_str or val_str.upper() in ['NONE', 'NULL', 'UNDEFINED', 'N/A', '-', '']:
+        return 'N/A'
+    if val_str.isdigit():
+        return f"Máquina No. {int(val_str)}"
+    import re
+    match = re.search(r'\d+', val_str)
+    if match:
+        return f"Máquina No. {int(match.group(0))}"
+    return val_str
+
 @historial_bp.route('/api/historial-global', methods=['GET'])
 def obtener_historial_global():
     """
@@ -84,6 +104,7 @@ def obtener_historial_global():
                             'Responsable': safe_str(r.get('responsable', 'SISTEMA')),
                             'Cant': float(str(r.get('cantidad_real') or 0).replace(',', '.')),
                             'Orden': safe_str(r.get('orden_produccion', '')) or safe_str(r.get('id_inyeccion', '')),
+                            'maquina': format_maquina(r.get('maquina'), 'INYECCION'),
                             'Extra': f"Molde: {r.get('molde', '')}",
                             'Detalle': safe_str(r.get('observaciones', '')),
                             'HORA_INICIO': safe_str(r.get('hora_inicio', '')),
@@ -152,6 +173,7 @@ def obtener_historial_global():
                             'cantidad_real': float(r['cantidad_real'] or 0),
                             'Cant': float(r['cantidad_real'] or 0),
                             'Orden': str(r['orden_produccion'] or p_id or '-'),
+                            'maquina': 'N/A',
                             'Extra': f"OP: {str(r['orden_produccion'] or '')}",
                             'Detalle': str(detalle_final.strip()),
                             'HORA_INICIO': format_time_py(r['hora_inicio']),
@@ -182,6 +204,7 @@ def obtener_historial_global():
                         'Responsable': safe_str(getattr(r, 'responsable', 'SISTEMA')),
                         'Cant': float(str(getattr(r, 'cantidad', 0) or 0).replace(',', '.')),
                         'Orden': safe_str(getattr(r, 'op_numero', '')) or safe_str(getattr(r, 'id_ensamble', '')),
+                        'maquina': 'N/A',
                         'Extra': safe_str(getattr(r, 'buje_ensamble', '')),
                         'Detalle': safe_str(getattr(r, 'observaciones', '')),
                         'HORA_INICIO': format_time_py(getattr(r, 'hora_inicio', None)),
@@ -203,6 +226,7 @@ def obtener_historial_global():
                         'Producto': 'PREPARACION MATERIAL',
                         'Responsable': safe_str(getattr(r, 'responsable', 'SISTEMA')),
                         'Cant': f"{float(getattr(r, 'virgen_kg', 0) or 0)}Kg V",
+                        'maquina': format_maquina(getattr(r, 'maquina', None), 'MEZCLA'),
                         'Extra': f"{float(getattr(r, 'molido_kg', 0) or 0)}Kg M",
                         'Detalle': safe_str(getattr(r, 'observaciones', '')),
                         'HORA_INICIO': '',
@@ -225,6 +249,7 @@ def obtener_historial_global():
                         'Responsable': safe_str(getattr(r, 'nombres', 'CLIENTE DESCONOCIDO')),
                         'Cant': float(str(getattr(r, 'cantidad', 0) or 0).replace(',', '.')),
                         'Orden': safe_str(getattr(r, 'documento', '')),
+                        'maquina': 'N/A',
                         'Extra': safe_str(getattr(r, 'clasificacion', '')),
                         'Detalle': f"Ingreso: ${float(getattr(r, 'total_ingresos', 0) or 0)}",
                         'HORA_INICIO': '',
@@ -258,6 +283,7 @@ def obtener_historial_global():
                         'Responsable': 'INYECCION',
                         'Cant': float(str(getattr(pnc, 'cantidad', 0) or 0).replace(',', '.')),
                         'Orden': safe_str(getattr(pnc, 'id_inyeccion', '')),
+                        'maquina': 'N/A',
                         'Extra': 'PNC Inyeccion',
                         'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
@@ -281,6 +307,7 @@ def obtener_historial_global():
                         'Responsable': 'PULIDO',
                         'Cant': float(str(getattr(pnc, 'cantidad', 0) or 0).replace(',', '.')),
                         'Orden': safe_str(getattr(pnc, 'id_pulido', '')),
+                        'maquina': 'N/A',
                         'Extra': 'PNC Pulido',
                         'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
@@ -304,6 +331,7 @@ def obtener_historial_global():
                         'Responsable': 'ENSAMBLE',
                         'Cant': float(str(getattr(pnc, 'cantidad', 0) or 0).replace(',', '.')),
                         'Orden': safe_str(getattr(pnc, 'id_ensamble', '')),
+                        'maquina': 'N/A',
                         'Extra': 'PNC Ensamble',
                         'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
@@ -625,7 +653,7 @@ def exportar_excel_historial_global():
 
         columnas = [
             'Fecha', 'Hora Inicio', 'Hora Fin', 'Tipo', 'Responsable', 
-            'Producto', 'Orden Prod.', 'Máquina/Extra', 'Cantidad', 'Detalle'
+            'Producto', 'Orden Prod.', 'Máquina', 'Cantidad', 'Detalle'
         ]
 
         for col_idx, titulo in enumerate(columnas, 1):
@@ -644,7 +672,7 @@ def exportar_excel_historial_global():
                 r.get('Responsable', ''),
                 r.get('Producto', ''),
                 r.get('Orden', ''),
-                r.get('Extra', ''),
+                r.get('maquina', 'N/A'),
                 r.get('Cant', 0),
                 r.get('Detalle', '')
             ]

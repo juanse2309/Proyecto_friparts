@@ -204,24 +204,24 @@
                 let responsable = r.Responsable;
                 let cantidad = r.Cant;
                 let orden = r.Orden;
-                let maquina = r.Extra || '-';
+                let maquina = r.maquina || 'N/A';
 
                 if (r.Tipo === 'INYECCION') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
                     cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
-                    maquina = r.MAQUINA || r.Extra;
+                    maquina = r.maquina || 'N/A';
                 } else if (r.Tipo === 'PULIDO') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
                     // USAR cantidad_real según instrucción del usuario
                     cantidad = r.cantidad_real !== undefined ? r.cantidad_real : r.Cant;
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
-                    maquina = 'N/A';
+                    maquina = r.maquina || 'N/A';
                 } else if (r.Tipo === 'METALS') {
                     responsable = r.Responsable || r.RESPONSABLE || '-';
                     cantidad = r.Cant || r.CANTIDAD_OK || '0';
-                    orden = r.Orden || r.MAQUINA || '-';
-                    maquina = r.Extra || r.PROCESO || '-';
+                    orden = r.Orden || '-';
+                    maquina = r.maquina || 'N/A';
                 }
 
                 html += `
@@ -298,25 +298,25 @@
                 let responsable = r.Responsable;
                 let cantidad = r.Cant;
                 let orden = r.Orden;
-                let maquina = r.Extra || '-';
+                let maquina = r.maquina || 'N/A';
 
                 // Manejo especial por proceso según requerimiento Juan Sebastian
                 if (r.Tipo === 'INYECCION') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
                     cantidad = r['CANTIDAD REAL'] !== undefined ? r['CANTIDAD REAL'] : r.Cant;
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
-                    maquina = r.MAQUINA || r.Extra;
+                    maquina = r.maquina || 'N/A';
                 } else if (r.Tipo === 'PULIDO') {
                     responsable = r.RESPONSABLE || r.Responsable || r.OPERARIO || r.Usuario || '-';
                     // USAR cantidad_real según instrucción del usuario
                     cantidad = r.cantidad_real !== undefined ? r.cantidad_real : r.Cant;
                     orden = r['ORDEN PRODUCCION'] || r.Orden;
-                    maquina = '-'; // Pulido no tiene máquina
+                    maquina = r.maquina || 'N/A';
                 } else if (r.Tipo === 'METALS') {
                     responsable = r.Responsable || r.RESPONSABLE || '-';
                     cantidad = r.Cant || r.CANTIDAD_OK || '0';
-                    orden = r.Orden || r.MAQUINA || '-';
-                    maquina = r.Extra || r.PROCESO || '-';
+                    orden = r.Orden || '-';
+                    maquina = r.maquina || 'N/A';
                 }
 
                 html += `

@@ -1039,7 +1039,7 @@
                             <div class="col-12 col-md-4">
                                 <div class="card h-100 shadow-sm border-0 rounded-4 text-center">
                                     <div class="card-header bg-white border-bottom-0 pb-0 mt-3 mx-2">
-                                        <h5 class="card-title fw-bold mb-0 text-primary" id="titulo-tacometro">
+                                        <h5 class="card-title fw-bold mb-0 text-warning" id="titulo-tacometro">
                                             <i class="fas fa-tachometer-alt me-2"></i>Cumplimiento: Actual
                                         </h5>
                                     </div>
@@ -1238,6 +1238,43 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- FILA: Productos sin Movimiento / Baja Rotación -->
+                        <div class="row g-4 mb-4" id="dashboard-section-sin-rotacion">
+                            <div class="col-12">
+                                <div class="card shadow-sm border-0 rounded-4">
+                                    <div class="card-body p-4">
+                                        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+                                            <div>
+                                                <h5 class="fw-bold mb-1 text-dark">
+                                                    <i class="fas fa-boxes text-warning me-2"></i> Productos sin Movimiento / Baja Rotación
+                                                    <span class="badge bg-secondary rounded-pill ms-2" id="badge-total-sin-rotacion">0</span>
+                                                </h5>
+                                                <small class="text-muted">Productos en catálogo con ventas <= al límite configurado en los últimos 12 meses</small>
+                                            </div>
+                                            <div class="mt-2 mt-md-0 d-flex gap-2" style="min-width: 320px;">
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text bg-light border-end-0"><i class="fas fa-search text-muted"></i></span>
+                                                    <input type="text" id="input-busqueda-sin-rotacion" class="form-control border-start-0 bg-light" placeholder="Buscar por referencia o nombre...">
+                                                </div>
+                                                <select id="select-max-ventas-sin-rotacion" class="form-select form-select-sm bg-light" style="max-width: 140px;" title="Límite máximo de ventas en 12 meses">
+                                                    <option value="0" selected>0 Pz (Sin ventas)</option>
+                                                    <option value="10"><= 10 Pz</option>
+                                                    <option value="30"><= 30 Pz</option>
+                                                    <option value="49"><= 49 Pz</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div id="contenedor-sin-rotacion" class="overflow-auto" style="max-height: 250px;">
+                                            <div class="text-center text-muted py-3">
+                                                <i class="fas fa-spinner fa-spin me-2"></i> Cargando productos sin movimiento...
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Fila Principal: Los Gráficos -->
@@ -1271,14 +1308,17 @@
                         <!-- Columna Producción por Máquina -->
                         <div class="col-lg-6">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
-                                <h5 class="fw-bold mb-0 text-dark">Distribución por Máquina Inyectora
-                                    <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip"
-                                        title="Proporción de producción total distribuida entre máquinas (Filtrado por fecha)."></i>
-                                </h5>
-                                <div class="card-body d-flex align-items-center justify-content-center">
+                                <div class="card-header bg-white border-0 pt-4 pb-2">
+                                    <h5 class="fw-bold mb-0 text-dark">Distribución por Máquina Inyectora
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip"
+                                            title="Proporción de producción total distribuida entre máquinas (Filtrado por fecha)."></i>
+                                    </h5>
+                                </div>
+                                <div class="card-body d-flex flex-column align-items-center justify-content-center">
                                     <div style="height: 300px; width: 100%; position: relative;">
                                         <canvas id="chartMaquinas"></canvas>
                                     </div>
+                                    <small class="text-muted fst-italic text-center mt-2" style="font-size: 0.8rem;">Resumen de piezas por cada máquina</small>
                                 </div>
                             </div>
                         </div>
@@ -1298,8 +1338,8 @@
                                             title="Evolución diaria de las piezas buenas de Inyección y Pulido en las fechas dadas."></i>
                                     </h5>
                                 </div>
-                                <div class="card-body">
-                                    <div style="height: 300px; position: relative;">
+                                <div class="card-body p-4">
+                                    <div style="position: relative; height: 320px; width: 100%;">
                                         <canvas id="chartTendencia"></canvas>
                                     </div>
                                 </div>
@@ -1307,75 +1347,61 @@
                         </div>
                     </div>
 
-                    <!-- NUEVA FILA: Analítica de Merma (Dual) -->
-                    <div class="row g-4 mb-4" id="dashboard-section-merma-analytics" data-role-access="ADMIN,INYECCION,PULIDO">
-                        <!-- 1. Merma Global por Áreas (Lean Manufacturing) -->
+                    <div class="row g-4 mb-4">
+                        <!-- Scrap / PNC Pareteo Breakdown -->
                         <div class="col-12">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
-                                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
-                                    <h5 class="fw-bold mb-0 text-dark">
-                                        <i class="fas fa-industry text-danger me-2"></i> Control de PNC por Área
-                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Sumatoria de cantidades PNC agrupada por estación (Inyección, Pulido, Ensamble). Haz clic en una barra para ver detalles."></i>
-                                    </h5>
-                                    <div>
-                                        <span class="badge bg-danger rounded-pill" style="font-size: 0.9rem;">Total PNC: <span id="pnc-global-val">0</span></span>
-                                    </div>
+                                <div class="card-header bg-white border-0 pt-4 pb-2">
+                                    <h5 class="fw-bold mb-0 text-dark"><i class="fas fa-dumpster text-danger me-2"></i> Análitica de Scrap y PNC</h5>
                                 </div>
-                                <div class="card-body">
-                                    <div style="height: 250px; position: relative;" class="mb-4">
-                                        <canvas id="chartPNCGlobal"></canvas>
-                                    </div>
-                                    
-                                    <div class="border-top pt-4 mb-4">
-                                        <div class="row g-4">
-                                            <!-- Columna Izquierda: Pareto -->
-                                            <div class="col-lg-6">
-                                                <h5 class="fw-bold mb-3 text-dark" style="font-size: 1rem;">
-                                                    <i class="fas fa-list-ol text-warning me-2"></i> Pareto de Referencias (Top 10 PNC)
-                                                    <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Las 10 referencias de producto que acumulan mayor cantidad de Producto No Conforme (PNC) en la planta."></i>
-                                                </h5>
-                                                <div style="height: 320px; position: relative;">
-                                                    <canvas id="chartPNCPareto"></canvas>
-                                                </div>
+                                <div class="card-body p-4">
+                                    <div class="row g-4 align-items-center">
+                                        <div class="col-md-6">
+                                            <div style="height: 250px; position: relative;">
+                                                <canvas id="chartPNC"></canvas>
                                             </div>
-                                            
-                                            <!-- Columna Derecha: KPIs -->
-                                            <div class="col-lg-6">
-                                                <h5 class="fw-bold mb-3 text-dark" style="font-size: 1rem;">
-                                                    <i class="fas fa-chart-pie text-primary me-2"></i> Indicadores de Planta
-                                                </h5>
-                                                
-                                                <!-- KPI 1: FPY Global -->
-                                                <div class="card border-0 bg-light mb-3" style="border-radius: 12px;">
-                                                    <div class="card-body p-4">
-                                                        <div class="d-flex justify-content-between align-items-center mb-2">
-                                                            <span class="fw-bold text-muted text-uppercase small">Eficiencia de Planta (FPY Global)</span>
-                                                            <i class="fas fa-check-circle text-success fs-4"></i>
-                                                        </div>
-                                                        <h2 class="fw-bold text-dark mb-2"><span id="fpy-global-val">0.00</span>%</h2>
-                                                        <div class="progress" style="height: 8px; border-radius: 4px;">
-                                                            <div id="fpy-global-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="d-flex flex-column gap-3">
+                                                 <!-- KPI 1: Pérdida Financiera Scrap ($) -->
+                                                 <div class="card border-0 bg-light" style="border-radius: 12px;">
+                                                     <div class="card-body p-4">
+                                                         <div class="d-flex justify-content-between align-items-center mb-2">
+                                                             <span class="fw-bold text-muted text-uppercase small">Pérdida por Calidad ($)</span>
+                                                             <i class="fas fa-dollar-sign text-danger fs-4"></i>
+                                                         </div>
+                                                         <h2 class="fw-bold text-danger mb-1"><span id="perdida-calidad-val">$0</span></h2>
+                                                         <span class="d-none" id="perdida-calidad-global">$0</span>
+                                                         <span class="d-none" id="pnc-dinero-val">0</span>
+                                                         <div class="d-flex justify-content-between align-items-center mt-2 small border-top pt-2">
+                                                             <span class="text-muted">FPY Global: <span class="fw-bold text-success" id="fpy-global-val">100.00</span>%</span>
+                                                             <div class="progress flex-grow-1 ms-2" style="height: 6px; max-width: 100px;">
+                                                                 <div id="fpy-global-bar" class="progress-bar bg-success" role="progressbar" style="width: 100%;" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+                                                             </div>
+                                                         </div>
+                                                     </div>
+                                                 </div>
 
-                                                <!-- KPI 2: % PNC Total -->
-                                                <div class="card border-0 bg-light" style="border-radius: 12px;">
-                                                    <div class="card-body p-4">
-                                                        <div class="d-flex justify-content-between align-items-center mb-2">
-                                                            <span class="fw-bold text-muted text-uppercase small">Índice de Desperdicio (% PNC Total)</span>
-                                                            <i class="fas fa-exclamation-triangle text-danger fs-4"></i>
-                                                        </div>
-                                                        <h2 class="fw-bold text-dark mb-0"><span id="pnc-porcentaje-val">0.00</span>%</h2>
-                                                    </div>
-                                                </div>
+                                                 <!-- KPI 2: Índice de Desperdicio (% PNC Total) -->
+                                                 <div class="card border-0 bg-light" style="border-radius: 12px;">
+                                                     <div class="card-body p-4">
+                                                         <div class="d-flex justify-content-between align-items-center mb-2">
+                                                             <span class="fw-bold text-muted text-uppercase small">Índice de Desperdicio (% PNC Total)</span>
+                                                             <i class="fas fa-exclamation-triangle text-danger fs-4"></i>
+                                                         </div>
+                                                         <h2 class="fw-bold text-dark mb-0">
+                                                             <span id="pnc-global-val">0</span> Pz 
+                                                             <small class="fs-6 text-muted ms-2">(<span id="pnc-porcentaje-val">0.00</span>%)</small>
+                                                         </h2>
+                                                     </div>
+                                                 </div>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div class="border-top pt-3">
-                                        <h6 class="fw-bold text-muted small text-uppercase mb-2"><i class="fas fa-box-open me-2"></i> Top Scrap Almacén (Mermas)</h6>
-                                        <div id="pnc-almacen-desglose" class="list-group list-group-flush small overflow-auto" style="max-height: 120px;">
+                                        <h6 class="fw-bold text-muted small text-uppercase mb-2"><i class="fas fa-box-open me-2"></i> Top Scrap (Mermas)</h6>
+                                        <div id="pnc-almacen-desglose" class="list-group list-group-flush small overflow-auto" style="max-height: 220px;">
                                             <div class="list-group-item text-muted text-center py-2">Cargando detalle...</div>
                                         </div>
                                     </div>
@@ -1410,24 +1436,9 @@
                         </div>
                     </div>
 
-                    <!-- NUEVA FILA: Gráfica Eficiencia Pulido -->
+                    <!-- FILA: Ranking de Producción Pulido (Piezas) -->
                     <div class="row g-4 mb-4 mt-2" id="dashboard-section-pulido-kpis" data-role-access="ADMIN,PULIDO">
-                        <div class="col-md-6">
-                            <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
-                                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
-                                    <h5 class="fw-bold mb-0 text-dark">
-                                        <i class="fas fa-chart-line text-primary me-2"></i> Evolución Mensual de Puntos
-                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip" title="Acumulación de puntos por operadora. Muestra la constancia y aportes según el mes en el rango filtrado."></i>
-                                    </h5>
-                                </div>
-                                <div class="card-body">
-                                    <div style="position: relative; height: 320px; width: 100%;">
-                                        <canvas id="chartPulidoEvolucion"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
+                        <div class="col-12">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
                                 <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
                                     <h5 class="fw-bold mb-0 text-dark">
@@ -1490,10 +1501,45 @@
                             </div>
                         </div>
                     </div>
-
                 </div>
             </div>
-        </div> <!-- CIERRE DEL DASHBOARD PAGE FALTANTE -->
+        </div> <!-- CIERRE DEL DASHBOARD PAGE -->
+
+        <!-- Modal Desglose de Scrap -->
+        <div class="modal fade" id="modalScrapDetalle" tabindex="-1" aria-labelledby="modalScrapDetalleLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow rounded-4">
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title fw-bold text-dark" id="modalScrapDetalleLabel">
+                            <i class="fas fa-dumpster text-danger me-2"></i> Desglose de Scrap: <span id="modal-scrap-ref-title" class="text-primary"></span>
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-4">
+                        <div id="modal-scrap-loading" class="text-center py-4">
+                            <i class="fas fa-circle-notch fa-spin fa-2x text-primary mb-2"></i>
+                            <p class="text-muted small">Cargando desglose de la referencia...</p>
+                        </div>
+                        <div id="modal-scrap-content" class="table-responsive" style="display: none;">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th><i class="far fa-calendar-alt me-1"></i> Fecha</th>
+                                        <th><i class="fas fa-cogs me-1"></i> Máquina / Estación</th>
+                                        <th class="text-end"><i class="fas fa-cubes me-1"></i> Cantidad (Pz)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modal-scrap-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Inventario -->
         <div id="inventario-page" class="page">

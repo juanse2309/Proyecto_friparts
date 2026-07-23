@@ -263,7 +263,7 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
                         
                         <div class="card-content">
                             <div class="card-header-flex">
-                                <span class="card-code" onclick="event.preventDefault(); window.abrirModalHistorial('${p.codigo}');" style="text-decoration: underline; cursor: pointer; color: #0d6efd;">${p.codigo}</span>
+                                <span class="card-code producto-trazabilidad-link" data-codigo="${p.codigo}" style="text-decoration: underline; cursor: pointer; color: #0d6efd;" title="Ver trazabilidad completa">${p.codigo}</span>
                                 <span class="card-status-text" style="color: ${getSemaforoColor(semaforoColor)}">${p.semaforo?.estado || ''}</span>
                             </div>
                             
@@ -339,7 +339,7 @@ function renderizarTablaProductos(productos, resetearPagina = false) {
 
             tr.innerHTML = `
                 <td style="padding: 10px; text-align: center;">${obtenerHtmlImagen(p, false)}</td>
-                <td style="padding: 10px;"><a href="#" onclick="event.preventDefault(); window.abrirModalHistorial('${p.codigo}');" class="text-primary fw-bold text-decoration-underline" style="cursor: pointer;" title="Ver trazabilidad completa">${p.codigo || '-'}</a></td>
+                <td style="padding: 10px;"><a href="#" class="producto-trazabilidad-link text-primary fw-bold text-decoration-underline" data-codigo="${p.codigo}" style="cursor: pointer;" title="Ver trazabilidad completa">${p.codigo || '-'}</a></td>
                 <td style="padding: 10px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     ${p.descripcion || '-'}
                     ${tieneDiscrepancia ? '<br><span class="badge bg-danger" style="font-size: 10px;">DISCREPANCIA DETECTADA</span>' : ''}
@@ -673,6 +673,22 @@ function configurarEventosInventario() {
     if (btnConteo) {
         btnConteo.addEventListener('click', () => {
             abrirModalConteo();
+        });
+    }
+
+    // Delegación de eventos para la Trazabilidad 360 (Evita inline onclick)
+    const tbody = document.getElementById('tabla-productos-body');
+    if (tbody && !tbody.dataset.trazabilidadBound) {
+        tbody.dataset.trazabilidadBound = 'true';
+        tbody.addEventListener('click', (e) => {
+            const target = e.target.closest('.producto-trazabilidad-link');
+            if (target) {
+                e.preventDefault();
+                const codigo = target.getAttribute('data-codigo');
+                if (codigo && typeof window.abrirModalHistorial === 'function') {
+                    window.abrirModalHistorial(codigo);
+                }
+            }
         });
     }
 

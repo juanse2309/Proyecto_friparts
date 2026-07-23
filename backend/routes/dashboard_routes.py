@@ -99,18 +99,30 @@ def obtener_metricas_bi():
         desde = parsear_fecha_dashboard(desde_str) if desde_str else None
         hasta = parsear_fecha_dashboard(hasta_str) if hasta_str else None
 
-        # --- RECOPILACIÓN DE DATOS REFACTORIZADA (100% SQL-FIRST) ---
-        # 1. KPIs Generales, Rankings y Máquinas (Todo vía SQL puro)
-        kpis = repository_service.get_dashboard_kpis(desde, hasta)
-        ranking_iny_ops = repository_service.get_ranking_operarios_inyeccion(desde, hasta)
-        ranking_pul_ops = repository_service.get_ranking_operarios_pulido(desde, hasta)
-        ranking_maquinas = repository_service.get_ranking_maquinas(desde, hasta)
-        analytics_pulido = repository_service.get_analytics_pulido(desde, hasta)
-        analytics_inyeccion = repository_service.get_analytics_inyeccion(desde, hasta)
-        
-        # 2. Nuevas métricas SQL-Native (Stock Crítico y Pérdida Financiera)
-        stock_critico = repository_service.get_stock_critico_sql()
-        perdida_scrap = repository_service.get_perdida_economica_scrap(desde, hasta)
+        # --- RECOPILACIÓN DE DATOS (Separación de responsabilidades) ---
+        try:
+            kpis = repository_service.get_dashboard_kpis(desde, hasta)
+            ranking_iny_ops = repository_service.get_ranking_operarios_inyeccion(desde, hasta)
+            ranking_maquinas_raw = repository_service.get_ranking_maquinas(desde, hasta)
+
+            from backend.services.dashboard_service import DashboardService
+            from backend.services.pulido_service import PulidoService
+
+            maquinas_con_pct = DashboardService.calcular_porcentajes_maquinas(ranking_maquinas_raw)
+
+            # 2. Analítica de Pulido → PulidoService (lógica de negocio aislada)
+            pulido_profundo  = PulidoService.get_ranking_leaderboard(desde, hasta)
+            analytics_pulido = PulidoService.get_analytics_completo(desde, hasta)
+            analytics_inyeccion = repository_service.get_analytics_inyeccion(desde, hasta)
+            
+            stock_critico = repository_service.get_stock_critico_sql()
+            perdida_scrap = repository_service.get_perdida_economica_scrap(desde, hasta)
+        except Exception as db_err:
+            db.session.rollback()
+            logger.error(f"❌ Error en consultas SQL de Dashboard BI: {db_err}")
+            kpis, ranking_iny_ops, ranking_maquinas_raw, maquinas_con_pct = {}, [], [], []
+            pulido_profundo, analytics_pulido, analytics_inyeccion = {}, {}, {}
+            stock_critico, perdida_scrap = [], 0
 
         # 3. Estructura de salida compatible con Dashboard.js (Safe Access)
         stats = {
@@ -118,14 +130,14 @@ def obtener_metricas_bi():
                 "total_ok": kpis.get('inyeccion_ok', 0), 
                 "total_pnc": kpis.get('inyeccion_pnc', 0),
                 "operadores": collections.defaultdict(lambda: collections.defaultdict(lambda: {"qty": 0, "fecha": ""})),
-                "maquinas": [{'maquina': m.get('maquina', '?'), 'valor': m.get('valor', 0)} for m in ranking_maquinas],
+                "maquinas": maquinas_con_pct,
                 "fechas": collections.defaultdict(int)
             },
             "pulido": {
                 "total_ok": kpis.get('pulido_ok', 0), 
                 "total_pnc": kpis.get('pulido_pnc', 0), 
                 "operadores": collections.defaultdict(lambda: collections.defaultdict(lambda: {"qty": 0, "fecha": ""})),
-                "pnc_ops": {op.get('nombre', '?'): op.get('pnc', 0) for op in ranking_pul_ops},
+                "pnc_ops": {op_name: data.get('pnc', 0) for op_name, data in pulido_profundo.items()},
                 "tiempo_real_ops": collections.defaultdict(float),
                 "tiempo_std_ops": collections.defaultdict(float),
                 "mensual": collections.defaultdict(lambda: {"piezas": 0, "std": 0, "real": 0}),
@@ -149,15 +161,16 @@ def obtener_metricas_bi():
             "tendencia": collections.defaultdict(lambda: {"inyeccion": 0, "pulido": 0, "ensamble": 0})
         }
 
-        # IA INSIGHTS (Safe calculation)
+        # IA INSIGHTS (Reporte Avanzado del Bot de Planta)
         total_sol = stats["pedidos"]["total_solicitado"] or 1
         fulfillment_rate = round((stats["inyeccion"]["total_ok"] / total_sol) * 100, 1)
         
-        insights = [
-            f"Tasa de cumplimiento: {fulfillment_rate}%.",
-            f"Ventas totales registradas: ${kpis.get('ventas_totales', 0):,.0f}.",
-            f"Alerta: {len(stock_critico)} productos con stock por debajo del mínimo."
-        ]
+        insights = DashboardService.generar_insights_bot_planta(
+            kpis=kpis,
+            stock_critico=stock_critico,
+            pulido_profundo=pulido_profundo,
+            ranking_iny_ops=ranking_iny_ops
+        )
         
         # 3. Tendencia de Producción
         tendencia = repository_service.get_tendencia_produccion_sql(desde, hasta)
@@ -179,25 +192,18 @@ def obtener_metricas_bi():
             },
             "rankings": {
                 "inyeccion_ops": [
-                    {"nombre": op['nombre'], "valor": op['valor'], "insight": "Top Inyección"} 
+                    {"nombre": op['nombre'], "valor": op['valor'], "insight": "Top Inyección"}
                     for op in ranking_iny_ops
                 ],
-                "pulido_profundo": {
-                    op['nombre']: {
-                        "buenas": op['valor'], 
-                        "pnc": op['pnc'],
-                        "puntos": op.get('puntos', 0),
-                        "eficiencia": op.get('eficiencia', 0),
-                        "yield_calidad": round((op['valor'] / (op['valor'] + op['pnc']) * 100), 1) if (op['valor'] + op['pnc']) > 0 else 100,
-                    } for op in ranking_pul_ops
-                }
+                # pulido_profundo es el DTO limpio generado por PulidoService
+                "pulido_profundo": pulido_profundo
             },
-            "maquinas": [{'maquina': m.get('maquina', '?'), 'valor': m.get('valor', 0)} for m in ranking_maquinas],
+            "maquinas": maquinas_con_pct,
             "tendencia": tendencia,
             "analytics_pulido": analytics_pulido,
             "analytics_inyeccion": analytics_inyeccion,
             "insights_ia": insights,
-            "insight_ia": insights[0]
+            "insight_ia": insights[0] if insights else "Sin novedades operativas."
         }
         
         return jsonify({"status": "success", "success": True, "data": result_data}), 200
@@ -408,4 +414,39 @@ def exportar_cartera():
             "Content-Disposition": "attachment; filename=estado_cartera.csv",
             "Cache-Control": "no-cache"
         }
-    )
+    )
+
+@dashboard_bp.route('/scrap-detalle', methods=['GET'])
+def get_scrap_detalle():
+    """
+    Devuelve el desglose de scrap/mermas por fecha y máquina de origen para una referencia.
+    Delegado 100% a DashboardService.
+    """
+    try:
+        from backend.services.dashboard_service import DashboardService
+        item_id = request.args.get('item_id') or request.args.get('referencia')
+        if not item_id:
+            return jsonify({"success": False, "error": "Falta parámetro item_id o referencia"}), 400
+
+        data = DashboardService.get_scrap_detalle(item_id)
+        return jsonify({"success": True, "item_id": item_id, "data": data}), 200
+    except Exception as e:
+        logger.error(f"Error en /scrap-detalle: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@dashboard_bp.route('/sin-rotacion', methods=['GET'])
+def get_sin_rotacion():
+    """
+    Devuelve la lista de productos activos de baja rotación en los últimos 12 meses.
+    Soporta filtro opcional ?q=referencia y parámetro dinámico ?max_ventas=0..50.
+    Delegado 100% a DashboardService.
+    """
+    try:
+        from backend.services.dashboard_service import DashboardService
+        q = request.args.get('q')
+        max_v = request.args.get('max_ventas', default=0, type=int)
+        data = DashboardService.get_productos_sin_rotacion(q=q, max_ventas=max_v)
+        return jsonify({"success": True, "data": data}), 200
+    except Exception as e:
+        logger.error(f"Error en /sin-rotacion: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

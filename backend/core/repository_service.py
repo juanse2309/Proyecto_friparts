@@ -582,6 +582,12 @@ class RepositoryService:
             r_mez = db.session.execute(text(sql_mez), params).fetchone()
             mezcla_total = _num(r_mez[0])
 
+            # --- Cálculo FPY y % PNC Global ---
+            scrap_tot = iny_pnc + pul_pnc + ens_pnc
+            total_piezas_prod = iny_ok + pul_ok + ens_ok + scrap_tot
+            pct_pnc = round((scrap_tot / total_piezas_prod * 100.0), 2) if total_piezas_prod > 0 else 0.0
+            fpy_glob = round(max(0.0, 100.0 - pct_pnc), 2)
+
             return {
                 'inyeccion_ok':  iny_ok,
                 'inyeccion_pnc': iny_pnc,
@@ -592,7 +598,9 @@ class RepositoryService:
                 'ventas_totales': ventas_totales,
                 'pedidos_solicitados': pedidos_sum,
                 'mezcla_total_kg': mezcla_total,
-                'scrap_total':   iny_pnc + pul_pnc + ens_pnc,
+                'scrap_total':   scrap_tot,
+                'pct_pnc_total': pct_pnc,
+                'fpy_global':    fpy_glob,
                 'scrap_detalle': {
                     'inyeccion': iny_pnc,
                     'pulido':    pul_pnc,
@@ -907,7 +915,12 @@ class RepositoryService:
                         TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref, 
                         SUM({_user_cast('p.cantidad')}) as qty 
                     FROM db_pnc_inyeccion p
-                    LEFT JOIN db_inyeccion i ON p.id_inyeccion = i.id_inyeccion
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia, maquina 
+                        FROM db_inyeccion 
+                        WHERE fecha_inicia IS NOT NULL
+                        ORDER BY id_inyeccion, fecha_inicia DESC
+                    ) i ON p.id_inyeccion = i.id_inyeccion
                     {filt_iny}
                     GROUP BY TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', ''))
                     
@@ -918,7 +931,12 @@ class RepositoryService:
                         TRIM(REPLACE(p.codigo::TEXT, 'FR-', '')) as ref, 
                         SUM({_user_cast('p.cantidad')}) as qty 
                     FROM db_pnc_pulido p
-                    LEFT JOIN db_pulido d ON p.id_pulido = d.id_pulido
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (id_pulido::text) id_pulido::text as id_pulido, fecha 
+                        FROM db_pulido 
+                        WHERE fecha IS NOT NULL
+                        ORDER BY id_pulido::text, fecha DESC
+                    ) d ON p.id_pulido::text = d.id_pulido
                     {filt_pul}
                     GROUP BY TRIM(REPLACE(p.codigo::TEXT, 'FR-', ''))
                     
@@ -936,21 +954,21 @@ class RepositoryService:
             """
 
             # 1. Obtener Total Pérdida
-            sql_total = f"{sql_ctes} SELECT COALESCE(SUM(COALESCE(s.qty, 0) * COALESCE(c.cost, 0)), 0) FROM scrap_unificado s JOIN unique_costs c ON s.ref = c.ref_costo WHERE s.qty > 0"
+            sql_total = f"{sql_ctes} SELECT COALESCE(SUM(COALESCE(s.qty, 0) * COALESCE(c.cost, 0)), 0) FROM scrap_unificado s LEFT JOIN unique_costs c ON s.ref = c.ref_costo WHERE s.qty > 0"
             res_total = db.session.execute(text(sql_total), params).fetchone()
             total_perdida = _num(res_total[0]) if res_total else 0
 
-            # 2. Obtener Ranking Productos
+            # 2. Obtener Ranking Productos (Pareto Top Scrap)
             sql_ranking = f"""
                 {sql_ctes}
                 SELECT 
                     s.ref as producto, 
                     SUM(s.qty) as cantidad, 
-                    SUM(s.qty * c.cost) as perdida_dinero
+                    SUM(s.qty * COALESCE(c.cost, 0)) as perdida_dinero
                 FROM scrap_unificado s
-                JOIN unique_costs c ON s.ref = c.ref_costo
+                LEFT JOIN unique_costs c ON s.ref = c.ref_costo
                 GROUP BY s.ref
-                ORDER BY perdida_dinero DESC
+                ORDER BY perdida_dinero DESC, cantidad DESC
                 LIMIT 10
             """
             res_ranking = db.session.execute(text(sql_ranking), params).fetchall()

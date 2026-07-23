@@ -15,7 +15,6 @@ window.ModuloDashboard = (function () {
     let selectedOperators = []; // Para comparativa cara a cara
 
     let chartPulidoBoard = null;
-    let chartPulidoEvolucionInst = null;
     let chartPulidoRankingInst = null;
     let chartMensualInst = null;
     let chartRendimientoMensualNewInst = null;
@@ -254,9 +253,12 @@ window.ModuloDashboard = (function () {
         }
 
         const safeSetText = (id, text) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = text;
-            else console.warn(`⚠️ Elemento no encontrado: ${id}`);
+            try {
+                const el = document.getElementById(id);
+                if (el) el.textContent = text;
+            } catch (e) {
+                console.warn(`⚠️ Error asignando texto a #${id}:`, e);
+            }
         };
 
         try {
@@ -265,9 +267,12 @@ window.ModuloDashboard = (function () {
 
             const valorPerdida = Number(data.kpis.perdida_calidad_dinero) || 0;
             const formatCOP_PNC = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(valorPerdida);
+            safeSetText('perdida-calidad-val', formatCOP_PNC);
             safeSetText('perdida-calidad-global', formatCOP_PNC);
+            safeSetText('pnc-dinero-val', formatCOP_PNC);
 
             safeSetText('pnc-global-val', (data.kpis.scrap_total || 0).toLocaleString());
+            safeSetText('pnc-porcentaje-val', (data.kpis.pct_pnc_total || 0).toFixed(2));
 
             // 2. Insights IA Avanzados
             let smartInsights = [];
@@ -302,50 +307,80 @@ window.ModuloDashboard = (function () {
                 smartInsights.push(`<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> <strong>Faltan Costos:</strong></span> Hay ${data.kpis.faltan_costos_pnc.length} referencias reportando scrap que no tienen costo asignado en DB_COSTOS. La Pérdida por Calidad mostrada es menor a la real.`);
             }
 
-            // Darle formato visual a los insights que vienen del backend (Inyección, Pulido, Cuellos de botella)
-            const legacyInsightsFormatted = (data.insights_ia || []).map(text => {
-                if (text.includes('Cumplimiento')) return `<i class="fas fa-chart-line text-primary"></i> <strong>Eficiencia:</strong> ${text}`;
-                if (text.includes('Cuello de botella')) return `<i class="fas fa-hourglass-half text-warning"></i> <strong>Producción:</strong> ${text}`;
-                if (text.includes('Líder de Iny')) return `<i class="fas fa-industry text-info"></i> <strong>Inyección:</strong> ${text}`;
-                if (text.includes('Líder de Pul')) return `<i class="fas fa-hand-sparkles text-success"></i> <strong>Pulido:</strong> ${text}`;
-                if (text.includes('ritmo de Inyección')) return `<i class="fas fa-sync text-success"></i> <strong>Flujo Óptimo:</strong> ${text}`;
-                if (text.includes('Calidad')) return `<i class="fas fa-times-circle text-danger"></i> <strong>Control:</strong> ${text}`;
-                return `<i class="fas fa-info-circle text-muted"></i> ${text}`;
+            // Darle formato visual ejecutivo al Reporte del Bot de Planta
+            const botInsightsFormatted = (data.insights_ia || []).map(item => {
+                let tag = '';
+                let text = item;
+                if (typeof item === 'string' && item.includes('|')) {
+                    const parts = item.split('|');
+                    tag = parts[0];
+                    text = parts[1];
+                }
+
+                if (tag === 'VOLUMEN_CONSOLIDADO' || text.includes('Volumen Consolidado')) {
+                    return `<i class="fas fa-boxes text-primary me-2"></i> <strong class="text-primary">Volumen Consolidado:</strong> ${text.replace('Volumen Consolidado:', '')}`;
+                }
+                if (tag === 'DESVIACION' || text.includes('Brecha') || text.includes('Flujo')) {
+                    return `<i class="fas fa-random text-warning me-2"></i> <strong class="text-warning">Desviaciones & Flujo:</strong> ${text.replace(/^(Brecha de Producción:|Flujo Inverso:|Flujo Balanceado:)/, '<b>$1</b>')}`;
+                }
+                if (tag === 'ALERTA_SCRAP' || text.includes('Impacto Financiero')) {
+                    return `<i class="fas fa-exclamation-triangle text-danger me-2"></i> <strong class="text-danger">Mermas & Calidad:</strong> ${text.replace('Impacto Financiero de Mermas:', '')}`;
+                }
+                if (tag === 'ALERTA_STOCK' || text.includes('Alerta de Inventario')) {
+                    return `<i class="fas fa-warehouse text-warning me-2"></i> <strong class="text-warning">Inventario Crítico:</strong> ${text.replace('Alerta de Inventario:', '')}`;
+                }
+                if (tag === 'LIDER_INY' || text.includes('Líder Inyección')) {
+                    return `<i class="fas fa-industry text-info me-2"></i> <strong class="text-info">Top Inyección:</strong> ${text.replace('Líder Inyección:', '')}`;
+                }
+                if (tag === 'LIDER_PUL' || text.includes('Líder Pulido')) {
+                    return `<i class="fas fa-gem text-success me-2"></i> <strong class="text-success">Top Pulido:</strong> ${text.replace('Líder Pulido:', '')}`;
+                }
+                return `<i class="fas fa-info-circle text-muted me-2"></i> ${text}`;
             });
 
             currentInsights = [
                 ...smartInsights,
-                ...legacyInsightsFormatted
+                ...botInsightsFormatted
             ];
             iniciarCarrouselBot();
 
-            // 3. Gráficos de Producción
-            if (data.rankings?.inyeccion_ops) {
-                renderChartInyeccion(data.rankings.inyeccion_ops.slice(0, 10));
-                const btnVerTodosIny = document.getElementById('btn-ver-todos-iny');
-                if (btnVerTodosIny) {
-                    btnVerTodosIny.onclick = () => mostrarModalTodosInyeccion(data.rankings.inyeccion_ops);
+            // 3. Gráficos de Producción (Inyección)
+            try {
+                if (data.rankings?.inyeccion_ops) {
+                    renderChartInyeccion(data.rankings.inyeccion_ops.slice(0, 10));
+                    const btnVerTodosIny = document.getElementById('btn-ver-todos-iny');
+                    if (btnVerTodosIny) {
+                        btnVerTodosIny.onclick = () => mostrarModalTodosInyeccion(data.rankings.inyeccion_ops);
+                    }
                 }
+
+                if (data.maquinas) {
+                    const maquinasArr = Array.isArray(data.maquinas) ? data.maquinas : Object.entries(data.maquinas || {}).map(([k, v]) => ({maquina: k, valor: v}));
+                    if (maquinasArr.length > 0) renderChartMaquinas(maquinasArr);
+                }
+            } catch (errIny) {
+                console.error("⚠️ Error defensivo renderizando Inyección:", errIny);
             }
 
-            if (data.maquinas) {
-                const maquinasArr = Array.isArray(data.maquinas) ? data.maquinas : Object.entries(data.maquinas || {}).map(([k, v]) => ({maquina: k, valor: v}));
-                if (maquinasArr.length > 0) renderChartMaquinas(maquinasArr);
+            try {
+                if (data.tendencia && Array.isArray(data.tendencia) && data.tendencia.length > 0) renderChartTendencia(data.tendencia);
+                if (data.kpis?.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
+                renderScrapAlmacenDetalle(data.kpis?.scrap_almacen_desglose || []);
+            } catch (errScrap) {
+                console.error("⚠️ Error defensivo renderizando Scrap:", errScrap);
             }
-            if (data.tendencia && Array.isArray(data.tendencia) && data.tendencia.length > 0) renderChartTendencia(data.tendencia);
-            if (data.kpis.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
 
-            // 4. Detalle Scrap Almacén
-            renderScrapAlmacenDetalle(data.kpis.scrap_almacen_desglose || []);
-
-            // 5. Tabla Pulido
-            if (data.analytics_pulido) {
-                cacheAnalyticsPulido = data.analytics_pulido;
+            // 5. Tabla y Gráficos de Pulido
+            try {
+                if (data.analytics_pulido) {
+                    cacheAnalyticsPulido = data.analytics_pulido;
+                }
+                renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
+                renderTablaPulido(data.rankings?.pulido_profundo || {});
+                renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || {});
+            } catch (errPulido) {
+                console.error("⚠️ Error defensivo renderizando Pulido:", errPulido);
             }
-            renderChartPulidoEvolucion(data.analytics_pulido?.evolucion_puntos_op || {});
-            renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
-            renderTablaPulido(data.rankings?.pulido_profundo || {});
-            renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || {});
 
             // 6. Datos de Jefatura
             if (jefaturaData && (jefaturaData.success || jefaturaData.status === 'success') && jefaturaData.data) {
@@ -398,6 +433,10 @@ window.ModuloDashboard = (function () {
             if (carteraData && carteraData.success && carteraData.data) {
                 renderCartera(carteraData.data);
             }
+
+            // 7. Carga asíncrona non-blocking de Productos sin Movimiento (Rotación Cero)
+            initBusquedaSinRotacion();
+            cargarProductosSinRotacion();
 
             console.log("✅ Renderizado completado sin errores.");
         } catch (err) {
@@ -641,7 +680,7 @@ window.ModuloDashboard = (function () {
         if (chartMaquinas) chartMaquinas.destroy();
 
         // Blindaje: Asegurar que maqs sea siempre un array de objetos
-        const maquinasArr = Array.isArray(maqs) ? maqs : Object.entries(maqs || {}).map(([k, v]) => ({maquina: k, valor: v}));
+        const maquinasArr = Array.isArray(maqs) ? maqs : Object.entries(maqs || {}).map(([k, v]) => ({maquina: k, valor: v, porcentaje: 0}));
         if (maquinasArr.length === 0) return;
 
         // Paleta de colores variados para máquinas
@@ -657,7 +696,11 @@ window.ModuloDashboard = (function () {
         chartMaquinas = new Chart(ctx, {
             type: 'doughnut',
             data: {
-                labels: maquinasArr.map(m => m.maquina),
+                labels: maquinasArr.map(m => {
+                    const valStr = Number(m.valor || 0).toLocaleString();
+                    const pctVal = (m.porcentaje !== undefined && m.porcentaje !== null) ? m.porcentaje : 0;
+                    return `${m.maquina}: ${valStr} Pz (${pctVal}%)`;
+                }),
                 datasets: [{
                     data: maquinasArr.map(m => m.valor),
                     backgroundColor: palette,
@@ -684,7 +727,13 @@ window.ModuloDashboard = (function () {
                         padding: 12,
                         cornerRadius: 8,
                         callbacks: {
-                            label: (context) => ` ⚙️ ${context.label}: ${context.raw.toLocaleString()} Pz`
+                            label: (context) => {
+                                const item = maquinasArr[context.dataIndex];
+                                const valStr = Number(item ? item.valor : context.raw || 0).toLocaleString();
+                                const pctVal = (item && item.porcentaje !== undefined && item.porcentaje !== null) ? item.porcentaje : 0;
+                                const maqName = item ? item.maquina : context.label;
+                                return ` ⚙️ ${maqName}: ${valStr} Pz (${pctVal}%)`;
+                            }
                         }
                     }
                 }
@@ -710,8 +759,48 @@ window.ModuloDashboard = (function () {
         });
     }
 
+    /**
+     * Suscripción Nativa Directa al DOM del Canvas (Garantiza captura de clics)
+     */
+    function suscribirClickNativoCanvas(canvasId) {
+        const canvas = typeof canvasId === 'string' ? document.getElementById(canvasId) : canvasId;
+        if (canvas && !canvas.dataset.clickBound) {
+            canvas.dataset.clickBound = 'true';
+            canvas.style.cursor = 'pointer';
+
+            canvas.addEventListener('click', (evt) => {
+                console.log(`📌 Clic NATIVO en canvas #${canvas.id || 'desconocido'} detectado`);
+                const chartInst = typeof Chart !== 'undefined' ? Chart.getChart(canvas) : null;
+                if (!chartInst) {
+                    console.error('❌ No se encontró instancia de Chart.js en el canvas');
+                    return;
+                }
+
+                const points = chartInst.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+                if (points && points.length > 0) {
+                    const index = points[0].index;
+                    const rawLabel = chartInst.data && chartInst.data.labels ? chartInst.data.labels[index] : null;
+                    console.log('🎯 Etiqueta extraída del gráfico:', rawLabel);
+
+                    if (rawLabel) {
+                        const codigo = String(rawLabel).trim().split(' ')[0];
+                        console.log('🎯 Código extraído correctamente:', codigo);
+
+                        if (codigo && typeof window.abrirModalHistorial === 'function') {
+                            window.abrirModalHistorial(codigo);
+                        } else {
+                            console.error('❌ Fallo al invocar window.abrirModalHistorial con código:', codigo);
+                        }
+                    }
+                } else {
+                    console.warn('⚠️ Clic en área fuera de barra.');
+                }
+            });
+        }
+    }
+
     async function renderChartPNC(legacyPnc) {
-        const ctx = document.getElementById('chartPNCGlobal');
+        const ctx = document.getElementById('chartPNCGlobal') || document.getElementById('chartPNC');
         if (!ctx) return;
 
         try {
@@ -810,6 +899,7 @@ window.ModuloDashboard = (function () {
                     }]
                 },
                 options: {
+                    events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
                     responsive: true,
                     maintainAspectRatio: false,
                     animation: { duration: 1200, easing: 'easeOutQuart' },
@@ -840,9 +930,15 @@ window.ModuloDashboard = (function () {
                             }
                         }
                     },
-                    onClick: (event, elements) => {
-                        if (elements.length > 0) {
-                            const index = elements[0].index;
+                    onClick: (evt, activeElements, chart) => {
+                        console.log('📌 Clic detectado en canvas del gráfico chartPNC', evt);
+                        const chartInst = chart || (evt && evt.chart);
+                        const points = (chartInst && typeof chartInst.getElementsAtEventForMode === 'function')
+                            ? chartInst.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true)
+                            : activeElements;
+
+                        if (points && points.length > 0) {
+                            const index = points[0].index;
                             const areaKey = areaKeys[index];
                             const areaLabel = areaLabels[index];
                             const modos = modosFalla[areaKey] || {};
@@ -968,6 +1064,7 @@ window.ModuloDashboard = (function () {
                         }]
                     },
                     options: {
+                        events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
                         indexAxis: 'y', // Convert to Horizontal Bar Chart!
                         responsive: true,
                         maintainAspectRatio: false,
@@ -980,6 +1077,33 @@ window.ModuloDashboard = (function () {
                                 callbacks: {
                                     label: (context) => `⚙️ Ref: ${context.label} — ${context.raw.toLocaleString()} PNC`
                                 }
+                            }
+                        },
+                        onClick: (evt, activeElements, chart) => {
+                            console.log('📌 Clic detectado en canvas del gráfico chartPNCPareto', evt);
+                            const chartInst = chart || (evt && evt.chart);
+                            const points = (chartInst && typeof chartInst.getElementsAtEventForMode === 'function')
+                                ? chartInst.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true)
+                                : activeElements;
+
+                            if (points && points.length > 0) {
+                                const index = points[0].index;
+                                const codigo = (chartInst && chartInst.data && chartInst.data.labels)
+                                    ? chartInst.data.labels[index]
+                                    : labelsPareto[index];
+                                console.log('🎯 Código extraído del gráfico:', codigo);
+                                if (codigo && typeof window.abrirModalHistorial === 'function') {
+                                    window.abrirModalHistorial(codigo);
+                                } else {
+                                    console.error('❌ Fallo al invocar window.abrirModalHistorial con código:', codigo);
+                                }
+                            } else {
+                                console.warn('⚠️ Clic en área vacía del canvas, no se detectó barra.');
+                            }
+                        },
+                        onHover: (event, chartElement) => {
+                            if (event && event.native && event.native.target) {
+                                event.native.target.style.cursor = (chartElement && chartElement.length > 0) ? 'pointer' : 'default';
                             }
                         },
                         scales: {
@@ -995,6 +1119,10 @@ window.ModuloDashboard = (function () {
                         }
                     }
                 });
+                // Suscripción Nativa DOM Directa al canvas del Pareto
+                suscribirClickNativoCanvas('chartPNCPareto');
+                suscribirClickNativoCanvas('chartPNC');
+                suscribirClickNativoCanvas('chartPNCGlobal');
             }
 
         } catch (err) {
@@ -1029,10 +1157,14 @@ window.ModuloDashboard = (function () {
         top5.forEach((item, index) => {
             const fCosto = item.costo > 0 ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(item.costo) : 'S/C';
             const html = `
-                <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3" style="border-left: 4px solid #ef4444; background-color: #fafafa; margin-bottom: 8px; border-radius: 8px;">
-                    <div class="text-truncate me-3" style="max-width: 65%;" title="${item.producto}">
+                <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3 scrap-item-interactive" 
+                     onclick="window.ModuloDashboard.abrirModalScrapDetalle('${item.producto}')"
+                     style="border-left: 4px solid #ef4444; background-color: #fafafa; margin-bottom: 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;"
+                     title="Haz clic para ver el desglose por fecha y máquina de ${item.producto}">
+                    <div class="text-truncate me-3" style="max-width: 65%;">
                         <span class="text-muted me-2 fw-bold fs-6">${index + 1}.</span> 
                         <span class="fw-bold text-dark" style="font-size: 0.95rem;">${item.producto}</span>
+                        <i class="fas fa-search-plus text-muted ms-2 fs-6"></i>
                     </div>
                     <div class="d-flex flex-column align-items-end justify-content-center">
                         <span class="fw-bold text-danger" style="font-size: 1.05rem; letter-spacing: -0.5px;">${fCosto}</span>
@@ -1044,6 +1176,163 @@ window.ModuloDashboard = (function () {
         });
     }
 
+    async function abrirModalScrapDetalle(itemId) {
+        if (!itemId) return;
+        const modalEl = document.getElementById('modalScrapDetalle');
+        if (!modalEl) return;
+        
+        const titleEl = document.getElementById('modal-scrap-ref-title');
+        const loadingEl = document.getElementById('modal-scrap-loading');
+        const contentEl = document.getElementById('modal-scrap-content');
+        const tbodyEl = document.getElementById('modal-scrap-tbody');
+        
+        if (titleEl) titleEl.textContent = itemId;
+        if (loadingEl) loadingEl.style.display = 'block';
+        if (contentEl) contentEl.style.display = 'none';
+        if (tbodyEl) tbodyEl.innerHTML = '';
+        
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+        
+        try {
+            const pwaToken = localStorage.getItem('pwa_token');
+            const headers = {};
+            if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+            
+            const res = await fetch(`/api/dashboard/scrap-detalle?item_id=${encodeURIComponent(itemId)}`, {
+                headers,
+                credentials: 'include'
+            });
+            const data = await res.json();
+            
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = 'block';
+            
+            if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+                tbodyEl.innerHTML = data.data.map(row => `
+                    <tr>
+                        <td><span class="fw-semibold text-dark">${row.fecha || 'Sin fecha'}</span></td>
+                        <td><span class="badge bg-light text-dark border"><i class="fas fa-microchip me-1 text-primary"></i>${row.maquina || 'Inyección'}</span></td>
+                        <td class="text-end fw-bold text-danger">${(row.cantidad || 0).toLocaleString()} Pz</td>
+                    </tr>
+                `).join('');
+            } else {
+                tbodyEl.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-3">No hay registros detallados de scrap para la referencia ${itemId}</td></tr>`;
+            }
+        } catch (err) {
+            console.error("Error cargando detalle de scrap:", err);
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = 'block';
+            if (tbodyEl) tbodyEl.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-3">Error al obtener desglose de scrap</td></tr>`;
+        }
+    }
+
+    let sinRotacionAbortController = null;
+
+    async function cargarProductosSinRotacion(query = '', maxVentas = 0) {
+        const container = document.getElementById('contenedor-sin-rotacion');
+        const badgeTotal = document.getElementById('badge-total-sin-rotacion');
+        if (!container) return;
+        
+        // Indicador visual de carga (Spinner activo)
+        container.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm text-warning me-2" role="status"></div> Cargando productos de baja rotación...</div>';
+        
+        // Cancelar petición anterior si aún está pendiente para evitar condiciones de carrera
+        if (sinRotacionAbortController) {
+            sinRotacionAbortController.abort();
+        }
+        sinRotacionAbortController = new AbortController();
+
+        try {
+            let url = `/api/dashboard/sin-rotacion?max_ventas=${encodeURIComponent(maxVentas)}`;
+            if (query && query.trim()) {
+                url += `&q=${encodeURIComponent(query.trim())}`;
+            }
+            
+            const pwaToken = localStorage.getItem('pwa_token');
+            const headers = {};
+            if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+            
+            const res = await fetch(url, { 
+                headers, 
+                credentials: 'include',
+                signal: sinRotacionAbortController.signal
+            });
+            const data = await res.json();
+            
+            if (data.success && data.data && Array.isArray(data.data.productos)) {
+                const prods = data.data.productos;
+                if (badgeTotal) badgeTotal.textContent = data.data.total || prods.length;
+                
+                if (prods.length === 0) {
+                    container.innerHTML = `<div class="text-center text-muted py-3"><i class="fas fa-check-circle text-success me-2"></i> ${query ? 'No se encontraron productos coincidentes' : 'Todos los productos superan el límite de ventas configurado'}</div>`;
+                    return;
+                }
+                
+                container.innerHTML = `
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Descripción</th>
+                                    <th class="text-end">Ventas 12m</th>
+                                    <th class="text-end">Stock P. Terminado (WO)</th>
+                                    <th class="text-end">Estado Movimiento</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${prods.map(p => `
+                                    <tr>
+                                        <td><span class="fw-bold text-dark">${p.codigo}</span></td>
+                                        <td><span class="text-muted small">${p.descripcion}</span></td>
+                                        <td class="text-end fw-bold text-primary">${(p.ventas_periodo || 0).toLocaleString()} Pz</td>
+                                        <td class="text-end fw-semibold text-dark">${(p.stock !== undefined && p.stock !== null ? p.stock : p.stock_terminado || 0).toLocaleString()} Pz</td>
+                                        <td class="text-end"><span class="badge ${p.ventas_periodo === 0 ? 'bg-danger' : 'bg-warning text-dark'}"><i class="fas fa-exclamation-triangle me-1"></i> ${p.ventas_periodo === 0 ? 'Sin Ventas (12m)' : `Baja Rotación (<= ${data.data.max_ventas_aplicado} Pz)`}</span></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } else {
+                if (badgeTotal) badgeTotal.textContent = '0';
+                container.innerHTML = '<div class="text-center text-muted py-3">No hay productos de baja rotación</div>';
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.log("ℹ️ [Baja Rotación] Petición previa cancelada por AbortController.");
+                return;
+            }
+            console.error("Error cargando productos de baja rotación:", err);
+            if (container) container.innerHTML = '<div class="text-center text-danger py-3">Error cargando información de rotación</div>';
+        }
+    }
+
+    function initBusquedaSinRotacion() {
+        const inputEl = document.getElementById('input-busqueda-sin-rotacion');
+        const selectEl = document.getElementById('select-max-ventas-sin-rotacion');
+
+        const triggerFetch = () => {
+            const q = inputEl ? (inputEl.value || '').trim() : '';
+            const maxV = selectEl ? (parseInt(selectEl.value, 10) || 0) : 0;
+            // Eliminada la restricción de longitud: permite búsquedas de cualquier longitud (1 o más caracteres)
+            console.log(`🔍 [Baja Rotación] Disparando fetch con q="${q}", max_ventas=${maxV}`);
+            cargarProductosSinRotacion(q, maxV);
+        };
+
+        if (inputEl && inputEl.dataset.listenerAttached !== 'true') {
+            inputEl.dataset.listenerAttached = 'true';
+            const searchHandler = debounce(triggerFetch, 500);
+            inputEl.addEventListener('input', searchHandler);
+        }
+
+        if (selectEl && selectEl.dataset.listenerAttached !== 'true') {
+            selectEl.dataset.listenerAttached = 'true';
+            selectEl.addEventListener('change', triggerFetch);
+        }
+    }
+
     // Paleta de colores para las operadoras
     const colorsList = [
         'rgba(59, 130, 246, 0.85)', 'rgba(16, 185, 129, 0.85)', 'rgba(245, 158, 11, 0.85)',
@@ -1052,70 +1341,20 @@ window.ModuloDashboard = (function () {
         'rgba(249, 115, 22, 0.85)'
     ];
 
-    function renderChartPulidoEvolucion(evolucionMensual) {
-        const ctx = document.getElementById('chartPulidoEvolucion');
-        if (!ctx || !evolucionMensual || typeof evolucionMensual !== 'object') return;
 
-        const mesesLabels = Object.keys(evolucionMensual).sort(); 
-        if (mesesLabels.length === 0) return;
-
-        const operadorasSet = new Set();
-        mesesLabels.forEach(m => {
-            Object.keys(evolucionMensual[m]).forEach(op => operadorasSet.add(op));
-        });
-        const operadoras = Array.from(operadorasSet);
-
-        // Construir datasets apilados por operaria
-        const datasets = operadoras.map((op, idx) => {
-            const data = mesesLabels.map(m => evolucionMensual[m][op] || 0);
-            return {
-                label: op,
-                data: data,
-                backgroundColor: `hsla(${(idx * 137) % 360}, 70%, 50%, 0.8)`,
-                borderRadius: 4,
-                stack: 'Stack 0'
-            };
-        });
-
-        if (chartPulidoEvolucionInst) chartPulidoEvolucionInst.destroy();
-
-        chartPulidoEvolucionInst = new Chart(ctx, {
-            type: 'bar',
-            data: { labels: mesesLabels, datasets: datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
-                    tooltip: {
-                        callbacks: {
-                            label: (c) => ` ${c.dataset.label}: ${Math.round(c.raw).toLocaleString()} pts`
-                        }
-                    }
-                },
-                scales: {
-                    x: { stacked: true, grid: { display: false } },
-                    y: { 
-                        stacked: true, 
-                        beginAtZero: true,
-                        title: { display: true, text: 'Puntos de Esfuerzo', font: { weight: 'bold' } }
-                    }
-                }
-            }
-        });
-    }
 
     function renderChartPulidoRanking(profundo) {
         const ctx = document.getElementById('chartPulidoRanking');
         if (!ctx || !profundo) return;
 
+        // Ranking volumétrico: ordena por piezas físicas buenas (NO por puntos ponderados)
         const ops = Object.keys(profundo)
             .map(k => ({ nombre: k, buenas: profundo[k].buenas || 0 }))
             .sort((a, b) => b.buenas - a.buenas)
             .slice(0, 10);
 
         const labels = ops.map(o => o.nombre);
-        const data = ops.map(o => o.buenas);
+        const data   = ops.map(o => o.buenas); // Unidades físicas, nunca puntos
 
         if (chartPulidoRankingInst) chartPulidoRankingInst.destroy();
 
@@ -1124,7 +1363,7 @@ window.ModuloDashboard = (function () {
             data: {
                 labels: labels,
                 datasets: [{
-                    label: 'Total Puntos',
+                    label: 'Piezas Producidas (OK)',   // Métrica física — NO puntos
                     data: data,
                     backgroundColor: 'rgba(16, 185, 129, 0.8)',
                     borderRadius: 5,
@@ -1135,21 +1374,26 @@ window.ModuloDashboard = (function () {
                 indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { 
+                plugins: {
                     legend: { display: false },
                     tooltip: {
                         callbacks: {
-                            label: (c) => ` ${Math.round(c.raw).toLocaleString()} Puntos Totales`
+                            label: (c) => ` ${Math.round(c.raw).toLocaleString()} Pz OK`
                         }
                     }
                 },
                 scales: {
-                    x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    x: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                        title: { display: true, text: 'Unidades físicas producidas', font: { size: 11 } }
+                    },
                     y: { grid: { display: false }, ticks: { font: { weight: 'bold' } } }
                 }
             }
         });
     }
+
 
 
     function renderTablaPulido(profundo) {
@@ -2129,7 +2373,7 @@ window.ModuloDashboard = (function () {
         }
         
         const pctVal = Math.max(0, Number(pct) || 0);
-        const chartColor = pctVal >= 100 ? '#10b981' : (pctVal >= 80 ? '#f59e0b' : '#ef4444');
+        const chartColor = '#3b82f6'; // Azul Corporativo Estándar
         
         // Normalización > 100%: Escalar el Gauge
         const maxGaugeValue = Math.max(100, Math.ceil(pctVal / 10) * 10);
@@ -2211,7 +2455,7 @@ window.ModuloDashboard = (function () {
                 datasets: [
                     {
                         data: [maxGaugeValue],
-                        backgroundColor: ['rgba(200, 200, 200, 0.2)'],
+                        backgroundColor: ['rgba(249, 115, 22, 0.25)'], // Pista Naranja
                         borderWidth: 0,
                         circumference: 180,
                         rotation: 270,
@@ -2219,7 +2463,7 @@ window.ModuloDashboard = (function () {
                     },
                     {
                         data: [pctVal, resto],
-                        backgroundColor: [chartColor, 'transparent'],
+                        backgroundColor: ['#3b82f6', 'rgba(249, 115, 22, 0.85)'], // Avance (Azul Corporativo) + Restante (Naranja)
                         borderWidth: 0,
                         circumference: 180,
                         rotation: 270,
@@ -2291,9 +2535,9 @@ window.ModuloDashboard = (function () {
 
             if (chartRendimientoMensualNewInst) chartRendimientoMensualNewInst.destroy();
 
-            // Colores Contrastantes
-            const COLOR_VENTAS = dataVentas.map((_, idx) => highlightIndex !== -1 && highlightIndex !== idx ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.9)');
-            const COLOR_PEDIDOS = dataPedidos.map((_, idx) => highlightIndex !== -1 && highlightIndex !== idx ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.9)');
+            // Colores Contrastantes: Ventas (Azul) vs Pedidos (Naranja)
+            const COLOR_VENTAS = dataVentas.map((_, idx) => highlightIndex !== -1 && highlightIndex !== idx ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.9)');
+            const COLOR_PEDIDOS = dataPedidos.map((_, idx) => highlightIndex !== -1 && highlightIndex !== idx ? 'rgba(249, 115, 22, 0.3)' : 'rgba(249, 115, 22, 0.85)');
 
             chartRendimientoMensualNewInst = new Chart(ctx, {
                 type: 'bar',
@@ -2304,6 +2548,9 @@ window.ModuloDashboard = (function () {
                             label: isMoney ? `Ventas ${yearActual} ($)` : `Ventas ${yearActual} (Unds)`,
                             data: dataVentas,
                             backgroundColor: COLOR_VENTAS,
+                            borderColor: 'rgba(37, 99, 235, 1)',
+                            hoverBackgroundColor: 'rgba(37, 99, 235, 0.95)',
+                            hoverBorderColor: 'rgba(29, 78, 216, 1)',
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.8
@@ -2312,6 +2559,9 @@ window.ModuloDashboard = (function () {
                             label: isMoney ? `Pedidos ${yearActual} ($)` : `Pedidos ${yearActual} (Unds)`,
                             data: dataPedidos,
                             backgroundColor: COLOR_PEDIDOS,
+                            borderColor: '#ea580c',
+                            hoverBackgroundColor: 'rgba(249, 115, 22, 0.95)',
+                            hoverBorderColor: '#ea580c',
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.8
@@ -2592,6 +2842,7 @@ window.ModuloDashboard = (function () {
                     }
                 }
             });
+            suscribirClickNativoCanvas('chartTopMejores');
         } catch (e) {
             console.error("Error renderizando chartTopMejores:", e);
         }
@@ -2659,6 +2910,7 @@ window.ModuloDashboard = (function () {
                     }
                 }
             });
+            suscribirClickNativoCanvas('chartTopPeores');
         } catch (e) {
             console.error("Error renderizando chartTopPeores:", e);
         }
@@ -3235,6 +3487,8 @@ window.ModuloDashboard = (function () {
         sortIncumplimiento: sortIncumplimiento,
         toggleOperatorSelection,
         abrirModalComparativa,
+        abrirModalScrapDetalle,
+        cargarProductosSinRotacion,
         // ── API pública del gráfico centralizado ──
         renderChartMonthlyPerformance,
         fetchAndRenderMonthlyPerformance
