@@ -12,6 +12,8 @@ from backend.services.audit_service import AuditService, OwnershipMismatchExcept
 from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion
+
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
 
@@ -358,12 +360,7 @@ def registrar_inyeccion_lote():
                     if segundos < 0: segundos += 86400 # Cruce medianoche
                     
                     registro.duracion_segundos = segundos
-                    registro.tiempo_total_minutos = round(segundos / 60.0, 2)
-                    
-                    if cant_real > 0:
-                        registro.segundos_por_unidad = int(round(segundos / cant_real))
-                    else:
-                        registro.segundos_por_unidad = 0
+                    registro.tiempo_total_minutos, registro.segundos_por_unidad = calcular_metricas_inyeccion(segundos, cant_real)
                         
                     registro.fecha_inicia = dt_inicio
                     registro.fecha_fin = dt_fin
@@ -1196,12 +1193,8 @@ def mes_reportar():
 
                 # Calcular duración y métricas
                 delta = prod.fecha_fin - fecha_base
-                prod.duracion_segundos = max(0, int(delta.total_seconds()))
-                prod.tiempo_total_minutos = round(prod.duracion_segundos / 60.0, 2)
-                if piezas_inyectadas > 0:
-                    prod.segundos_por_unidad = int(round(prod.duracion_segundos / piezas_inyectadas))
-                else:
-                    prod.segundos_por_unidad = 0
+                prod.duracion_segundos = max(0, to_int(delta.total_seconds()))
+                prod.tiempo_total_minutos, prod.segundos_por_unidad = calcular_metricas_inyeccion(prod.duracion_segundos, piezas_inyectadas)
             except Exception as ex:
                 logger.warning(f"⚠️ Error al calcular tiempos en reportar: {ex}")
                 prod.fecha_fin = ahora_rep

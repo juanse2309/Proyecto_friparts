@@ -13,6 +13,7 @@ from backend.models.sql_models import (
     PncInyeccion, PncPulido, PncEnsamble
 )
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion
 
 historial_bp = Blueprint('historial_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -80,7 +81,8 @@ def obtener_historial_global():
                         hora_llegada::TEXT, hora_inicio::TEXT, hora_termina::TEXT,
                         cant_contador, almacen_destino::TEXT, codigo_ensamble::TEXT,
                         orden_produccion::TEXT, observaciones::TEXT,
-                        pnc_total, departamento::TEXT
+                        pnc_total, departamento::TEXT,
+                        peso_bujes, duracion_segundos, tiempo_total_minutos, segundos_por_unidad
                     FROM db_inyeccion
                     WHERE CAST(fecha_inicia AS DATE) BETWEEN :desde AND :hasta
                     ORDER BY fecha_inicia DESC
@@ -97,20 +99,35 @@ def obtener_historial_global():
                 for r in res_iny:
                     try:
                         fi = r.get('fecha_inicia')
+                        cant_real = to_float(r.get('cantidad_real'))
+                        dur_seg = to_int(r.get('duracion_segundos'))
+                        tmp_min = to_float(r.get('tiempo_total_minutos'))
+                        seg_uni = to_float(r.get('segundos_por_unidad'))
+
+                        if (tmp_min == 0.0 or seg_uni == 0.0) and dur_seg > 0:
+                            calc_min, calc_seg_uni = calcular_metricas_inyeccion(dur_seg, cant_real)
+                            if tmp_min == 0.0: tmp_min = calc_min
+                            if seg_uni == 0.0: seg_uni = calc_seg_uni
+
                         movimientos.append({
                             'Fecha': fi.strftime('%d/%m/%Y') if fi else '',
                             'Tipo': 'INYECCION',
                             'Producto': safe_str(r.get('id_codigo', '')),
                             'Responsable': safe_str(r.get('responsable', 'SISTEMA')),
-                            'Cant': float(str(r.get('cantidad_real') or 0).replace(',', '.')),
+                            'Cant': cant_real,
                             'Orden': safe_str(r.get('orden_produccion', '')) or safe_str(r.get('id_inyeccion', '')),
                             'maquina': format_maquina(r.get('maquina'), 'INYECCION'),
+                            'peso_bujes': round(to_float(r.get('peso_bujes')), 4),
+                            'cavidades': to_int(r.get('cavidades'), 1),
+                            'duracion_segundos': dur_seg,
+                            'tiempo_total_minutos': round(tmp_min, 2),
+                            'segundos_por_unidad': round(seg_uni, 2),
                             'Extra': f"Molde: {r.get('molde', '')}",
                             'Detalle': safe_str(r.get('observaciones', '')),
                             'HORA_INICIO': safe_str(r.get('hora_inicio', '')),
                             'HORA_FIN': safe_str(r.get('hora_termina', '')),
                             'hoja': 'db_inyeccion',
-                            'fila': int(r.get('id', 0))
+                            'fila': to_int(r.get('id', 0))
                         })
                     except Exception as e_row:
                         logger.error(f"❌ [Historial-INYECCION] Error procesando fila (ID {r.get('id', '?')}): {e_row}")
@@ -155,12 +172,13 @@ def obtener_historial_global():
                 for r in res_pul:
                     try:
                         p_id = str(r.get('id_pulido') or '').strip()
+                        cant_real = to_float(r.get('cantidad_real'))
                         
                         # Lookup directo en memoria (cero DB calls)
                         revs = revueltos_map.get(p_id, [])
                         det_revueltos = ""
                         if revs:
-                            det_revueltos = " | REVUELTOS: " + ", ".join([f"{str(rv['id_codigo'])}({float(rv['cantidad'] or 0)})" for rv in revs])
+                            det_revueltos = " | REVUELTOS: " + ", ".join([f"{str(rv['id_codigo'])}({to_float(rv['cantidad'])})" for rv in revs])
 
                         obs = str(r.get('observaciones') or '').strip()
                         detalle_final = f"Obs: {obs}{det_revueltos}" if obs else det_revueltos.strip(" | ")
@@ -170,16 +188,21 @@ def obtener_historial_global():
                             'Tipo': 'PULIDO',
                             'Producto': str(r['codigo'] or ''),
                             'Responsable': str(r['responsable'] or 'SISTEMA'),
-                            'cantidad_real': float(r['cantidad_real'] or 0),
-                            'Cant': float(r['cantidad_real'] or 0),
+                            'cantidad_real': cant_real,
+                            'Cant': cant_real,
                             'Orden': str(r['orden_produccion'] or p_id or '-'),
                             'maquina': 'N/A',
+                            'peso_bujes': None,
+                            'cavidades': None,
+                            'duracion_segundos': None,
+                            'tiempo_total_minutos': None,
+                            'segundos_por_unidad': None,
                             'Extra': f"OP: {str(r['orden_produccion'] or '')}",
                             'Detalle': str(detalle_final.strip()),
                             'HORA_INICIO': format_time_py(r['hora_inicio']),
                             'HORA_FIN': format_time_py(r['hora_fin']),
                             'hoja': 'db_pulido',
-                            'fila': int(r['id'])
+                            'fila': to_int(r['id'])
                         })
                     except Exception as e_row:
                         db.session.rollback()
@@ -202,15 +225,20 @@ def obtener_historial_global():
                         'Tipo': 'ENSAMBLE',
                         'Producto': safe_str(getattr(r, 'id_codigo', '')),
                         'Responsable': safe_str(getattr(r, 'responsable', 'SISTEMA')),
-                        'Cant': float(str(getattr(r, 'cantidad', 0) or 0).replace(',', '.')),
+                        'Cant': to_float(getattr(r, 'cantidad', 0)),
                         'Orden': safe_str(getattr(r, 'op_numero', '')) or safe_str(getattr(r, 'id_ensamble', '')),
                         'maquina': 'N/A',
+                        'peso_bujes': None,
+                        'cavidades': None,
+                        'duracion_segundos': None,
+                        'tiempo_total_minutos': None,
+                        'segundos_por_unidad': None,
                         'Extra': safe_str(getattr(r, 'buje_ensamble', '')),
                         'Detalle': safe_str(getattr(r, 'observaciones', '')),
                         'HORA_INICIO': format_time_py(getattr(r, 'hora_inicio', None)),
                         'HORA_FIN': format_time_py(getattr(r, 'hora_fin', None)),
                         'hoja': 'db_ensambles',
-                        'fila': getattr(r, 'id', 0)
+                        'fila': to_int(getattr(r, 'id', 0))
                     })
             except Exception as e:
                 logger.error(f"Error Ensamble: {e}")
@@ -225,14 +253,19 @@ def obtener_historial_global():
                         'Tipo': 'MEZCLA',
                         'Producto': 'PREPARACION MATERIAL',
                         'Responsable': safe_str(getattr(r, 'responsable', 'SISTEMA')),
-                        'Cant': f"{float(getattr(r, 'virgen_kg', 0) or 0)}Kg V",
+                        'Cant': f"{to_float(getattr(r, 'virgen_kg', 0))}Kg V",
                         'maquina': format_maquina(getattr(r, 'maquina', None), 'MEZCLA'),
-                        'Extra': f"{float(getattr(r, 'molido_kg', 0) or 0)}Kg M",
+                        'peso_bujes': None,
+                        'cavidades': None,
+                        'duracion_segundos': None,
+                        'tiempo_total_minutos': None,
+                        'segundos_por_unidad': None,
+                        'Extra': f"{to_float(getattr(r, 'molido_kg', 0))}Kg M",
                         'Detalle': safe_str(getattr(r, 'observaciones', '')),
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_mezcla',
-                        'fila': getattr(r, 'id', 0)
+                        'fila': to_int(getattr(r, 'id', 0))
                     })
             except Exception as e:
                 logger.error(f"Error Mezcla: {e}")
@@ -247,15 +280,20 @@ def obtener_historial_global():
                         'Tipo': 'VENTA',
                         'Producto': safe_str(getattr(r, 'productos', '')),
                         'Responsable': safe_str(getattr(r, 'nombres', 'CLIENTE DESCONOCIDO')),
-                        'Cant': float(str(getattr(r, 'cantidad', 0) or 0).replace(',', '.')),
+                        'Cant': to_float(getattr(r, 'cantidad', 0)),
                         'Orden': safe_str(getattr(r, 'documento', '')),
                         'maquina': 'N/A',
+                        'peso_bujes': None,
+                        'cavidades': None,
+                        'duracion_segundos': None,
+                        'tiempo_total_minutos': None,
+                        'segundos_por_unidad': None,
                         'Extra': safe_str(getattr(r, 'clasificacion', '')),
-                        'Detalle': f"Ingreso: ${float(getattr(r, 'total_ingresos', 0) or 0)}",
+                        'Detalle': f"Ingreso: ${to_float(getattr(r, 'total_ingresos', 0))}",
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_ventas',
-                        'fila': getattr(r, 'id', 0)
+                        'fila': to_int(getattr(r, 'id', 0))
                     })
             except Exception as e:
                 logger.error(f"Error Ventas: {e}")
@@ -281,15 +319,20 @@ def obtener_historial_global():
                         'Tipo': 'PNC',
                         'Producto': safe_str(getattr(pnc, 'id_codigo', '')),
                         'Responsable': 'INYECCION',
-                        'Cant': float(str(getattr(pnc, 'cantidad', 0) or 0).replace(',', '.')),
+                        'Cant': to_float(getattr(pnc, 'cantidad', 0)),
                         'Orden': safe_str(getattr(pnc, 'id_inyeccion', '')),
                         'maquina': 'N/A',
+                        'peso_bujes': None,
+                        'cavidades': None,
+                        'duracion_segundos': None,
+                        'tiempo_total_minutos': None,
+                        'segundos_por_unidad': None,
                         'Extra': 'PNC Inyeccion',
                         'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_pnc_inyeccion',
-                        'fila': getattr(pnc, 'id_row', 0)
+                        'fila': to_int(getattr(pnc, 'id_row', 0))
                     })
 
                 # PNC PULIDO — ProduccionPulido.fecha también es DateTime
@@ -305,15 +348,20 @@ def obtener_historial_global():
                         'Tipo': 'PNC',
                         'Producto': safe_str(getattr(pnc, 'codigo', '')),
                         'Responsable': 'PULIDO',
-                        'Cant': float(str(getattr(pnc, 'cantidad', 0) or 0).replace(',', '.')),
+                        'Cant': to_float(getattr(pnc, 'cantidad', 0)),
                         'Orden': safe_str(getattr(pnc, 'id_pulido', '')),
                         'maquina': 'N/A',
+                        'peso_bujes': None,
+                        'cavidades': None,
+                        'duracion_segundos': None,
+                        'tiempo_total_minutos': None,
+                        'segundos_por_unidad': None,
                         'Extra': 'PNC Pulido',
                         'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_pnc_pulido',
-                        'fila': getattr(pnc, 'id_row', 0)
+                        'fila': to_int(getattr(pnc, 'id_row', 0))
                     })
 
                 # PNC ENSAMBLE — Ensamble.fecha es DateTime
@@ -329,15 +377,20 @@ def obtener_historial_global():
                         'Tipo': 'PNC',
                         'Producto': safe_str(getattr(pnc, 'id_codigo', '')),
                         'Responsable': 'ENSAMBLE',
-                        'Cant': float(str(getattr(pnc, 'cantidad', 0) or 0).replace(',', '.')),
+                        'Cant': to_float(getattr(pnc, 'cantidad', 0)),
                         'Orden': safe_str(getattr(pnc, 'id_ensamble', '')),
                         'maquina': 'N/A',
+                        'peso_bujes': None,
+                        'cavidades': None,
+                        'duracion_segundos': None,
+                        'tiempo_total_minutos': None,
+                        'segundos_por_unidad': None,
                         'Extra': 'PNC Ensamble',
                         'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_pnc_ensamble',
-                        'fila': getattr(pnc, 'id_row', 0)
+                        'fila': to_int(getattr(pnc, 'id_row', 0))
                     })
 
             except Exception as e:
@@ -653,7 +706,9 @@ def exportar_excel_historial_global():
 
         columnas = [
             'Fecha', 'Hora Inicio', 'Hora Fin', 'Tipo', 'Responsable', 
-            'Producto', 'Orden Prod.', 'Máquina', 'Cantidad', 'Detalle'
+            'Producto', 'Orden Prod.', 'Máquina', 'Cantidad',
+            'Peso Bujes (g)', 'Cavidades', 'Duración (s)', 'Tiempo Total (min)', 'Seg/Unidad',
+            'Detalle'
         ]
 
         for col_idx, titulo in enumerate(columnas, 1):
@@ -674,14 +729,25 @@ def exportar_excel_historial_global():
                 r.get('Orden', ''),
                 r.get('maquina', 'N/A'),
                 r.get('Cant', 0),
+                r.get('peso_bujes'),
+                r.get('cavidades'),
+                r.get('duracion_segundos'),
+                r.get('tiempo_total_minutos'),
+                r.get('segundos_por_unidad'),
                 r.get('Detalle', '')
             ]
 
             for col_idx, valor in enumerate(fila, 1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=valor)
+                # Purgar estrictamente cualquier representación de nulo a None para celda vacía en Excel
+                if valor is None or (isinstance(valor, float) and (valor != valor)) or str(valor).strip().lower() in ('nan', 'none', 'null'):
+                    cell_val = None
+                else:
+                    cell_val = valor
+
+                cell = ws.cell(row=row_idx, column=col_idx, value=cell_val)
                 cell.border = thin_border
 
-                if col_idx in (4, 5, 6, 7, 8, 10): 
+                if col_idx in (4, 5, 6, 7, 8, 15): 
                     cell.alignment = text_align
                 else:
                     cell.alignment = data_align
@@ -690,7 +756,7 @@ def exportar_excel_historial_global():
                 for col_idx in range(1, len(columnas) + 1):
                     ws.cell(row=row_idx, column=col_idx).fill = zebra_fill
 
-        anchos = [12, 11, 11, 12, 20, 18, 15, 15, 10, 40]
+        anchos = [12, 11, 11, 12, 20, 18, 15, 15, 10, 14, 10, 12, 16, 12, 40]
         for i, w in enumerate(anchos, 1):
             ws.column_dimensions[get_column_letter(i)].width = w
 

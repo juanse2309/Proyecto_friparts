@@ -30,6 +30,21 @@ def to_float(valor, default=0.0):
         return default
 
 
+def calcular_metricas_inyeccion(duracion_segundos, cantidad_real):
+    """
+    Calcula defensivamente las métricas derivadas de inyección:
+    - tiempo_total_minutos = round(duracion_segundos / 60.0, 2)
+    - segundos_por_unidad = round(duracion_segundos / cantidad_real, 2) si cantidad_real > 0 else 0.0
+    """
+    dur_seg = to_int(duracion_segundos, 0)
+    cant = to_float(cantidad_real, 0.0)
+    
+    tiempo_minutos = round(dur_seg / 60.0, 2) if dur_seg > 0 else 0.0
+    seg_unidad = round(dur_seg / cant, 2) if (dur_seg > 0 and cant > 0) else 0.0
+    
+    return tiempo_minutos, seg_unidad
+
+
 import re
 
 def normalizar_codigo(codigo: str) -> str:

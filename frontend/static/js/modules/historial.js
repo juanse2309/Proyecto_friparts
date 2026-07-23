@@ -21,6 +21,18 @@
     }
 
     /**
+     * Formatear métrica numérica defensiva sin romper render por null/undefined/NaN.
+     */
+    function formatMetricaNum(val, decimals = 2, fallback = 'N/A') {
+        if (val === null || val === undefined || val === '' || val === 'None' || val === 'null' || val === 'undefined') {
+            return fallback;
+        }
+        const num = parseFloat(val);
+        if (isNaN(num)) return fallback;
+        return decimals !== null ? num.toFixed(decimals) : num.toString();
+    }
+
+    /**
      * Formatear la columna Detalle (Parsea JSON y tags especiales)
      */
     function formatearDetalle(detalle) {
@@ -247,6 +259,10 @@
                                 ${formatearDetalle(r.Detalle)}
                             </div>
                             ${r.Tipo === 'PULIDO' && (r.HORA_INICIO || r.HORA_FIN) && formatHorario(r.HORA_INICIO) ? `<div class="horario-movimiento mb-2"><i class="far fa-clock me-1"></i>${formatHorario(r.HORA_INICIO)} - ${formatHorario(r.HORA_FIN) || '?'}</div>` : ''}
+                            ${r.Tipo === 'INYECCION' && r.tiempo_total_minutos != null ? 
+                                `<div class="metrica-inyeccion small text-muted mb-2">
+                                    <i class="fas fa-stopwatch me-1"></i> Duración: <strong>${formatMetricaNum(r.tiempo_total_minutos, 2)}</strong> min | Seg/U: <strong>${formatMetricaNum(r.segundos_por_unidad, 2)}</strong>s | Cav: <strong>${formatMetricaNum(r.cavidades, 0)}</strong>
+                                </div>` : ''}
 
                             
                             <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
@@ -334,6 +350,7 @@
                         <td>
                             ${formatearDetalle(r.Detalle)}
                             ${r.Tipo === 'PULIDO' && (r.HORA_INICIO || r.HORA_FIN) && formatHorario(r.HORA_INICIO) ? `<div class="mt-1"><span class="horario-movimiento"><i class="far fa-clock me-1"></i>${formatHorario(r.HORA_INICIO)} - ${formatHorario(r.HORA_FIN) || '?'}</span></div>` : ''}
+                            ${r.Tipo === 'INYECCION' && r.tiempo_total_minutos != null ? `<div class="mt-1"><span class="badge bg-light text-dark border me-1" title="Tiempo total min"><i class="fas fa-stopwatch me-1 text-primary"></i>${formatMetricaNum(r.tiempo_total_minutos, 2)} min</span><span class="badge bg-light text-dark border" title="Peso Bujes"><i class="fas fa-weight-hanging me-1 text-secondary"></i>${formatMetricaNum(r.peso_bujes, 4)}g</span></div>` : ''}
                         </td>
 
                         <td class="text-center fw-bold">${cantidad ?? '-'}</td>
