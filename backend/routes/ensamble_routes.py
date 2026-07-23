@@ -477,6 +477,24 @@ def registrar_pnc_ensamble():
         dano_emp    = float(defectos.get("Daño en Empaque / Fisura", 0) or 0)
         total_pnc   = mal_ajuste + faltante + dano_emp
 
+        # Sync pnc on the parent Ensamble record
+        registro_ens = Ensamble.query.filter_by(
+            id_ensamble=id_ensamble,
+            buje_ensamble=id_codigo
+        ).first()
+
+        # Guard de ownership centralizado con AuditService
+        try:
+            responsable = AuditService.resolver_y_validar_propietario(registro_ens, data.get('responsable') or data.get('operario'))
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "ENSAMBLE_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
+
         if total_pnc > 0:
             criterio_str = (
                 f"Mal Ajuste: {int(mal_ajuste)}, "
@@ -493,11 +511,6 @@ def registrar_pnc_ensamble():
             )
             db.session.add(nuevo_pnc)
 
-            # Sync pnc on the parent Ensamble record
-            registro_ens = Ensamble.query.filter_by(
-                id_ensamble=id_ensamble,
-                buje_ensamble=id_codigo
-            ).first()
             if registro_ens:
                 registro_ens.pnc = int(round(total_pnc))
 

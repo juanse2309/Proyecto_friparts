@@ -8,12 +8,53 @@ from flask import Blueprint, jsonify, request, session
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES
 from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion, DistribucionOpPedidos, Pedido, TrazabilidadLote
 from backend.config.settings import Settings
-from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.services.audit_service import AuditService, OwnershipMismatchException, ValidadorRequeridoException
 from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
+
+def _obtener_usuario_activo():
+    """
+    Extrae la identidad del usuario activo desde la sesión de Flask o el token JWT de la PWA.
+    """
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+        try:
+            import jwt
+            payload = jwt.decode(token, secret, algorithms=['HS256'])
+            user = payload.get('user')
+            if user:
+                return user
+        except Exception:
+            pass
+    return session.get('user') or session.get('username')
+
+
+def _asignar_autoridad_y_estado(registro, es_validacion, payload_responsable, usuario_activo):
+    """
+    Auxiliar privada para asignar autoría y estado según sea proceso de validación o producción regular.
+    """
+    if es_validacion:
+        validador = AuditService.resolver_y_validar_validador(payload_responsable, usuario_activo)
+        responsable = registro.responsable if (registro and registro.responsable) else AuditService.resolver_y_validar_propietario(None, payload_responsable)
+        estado = 'VALIDADO'
+        if registro:
+            registro.validado_por = validador
+    else:
+        responsable = AuditService.resolver_y_validar_propietario(registro, payload_responsable)
+        estado = 'PENDIENTE'
+        if registro:
+            registro.finalizado_por = usuario_activo or 'SISTEMA'
+
+    if registro:
+        registro.responsable = responsable
+        registro.estado = estado
+
+    return responsable, estado
 
 # Catálogos oficiales de motivos de rechazo (PNC)
 INYECCION_CRITERIOS = ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"]
@@ -223,9 +264,15 @@ def registrar_inyeccion_lote():
                     ProduccionInyeccion.estado == 'EN_PROCESO'
                 ).order_by(ProduccionInyeccion.id.desc()).first()
 
-            # Guard de ownership centralizado con AuditService
+            # Guard de ownership y asignación de autoría mediante helper privado
             try:
-                responsable = AuditService.resolver_y_validar_propietario(registro, turno.get('responsable'))
+                usuario_activo = _obtener_usuario_activo()
+                responsable, nuevo_estado = _asignar_autoridad_y_estado(
+                    registro, 
+                    es_validacion, 
+                    turno.get('responsable'), 
+                    usuario_activo
+                )
             except OwnershipMismatchException as e:
                 return jsonify({
                     "success": False,
@@ -234,6 +281,12 @@ def registrar_inyeccion_lote():
                     "responsable_db": e.responsable_db,
                     "responsable_in": e.responsable_in
                 }), 409
+            except ValidadorRequeridoException as e:
+                return jsonify({
+                    "success": False,
+                    "error": e.message,
+                    "code": "VALIDADOR_REQUERIDO"
+                }), 400
 
             if not registro:
                 logger.info(f"🆕 [Inyeccion] Creando nuevo registro: {id_iny} - {id_cod}")
@@ -244,15 +297,9 @@ def registrar_inyeccion_lote():
 
             # --- Sincronización de Campos ---
             registro.id_codigo      = id_cod
-            registro.responsable    = responsable
             registro.maquina        = maquina
             registro.fecha_inicia   = datetime.combine(fecha_dt, datetime.min.time())
-            registro.estado         = nuevo_estado
             registro.departamento   = 'Inyeccion'
-            if es_validacion:
-                registro.validado_por = session.get('user', 'SISTEMA')
-            else:
-                registro.finalizado_por = session.get('user', 'SISTEMA')
             
             # --- BLINDAJE DE DATOS (int(round(float)) para BigInt/Integer) ---
             disparos      = to_float(item.get('cantidad') or item.get('contador_maq') or 0)
@@ -548,6 +595,9 @@ def validar_lote_inyeccion(id_inyeccion):
         items_payload = payload.get('items', [])
         items_dict = { str(item.get('codigo', '')): item for item in items_payload }
 
+        usuario_activo = _obtener_usuario_activo()
+        validador_actual = AuditService.resolver_y_validar_validador(payload.get('validador'), usuario_activo)
+
         # Buscar por id_inyeccion en db_inyeccion
         registros_iny = ProduccionInyeccion.query.filter_by(id_inyeccion=id_inyeccion).all()
         if not registros_iny:
@@ -611,6 +661,7 @@ def validar_lote_inyeccion(id_inyeccion):
                 logger.info(f"🧪 [SANDBOX] Reporte {reg.id_inyeccion} validado en MODO PRUEBA. Se ignoró cruce de inventario.")
 
             # Marcar registro de inyeccion como CERRADO
+            reg.validado_por = validador_actual
             reg.estado = 'CERRADO'
             from datetime import datetime
             reg.fecha_fin = datetime.now()
@@ -626,13 +677,16 @@ def validar_lote_inyeccion(id_inyeccion):
         except:
             pass
 
-        logger.info(f"✅ [Validación] Lote {id_inyeccion} cerrado y validado correctamente.")
+        logger.info(f"✅ [Validación] Lote {id_inyeccion} cerrado y validado correctamente por {validador_actual}.")
         return jsonify({"success": True, "message": f"Lote {id_inyeccion} validado e inventario actualizado"})
 
+    except ValidadorRequeridoException as e:
+        return jsonify({"success": False, "error": e.message, "code": "VALIDADOR_REQUERIDO"}), 400
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error validando lote {id_inyeccion}: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 @inyeccion_bp.route('/api/inyeccion/dashboard_stats', methods=['GET'])
 @require_role(ROL_ADMINS + ['JEFE INYECCION', 'INYECCION'])

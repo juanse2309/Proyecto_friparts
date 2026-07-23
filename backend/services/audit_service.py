@@ -26,11 +26,41 @@ class OwnershipMismatchException(Exception):
         super().__init__(self.message)
 
 
+class ValidadorRequeridoException(Exception):
+    """
+    Excepción lanzada cuando no se provee ni resuelve una identidad explícita para la validación de calidad.
+    """
+    def __init__(self, message="Se requiere una identidad explícita para la validación de calidad"):
+        self.message = message
+        super().__init__(self.message)
+
+
 class AuditService:
     """
     Clase de servicio encargada de la validación y normalización de identidades de
     operarios y responsables de las transacciones del sistema de producción.
     """
+
+    @staticmethod
+    def resolver_y_validar_validador(payload_validador=None, usuario_autenticado=None):
+        """
+        Resuelve y valida la identidad del usuario que aprueba/valida un registro de producción.
+        Firma limpia desacoplada del contexto HTTP: (payload_validador, usuario_autenticado).
+
+        :param payload_validador: Identidad enviada en la solicitud (ej. campo del body/DTO).
+        :param usuario_autenticado: Identidad del usuario autenticado extraída en la capa HTTP (routes).
+        :return: String con el nombre normalizado del validador.
+        :raises ValidadorRequeridoException: Si no se provee una identidad explícita.
+        """
+        candidato = payload_validador or usuario_autenticado
+        if not candidato:
+            raise ValidadorRequeridoException("Se requiere una identidad explícita para la validación de calidad")
+
+        validador_resuelto = resolver_operario(candidato)
+        if not validador_resuelto or str(validador_resuelto).strip().upper() == 'SISTEMA':
+            raise ValidadorRequeridoException("Se requiere una identidad explícita para la validación de calidad")
+
+        return str(validador_resuelto).strip()
 
     @staticmethod
     def resolver_y_validar_propietario(registro_db, payload_responsable, fallback_sistema=FALLBACK_OPERARIO):

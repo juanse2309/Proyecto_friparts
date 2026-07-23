@@ -123,6 +123,19 @@ def registrar_pedido():
             es_edicion = True
             logger.info(f"🔄 Actualizando Pedido Existente: {id_pedido_final}")
 
+        # Guard de ownership centralizado con AuditService
+        registro_previo = Pedido.query.filter_by(id_pedido=id_pedido_final).first() if es_edicion else None
+        try:
+            vendedor = AuditService.resolver_y_validar_propietario(registro_previo, vendedor)
+        except OwnershipMismatchException as e:
+            return jsonify({
+                "success": False,
+                "error": e.message,
+                "code": "PEDIDOS_SESSION_OWNERSHIP_MISMATCH",
+                "responsable_db": e.responsable_db,
+                "responsable_in": e.responsable_in
+            }), 409
+
         # Convertir fecha
         try:
             fecha_dt = datetime.strptime(fecha_str, "%Y-%m-%d").date()

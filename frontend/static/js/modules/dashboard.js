@@ -3489,6 +3489,7 @@ window.ModuloDashboard = (function () {
         abrirModalComparativa,
         abrirModalScrapDetalle,
         cargarProductosSinRotacion,
+        suscribirClickNativoCanvas,
         // ── API pública del gráfico centralizado ──
         renderChartMonthlyPerformance,
         fetchAndRenderMonthlyPerformance
