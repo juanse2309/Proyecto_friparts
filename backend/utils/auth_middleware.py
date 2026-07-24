@@ -12,26 +12,72 @@ ROL_JEFES = ['JEFE ALMACEN', 'JEFE INYECCION', 'JEFE PULIDO', 'JEFE DE PLANTA', 
 ROL_COMERCIALES = ['COMERCIAL', 'COMERCIAL FRIMETALS', 'STAFF FRIMETALS']
 ROL_OPERARIOS = ['INYECCION', 'PULIDO', 'ALISTAMIENTO', 'ENSAMBLE', 'AUXILIAR INVENTARIO']
 
+def _obtener_jwt_secrets():
+    """
+    Retorna la lista ordenada de posibles claves secretas para decodificar JWT,
+    desduplicando y omitiendo valores nulos o vacíos.
+    """
+    candidatas = []
+    
+    # 1. Variable de entorno explícita
+    env_secret = os.environ.get('JWT_PWA_SECRET')
+    if env_secret:
+        candidatas.append(env_secret)
+
+    # 2. Claves en la aplicación Flask
+    try:
+        cfg_pwa = current_app.config.get('JWT_PWA_SECRET')
+        if cfg_pwa:
+            candidatas.append(cfg_pwa)
+        cfg_secret = current_app.config.get('SECRET_KEY')
+        if cfg_secret:
+            candidatas.append(cfg_secret)
+        if getattr(current_app, 'secret_key', None):
+            candidatas.append(current_app.secret_key)
+    except Exception:
+        pass
+
+    # 3. Clave por defecto utilizada en auth_routes.py
+    candidatas.append('super_secret_pwa_key_2026')
+
+    # Desduplicar preservando orden de prioridad
+    unicas = []
+    for s in candidatas:
+        if s and s not in unicas:
+            unicas.append(s)
+
+    return unicas
+
 def decode_pwa_token(request):
     """
-    Extrae y decodifica el token JWT del header Authorization si existe.
-    Retorna el payload decodificado o None. Lanza excepciones jwt en caso de error.
+    Extrae y decodifica el token JWT del header Authorization o del parámetro query ('token'/'pwa_token')
+    probando secuencialmente contra las claves secretas configuradas.
     """
+    token = None
     auth_header = request.headers.get('Authorization')
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
-        secret = os.environ.get('JWT_PWA_SECRET')
-        if not secret:
-            try:
-                secret = current_app.config.get('JWT_PWA_SECRET') or current_app.config.get('SECRET_KEY')
-            except Exception:
-                secret = None
+    elif request.args.get('token'):
+        token = request.args.get('token')
+    elif request.args.get('pwa_token'):
+        token = request.args.get('pwa_token')
+    elif request.args.get('jwt'):
+        token = request.args.get('jwt')
 
-        if not secret:
-            logger.error('[AUTH] JWT_PWA_SECRET no configurada en el sistema')
+    if not token:
+        return None
+
+    secrets = _obtener_jwt_secrets()
+    for secret in secrets:
+        try:
+            return jwt.decode(token, secret, algorithms=['HS256'])
+        except jwt.InvalidSignatureError:
+            continue
+        except Exception as e:
+            logger.warning(f"[AUTH] Error decodificando JWT en {request.path}: {e}")
             return None
 
-        return jwt.decode(token, secret, algorithms=['HS256'])
+    logger.warning(f"[AUTH] Firma de JWT no válida con ninguna clave configurada en {request.path}")
     return None
 
 def obtener_identidad_segura(req):

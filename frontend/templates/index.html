@@ -572,6 +572,7 @@
             <li class="menu-item" data-page="asistencia"> <a href="#"><i class="fas fa-user-clock"></i><span>Control de
                         Asistencia</span></a> </li>
             <li class="menu-item" id="nav-notificaciones" data-page="notificaciones"> <a href="#"><i class="fas fa-bullhorn"></i><span>Notificaciones Push</span></a> </li>
+            <li class="menu-item" data-page="comercial-historico"> <a href="#" onclick="cargarPagina('comercial-historico')"><i class="fas fa-chart-line text-success"></i><span>Analítica Comercial</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i
@@ -616,6 +617,13 @@
 
 
 
+
+            <!-- ============================================================ -->
+            <!-- ANALÍTICA COMERCIAL HISTÓRICA PAGE -->
+            <!-- ============================================================ -->
+            <div id="comercial-historico-page" class="page" style="display: none; width: 100%; height: 100vh; border: none; padding: 0;">
+                <iframe id="comercial-historico-iframe" src="/comercial/historico" style="width: 100%; height: 100%; border: none;"></iframe>
+            </div>
 
             <!-- ============================================================ -->
             <!-- NOTIFICACIONES PUSH PAGE -->

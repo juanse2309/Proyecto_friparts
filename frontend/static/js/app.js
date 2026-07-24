@@ -519,6 +519,19 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         pagina.classList.remove('hidden', 'd-none');
         pagina.classList.add('active');
         console.log('✅ Página visible:', pageIdToShow);
+
+        // Propagación de Token JWT para Iframe Comercial Histórico
+        if (nombrePagina === 'comercial-historico' || nombrePagina === 'comercial_historico') {
+            const token = localStorage.getItem('pwa_token') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+            const iframe = document.getElementById('comercial-historico-iframe');
+            if (iframe && token) {
+                const authenticatedUrl = `/comercial/historico?token=${encodeURIComponent(token)}`;
+                if (!iframe.src || !iframe.src.includes(`token=${encodeURIComponent(token)}`)) {
+                    console.log('🔑 Propagando JWT Token a iframe comercial-historico');
+                    iframe.src = authenticatedUrl;
+                }
+            }
+        }
     } else {
         console.error('❌ Página no encontrada:', `${pageIdToShow}-page`);
         return;
@@ -618,6 +631,13 @@ window.volverAlDashboard = function () {
 };
 
 function inicializarModulo(nombrePagina) {
+    // BYPASS TÁCTICO PARA VISTAS IFRAME AISLADAS (Cero inicialización JS en SPA Padre)
+    if (nombrePagina === 'comercial-historico' || nombrePagina === 'comercial_historico') {
+        console.log('🚀 [Bypass Router] Vista iframe aislada activada:', nombrePagina);
+        if (window.ocultarLoaderGlobal) window.ocultarLoaderGlobal();
+        return true;
+    }
+
     const modulos = {
         'dashboard': window.ModuloDashboard,
         'inventario': window.ModuloInventario,

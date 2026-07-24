@@ -91,7 +91,7 @@ def ejecutar_extraccion():
         FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
         INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D 
             ON E.Autonumerico = D.Pertenece_A
-        WHERE YEAR(E.Fecha) >= YEAR(GETDATE()) - 1
+        WHERE YEAR(E.Fecha) >= 2024
           AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL')
           AND E.Anulado = 0;
         """

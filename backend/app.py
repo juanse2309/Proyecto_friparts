@@ -118,6 +118,7 @@ from backend.routes.ensamble_routes import ensamble_bp
 from backend.routes.ia_routes import ia_bp
 from backend.routes.gerencia_routes import gerencia_bp
 from backend.routes.wo_routes import wo_bp
+from backend.routes.comercial_routes import comercial_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pedidos_bp)
@@ -129,6 +130,7 @@ app.register_blueprint(procura_bp)
 app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
 app.register_blueprint(productos_bp, url_prefix='/api/productos')
 app.register_blueprint(historial_bp)
+app.register_blueprint(comercial_bp)
 
 app.register_blueprint(admin_bp)
 app.register_blueprint(inyeccion_bp)
