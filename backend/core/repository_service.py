@@ -715,6 +715,7 @@ class RepositoryService:
     def get_ranking_operarios_pulido(self, desde=None, hasta=None, limit=20):
         """Ranking extendido de pulido (SQL-Native) con Puntos y Eficiencia."""
         try:
+            from backend.utils.formatters import sql_normalizar_codigo_fr
             params = {'lim': limit}
             filt = ""
             if desde and hasta:
@@ -731,7 +732,7 @@ class RepositoryService:
                     COALESCE(SUM(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER * COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC), 0) as puntos,
                     COALESCE(SUM(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER * COALESCE(NULLIF(regexp_replace(REPLACE(c.tiempo_estandar::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC), 0) as tiempo_std
                 FROM db_pulido p
-                LEFT JOIN db_costos c ON TRIM(p.codigo::TEXT) = TRIM(c.referencia::TEXT)
+                LEFT JOIN db_costos c ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
                 WHERE 1=1 {filt}
                 GROUP BY UPPER(TRIM(p.responsable))
                 ORDER BY puntos DESC
@@ -768,6 +769,7 @@ class RepositoryService:
     def get_analytics_pulido(self, desde=None, hasta=None):
         """Genera datos avanzados de pulido: evolución de puntos y detalle por referencia."""
         try:
+            from backend.utils.formatters import sql_normalizar_codigo_fr
             params = {}
             filt = ""
             if desde and hasta:
@@ -777,13 +779,13 @@ class RepositoryService:
 
             # 1. Evolución Mensual de Puntos
             sql_evol = f"""
-                SELECT 
+                SELECT
                     TO_CHAR(p.fecha, 'YYYY-MM') as mes,
                     UPPER(TRIM(p.responsable)) as responsable,
-                    SUM(COALESCE(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER, 0) * 
+                    SUM(COALESCE(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER, 0) *
                         COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as puntos
                 FROM db_pulido p
-                LEFT JOIN db_costos c ON TRIM(p.codigo::TEXT) = TRIM(c.referencia::TEXT)
+                LEFT JOIN db_costos c ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
                 WHERE 1=1 {filt}
                 GROUP BY 1, 2
                 ORDER BY 1 ASC, puntos DESC
@@ -800,14 +802,14 @@ class RepositoryService:
 
             # 2. Detalle por Referencia (para el modal)
             sql_refs = f"""
-                SELECT 
+                SELECT
                     UPPER(TRIM(p.responsable)) as responsable,
-                    TRIM(p.codigo::TEXT) as referencia,
+                    {sql_normalizar_codigo_fr('p.codigo')} as referencia,
                     SUM(COALESCE(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER, 0)) as qty,
                     MAX(COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as pts_u,
                     MAX(COALESCE(NULLIF(regexp_replace(REPLACE(c.costo_total::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as costo_u
                 FROM db_pulido p
-                LEFT JOIN db_costos c ON TRIM(p.codigo::TEXT) = TRIM(c.referencia::TEXT)
+                LEFT JOIN db_costos c ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
                 WHERE 1=1 {filt}
                 GROUP BY 1, 2
                 ORDER BY 1, qty DESC
@@ -1108,13 +1110,20 @@ class RepositoryService:
                         "prev_unidades": v_u, "prev_pedidos_unidades": p_u
                     })
             
-            # Truncar estrictamente la lista de meses según el rango 'hasta' (end_date)
-            if start_date and end_date:
+            # Truncar estrictamente la lista de meses según el rango enviado.
+            # BUGFIX: antes requería start_date Y end_date simultáneamente; si el usuario
+            # solo fijaba 'hasta' (caso común en el filtro del dashboard), la condición
+            # completa se saltaba y se devolvían los 12 meses sin truncar, filtrando
+            # meses futuros (ej. Julio) aunque 'hasta' fuera Junio.
+            if end_date:
                 try:
-                    sd = datetime.strptime(start_date, '%Y-%m-%d')
                     ed = datetime.strptime(end_date, '%Y-%m-%d')
-                    min_m = max(1, min(sd.month, ed.month))
-                    max_m = min(12, max(sd.month, ed.month))
+                    max_m = min(12, ed.month)
+                    min_m = 1
+                    if start_date:
+                        sd = datetime.strptime(start_date, '%Y-%m-%d')
+                        min_m = max(1, min(sd.month, ed.month))
+                    min_m = min(min_m, max_m)
                     return [data_map[m] for m in range(min_m, max_m + 1)]
                 except Exception as parse_err:
                     logger.warning(f"No se pudo truncar la serie mensual por fecha: {parse_err}")
@@ -1186,21 +1195,33 @@ class RepositoryService:
 
         # 3. Incumplimiento (Backorder) - SQL Native con Consolidador Relacional y Fallback defensivo
         back_rows = []
+        # Regla de negocio ya vigente en DashboardService.normalizar_cliente_alias, portada
+        # a SQL: cubre el caso 'DISTRIBUJES Y CAUCHOS FC SAS' cuando aún no existe la fila
+        # equivalente en db_cliente_equivalencias (el JOIN por sí solo no lo resuelve).
+        # Coincidencia flexible por patrón (solo 'DISTRIBUJES') para no depender de que
+        # 'FC' o 'CAUCHOS' estén presentes en toda variante de escritura del cliente.
+        # Se resuelve DENTRO de la CTE 'totals', antes del SUM y del GROUP BY, para que
+        # pedidos y ventas de todas las variantes se agreguen bajo la misma entidad.
+        _case_alias_hardcoded = (
+            "CASE WHEN UPPER(TRIM(b.nombres)) ILIKE '%DISTRIBUJES%' "
+            "THEN 'FELIPE DUARTE MORENO' ELSE COALESCE(e.nombre_canonical, b.nombres) END"
+        )
         try:
             sql_inc = f"""
                 WITH totals AS (
-                    SELECT 
-                        COALESCE(e.nombre_canonical, b.nombres) as nombres,
+                    SELECT
+                        {_case_alias_hardcoded} as nombres,
                         b.productos as producto,
                         SUM(CASE WHEN b.clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as p_qty,
                         SUM(CASE WHEN b.clasificacion ILIKE '%venta%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as v_qty,
                         MAX({_sql_cast_num('b.precio_promedio')}) as avg_price
                     FROM db_ventas b
-                    LEFT JOIN db_cliente_equivalencias e 
+                    LEFT JOIN db_cliente_equivalencias e
                         ON UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))
                         OR UPPER(TRIM(b.nombres)) ILIKE '%' || UPPER(TRIM(e.alias)) || '%'
                     {filt.replace('WHERE fecha', 'WHERE b.fecha').replace('WHERE 1=1', 'WHERE 1=1')}
-                    GROUP BY COALESCE(e.nombre_canonical, b.nombres), b.productos
+                    AND UPPER(TRIM(b.nombres)) NOT ILIKE '%FRIPARTS%'
+                    GROUP BY 1, b.productos
                 )
                 SELECT 
                     t.nombres,
@@ -1222,14 +1243,16 @@ class RepositoryService:
             try:
                 sql_inc_fallback = f"""
                     WITH totals AS (
-                        SELECT 
-                            nombres,
+                        SELECT
+                            CASE WHEN UPPER(TRIM(nombres)) ILIKE '%DISTRIBUJES%'
+                                 THEN 'FELIPE DUARTE MORENO' ELSE nombres END as nombres,
                             productos as producto,
                             SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
                             SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty,
                             MAX({_sql_cast_num('precio_promedio')}) as avg_price
                         FROM db_ventas
                         {filt}
+                        AND UPPER(TRIM(nombres)) NOT ILIKE '%FRIPARTS%'
                         GROUP BY 1, 2
                     )
                     SELECT 
@@ -1406,7 +1429,12 @@ class RepositoryService:
                 LEFT JOIN db_cliente_equivalencias e 
                     ON UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))
                     OR UPPER(TRIM(b.nombres)) ILIKE '%' || UPPER(TRIM(e.alias)) || '%'
-                WHERE (b.nombres ILIKE :cliente OR COALESCE(e.nombre_canonical, b.nombres) ILIKE :cliente) {filt.replace('fecha', 'b.fecha')}
+                WHERE (
+                    b.nombres ILIKE :cliente
+                    OR (CASE WHEN UPPER(TRIM(b.nombres)) ILIKE '%DISTRIBUJES%'
+                        THEN 'FELIPE DUARTE MORENO' ELSE COALESCE(e.nombre_canonical, b.nombres) END) ILIKE :cliente
+                ) {filt.replace('fecha', 'b.fecha')}
+                AND UPPER(TRIM(b.nombres)) NOT ILIKE '%FRIPARTS%'
                 GROUP BY b.productos
             ),
             unique_costs AS (
@@ -1414,7 +1442,7 @@ class RepositoryService:
                 FROM db_costos
                 GROUP BY referencia
             )
-            SELECT 
+            SELECT
                 t.full_desc,
                 t.ref_final,
                 t.p_qty,
@@ -1441,7 +1469,9 @@ class RepositoryService:
                         SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
                         SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty
                     FROM db_ventas
-                    WHERE nombres ILIKE :cliente {filt}
+                    WHERE (CASE WHEN UPPER(TRIM(nombres)) ILIKE '%DISTRIBUJES%'
+                        THEN 'FELIPE DUARTE MORENO' ELSE nombres END) ILIKE :cliente {filt}
+                        AND UPPER(TRIM(nombres)) NOT ILIKE '%FRIPARTS%'
                     GROUP BY productos
                 ),
                 unique_costs AS (

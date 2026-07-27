@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session, current_app
 from datetime import datetime
 import logging
 import uuid
@@ -9,6 +9,8 @@ from backend.services.bom_service import calcular_descuentos_ensamble
 from sqlalchemy import text
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 from backend.config.constants import FALLBACK_OPERARIO
+from backend.utils.auth_middleware import _obtener_usuario_activo
+from backend.utils.formatters import preservar_o_normalizar_prefijo
 
 ensamble_bp = Blueprint('ensamble_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -202,9 +204,19 @@ def reportar_ensamble_multi():
             buje_ensamble=main_reg.get('buje_ensamble')
         ).first()
 
-        # Guard de ownership centralizado con AuditService
+        # Guard de ownership centralizado con AuditService e identificación desacoplada HTTP
+        usuario_activo = _obtener_usuario_activo()
+        candidato_responsable = main_reg.get('responsable') or usuario_activo
+
+        if not candidato_responsable or str(candidato_responsable).strip().upper() in ['', 'SISTEMA']:
+            return jsonify({
+                "success": False,
+                "error": "Se requiere una identidad de operario o responsable válida para registrar el ensamble",
+                "code": "RESPONSABLE_REQUERIDO"
+            }), 400
+
         try:
-            responsable = AuditService.resolver_y_validar_propietario(registro_final_db, main_reg.get('responsable'))
+            responsable = AuditService.resolver_y_validar_propietario(registro_final_db, candidato_responsable)
         except OwnershipMismatchException as e:
             return jsonify({
                 "success": False,
@@ -217,7 +229,7 @@ def reportar_ensamble_multi():
         logger.info(f"[ENSAMBLE-MULTI] Procesando {len(registros_data)} registros para id_ensamble={id_ensamble_global}")
 
         for reg_data in registros_data:
-            id_codigo_ancla = reg_data.get('id_codigo')
+            id_codigo_ancla = preservar_o_normalizar_prefijo(reg_data.get('id_codigo'))
             buje_detalle = reg_data.get('buje_ensamble')
             cantidad = float(reg_data.get('cantidad', 0) or 0)
             es_final_flag = reg_data.get('es_final', False) # Flag local para lógica interna
@@ -483,9 +495,19 @@ def registrar_pnc_ensamble():
             buje_ensamble=id_codigo
         ).first()
 
-        # Guard de ownership centralizado con AuditService
+        # Guard de ownership centralizado con AuditService e identificación desacoplada HTTP
+        usuario_activo = _obtener_usuario_activo()
+        candidato_responsable = data.get('responsable') or data.get('operario') or usuario_activo
+
+        if not candidato_responsable or str(candidato_responsable).strip().upper() in ['', 'SISTEMA']:
+            return jsonify({
+                "success": False,
+                "error": "Se requiere una identidad de operario o responsable válida para reportar PNC de ensamble",
+                "code": "RESPONSABLE_REQUERIDO"
+            }), 400
+
         try:
-            responsable = AuditService.resolver_y_validar_propietario(registro_ens, data.get('responsable') or data.get('operario'))
+            responsable = AuditService.resolver_y_validar_propietario(registro_ens, candidato_responsable)
         except OwnershipMismatchException as e:
             return jsonify({
                 "success": False,

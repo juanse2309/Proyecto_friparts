@@ -4,36 +4,18 @@ import logging
 import traceback
 import pytz
 from datetime import datetime
-from flask import Blueprint, jsonify, request, session
-from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES
+from flask import Blueprint, jsonify, request
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, _obtener_usuario_activo
 from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion, DistribucionOpPedidos, Pedido, TrazabilidadLote
 from backend.config.settings import Settings
 from backend.services.audit_service import AuditService, OwnershipMismatchException, ValidadorRequeridoException
 from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion
+from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion, preservar_o_normalizar_prefijo
 
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
-
-def _obtener_usuario_activo():
-    """
-    Extrae la identidad del usuario activo desde la sesión de Flask o el token JWT de la PWA.
-    """
-    auth_header = request.headers.get('Authorization')
-    if auth_header and auth_header.startswith('Bearer '):
-        token = auth_header.split(' ')[1]
-        secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
-        try:
-            import jwt
-            payload = jwt.decode(token, secret, algorithms=['HS256'])
-            user = payload.get('user')
-            if user:
-                return user
-        except Exception:
-            pass
-    return session.get('user') or session.get('username')
 
 
 def _asignar_autoridad_y_estado(registro, es_validacion, payload_responsable, usuario_activo):
@@ -199,6 +181,7 @@ def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=Fal
             except: pass
 
 @inyeccion_bp.route('/api/inyeccion/lote', methods=['POST'])
+@require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE', 'PULIDO'])
 def registrar_inyeccion_lote():
     """
     PASO 1-3: SQL-First Validation Workflow.
@@ -266,13 +249,17 @@ def registrar_inyeccion_lote():
                     ProduccionInyeccion.estado == 'EN_PROCESO'
                 ).order_by(ProduccionInyeccion.id.desc()).first()
 
-            # Guard de ownership y asignación de autoría mediante helper privado
+            # Guard de ownership y asignación de autoría mediante helper privado.
+            # usuario_activo proviene exclusivamente de la identidad autenticada por
+            # @require_role (JWT/sesión) — nunca se rellena con datos autorreportados
+            # del payload, para que finalizado_por no pueda ser falsificado.
             try:
                 usuario_activo = _obtener_usuario_activo()
+                responsable_input = turno.get('responsable') or data.get('responsable') or data.get('validador')
                 responsable, nuevo_estado = _asignar_autoridad_y_estado(
                     registro, 
                     es_validacion, 
-                    turno.get('responsable'), 
+                    responsable_input, 
                     usuario_activo
                 )
             except OwnershipMismatchException as e:
@@ -1053,11 +1040,14 @@ def mes_iniciar_trabajo():
             ).update({DistribucionOpPedidos.op_world_office: op_world_office}, synchronize_session=False)
 
             # Crear lote en ProduccionInyeccion (db_inyeccion)
+            # NOTA: db_programacion guarda el código SIN prefijo ('9304'); se normaliza
+            # a 'FR-9304' al persistir en db_inyeccion para evitar fragmentación de SKU.
             hora_inicio_str = ahora.strftime('%H:%M')
+            id_codigo_norm = preservar_o_normalizar_prefijo(prog.codigo_sistema)
             nueva_prod = ProduccionInyeccion(
                 id_inyeccion=id_inyeccion_bloque,
                 fecha_inicia=ahora,
-                id_codigo=prog.codigo_sistema,
+                id_codigo=id_codigo_norm,
                 responsable=operario_inicia,
                 maquina=prog.maquina,
                 molde=prog.molde,
@@ -1081,7 +1071,7 @@ def mes_iniciar_trabajo():
                 lote_traz = TrazabilidadLote(
                     id_lote=id_lote_mes,
                     orden_produccion=op_world_office,
-                    id_codigo=prog.codigo_sistema,
+                    id_codigo=id_codigo_norm,
                     maquina=prog.maquina,
                     id_inyeccion=id_inyeccion_bloque,
                     estado_actual='ABIERTO_PRODUCCION',

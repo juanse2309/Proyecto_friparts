@@ -504,9 +504,12 @@ class DashboardService:
                 params['desde'] = desde
                 params['hasta'] = hasta
 
+            from backend.utils.formatters import sql_normalizar_codigo_fr
+            ref_norm = sql_normalizar_codigo_fr('p.codigo')
+
             sql = text(f"""
-                SELECT 
-                    UPPER(TRIM(p.codigo::text))                       AS referencia,
+                SELECT
+                    {ref_norm}                                         AS referencia,
                     UPPER(TRIM(p.responsable::text))                  AS operario,
                     SUM(COALESCE(p.cantidad_real, 0))                 AS total_piezas,
                     SUM(COALESCE(p.tiempo_total_minutos, 0))         AS total_minutos

@@ -60,6 +60,17 @@ def normalizar_codigo(codigo: str) -> str:
     return re.sub(r'^[A-Z]+-', '', cod).strip()
 
 
+def sql_normalizar_codigo_fr(expresion_sql: str) -> str:
+    """
+    Fragmento SQL reutilizable (no ejecuta nada, solo arma el texto de la query).
+    Unifica un código con y sin prefijo 'FR-' al estándar 'FR-XXXX' para que
+    GROUP BY y JOIN contra db_costos.referencia no fragmenten '9304' / 'FR-9304'
+    en filas o resultados de join distintos.
+    """
+    base = f"UPPER(TRIM({expresion_sql}::text))"
+    return f"CASE WHEN {base} ~ '^[0-9]+$' THEN 'FR-' || {base} ELSE {base} END"
+
+
 def preservar_o_normalizar_prefijo(codigo: str, prefijo_defecto: str = "FR-") -> str:
     """
     Garantiza que el código tenga un prefijo válido para db_productos.

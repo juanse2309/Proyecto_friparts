@@ -7,6 +7,7 @@ reside aquí. Las rutas solo invocan métodos y retornan JSON.
 """
 import logging
 from backend.core.sql_database import db
+from backend.utils.formatters import sql_normalizar_codigo_fr
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -26,12 +27,36 @@ class PulidoService:
     # ---------------------------------------------------------------
     # Constante interna: lista normalizada de responsables ignorados
     # ---------------------------------------------------------------
-    _IGNORAR = {'SISTEMA', 'SIN RESPONSABLE', 'ADMIN', ''}
+    _IGNORAR = {
+        'SISTEMA', 'SIN RESPONSABLE', 'ADMIN', '',
+        'NOHEMY', 'LAURA JIMENEZ', 'LAURA JIMÉNEZ',
+        'EDIMAR MENDEZ', 'EDIMAR MÉNDEZ', 'EDIMAR',
+        'JUAN SEBASTIAN NOVOA CEPEDA', 'JUAN SEBASTIAN NOVOA', 'JUAN SEBASTIÁN NOVOA CEPEDA',
+        'JUAN SEBASTIAN', 'JUAN SEBASTIÁN', 'NOVOA'
+    }
 
     @staticmethod
     def _normalizar_nombre(nombre: str) -> str:
         """Normaliza a UPPER + TRIM para unificar variantes de escritura."""
         return (nombre or '').upper().strip()
+
+    @staticmethod
+    def _es_responsable_ignorado(nombre: str) -> bool:
+        """
+        Determina si un responsable debe ser purgado de los KPIs y Rankings de Pulido.
+
+        Solo coincidencia EXACTA contra _IGNORAR (ya cubre todas las variantes de
+        tildes necesarias). Antes existía un fallback por substring que buscaba
+        fragmentos genéricos ('EDIMAR', 'JUAN SEBASTIAN', 'NOVOA') dentro del nombre
+        normalizado — ese mecanismo fue el que invisibilizó a la operaria activa
+        'LAURA LIZETH VARGAS R.' en cuanto el patrón coincidía con un substring de su
+        nombre. Se elimina por completo: cualquier variante real que deba ignorarse
+        debe agregarse explícitamente a _IGNORAR, nunca por coincidencia parcial.
+        """
+        if not nombre:
+            return True
+        norm = PulidoService._normalizar_nombre(nombre)
+        return norm in PulidoService._IGNORAR
 
     # ---------------------------------------------------------------
     # RANKING: Leaderboard con Puntos y Eficiencia
@@ -98,7 +123,7 @@ class PulidoService:
                     )                                                                  AS t_std
                 FROM db_pulido p
                 LEFT JOIN db_costos c
-                       ON UPPER(TRIM(p.codigo::TEXT)) = UPPER(TRIM(c.referencia::TEXT))
+                       ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
                 WHERE 1=1 {filt}
                 GROUP BY UPPER(TRIM(p.responsable))
                 ORDER BY puntos DESC
@@ -109,7 +134,7 @@ class PulidoService:
             resultado = {}
             for r in rows:
                 nombre = PulidoService._normalizar_nombre(str(r[0] or 'Desconocido'))
-                if nombre in PulidoService._IGNORAR:
+                if PulidoService._es_responsable_ignorado(nombre):
                     continue
                 buenas  = _num(r[1], int)
                 pnc     = _num(r[2], int)
@@ -158,10 +183,11 @@ class PulidoService:
                 params['desde'] = desde
                 params['hasta'] = hasta
 
+            ref_norm = sql_normalizar_codigo_fr('p.codigo')
             sql = f"""
                 SELECT
                     UPPER(TRIM(p.responsable))                                         AS responsable,
-                    UPPER(TRIM(p.codigo::TEXT))                                        AS referencia,
+                    {ref_norm}                                                          AS referencia,
                     SUM(COALESCE(p.cantidad_real, 0))                                  AS qty,
                     MAX(COALESCE(
                         NULLIF(
@@ -181,7 +207,7 @@ class PulidoService:
                     ))                                                                  AS costo_u
                 FROM db_pulido p
                 LEFT JOIN db_costos c
-                       ON UPPER(TRIM(p.codigo::TEXT)) = UPPER(TRIM(c.referencia::TEXT))
+                       ON {ref_norm} = {sql_normalizar_codigo_fr('c.referencia')}
                 WHERE 1=1 {filt}
                 GROUP BY 1, 2
                 ORDER BY 1, qty DESC
@@ -195,7 +221,7 @@ class PulidoService:
                 qty   = _num(r[2], int)
                 pts_u = _num(r[3], float)
                 costo = _num(r[4], float)
-                if resp in PulidoService._IGNORAR:
+                if PulidoService._es_responsable_ignorado(resp):
                     continue
                 if resp not in refs_map:
                     refs_map[resp] = {}
