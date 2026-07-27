@@ -1262,11 +1262,23 @@ const ModuloInyeccion = {
             if (btn) btn.disabled = true;
             mostrarLoading(true, 'Guardando reporte e inyectando PNC...');
 
+            // Captura robusta de responsable y validador
+            const responsableVal = document.getElementById('responsable-inyeccion')?.value || 
+                                   window.AppState?.user?.nombre || 
+                                   window.AppState?.user?.user || 
+                                   localStorage.getItem('user_name') || 
+                                   localStorage.getItem('user') || '';
+
+            const validadorVal = responsableVal || 
+                                 window.AppState?.user?.nombre || 
+                                 localStorage.getItem('user_name') || '';
+
             // Datos comunes de turno
             const datosTurno = {
                 fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
                 maquina: document.getElementById('maquina-inyeccion')?.value || '',
-                responsable: document.getElementById('responsable-inyeccion')?.value || '',
+                responsable: responsableVal,
+                validador: validadorVal,
                 hora_llegada: document.getElementById('hora-llegada-inyeccion')?.value || '',
                 hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
@@ -1319,14 +1331,25 @@ const ModuloInyeccion = {
             const payload = {
                 turno: datosTurno,
                 items: this.items,
-                pnc_list: pncListConsolidada
+                pnc_list: pncListConsolidada,
+                responsable: responsableVal,
+                validador: validadorVal
             };
 
             console.log('📤 [Inyeccion] ENVIANDO REPORTE FINAL CON PNC:', payload);
 
+            // Inyección de token JWT en cabeceras de autorización
+            const token = localStorage.getItem('pwa_token') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             const response = await fetch('/api/inyeccion/lote', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify(payload)
             });
 

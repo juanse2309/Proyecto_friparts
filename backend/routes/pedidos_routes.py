@@ -1,5 +1,5 @@
-from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
-from flask import Blueprint, jsonify, request, session, make_response
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES, _obtener_usuario_activo
+from flask import Blueprint, jsonify, request, session, make_response, current_app
 from backend.models.sql_models import db, Pedido, MetalsPedido, DespachoPedido
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 from backend.config.constants import FALLBACK_OPERARIO
@@ -123,10 +123,20 @@ def registrar_pedido():
             es_edicion = True
             logger.info(f"🔄 Actualizando Pedido Existente: {id_pedido_final}")
 
-        # Guard de ownership centralizado con AuditService
+        # Guard de ownership centralizado con AuditService e identificación desacoplada HTTP
         registro_previo = Pedido.query.filter_by(id_pedido=id_pedido_final).first() if es_edicion else None
+        usuario_activo = _obtener_usuario_activo()
+        candidato_vendedor = vendedor or usuario_activo
+
+        if not candidato_vendedor or str(candidato_vendedor).strip().upper() in ['', 'SISTEMA']:
+            return jsonify({
+                "success": False,
+                "error": "Se requiere la identidad del vendedor o usuario activo para crear/editar el pedido",
+                "code": "RESPONSABLE_REQUERIDO"
+            }), 400
+
         try:
-            vendedor = AuditService.resolver_y_validar_propietario(registro_previo, vendedor)
+            vendedor = AuditService.resolver_y_validar_propietario(registro_previo, candidato_vendedor)
         except OwnershipMismatchException as e:
             return jsonify({
                 "success": False,
@@ -918,9 +928,19 @@ def registrar_despacho():
             return jsonify({"success": False, "error": "No se recibieron datos"}), 400
 
         id_pedido = data.get('id_pedido')
-        # Guard de ownership centralizado con AuditService
+        # Guard de ownership centralizado con AuditService e identificación desacoplada HTTP
+        usuario_activo = _obtener_usuario_activo()
+        candidato_responsable = data.get('responsable') or usuario_activo
+
+        if not candidato_responsable or str(candidato_responsable).strip().upper() in ['', 'SISTEMA']:
+            return jsonify({
+                "success": False,
+                "error": "Se requiere la identidad del usuario o responsable para registrar el despacho",
+                "code": "RESPONSABLE_REQUERIDO"
+            }), 400
+
         try:
-            responsable = AuditService.resolver_y_validar_propietario(None, data.get('responsable'))
+            responsable = AuditService.resolver_y_validar_propietario(None, candidato_responsable)
         except OwnershipMismatchException as e:
             return jsonify({
                 "success": False,

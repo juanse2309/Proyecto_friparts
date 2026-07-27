@@ -80,6 +80,13 @@ def decode_pwa_token(request):
     logger.warning(f"[AUTH] Firma de JWT no válida con ninguna clave configurada en {request.path}")
     return None
 
+def _obtener_usuario_activo():
+    """
+    Extrae la identidad del usuario activo desde el token JWT o la sesión Flask.
+    """
+    user, _ = obtener_identidad_segura(request)
+    return user
+
 def obtener_identidad_segura(req):
     """
     Extrae la identidad (user, role) desde el header Authorization (JWT) o la sesión de Flask.
@@ -92,7 +99,7 @@ def obtener_identidad_segura(req):
     try:
         payload = decode_pwa_token(req)
         if payload:
-            user = payload.get('username') or payload.get('user')
+            user = payload.get('username') or payload.get('user') or payload.get('nombre')
             role = payload.get('rol') or payload.get('role')
     except Exception as e:
         logger.warning('[AUTH] Error decodificando JWT en %s: %s', req.path, e)

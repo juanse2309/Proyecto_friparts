@@ -1,7 +1,7 @@
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, session, current_app
 from sqlalchemy import text
 from io import BytesIO
-from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usuario_activo
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo
 from backend.services.audit_service import AuditService, OwnershipMismatchException
@@ -272,9 +272,19 @@ def registrar_pulido():
         id_pulido = data.get('id_pulido')
         registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first() if id_pulido else None
 
-        # Guard de ownership centralizado con AuditService
+        # Guard de ownership centralizado con AuditService e identificación desacoplada HTTP
+        usuario_activo = _obtener_usuario_activo()
+        candidato_responsable = data.get('responsable') or usuario_activo
+
+        if not candidato_responsable or str(candidato_responsable).strip().upper() in ['', 'SISTEMA']:
+            return jsonify({
+                "success": False,
+                "error": "Se requiere una identidad de operario o responsable válida para registrar el proceso de pulido",
+                "code": "RESPONSABLE_REQUERIDO"
+            }), 400
+
         try:
-            responsable = AuditService.resolver_y_validar_propietario(registro, data.get('responsable'))
+            responsable = AuditService.resolver_y_validar_propietario(registro, candidato_responsable)
         except OwnershipMismatchException as e:
             return jsonify({
                 "success": False,
