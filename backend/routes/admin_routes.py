@@ -87,21 +87,24 @@ def get_admin_dashboard_data():
 
     except Exception as e:
         import traceback
-        traceback.print_exc()
-        return jsonify({"success": False, "message": str(e)}), 500
-        
+        logger.error(f"[/api/admin/dashboard] {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "message": "No fue posible calcular las métricas de Jefatura."}), 500
+
 @admin_bp.route('/api/admin/backorder/detalle', methods=['GET'])
-@require_role(ROL_ADMINS)
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def get_backorder_detalle():
     """Retorna el detalle de productos pendientes para un cliente específico."""
     try:
-        cliente = request.args.get('cliente')
+        cliente_raw = request.args.get('cliente')
         start = request.args.get('desde')
         end = request.args.get('hasta')
         
-        if not cliente:
+        if not cliente_raw:
             return jsonify({"success": False, "message": "El parámetro 'cliente' es obligatorio"}), 400
             
+        from backend.services.dashboard_service import DashboardService
+        cliente = DashboardService.normalizar_cliente_alias(cliente_raw)
+        
         from backend.core.repository_service import repository_service
         detalle = repository_service.get_backorder_detalle_por_cliente_sql(cliente, start, end)
         
@@ -112,8 +115,8 @@ def get_backorder_detalle():
         })
     except Exception as e:
         import traceback
-        traceback.print_exc()
-        return jsonify({"success": False, "message": str(e)}), 500
+        logger.error(f"[/api/admin/backorder/detalle] {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "message": "No fue posible obtener el detalle de backorder."}), 500
 
 @admin_bp.route('/api/admin/auditoria-fichas', methods=['GET'])
 @require_role(ROL_ADMINS)
@@ -170,6 +173,5 @@ def auditoria_fichas_fuzzy():
         )
     except Exception as e:
         import traceback
-        traceback.print_exc()
-        logger.error(f"Error auditoria SQL: {e}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        logger.error(f"Error auditoria SQL: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "message": "No fue posible generar la auditoría de fichas."}), 500

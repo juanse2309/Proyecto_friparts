@@ -21,6 +21,7 @@ dashboard_bp = Blueprint('dashboard', __name__)
 
 
 @dashboard_bp.route('/', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def obtener_dashboard():
     """Obtiene estadísticas del dashboard."""
     try:
@@ -153,6 +154,7 @@ def metricas_pulido_legacy():
     return obtener_metricas_bi()
 
 @dashboard_bp.route('/ventas/desglose-mensual', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def get_desglose_mensual():
     """Endpoint para el Drill-down del gráfico mensual."""
     try:
@@ -167,9 +169,10 @@ def get_desglose_mensual():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en get_desglose_mensual: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener el desglose de ventas."}), 500
 
 @dashboard_bp.route('/ventas/exportar-desglose', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def exportar_desglose_mensual():
     """Genera Excel del desglose mensual con formato profesional."""
     try:
@@ -193,7 +196,7 @@ def exportar_desglose_mensual():
     except Exception as e:
         rollback_seguro()
         logger.error(f"❌ Error Crítico en Exportación Excel: {e}")
-        return jsonify({"success": False, "error": f"Fallo en la generación del reporte: {str(e)}"}), 500
+        return jsonify({"success": False, "error": "No fue posible generar el reporte Excel."}), 500
 
 
 # ── NUEVO ENDPOINT: Rendimiento Mensual Dedicado ──────────────────────────────
@@ -232,6 +235,7 @@ def get_monthly_performance():
         }), 500
 
 @dashboard_bp.route('/cartera', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def get_dashboard_cartera():
     """Consulta la tabla cartera_wo para mostrar KPIs de cartera en el dashboard."""
     try:
@@ -245,9 +249,10 @@ def get_dashboard_cartera():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en endpoint /dashboard/cartera: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener las métricas de cartera."}), 500
 
 @dashboard_bp.route('/rendimiento', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def get_dashboard_rendimiento():
     """Retorna el rendimiento mensual para el tacómetro."""
     try:
@@ -266,7 +271,7 @@ def get_dashboard_rendimiento():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en endpoint /dashboard/rendimiento: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener el rendimiento mensual."}), 500
 
 @dashboard_bp.route('/cartera/exportar', methods=['GET'])
 @require_role(ROL_ADMINS + ROL_COMERCIALES)
@@ -305,7 +310,7 @@ def get_scrap_detalle():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en /scrap-detalle: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener el detalle de scrap."}), 500
 
 @dashboard_bp.route('/sin-rotacion', methods=['GET'])
 def get_sin_rotacion():
@@ -322,7 +327,7 @@ def get_sin_rotacion():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en /sin-rotacion: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener los productos de baja rotación."}), 500
 
 @dashboard_bp.route('/drilldown/inyeccion', methods=['GET'])
 def drilldown_inyeccion_fecha():
@@ -359,4 +364,4 @@ def drilldown_inyeccion_fecha():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en /api/dashboard/drilldown/inyeccion: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener el detalle de inyección."}), 500
