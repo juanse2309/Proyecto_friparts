@@ -1,4 +1,4 @@
-const CACHE_NAME = 'friparts-cache-v1';
+const CACHE_NAME = 'friparts-cache-v2';
 const STATIC_ASSETS = [
     '/',
     '/static/css/styles.css',
@@ -18,7 +18,18 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-    event.waitUntil(self.clients.claim());
+    event.waitUntil(
+        caches.keys()
+            .then(nombres => Promise.all(
+                nombres
+                    .filter(nombre => nombre !== CACHE_NAME)
+                    .map(nombre => {
+                        console.log('[SW] Purgando caché obsoleta:', nombre);
+                        return caches.delete(nombre);
+                    })
+            ))
+            .then(() => self.clients.claim())
+    );
 });
 
 // Fetch Event - Dual Strategy

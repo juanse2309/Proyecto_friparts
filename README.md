@@ -1,8 +1,14 @@
-# 🏭 FriTech MES - Sistema de Gestión de Producción e Inventario ![v1.5.0](https://img.shields.io/badge/versión-1.5.0--estable-green)
+# 🏭 FriTech MES - Sistema de Gestión de Producción e Inventario ![v1.6.4](https://img.shields.io/badge/versión-1.6.4--estable-green)
 
 FriTech MES (Manufacturing Execution System) es una plataforma full-stack diseñada específicamente para el control y automatización de procesos de producción, gestión de inventarios y sincronización con el ERP World Office de la planta de fabricación de bujes de FriParts.
 
 El sistema utiliza una **arquitectura 100% SQL-First**, empleando **PostgreSQL** en la nube como base de datos transaccional única. La dependencia histórica de Google Sheets ha sido completamente removida, conservando únicamente la API de Google Drive de manera opcional para el almacenamiento de reportes PDF generados.
+
+## ✨ Novedades Versión 1.6.4 (Estable)
+- **Nómina — Sábado/Domingo**: se corrige el cálculo de jornada para que un formato de hora no estándar ya no caiga silenciosamente en 0 horas; se centraliza la normalización en `nomina_service.py` con logging explícito, y se ejecutó un backfill histórico de los registros afectados en periodo abierto.
+- **Analítica**: ratios de eficiencia de Inyección/Pulido corregidos (numerador y denominador ya comparten la misma población de lotes), e Índice de Desperdicio (% PNC Total) ahora es matemáticamente consistente con el FPY Global.
+- **Seguridad — Ownership**: pedidos, despachos y pulido ya no dependen exclusivamente del campo `responsable`/`vendedor` enviado por el cliente; se resuelve con fallback a la identidad autenticada (JWT/sesión) y se rechaza la operación si no hay identidad válida.
+- **PWA**: el service worker ahora purga cachés obsoletas al activarse, evitando que usuarios con la app instalada queden atascados en una versión vieja tras un deploy.
 
 ## ✨ Novedades Versión 1.5.0 (Estable)
 - **Arquitectura SQL-First**: Consolidación definitiva de base de datos transaccional PostgreSQL como origen único de persistencia y control de inventarios, eliminando por completo Google Sheets.
