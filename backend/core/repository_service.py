@@ -730,7 +730,10 @@ class RepositoryService:
                     COALESCE(SUM(NULLIF(regexp_replace(p.pnc_pulido::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as pnc,
                     COALESCE(SUM(NULLIF(regexp_replace(p.tiempo_total_minutos::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as tiempo_real,
                     COALESCE(SUM(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER * COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC), 0) as puntos,
-                    COALESCE(SUM(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER * COALESCE(NULLIF(regexp_replace(REPLACE(c.tiempo_estandar::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC), 0) as tiempo_std
+                    -- Igual que puntos, pero solo con lotes que tienen tiempo_total_minutos capturado:
+                    -- tiempo_real tampoco incluye los lotes sin tiempo, y mezclar poblaciones distintas
+                    -- en el numerador/denominador de la eficiencia dispara el ratio.
+                    COALESCE(SUM(CASE WHEN COALESCE(p.tiempo_total_minutos, 0) > 0 THEN NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER ELSE 0 END * COALESCE(NULLIF(regexp_replace(REPLACE(c.tiempo_estandar::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC), 0) as tiempo_std
                 FROM db_pulido p
                 LEFT JOIN db_costos c ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
                 WHERE 1=1 {filt}

@@ -364,4 +364,30 @@ def drilldown_inyeccion_fecha():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en /api/dashboard/drilldown/inyeccion: {e}")
-        return jsonify({"success": False, "error": "No fue posible obtener el detalle de inyección."}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener el detalle de inyección."}), 500
+
+@dashboard_bp.route('/drilldown/inyeccion/operador', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
+def drilldown_inyeccion_operador():
+    """
+    Detalle atómico por lote de un operador para el modal 'Top Rendimiento Inyección'.
+    """
+    try:
+        responsable = request.args.get('responsable', '').strip()
+        if not responsable:
+            return jsonify({
+                "success": False,
+                "error": "El parámetro 'responsable' es obligatorio."
+            }), 400
+
+        desde_str = request.args.get('desde')
+        hasta_str = request.args.get('hasta')
+        desde = parsear_fecha_dashboard(desde_str) if desde_str else None
+        hasta = parsear_fecha_dashboard(hasta_str) if hasta_str else None
+
+        res = DashboardService.get_detalle_operador_inyeccion(responsable, desde, hasta)
+        return jsonify(res), 200 if res.get('success') else 500
+    except Exception as e:
+        rollback_seguro()
+        logger.error(f"Error en /api/dashboard/drilldown/inyeccion/operador: {e}")
+        return jsonify({"success": False, "error": "No fue posible obtener el detalle del operador."}), 500

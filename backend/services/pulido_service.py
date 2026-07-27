@@ -110,8 +110,11 @@ class PulidoService:
                             )::NUMERIC, 0
                         )
                     )                                                                  AS puntos,
+                    -- t_std solo suma cantidad_real de lotes CON tiempo_total_minutos capturado:
+                    -- t_real tampoco incluye los lotes sin tiempo, así que ambos lados de la
+                    -- razón de eficiencia deben compartir la misma población o el ratio se dispara.
                     SUM(
-                        COALESCE(p.cantidad_real, 0)
+                        CASE WHEN COALESCE(p.tiempo_total_minutos, 0) > 0 THEN COALESCE(p.cantidad_real, 0) ELSE 0 END
                         * COALESCE(
                             NULLIF(
                                 regexp_replace(
@@ -142,7 +145,9 @@ class PulidoService:
                 puntos  = _num(r[4], float)
                 t_std   = _num(r[5], float)
 
-                eficiencia   = round((t_std / t_real * 100), 1) if t_real > 0 else 0
+                # None (no 0) cuando no hay ningun lote con tiempo_total_minutos capturado:
+                # "sin dato" no es lo mismo que "0% de rendimiento".
+                eficiencia   = round((t_std / t_real * 100), 1) if t_real > 0 else None
                 total        = buenas + pnc
                 yield_cal    = round((buenas / total * 100), 1) if total > 0 else 100
 
@@ -266,7 +271,9 @@ class PulidoService:
             partes.append(f"Excelente calidad ({yield_cal}% yield).")
         elif yield_cal < 90:
             partes.append(f"⚠️ Yield bajo ({yield_cal}%). Revisar causas de PNC.")
-        if eficiencia >= 100:
+        if eficiencia is None:
+            partes.append("Sin lotes con tiempo capturado para calcular eficiencia.")
+        elif eficiencia >= 100:
             partes.append(f"Eficiencia sobre estándar ({eficiencia}%).")
         elif eficiencia > 0 and eficiencia < 70:
             partes.append(f"Eficiencia por debajo del 70% ({eficiencia}%).")

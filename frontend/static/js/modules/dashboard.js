@@ -814,7 +814,7 @@ window.ModuloDashboard = (function () {
                               <th class="text-white fw-bold py-2">Operario</th>
                               <th class="text-white fw-bold text-end py-2">Buenas (Pz)</th>
                               <th class="text-white fw-bold text-end py-2">Malas / PNC</th>
-                              <th class="text-white fw-bold text-center py-2">Tx</th>
+                              <th class="text-white fw-bold text-center py-2">Cavidades</th>
                             </tr>
                           </thead>
                           <tbody id="modalDrilldownTbody" class="text-dark"></tbody>
@@ -862,15 +862,16 @@ window.ModuloDashboard = (function () {
             let htmlTbody = '';
             let sumBuenas = 0;
             let sumMalas = 0;
-            let sumTx = 0;
+            let sumCavidades = 0;
 
             if (filas.length === 0) {
                 htmlTbody = `<tr><td colspan="8" class="text-center text-secondary font-monospace py-4 fw-semibold">No se encontraron registros de inyección para la fecha ${fechaStr}</td></tr>`;
             } else {
                 filas.forEach(f => {
+                    const cavidades = f.cavidades || 1;
                     sumBuenas += f.buenas;
                     sumMalas += f.malas;
-                    sumTx += f.total_registros;
+                    sumCavidades += cavidades;
 
                     htmlTbody += `
                     <tr>
@@ -881,7 +882,7 @@ window.ModuloDashboard = (function () {
                       <td class="text-dark fw-semibold">${f.operario}</td>
                       <td class="text-end fw-bold text-success fs-6">${f.buenas.toLocaleString()}</td>
                       <td class="text-end fw-bold ${f.malas > 0 ? 'text-danger fs-6' : 'text-secondary'}">${f.malas.toLocaleString()}</td>
-                      <td class="text-center fw-bold text-dark">${f.total_registros}</td>
+                      <td class="text-center fw-bold text-dark">${cavidades}</td>
                     </tr>`;
                 });
             }
@@ -893,7 +894,7 @@ window.ModuloDashboard = (function () {
                   <td colspan="5" class="text-end text-uppercase fw-bold text-dark py-2">Total Consolidado:</td>
                   <td class="text-end text-success fw-bolder fs-6 py-2">${sumBuenas.toLocaleString()} Pz</td>
                   <td class="text-end ${sumMalas > 0 ? 'text-danger' : 'text-secondary'} fw-bolder fs-6 py-2">${sumMalas.toLocaleString()} Pz</td>
-                  <td class="text-center text-dark fw-bold py-2">${sumTx}</td>
+                  <td class="text-center text-dark fw-bold py-2">${sumCavidades}</td>
                 </tr>`;
             }
 
@@ -1575,8 +1576,9 @@ window.ModuloDashboard = (function () {
             const calidadYield = (buenas > 0 && pnc > 0 && calidadRaw > 99) ? calidadRaw.toFixed(2) : Math.round(calidadRaw);
             const ylColor = calidadRaw > 95 ? 'success' : (calidadRaw > 85 ? 'warning' : 'danger');
 
-            const efProductiva = dataOp.eficiencia_productiva_pct || 0;
-            const efTimeColor = efProductiva > 90 ? 'success' : (efProductiva >= 70 ? 'warning' : 'danger');
+            const efProductiva = (dataOp.eficiencia === null || dataOp.eficiencia === undefined) ? null : dataOp.eficiencia;
+            const efTimeColor = efProductiva === null ? 'secondary' : (efProductiva > 90 ? 'success' : (efProductiva >= 70 ? 'warning' : 'danger'));
+            const efProductivaLabel = efProductiva === null ? 'N/A' : `${efProductiva}%`;
 
             const topProd = mix[0] ? mix[0].prod : "N/A";
 
@@ -1632,7 +1634,7 @@ window.ModuloDashboard = (function () {
                 <td class="text-center fw-bold text-primary">${Math.round(dataOp.puntos || 0).toLocaleString()} pts</td>
                 <td class="text-center fw-bold text-dark">${total.toLocaleString()}</td>
                 <td class="text-center">
-                    <span class="badge bg-${efTimeColor} fs-6 shadow-sm"><i class="fas fa-stopwatch me-1"></i> ${efProductiva}%</span>
+                    <span class="badge bg-${efTimeColor} fs-6 shadow-sm"><i class="fas fa-stopwatch me-1"></i> ${efProductivaLabel}</span>
                 </td>
                 <td>
                     <div class="d-flex align-items-center gap-2">
@@ -2148,76 +2150,107 @@ window.ModuloDashboard = (function () {
         });
     }
 
-    function mostrarDetalleOperadorInyeccion(nombre) {
-        // Fallback or fetching from window.lastDashboardData.analytics_inyeccion if it ever exists
-        let referenciasHtml = `<tr><td colspan="3" class="text-center text-muted py-4"><i class="fas fa-box-open fs-3 mb-2 opacity-50 d-block"></i>No hay detalle de referencias disponible</td></tr>`;
-        
-        const root = window.lastDashboardData?.data || window.lastDashboardData;
-        const analyticsIny = root?.analytics_inyeccion;
-        const refsMap = analyticsIny?.operario_referencia;
-        
-        const keyUpper = String(nombre || '').toUpperCase().trim();
-        const dataOp = refsMap?.[keyUpper];
+    async function mostrarDetalleOperadorInyeccion(nombre) {
+        const nombreSeguro = String(nombre || '').trim() || 'Operario';
 
-        let totalBuenas = 0;
-        let totalPnc = 0;
+        Swal.fire({
+            title: `<i class="fas fa-industry text-primary mb-2"></i><br>Detalle de Inyección: ${nombreSeguro}`,
+            html: `<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div><p class="mt-2 text-muted small">Cargando lotes de producción...</p></div>`,
+            width: window.innerWidth > 768 ? '40em' : '95%',
+            showConfirmButton: true,
+            confirmButtonText: 'Cerrar',
+            confirmButtonColor: '#3b82f6',
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
 
-        if (dataOp) {
-            const refs = Object.keys(dataOp);
-            if (refs.length > 0) {
-                referenciasHtml = refs.map(ref => {
-                    const buenas = dataOp[ref].buenas || 0;
-                    const scrap = dataOp[ref].pnc || 0;
-                    totalBuenas += buenas;
-                    totalPnc += scrap;
+        // Guardia defensiva: DTO vacío/mal formado nunca debe dejar celdas en blanco o números desalineados
+        const sanitizarFila = (item) => ({
+            responsable: (item && String(item.responsable || '').trim()) || 'S/R',
+            id_codigo: (item && String(item.id_codigo || '').trim()) || 'S/C',
+            unidades_buenas: Number(item && item.unidades_buenas) || 0,
+            cavidades: Number(item && item.cavidades) || 1,
+            duracion_minutos: Number(item && item.duracion_minutos) || 0,
+            fecha: (item && String(item.fecha || '').trim()) || 'Sin fecha'
+        });
+
+        try {
+            const params = new URLSearchParams({ responsable: nombreSeguro });
+            const desde = document.getElementById('db-fecha-desde')?.value || '';
+            const hasta = document.getElementById('db-fecha-hasta')?.value || '';
+            if (desde) params.append('desde', desde);
+            if (hasta) params.append('hasta', hasta);
+
+            const res = await fetch(`/api/dashboard/drilldown/inyeccion/operador?${params.toString()}`, {
+                headers: construirAuthHeaders({ 'Accept': 'application/json' }),
+                credentials: 'include'
+            });
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}: no fue posible obtener el detalle del operador.`);
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Error al obtener el detalle del operador.');
+
+            const filas = (data.detalle || []).map(sanitizarFila);
+
+            let totalBuenas = 0;
+            let totalMinutos = 0;
+            let filasHtml = `<tr><td colspan="4" class="text-center text-muted py-4"><i class="fas fa-box-open fs-3 mb-2 opacity-50 d-block"></i>No hay lotes de producción registrados</td></tr>`;
+
+            if (filas.length > 0) {
+                filasHtml = filas.map(f => {
+                    totalBuenas += f.unidades_buenas;
+                    totalMinutos += f.duracion_minutos;
                     return `
                     <tr>
-                        <td class="text-start fw-medium"><i class="fas fa-cube text-muted me-1"></i> ${ref}</td>
-                        <td class="text-center"><span class="badge bg-success text-white">${buenas.toLocaleString()}</span></td>
-                        <td class="text-center"><span class="badge bg-danger text-white">${scrap.toLocaleString()}</span></td>
+                        <td class="text-start fw-medium"><i class="fas fa-cube text-muted me-1"></i> ${f.id_codigo}</td>
+                        <td class="text-center">${f.cavidades}</td>
+                        <td class="text-center"><span class="badge bg-success text-white">${f.unidades_buenas.toLocaleString()}</span></td>
+                        <td class="text-end text-muted small">${f.fecha}</td>
                     </tr>
                     `;
                 }).join('');
             }
+
+            Swal.update({
+                html: `
+                    <div class="row g-3 mb-4">
+                        <div class="col-6">
+                            <div class="card shadow-none border rounded-3 p-2 bg-light">
+                                <span class="small text-muted fw-bold">Piezas Buenas</span>
+                                <h4 class="text-success mb-0">${totalBuenas.toLocaleString()}</h4>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="card shadow-none border rounded-3 p-2 bg-light">
+                                <span class="small text-muted fw-bold">Minutos Totales</span>
+                                <h4 class="text-primary mb-0">${totalMinutos.toLocaleString()}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="table-responsive" style="max-height: 320px;">
+                        <table class="table table-hover align-middle small mb-0" style="width: 100% !important; min-width: 100% !important; table-layout: fixed;">
+                            <thead class="bg-light sticky-top">
+                                <tr>
+                                    <th class="text-start">Referencia</th>
+                                    <th class="text-center">Cavidades</th>
+                                    <th class="text-center">Buenas</th>
+                                    <th class="text-end">Fecha</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${filasHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                `
+            });
+        } catch (err) {
+            console.error('Error al cargar detalle de operador de inyección:', err);
+            Swal.update({
+                html: `<div class="text-center text-danger py-4"><i class="fas fa-triangle-exclamation fs-3 mb-2 d-block"></i>${err.message}</div>`
+            });
         }
-        
-        Swal.fire({
-            title: `<i class="fas fa-industry text-primary mb-2"></i><br>Detalle de Inyección: ${nombre}`,
-            html: `
-                <div class="row g-3 mb-4">
-                    <div class="col-6">
-                        <div class="card shadow-none border rounded-3 p-2 bg-light">
-                            <span class="small text-muted fw-bold">Piezas Buenas</span>
-                            <h4 class="text-success mb-0">${totalBuenas.toLocaleString()}</h4>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="card shadow-none border rounded-3 p-2 bg-light">
-                            <span class="small text-muted fw-bold">PNC Reportado</span>
-                            <h4 class="text-danger mb-0">${totalPnc.toLocaleString()}</h4>
-                        </div>
-                    </div>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle small mb-0" style="width: 100% !important; min-width: 100% !important; table-layout: fixed;">
-                        <thead class="bg-light">
-                            <tr>
-                                <th class="text-start">Referencia</th>
-                                <th class="text-center">Buenas</th>
-                                <th class="text-center">PNC</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${referenciasHtml}
-                        </tbody>
-                    </table>
-                </div>
-            `,
-            width: window.innerWidth > 768 ? '32em' : '95%',
-            showConfirmButton: true,
-            confirmButtonText: 'Cerrar',
-            confirmButtonColor: '#3b82f6'
-        });
     }
 
     function mostrarModalTodosInyeccion(ops) {
@@ -2622,28 +2655,40 @@ window.ModuloDashboard = (function () {
 
     function renderTacometro(dataMes) {
         if (!dataMes) return;
-        
+
         const isMoney = currentRendimientoMode === 'money';
-        const pct = isMoney ? dataMes.pct_cumplimiento_monto : dataMes.pct_cumplimiento_unidades;
-        
+
+        // Defensivo: '/api/dashboard/rendimiento' devuelve ventas_monto/pedidos_monto +
+        // pct_cumplimiento_*, pero toggleChartView() puede repoblar rendimientoDataCompleto
+        // con el shape de 'lastJefaturaData.mensual' (actual_dinero/actual_pedidos, sin pct
+        // precalculado). Se normalizan ambos shapes aquí para no depender de un campo que
+        // puede no existir y terminar siempre en 0%.
+        const montoVentas = Number(dataMes.ventas_monto ?? dataMes.actual_dinero ?? dataMes.ventas_dinero ?? 0);
+        const montoPedidos = Number(dataMes.pedidos_monto ?? dataMes.actual_pedidos ?? dataMes.pedidos_dinero ?? 0);
+        const undsVentas = Number(dataMes.ventas_unidades ?? dataMes.actual_unidades ?? dataMes.ventas_qty ?? 0);
+        const undsPedidos = Number(dataMes.pedidos_unidades ?? dataMes.actual_pedidos_unidades ?? dataMes.pedidos_qty ?? 0);
+
+        const ventasVal = isMoney ? montoVentas : undsVentas;
+        const pedidosVal = isMoney ? montoPedidos : undsPedidos;
+
+        const pctPrecalculado = isMoney ? dataMes.pct_cumplimiento_monto : dataMes.pct_cumplimiento_unidades;
+        const pct = (pctPrecalculado !== undefined && pctPrecalculado !== null)
+            ? Number(pctPrecalculado)
+            : (pedidosVal > 0 ? parseFloat(((ventasVal / pedidosVal) * 100).toFixed(1)) : 0);
+
         const ctx = document.getElementById('chartTacometroRendimiento');
         if (!ctx) return;
-        
+
         if (tacometroChartInstance) {
             tacometroChartInstance.destroy();
         }
-        
+
         const pctVal = Math.max(0, Number(pct) || 0);
         const chartColor = '#3b82f6'; // Azul Corporativo Estándar
-        
+
         // Normalización > 100%: Escalar el Gauge
         const maxGaugeValue = Math.max(100, Math.ceil(pctVal / 10) * 10);
         const resto = Math.max(0, maxGaugeValue - pctVal);
-        
-        const montoVentas = dataMes.ventas_monto || 0;
-        const undsVentas = dataMes.ventas_unidades || 0;
-        const montoPedidos = dataMes.pedidos_monto || 0;
-        const undsPedidos = dataMes.pedidos_unidades || 0;
         
         document.getElementById('titulo-tacometro').innerHTML = `<i class="fas fa-tachometer-alt me-2"></i>Cumplimiento: ${dataMes.mes}`;
         
@@ -2839,6 +2884,7 @@ window.ModuloDashboard = (function () {
                     onClick: (event, elements) => {
                         if (elements.length > 0) {
                             const index = elements[0].index;
+                            if (!rendimientoDataCompleto[index]) return;
                             mesActivoIdx = index;
                             renderTacometro(rendimientoDataCompleto[index]);
                             const btnRestaurar = document.getElementById('btn-ver-mes-actual');

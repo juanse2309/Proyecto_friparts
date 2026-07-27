@@ -227,15 +227,8 @@ def obtener_metricas_pnc():
         pareto_referencias = [{"referencia": ref, "cantidad": val} for ref, val in sorted_pareto]
 
         # 6. KPIs Globales ─────────────────────────────────────────────
-        total_pnc_global  = total_iny_pnc + total_pul_pnc + total_ens_pnc
-        total_good_global = buenas_iny + buenas_pul + buenas_ens
-        total_output      = total_good_global + total_pnc_global
-
-        pnc_global_percentage = round(
-            (total_pnc_global / total_output * 100) if total_output > 0 else 0.0, 2
-        )
-
-        # FPY = producto de los rendimientos por estación
+        # FPY = producto de los rendimientos por estación (Rolled Throughput Yield),
+        # sobre la misma población base: Inyección + Pulido + Ensamble.
         def _yield(buenas, pnc):
             denom = buenas + pnc
             return buenas / denom if denom > 0 else 1.0   # sin datos → 100 %
@@ -246,6 +239,13 @@ def obtener_metricas_pnc():
             * _yield(buenas_ens, total_ens_pnc)
             * 100, 2
         )
+
+        # Complementariedad simétrica exacta: el Índice de Desperdicio (% PNC Total)
+        # es matemáticamente 100 - FPY Global, nunca una tasa independiente calculada
+        # aparte. Antes divergían porque pnc_global_percentage se calculaba como una
+        # tasa de defectos pooled/aditiva mientras fpy_global es un yield multiplicativo
+        # por estación (RTY) sobre la misma población: ambos números podían no sumar 100.
+        pnc_global_percentage = round(100 - fpy_global, 2)
 
         return jsonify({
             "success": True,

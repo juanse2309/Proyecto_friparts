@@ -211,17 +211,22 @@ class DashboardService:
             
             rendimiento = []
             mes_actual_idx = 0
-            
-            # mensual_data contains data mapping from 1 to 12
+
+            # mensual_data puede venir truncada (filtro desde/hasta), por lo que el idx
+            # de iteración ya NO equivale al número de mes calendario: se resuelve el mes
+            # real a partir de la abreviatura ('ene'..'dic') para no desalinear mes_actual_idx.
+            meses_abrev = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+            # mensual_data contains data mapping from 1 to 12 (o subconjunto truncado)
             for idx, item in enumerate(mensual_data):
                 p_monto = float(item.get('actual_pedidos') or 0)
                 v_monto = float(item.get('actual_dinero') or 0)
                 p_und = float(item.get('actual_pedidos_unidades') or 0)
                 v_und = float(item.get('actual_unidades') or 0)
-                
+
                 pct_monto = (v_monto / p_monto * 100) if p_monto > 0 else 0.0
                 pct_unidades = (v_und / p_und * 100) if p_und > 0 else 0.0
-                
+
                 rendimiento.append({
                     "mes": item.get('mes', str(idx+1)),
                     "anio": current_year,
@@ -232,8 +237,10 @@ class DashboardService:
                     "pct_cumplimiento_monto": round(float(pct_monto), 2),
                     "pct_cumplimiento_unidades": round(float(pct_unidades), 2)
                 })
-                
-                if (idx + 1) == current_month:
+
+                mes_abrev = item.get('mes')
+                mes_num = (meses_abrev.index(mes_abrev) + 1) if mes_abrev in meses_abrev else (idx + 1)
+                if mes_num == current_month:
                     mes_actual_idx = idx
 
             return {
@@ -447,7 +454,8 @@ class DashboardService:
                     COALESCE(NULLIF(TRIM(i.responsable), ''), 'S/R')                 AS operario,
                     ROUND(SUM(COALESCE(i.cantidad_real, 0))::NUMERIC, 2)              AS buenas,
                     ROUND(SUM(COALESCE(i.pnc_total, 0))::NUMERIC, 2)                 AS malas,
-                    COUNT(i.id)::INTEGER                                              AS total_registros
+                    COUNT(i.id)::INTEGER                                              AS total_registros,
+                    COALESCE(MAX(i.cavidades), 1)::INTEGER                            AS cavidades
                 FROM db_inyeccion i
                 LEFT JOIN db_productos p ON TRIM(UPPER(REPLACE(p.codigo_sistema::text, 'FR-', ''))) = TRIM(UPPER(REPLACE(i.id_codigo::text, 'FR-', '')))
                 WHERE i.fecha_inicia >= :start_dt AND i.fecha_inicia < :end_dt
@@ -470,7 +478,8 @@ class DashboardService:
                 'operario': r['operario'],
                 'buenas': float(r['buenas'] or 0),
                 'malas': float(r['malas'] or 0),
-                'total_registros': int(r['total_registros'] or 0)
+                'total_registros': int(r['total_registros'] or 0),
+                'cavidades': int(r['cavidades'] or 1)
             } for r in rows]
 
             return {
@@ -485,6 +494,65 @@ class DashboardService:
             return {
                 'success': False,
                 'fecha': fecha_str,
+                'error': str(e),
+                'detalle': []
+            }
+
+    @staticmethod
+    def get_detalle_operador_inyeccion(responsable, desde=None, hasta=None):
+        """
+        Detalle atómico por lote de producción de un operador de Inyección
+        (Modal 'Top Rendimiento Inyección'). Devuelve un DTO tipado y consistente:
+        responsable, id_codigo, unidades_buenas, cavidades, duracion_minutos, fecha.
+        """
+        if not responsable or not str(responsable).strip():
+            return {'success': False, 'responsable': responsable, 'error': 'Responsable no especificado', 'detalle': []}
+
+        try:
+            filt = ""
+            params = {'responsable': str(responsable).strip().upper()}
+            if desde and hasta:
+                filt = " AND i.fecha_inicia BETWEEN :desde AND :hasta"
+                params['desde'] = desde
+                params['hasta'] = hasta
+
+            sql = text(f"""
+                SELECT
+                    COALESCE(NULLIF(TRIM(i.responsable), ''), 'S/R')              AS responsable,
+                    COALESCE(NULLIF(TRIM(i.id_codigo), ''), 'S/C')                AS id_codigo,
+                    COALESCE(i.cantidad_real, 0)::NUMERIC                          AS unidades_buenas,
+                    COALESCE(i.cavidades, 1)::INTEGER                              AS cavidades,
+                    COALESCE(i.tiempo_total_minutos, 0)::NUMERIC                   AS duracion_minutos,
+                    to_char(i.fecha_inicia, 'YYYY-MM-DD HH24:MI')                  AS fecha
+                FROM db_inyeccion i
+                WHERE UPPER(TRIM(i.responsable)) = :responsable {filt}
+                ORDER BY i.fecha_inicia DESC
+                LIMIT 200
+            """)
+
+            rows = db.session.execute(sql, params).mappings().all()
+
+            resultado = [{
+                'responsable': r['responsable'],
+                'id_codigo': r['id_codigo'],
+                'unidades_buenas': float(r['unidades_buenas'] or 0),
+                'cavidades': int(r['cavidades'] or 1),
+                'duracion_minutos': float(r['duracion_minutos'] or 0),
+                'fecha': r['fecha'] or 'Sin fecha'
+            } for r in rows]
+
+            return {
+                'success': True,
+                'responsable': responsable,
+                'total_filas': len(resultado),
+                'detalle': resultado
+            }
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_detalle_operador_inyeccion] Error consultando responsable {responsable}: {e}")
+            return {
+                'success': False,
+                'responsable': responsable,
                 'error': str(e),
                 'detalle': []
             }
