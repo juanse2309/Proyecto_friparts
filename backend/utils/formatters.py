@@ -88,6 +88,53 @@ def limpiar_cadena(texto: str) -> str:
     return ' '.join(str(texto).strip().split())
 
 
+def to_int_seguro(valor, default=0):
+    """
+    Convierte un valor a entero de forma segura, tratando tanto '.' como ','
+    como separadores de miles (formato numérico usado en Dashboard/Reportes).
+    Distinto de to_int(): ese solo limpia comas y preserva el punto decimal.
+    """
+    try:
+        if valor is None:
+            return default
+        if isinstance(valor, (int, float)):
+            return int(valor)
+        s = str(valor).strip().replace('.', '').replace(',', '')
+        if s == '' or s.lower() == 'none':
+            return default
+        return int(float(s))
+    except:
+        return default
+
+
+def clean_currency(val):
+    """Convierte un string de moneda formato colombiano ('$1.500,50') a float."""
+    if not val:
+        return 0
+    try:
+        s = str(val).replace('$', '').replace('.', '').replace(',', '.').strip()
+        return float(s)
+    except ValueError:
+        return 0
+
+
+def parsear_fecha_dashboard(fecha_str):
+    """Parsea DD/MM/YYYY o YYYY-MM-DD o un objeto date/datetime ya construido."""
+    import datetime
+    if not fecha_str:
+        return None
+    if isinstance(fecha_str, (datetime.date, datetime.datetime)):
+        return fecha_str.date() if isinstance(fecha_str, datetime.datetime) else fecha_str
+    if not isinstance(fecha_str, str):
+        return None
+    try:
+        if '-' in fecha_str:
+            return datetime.datetime.strptime(fecha_str.split(' ')[0], '%Y-%m-%d').date()
+        return datetime.datetime.strptime(fecha_str.split(' ')[0], '%d/%m/%Y').date()
+    except:
+        return None
+
+
 def resolver_operario(payload_name: str) -> str:
     """
     Resuelve el operario responsable aplicando la jerarquía universal:

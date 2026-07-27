@@ -1,22 +1,16 @@
 """
 Rutas de dashboard.
 """
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file, Response
 from backend.core.sql_database import rollback_seguro
 from backend.core.repository_service import repository_service
 # Importados a nivel de módulo: si se resuelven dentro de un try/except propenso a
 # fallos, un error de DB deja el nombre sin definir y degenera en NameError en cascada.
 from backend.services.dashboard_service import DashboardService
 from backend.services.pulido_service import PulidoService
-# from backend.utils.formatters import to_int as to_int_seguro, clean_currency, parsear_fecha_dashboard
+from backend.utils.formatters import parsear_fecha_dashboard
 import logging
-from backend.utils.cache_manager import cached_route, invalidate_cache
-import collections
-import time
-import datetime
-import pandas as pd
-import io
-from flask import send_file, Response
+from backend.utils.cache_manager import cached_route
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES
 
 logger = logging.getLogger(__name__)
@@ -50,46 +44,6 @@ def obtener_dashboard():
             'status': 'error',
             'message': 'Error obteniendo datos'
         }), 500
-
-import time
-import collections
-import datetime
-from flask import request
-
-
-
-def to_int_seguro(valor, default=0):
-    try:
-        if valor is None: return default
-        if isinstance(valor, (int, float)): return int(valor)
-        # Limpiar separadores de miles (puntos y comas)
-        s = str(valor).strip().replace('.', '').replace(',', '')
-        if s == '' or s.lower() == 'none': return default
-        return int(float(s))
-    except:
-        return default
-
-def clean_currency(val):
-    if not val: return 0
-    try:
-        s = str(val).replace('$', '').replace('.', '').replace(',', '.').strip()
-        return float(s)
-    except ValueError:
-        return 0
-
-def parsear_fecha_dashboard(fecha_str):
-    """Parsea DD/MM/YYYY o YYYY-MM-DD o objeto date/datetime"""
-    if not fecha_str: return None
-    if isinstance(fecha_str, (datetime.date, datetime.datetime)):
-        return fecha_str.date() if isinstance(fecha_str, datetime.datetime) else fecha_str
-    if not isinstance(fecha_str, str): return None
-    try:
-        if '-' in fecha_str:
-            return datetime.datetime.strptime(fecha_str.split(' ')[0], '%Y-%m-%d').date()
-        return datetime.datetime.strptime(fecha_str.split(' ')[0], '%d/%m/%Y').date()
-    except:
-        return None
-
 
 @dashboard_bp.route('/stats', methods=['GET'])
 @cached_route(namespace='dashboard', ttl=600)
@@ -129,47 +83,12 @@ def obtener_metricas_bi():
             # que cached_route congelaría durante 10 minutos. Se propaga para responder 500.
             raise
 
-        # 3. Estructura de salida compatible con Dashboard.js (Safe Access)
-        stats = {
-            "inyeccion": {
-                "total_ok": kpis.get('inyeccion_ok', 0), 
-                "total_pnc": kpis.get('inyeccion_pnc', 0),
-                "operadores": collections.defaultdict(lambda: collections.defaultdict(lambda: {"qty": 0, "fecha": ""})),
-                "maquinas": maquinas_con_pct,
-                "fechas": collections.defaultdict(int)
-            },
-            "pulido": {
-                "total_ok": kpis.get('pulido_ok', 0), 
-                "total_pnc": kpis.get('pulido_pnc', 0), 
-                "operadores": collections.defaultdict(lambda: collections.defaultdict(lambda: {"qty": 0, "fecha": ""})),
-                "pnc_ops": {op_name: data.get('pnc', 0) for op_name, data in pulido_profundo.items()},
-                "tiempo_real_ops": collections.defaultdict(float),
-                "tiempo_std_ops": collections.defaultdict(float),
-                "mensual": collections.defaultdict(lambda: {"piezas": 0, "std": 0, "real": 0}),
-                "mensual_operadoras": collections.defaultdict(lambda: collections.defaultdict(float))
-            },
-            "pedidos": {"total_solicitado": kpis.get('pedidos_solicitados', 0)},
-            "ensamble": {
-                "total_ok": kpis.get('ensambles_ok', 0),
-                "total_pnc": kpis.get('ensamble_pnc', 0),
-                "tiempo_real_segundos": 0,
-                "operadores": collections.defaultdict(int)
-            },
-            "pnc_total": {
-                "inyeccion": kpis.get('inyeccion_pnc', 0), 
-                "pulido": kpis.get('pulido_pnc', 0), 
-                "ensamble": kpis.get('ensamble_pnc', 0), 
-                "almacen": 0
-            },
-            "pnc_almacen_detalle": collections.defaultdict(lambda: {"cantidad": 0, "costo": 0}),
-            "perdida_calidad_dinero": perdida_scrap,
-            "tendencia": collections.defaultdict(lambda: {"inyeccion": 0, "pulido": 0, "ensamble": 0})
-        }
+        # 3. KPI de negocio (cumplimiento de pedidos) — cálculo delegado al servicio
+        fulfillment_rate = DashboardService.calcular_fulfillment_rate(
+            kpis.get('inyeccion_ok', 0), kpis.get('pedidos_solicitados', 0)
+        )
 
         # IA INSIGHTS (Reporte Avanzado del Bot de Planta)
-        total_sol = stats["pedidos"]["total_solicitado"] or 1
-        fulfillment_rate = round((stats["inyeccion"]["total_ok"] / total_sol) * 100, 1)
-        
         insights = DashboardService.generar_insights_bot_planta(
             kpis=kpis,
             stock_critico=stock_critico,
@@ -263,35 +182,8 @@ def exportar_desglose_mensual():
         data = repository_service.get_desglose_mensual_ventas_sql(mes, anio, tipo_vista)
         if not data:
             return jsonify({"success": False, "error": "No hay datos para este periodo"}), 404
-        
-        # Inicializar DataFrame
-        df = pd.DataFrame(data)
-        
-        # Asegurar que las columnas existen y están en orden
-        columnas_esperadas = ['id_codigo', 'descripcion', 'unidades', 'total_ventas']
-        for col in columnas_esperadas:
-            if col not in df.columns:
-                df[col] = 0 if ('total' in col or 'unidades' in col) else ''
-        
-        df = df[columnas_esperadas]
-        df.columns = ['Referencia', 'Descripción', 'Cantidad', 'Total (COP)']
-        
-        # Tipado numérico para Excel
-        df['Cantidad'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0)
-        df['Total (COP)'] = pd.to_numeric(df['Total (COP)'], errors='coerce').fillna(0)
 
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Reporte Ventas')
-            
-            # Autofit dinámico
-            worksheet = writer.sheets['Reporte Ventas']
-            for idx, col in enumerate(df.columns):
-                val_max_len = df[col].astype(str).map(len).max() if not df.empty else 0
-                max_len = max(val_max_len, len(col)) + 2
-                worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 60)
-
-        output.seek(0)
+        output = DashboardService.generar_excel_desglose(data, mes, anio)
         return send_file(
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -305,37 +197,15 @@ def exportar_desglose_mensual():
 
 
 # ── NUEVO ENDPOINT: Rendimiento Mensual Dedicado ──────────────────────────────
-_ROLES_FINANCIEROS = {'ADMIN', 'ADMINISTRACION', 'ADMINISTRACIÓN', 'ADMINISTRADOR', 'GERENCIA', 'COMERCIAL'}
-
-
-def _get_current_rol() -> str:
-    """Extrae el rol del usuario desde Flask session o JWT, normalizado a mayúsculas."""
-    try:
-        from flask import session, request
-        from backend.utils.auth_middleware import decode_pwa_token
-        
-        payload = decode_pwa_token(request)
-        raw_role = payload.get('rol') or payload.get('role') if payload else None
-        
-        if not raw_role:
-            raw_role = session.get('role', '')
-            
-        return str(raw_role).strip().upper()
-    except Exception:
-        return ''
-
 
 @dashboard_bp.route('/performance/monthly', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def get_monthly_performance():
     """
     Endpoint exclusivo para el gráfico 'Análisis Comparativo Anual'.
     Retorna comparativa mensual Ventas vs Pedidos (Año Actual vs Anterior).
     Requiere rol ADMIN, GERENCIA o COMERCIAL.
     """
-    rol = _get_current_rol()
-    if rol not in _ROLES_FINANCIEROS:
-        return jsonify({"success": False, "error": "Acceso restringido"}), 403
-
     try:
         desde_str = request.args.get('desde')
         hasta_str = request.args.get('hasta')
@@ -365,8 +235,6 @@ def get_monthly_performance():
 def get_dashboard_cartera():
     """Consulta la tabla cartera_wo para mostrar KPIs de cartera en el dashboard."""
     try:
-        from backend.services.dashboard_service import DashboardService
-        
         datos_cartera = DashboardService.get_cartera_wo_stats()
         
         return jsonify({
@@ -383,7 +251,6 @@ def get_dashboard_cartera():
 def get_dashboard_rendimiento():
     """Retorna el rendimiento mensual para el tacómetro."""
     try:
-        from backend.services.dashboard_service import DashboardService
         desde_str = request.args.get('desde')
         hasta_str = request.args.get('hasta')
         desde = parsear_fecha_dashboard(desde_str) if desde_str else None
@@ -429,7 +296,6 @@ def get_scrap_detalle():
     Delegado 100% a DashboardService.
     """
     try:
-        from backend.services.dashboard_service import DashboardService
         item_id = request.args.get('item_id') or request.args.get('referencia')
         if not item_id:
             return jsonify({"success": False, "error": "Falta parámetro item_id o referencia"}), 400
@@ -449,7 +315,6 @@ def get_sin_rotacion():
     Delegado 100% a DashboardService.
     """
     try:
-        from backend.services.dashboard_service import DashboardService
         q = request.args.get('q')
         max_v = request.args.get('max_ventas', default=0, type=int)
         data = DashboardService.get_productos_sin_rotacion(q=q, max_ventas=max_v)
@@ -467,7 +332,6 @@ def drilldown_inyeccion_fecha():
     try:
         import re
         from datetime import datetime
-        from backend.services.dashboard_service import DashboardService
 
         fecha_str = request.args.get('fecha', '').strip()
         if not fecha_str:

@@ -1,10 +1,53 @@
+import io
 import logging
 from backend.core.sql_database import db, rollback_seguro
 from sqlalchemy import text
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 class DashboardService:
+    @staticmethod
+    def calcular_fulfillment_rate(inyeccion_ok, total_solicitado):
+        """
+        KPI de negocio: % de piezas inyectadas OK frente a lo solicitado en pedidos.
+        Con prevención de ZeroDivisionError cuando no hay pedidos en el período.
+        """
+        total = total_solicitado or 1
+        return round((float(inyeccion_ok or 0) / total) * 100, 1)
+
+    @staticmethod
+    def generar_excel_desglose(data, mes, anio):
+        """
+        Genera el reporte Excel del desglose mensual de ventas.
+        Retorna un BytesIO listo para send_file(); no toca el objeto Response ni Flask.
+        """
+        df = pd.DataFrame(data)
+
+        columnas_esperadas = ['id_codigo', 'descripcion', 'unidades', 'total_ventas']
+        for col in columnas_esperadas:
+            if col not in df.columns:
+                df[col] = 0 if ('total' in col or 'unidades' in col) else ''
+
+        df = df[columnas_esperadas]
+        df.columns = ['Referencia', 'Descripción', 'Cantidad', 'Total (COP)']
+
+        df['Cantidad'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0)
+        df['Total (COP)'] = pd.to_numeric(df['Total (COP)'], errors='coerce').fillna(0)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Reporte Ventas')
+
+            worksheet = writer.sheets['Reporte Ventas']
+            for idx, col in enumerate(df.columns):
+                val_max_len = df[col].astype(str).map(len).max() if not df.empty else 0
+                max_len = max(val_max_len, len(col)) + 2
+                worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 60)
+
+        output.seek(0)
+        return output
+
     @staticmethod
     def generar_insights_bot_planta(kpis, stock_critico, pulido_profundo, ranking_iny_ops):
         """

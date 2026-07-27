@@ -1127,6 +1127,24 @@ class RepositoryService:
             return []
 
     def get_admin_dashboard_metrics_sql(self, start_date=None, end_date=None):
+        """
+        Orquestador de Jefatura: delega en _get_admin_dashboard_metrics_sql_impl
+        y aplica la red de seguridad transaccional de nivel superior.
+
+        Los 5 sub-bloques internos ya absorben sus propios fallos parciales
+        (que un producto falle no debe tumbar todo el panel), pero cualquier
+        error que escape de esa capa debe abortar la transacción y propagarse:
+        jamás un diccionario vacío silencioso que el controlador convertiría
+        en un HTTP 200 falso y la caché congelaría 10 minutos.
+        """
+        try:
+            return self._get_admin_dashboard_metrics_sql_impl(start_date, end_date)
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_admin_dashboard_metrics_sql] Error crítico en el orquestador: {e}")
+            raise
+
+    def _get_admin_dashboard_metrics_sql_impl(self, start_date=None, end_date=None):
         """Encapsula todas las métricas de Jefatura (SQL-Native) coincidiendo con frontend."""
         params = {'start': start_date, 'end': end_date}
         filt = " WHERE fecha BETWEEN :start AND :end" if start_date and end_date else " WHERE 1=1"
