@@ -82,6 +82,27 @@ window.ModuloDashboard = (function () {
         if (overlay) overlay.style.display = show ? 'block' : 'none';
     }
 
+    // --- Banner de error global: usado por cualquier fetch que falle con 401/403/500 ---
+    function mostrarErrorBanner(message) {
+        let errBanner = document.getElementById('dashboard-error-banner');
+        if (!errBanner) {
+            errBanner = document.createElement('div');
+            errBanner.id = 'dashboard-error-banner';
+            errBanner.className = 'alert alert-danger mx-3 mt-3 shadow-sm';
+            const container = document.querySelector('.main-content .container-fluid') || document.body;
+            container.prepend(errBanner);
+        }
+        errBanner.innerHTML = `<i class="fas fa-exclamation-triangle me-2"></i> <strong>Error crítico:</strong> ${message}`;
+        errBanner.style.display = 'block';
+    }
+
+    function construirAuthHeaders(extraHeaders = {}) {
+        const pwaToken = localStorage.getItem('pwa_token');
+        const headers = { ...extraHeaders };
+        if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+        return headers;
+    }
+
     async function cargarDatos(nocache = false) {
         if (isFetching) {
             console.warn("⏳ Petición cargarDatos en curso, ignorando duplicada.");
@@ -219,20 +240,7 @@ window.ModuloDashboard = (function () {
 
         } catch (error) {
             console.error("Error en Dashboard BI / Jefatura:", error);
-            
-            // Inyectar o mostrar banner de error
-            let errBanner = document.getElementById('dashboard-error-banner');
-            if (!errBanner) {
-                // Fallback: Si no existe el div en el HTML, lo creamos y lo insertamos arriba
-                errBanner = document.createElement('div');
-                errBanner.id = 'dashboard-error-banner';
-                errBanner.className = 'alert alert-danger mx-3 mt-3 shadow-sm';
-                const container = document.querySelector('.main-content .container-fluid') || document.body;
-                container.prepend(errBanner);
-            }
-            errBanner.innerHTML = `<i class="fas fa-exclamation-triangle me-2"></i> <strong>Error crítico:</strong> ${error.message}`;
-            errBanner.style.display = 'block';
-            
+            mostrarErrorBanner(error.message);
         } finally {
             isFetching = false;
             showLoading(false);
@@ -374,6 +382,9 @@ window.ModuloDashboard = (function () {
             try {
                 if (data.analytics_pulido) {
                     cacheAnalyticsPulido = data.analytics_pulido;
+                    if (data.analytics_pulido.eficiencia_referencia) {
+                        renderTablaEficienciaPulido(data.analytics_pulido.eficiencia_referencia);
+                    }
                 }
                 renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
                 renderTablaPulido(data.rankings?.pulido_profundo || {});
@@ -746,6 +757,7 @@ window.ModuloDashboard = (function () {
         if (!ctx) return;
         if (!Array.isArray(tendencia) || tendencia.length === 0) return;
         if (chartTendencia) chartTendencia.destroy();
+        ctx.style.cursor = 'pointer';
         chartTendencia = new Chart(ctx, {
             type: 'line',
             data: {
@@ -755,8 +767,147 @@ window.ModuloDashboard = (function () {
                     { label: 'Pulido', data: tendencia.map(t => t.pul), borderColor: '#10b981', tension: 0.3, fill: false }
                 ]
             },
-            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                onClick: (evt, elements) => {
+                    if (elements && elements.length > 0) {
+                        const index = elements[0].index;
+                        const itemObj = tendencia[index];
+                        if (itemObj && itemObj.fecha) {
+                            abrirModalDrilldownInyeccion(itemObj.fecha);
+                        }
+                    }
+                },
+                scales: { y: { beginAtZero: true } }
+            }
         });
+    }
+
+    async function abrirModalDrilldownInyeccion(fechaStr) {
+        let modalEl = document.getElementById('modalDrilldownInyeccion');
+        if (!modalEl) {
+            const modalHtml = `
+            <div class="modal fade" id="modalDrilldownInyeccion" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content text-dark border-0 shadow-lg" style="background-color: #ffffff;">
+                  <div class="modal-header bg-dark text-white border-0 py-3">
+                    <h5 class="modal-title fs-6 fw-bold text-white">
+                      <i class="fas fa-search-plus text-info me-2"></i>Auditoría de Producción Inyección - <span id="modalDrilldownFecha" class="text-warning"></span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                  </div>
+                  <div class="modal-body p-3" style="background-color: #ffffff;">
+                    <div id="modalDrilldownLoading" class="text-center py-5">
+                      <div class="spinner-border text-primary" role="status"></div>
+                      <p class="mt-2 text-dark font-monospace small">Cargando registros atómicos de inyección...</p>
+                    </div>
+                    <div id="modalDrilldownContent" class="d-none">
+                      <div class="table-responsive">
+                        <table class="table table-hover table-bordered table-sm align-middle mb-0 text-dark" style="font-size: 0.84rem; background-color: #ffffff; border-color: #cbd5e1;">
+                          <thead class="table-dark text-uppercase small align-middle" style="background-color: #1e293b; color: #ffffff;">
+                            <tr>
+                              <th class="text-white fw-bold py-2">OP</th>
+                              <th class="text-white fw-bold py-2">Máquina</th>
+                              <th class="text-white fw-bold py-2">Referencia</th>
+                              <th class="text-white fw-bold py-2">Descripción</th>
+                              <th class="text-white fw-bold py-2">Operario</th>
+                              <th class="text-white fw-bold text-end py-2">Buenas (Pz)</th>
+                              <th class="text-white fw-bold text-end py-2">Malas / PNC</th>
+                              <th class="text-white fw-bold text-center py-2">Tx</th>
+                            </tr>
+                          </thead>
+                          <tbody id="modalDrilldownTbody" class="text-dark"></tbody>
+                          <tfoot id="modalDrilldownTfoot" class="table-secondary fw-bold text-dark" style="background-color: #f1f5f9; color: #0f172a;"></tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="modal-footer bg-light border-top p-2">
+                    <button type="button" class="btn btn-secondary btn-sm px-4 fw-semibold" data-bs-dismiss="modal">Cerrar</button>
+                  </div>
+                </div>
+              </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            modalEl = document.getElementById('modalDrilldownInyeccion');
+        }
+
+        const fechaSpan = document.getElementById('modalDrilldownFecha');
+        const loadingEl = document.getElementById('modalDrilldownLoading');
+        const contentEl = document.getElementById('modalDrilldownContent');
+        const tbodyEl = document.getElementById('modalDrilldownTbody');
+        const tfootEl = document.getElementById('modalDrilldownTfoot');
+
+        if (fechaSpan) fechaSpan.textContent = fechaStr;
+        if (loadingEl) loadingEl.classList.remove('d-none');
+        if (contentEl) contentEl.classList.add('d-none');
+
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+
+        try {
+            const resp = await fetch(`/api/dashboard/drilldown/inyeccion?fecha=${encodeURIComponent(fechaStr)}`);
+            if (!resp.ok) {
+                const textErr = await resp.text();
+                throw new Error(`HTTP ${resp.status}: Servidor devolvió formato no válido o no encontrado.`);
+            }
+            const data = await resp.json();
+
+            if (!data.success) {
+                throw new Error(data.error || 'Error al obtener detalle');
+            }
+
+            const filas = data.detalle || [];
+            let htmlTbody = '';
+            let sumBuenas = 0;
+            let sumMalas = 0;
+            let sumTx = 0;
+
+            if (filas.length === 0) {
+                htmlTbody = `<tr><td colspan="8" class="text-center text-secondary font-monospace py-4 fw-semibold">No se encontraron registros de inyección para la fecha ${fechaStr}</td></tr>`;
+            } else {
+                filas.forEach(f => {
+                    sumBuenas += f.buenas;
+                    sumMalas += f.malas;
+                    sumTx += f.total_registros;
+
+                    htmlTbody += `
+                    <tr>
+                      <td class="fw-bold text-dark font-monospace">${f.orden_produccion}</td>
+                      <td><span class="badge bg-primary text-white px-2 py-1">${f.maquina}</span></td>
+                      <td class="fw-bold text-primary font-monospace">${f.id_codigo}</td>
+                      <td class="text-dark fw-medium text-truncate" style="max-width: 220px;" title="${f.descripcion}">${f.descripcion}</td>
+                      <td class="text-dark fw-semibold">${f.operario}</td>
+                      <td class="text-end fw-bold text-success fs-6">${f.buenas.toLocaleString()}</td>
+                      <td class="text-end fw-bold ${f.malas > 0 ? 'text-danger fs-6' : 'text-secondary'}">${f.malas.toLocaleString()}</td>
+                      <td class="text-center fw-bold text-dark">${f.total_registros}</td>
+                    </tr>`;
+                });
+            }
+
+            if (tbodyEl) tbodyEl.innerHTML = htmlTbody;
+            if (tfootEl) {
+                tfootEl.innerHTML = `
+                <tr>
+                  <td colspan="5" class="text-end text-uppercase fw-bold text-dark py-2">Total Consolidado:</td>
+                  <td class="text-end text-success fw-bolder fs-6 py-2">${sumBuenas.toLocaleString()} Pz</td>
+                  <td class="text-end ${sumMalas > 0 ? 'text-danger' : 'text-secondary'} fw-bolder fs-6 py-2">${sumMalas.toLocaleString()} Pz</td>
+                  <td class="text-center text-dark fw-bold py-2">${sumTx}</td>
+                </tr>`;
+            }
+
+            if (loadingEl) loadingEl.classList.add('d-none');
+            if (contentEl) contentEl.classList.remove('d-none');
+
+        } catch (err) {
+            console.error('Error al cargar drilldown inyección:', err);
+            if (tbodyEl) {
+                tbodyEl.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-4 font-monospace fw-bold">Error cargando datos: ${err.message}</td></tr>`;
+            }
+            if (loadingEl) loadingEl.classList.add('d-none');
+            if (contentEl) contentEl.classList.remove('d-none');
+        }
     }
 
     /**
@@ -1496,6 +1647,79 @@ window.ModuloDashboard = (function () {
         });
     }
 
+    let cacheEficienciaPulido = null;
+
+    function renderTablaEficienciaPulido(eficienciaData) {
+        const tbody = document.querySelector('#tabla-eficiencia-pulido-ref tbody');
+        if (!tbody) return;
+
+        cacheEficienciaPulido = eficienciaData || {};
+        const referencias = Object.keys(cacheEficienciaPulido);
+
+        if (referencias.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No hay datos de velocidad por referencia en este rango.</td></tr>';
+            return;
+        }
+
+        filtrarTablaEficienciaPulido('');
+        initBusquedaEficienciaPulido();
+    }
+
+    function filtrarTablaEficienciaPulido(query) {
+        const tbody = document.querySelector('#tabla-eficiencia-pulido-ref tbody');
+        if (!tbody || !cacheEficienciaPulido) return;
+
+        const q = (query || '').toLowerCase().trim();
+        const refs = Object.keys(cacheEficienciaPulido).filter(r => {
+            if (!q) return true;
+            const item = cacheEficienciaPulido[r];
+            const topOp = (item.operario_mas_rapido || '').toLowerCase();
+            return r.toLowerCase().includes(q) || topOp.includes(q);
+        });
+
+        if (refs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No se encontraron referencias que coincidan con la búsqueda.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        refs.forEach(r => {
+            const item = cacheEficienciaPulido[r];
+            const topOp = item.operario_mas_rapido || 'S/R';
+            const speed = (item.velocidad_pz_min || 0).toFixed(2);
+            const timePz = (item.tiempo_min_pz || 0).toFixed(4);
+
+            html += `
+                <tr>
+                    <td class="ps-4">
+                        <span class="fw-bold text-dark">${r}</span>
+                    </td>
+                    <td>
+                        <span class="badge bg-light text-dark border me-1 py-1 px-2"><i class="fas fa-running text-success me-1"></i>${topOp}</span>
+                    </td>
+                    <td class="text-center fw-bold text-success" style="font-family: 'JetBrains Mono', monospace;">
+                        ${speed} pz/min
+                    </td>
+                    <td class="text-center pe-4 text-muted" style="font-family: 'JetBrains Mono', monospace;">
+                        ${timePz} min/pz
+                    </td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML = html;
+    }
+
+    function initBusquedaEficienciaPulido() {
+        const inputEl = document.getElementById('input-busqueda-eficiencia-pulido');
+        if (inputEl && inputEl.dataset.listenerAttached !== 'true') {
+            inputEl.dataset.listenerAttached = 'true';
+            inputEl.addEventListener('input', debounce((e) => {
+                filtrarTablaEficienciaPulido(e.target.value);
+            }, 300));
+        }
+    }
+
 
     function aplicarPermisosVisuales() {
         console.log("🔒 Aplicando permisos visuales al Dashboard IA...");
@@ -1639,13 +1863,21 @@ window.ModuloDashboard = (function () {
         const hace30 = new Date();
         hace30.setDate(hoy.getDate() - 30);
 
+        const onDateFilterChange = () => {
+            if (f_desde) localStorage.setItem(LS_DESDE, f_desde.value);
+            if (f_hasta) localStorage.setItem(LS_HASTA, f_hasta.value);
+            console.log("📅 Filtro de fechas modificado. Disparando recarga reactiva...");
+            cargarDatos(true);
+            fetchAndRenderMonthlyPerformance('chartMensual', f_desde?.value || '', f_hasta?.value || '');
+        };
+
         if (f_desde) {
             f_desde.value = localStorage.getItem(LS_DESDE) || hoy.toISOString().split('T')[0]; // Default a HOY
-            f_desde.addEventListener('change', () => localStorage.setItem(LS_DESDE, f_desde.value));
+            f_desde.addEventListener('change', onDateFilterChange);
         }
         if (f_hasta) {
             f_hasta.value = localStorage.getItem(LS_HASTA) || hoy.toISOString().split('T')[0]; // Default a HOY
-            f_hasta.addEventListener('change', () => localStorage.setItem(LS_HASTA, f_hasta.value));
+            f_hasta.addEventListener('change', onDateFilterChange);
         }
 
         const savedToggle = localStorage.getItem(LS_TOGGLE) || 'money';
@@ -2141,31 +2373,41 @@ window.ModuloDashboard = (function () {
         if (!ctx || !Array.isArray(datosMensuales) || datosMensuales.length === 0) return;
 
         try {
-            const labels = datosMensuales.map(d => d.mes);
+            let datosFiltrados = datosMensuales;
+            const hastaInput = document.getElementById('db-fecha-hasta');
+            if (hastaInput?.value) {
+                const parts = hastaInput.value.split('-');
+                if (parts.length === 3) {
+                    const limitMonth = parseInt(parts[1], 10);
+                    if (!isNaN(limitMonth) && limitMonth > 0 && limitMonth <= 12 && datosFiltrados.length > limitMonth) {
+                        datosFiltrados = datosFiltrados.slice(0, limitMonth);
+                    }
+                }
+            }
+
+            const labels = datosFiltrados.map(d => d.mes);
             const isMoney = mode === 'money';
 
             // Año desde los inputs reales del filtro
-            const hastaInput = document.getElementById('db-fecha-hasta');
             const yearActual = hastaInput?.value
                 ? new Date(hastaInput.value).getFullYear()
                 : new Date().getFullYear();
             const yearPrev = yearActual - 1;
 
             // Datos
-            const dataActualVentas = datosMensuales.map(d => isMoney ? (d.actual_dinero || 0) : (d.actual_unidades || 0));
-            const dataPrevVentas = datosMensuales.map(d => isMoney ? (d.prev_dinero || 0) : (d.prev_unidades || 0));
-            const dataActualPedidos = datosMensuales.map(d => isMoney ? (d.actual_pedidos || 0) : (d.actual_pedidos_unidades || 0));
-            const dataPrevPedidos = datosMensuales.map(d => isMoney ? (d.prev_pedidos || 0) : (d.prev_pedidos_unidades || 0));
+            const dataActualVentas = datosFiltrados.map(d => isMoney ? (d.actual_dinero || 0) : (d.actual_unidades || 0));
+            const dataPrevVentas = datosFiltrados.map(d => isMoney ? (d.prev_dinero || 0) : (d.prev_unidades || 0));
+            const dataActualPedidos = datosFiltrados.map(d => isMoney ? (d.actual_pedidos || 0) : (d.actual_pedidos_unidades || 0));
+            const dataPrevPedidos = datosFiltrados.map(d => isMoney ? (d.prev_pedidos || 0) : (d.prev_pedidos_unidades || 0));
 
             // Ocultar líneas de Pedidos en Unidades si no hay datos reales
             const hayPedidosUnidades = !isMoney && dataActualPedidos.some(v => v > 0);
 
             if (chartMensualInst) chartMensualInst.destroy();
 
-            // Colores Corporativos (Actualizados según solicitud)
-            const AZUL_OSCURO = 'rgba(30, 58, 138, 0.9)';    // Azul oscuro para ventas año actual
-            const GRIS_CLARO = 'rgba(156, 163, 175, 0.8)';   // Gris para ventas año pasado
-            const VERDE_PEDIDOS = 'rgba(16, 185, 129, 1)';   // Verde para pedidos
+            // Configuración Cromática Institucional (2025: Gris #6c757d, 2026: Verde #2dce89)
+            const COLOR_2026 = '#2dce89'; // Verde Institucional para 2026
+            const COLOR_2025 = '#6c757d'; // Gris para 2025
 
             chartMensualInst = new Chart(ctx, {
                 type: 'bar',
@@ -2176,7 +2418,7 @@ window.ModuloDashboard = (function () {
                         {
                             label: isMoney ? `Ventas ${yearActual}` : `Ventas ${yearActual} (Unds)`,
                             data: dataActualVentas,
-                            backgroundColor: AZUL_OSCURO,
+                            backgroundColor: COLOR_2026,
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
@@ -2185,7 +2427,7 @@ window.ModuloDashboard = (function () {
                         {
                             label: isMoney ? `Ventas ${yearPrev}` : `Ventas ${yearPrev} (Unds)`,
                             data: dataPrevVentas,
-                            backgroundColor: GRIS_CLARO,
+                            backgroundColor: COLOR_2025,
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
@@ -2198,14 +2440,14 @@ window.ModuloDashboard = (function () {
                             data: dataActualPedidos,
                             type: 'line',
                             showLine: true,
-                            borderColor: VERDE_PEDIDOS,
+                            borderColor: COLOR_2026,
                             borderWidth: 2,
                             borderDash: [5, 5],
                             backgroundColor: 'transparent',
                             pointStyle: 'circle',
                             pointRadius: 5,
                             pointHoverRadius: 7,
-                            pointBackgroundColor: VERDE_PEDIDOS,
+                            pointBackgroundColor: COLOR_2026,
                             pointBorderColor: '#fff',
                             pointBorderWidth: 1.5,
                             tension: 0,
@@ -2217,14 +2459,14 @@ window.ModuloDashboard = (function () {
                             data: dataPrevPedidos,
                             type: 'line',
                             showLine: true,
-                            borderColor: GRIS_CLARO,
+                            borderColor: COLOR_2025,
                             borderWidth: 1.5,
                             borderDash: [3, 3],
                             backgroundColor: 'transparent',
                             pointStyle: 'rect',
                             pointRadius: 4,
                             pointHoverRadius: 6,
-                            pointBackgroundColor: GRIS_CLARO,
+                            pointBackgroundColor: COLOR_2025,
                             pointBorderColor: '#fff',
                             pointBorderWidth: 1,
                             tension: 0,
@@ -2302,17 +2544,35 @@ window.ModuloDashboard = (function () {
     async function cargarRendimientoDedicado(mode = 'money') {
         currentRendimientoMode = mode;
         try {
-            const res = await fetch('/api/dashboard/rendimiento');
+            const desde = document.getElementById('db-fecha-desde')?.value || '';
+            const hasta = document.getElementById('db-fecha-hasta')?.value || '';
+            const params = new URLSearchParams();
+            if (desde) params.append('desde', desde);
+            if (hasta) params.append('hasta', hasta);
+            const url = '/api/dashboard/rendimiento' + (params.toString() ? `?${params.toString()}` : '');
+
+            const res = await fetch(url, {
+                headers: construirAuthHeaders({ 'Accept': 'application/json' }),
+                credentials: 'include'
+            });
+
+            if (!res.ok) {
+                const msg = res.status === 401 ? 'Sesión expirada. Recarga la página e inicia sesión de nuevo.'
+                          : res.status === 403 ? 'Sin permisos para ver el rendimiento mensual.'
+                          : `Error del servidor al obtener el rendimiento mensual (HTTP ${res.status}).`;
+                throw new Error(msg);
+            }
+
             const data = await res.json();
             if (data.success && data.data) {
                 rendimientoDataCompleto = data.data.data;
                 mesActualGlobalIdx = data.data.mes_actual_idx || 0;
                 mesActivoIdx = mesActualGlobalIdx; // Por defecto es el actual
-                
+
                 // En el caso inicial, dibuja el chart y el tacómetro
                 renderChartRendimientoMensualNew(rendimientoDataCompleto, mode, mesActivoIdx === mesActualGlobalIdx ? -1 : mesActivoIdx);
                 renderTacometro(rendimientoDataCompleto[mesActivoIdx]);
-                
+
                 // Mostrar el botón de restaurar si el mes seleccionado no es el actual
                 const btnRestaurar = document.getElementById('btn-ver-mes-actual');
                 if (btnRestaurar) {
@@ -2322,6 +2582,7 @@ window.ModuloDashboard = (function () {
             }
         } catch (e) {
             console.error("Error fetching rendimiento:", e);
+            mostrarErrorBanner(e.message);
         }
     }
 
@@ -2659,18 +2920,28 @@ window.ModuloDashboard = (function () {
         // 2. Fetch al Backend si no está en caché
         try {
             const url = `/api/dashboard/ventas/desglose-mensual?mes=${mes}&anio=${anio}&tipo_vista=${modo}`;
-            const res = await fetch(url);
-            const json = await res.json();
+            const res = await fetch(url, {
+                headers: construirAuthHeaders({ 'Accept': 'application/json' }),
+                credentials: 'include'
+            });
 
+            if (!res.ok) {
+                const msg = res.status === 401 ? 'Sesión expirada. Recarga la página e inicia sesión de nuevo.'
+                          : res.status === 403 ? 'Sin permisos para ver el desglose de ventas.'
+                          : `Error del servidor (HTTP ${res.status}) al obtener el desglose de ventas.`;
+                throw new Error(msg);
+            }
+
+            const json = await res.json();
             if (json.success) {
                 window.ventasCache[cacheKey] = json.data;
                 renderizarTablaDesglose(json.data, mes, anio, mesNombre);
             } else {
-                Swal.fire('Error', 'No se pudieron obtener los datos de ventas.', 'error');
+                Swal.fire('Error', json.error || 'No se pudieron obtener los datos de ventas.', 'error');
             }
         } catch (error) {
             console.error('Error en drill-down:', error);
-            Swal.fire('Error', 'Fallo de conexión con el servidor.', 'error');
+            Swal.fire('Error', error.message || 'Fallo de conexión con el servidor.', 'error');
         } finally {
             spinner.classList.add('d-none');
             contenido.classList.remove('d-none');
@@ -2732,10 +3003,45 @@ window.ModuloDashboard = (function () {
 
         if (btnExportar) {
             btnExportar.disabled = (data.length === 0);
-            btnExportar.onclick = (e) => {
+            btnExportar.onclick = async (e) => {
                 e.preventDefault();
                 const modo = currentIncSortMode || 'money';
-                window.location.href = `/api/dashboard/ventas/exportar-desglose?mes=${mes}&anio=${anio}&tipo_vista=${modo}`;
+                const iconoOriginal = btnExportar.innerHTML;
+                btnExportar.disabled = true;
+                btnExportar.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Generando...';
+
+                try {
+                    const url = `/api/dashboard/ventas/exportar-desglose?mes=${mes}&anio=${anio}&tipo_vista=${modo}`;
+                    const res = await fetch(url, {
+                        headers: construirAuthHeaders(),
+                        credentials: 'include'
+                    });
+
+                    if (!res.ok) {
+                        const msg = res.status === 401 ? 'Sesión expirada. Recarga la página e inicia sesión de nuevo.'
+                                  : res.status === 403 ? 'Sin permisos para exportar este reporte.'
+                                  : `Error del servidor (HTTP ${res.status}) al generar el reporte.`;
+                        throw new Error(msg);
+                    }
+
+                    // Navegación directa perdía el header Authorization; el reporte ahora
+                    // se descarga como Blob autenticado y se dispara localmente.
+                    const blob = await res.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = `Reporte_Ventas_${mes}_${anio}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(blobUrl);
+                } catch (error) {
+                    console.error('Error exportando desglose de ventas:', error);
+                    Swal.fire('Error', error.message || 'No fue posible generar el reporte Excel.', 'error');
+                } finally {
+                    btnExportar.disabled = (data.length === 0);
+                    btnExportar.innerHTML = iconoOriginal;
+                }
             };
         }
     }
@@ -2761,7 +3067,11 @@ window.ModuloDashboard = (function () {
                 const key = `${item.mes}-${yearActual}-${modo}`;
                 if (!window.ventasCache[key]) {
                     try {
-                        const res = await fetch(`/api/dashboard/ventas/desglose-mensual?mes=${item.mes}&anio=${yearActual}&tipo_vista=${modo}`);
+                        const res = await fetch(`/api/dashboard/ventas/desglose-mensual?mes=${item.mes}&anio=${yearActual}&tipo_vista=${modo}`, {
+                            headers: construirAuthHeaders({ 'Accept': 'application/json' }),
+                            credentials: 'include'
+                        });
+                        if (!res.ok) continue;
                         const json = await res.json();
                         if (json.success) {
                             window.ventasCache[key] = json.data;
@@ -2987,11 +3297,20 @@ window.ModuloDashboard = (function () {
             const hasta = document.getElementById('db-fecha-hasta')?.value || "";
             const decodedCliente = cliente.replace(/&quot;/g, '"');
             
+            const pwaToken = localStorage.getItem('pwa_token');
+            const headers = { 'Accept': 'application/json' };
+            if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+
             const url = `/api/admin/backorder/detalle?cliente=${encodeURIComponent(decodedCliente)}&desde=${desde}&hasta=${hasta}`;
-            const res = await fetch(url).then(r => r.json());
+            const response = await fetch(url, { headers, credentials: 'include' });
+            if (!response.ok) {
+                const errJson = await response.json().catch(() => ({}));
+                throw new Error(errJson.message || errJson.error || `HTTP ${response.status}: Error consultando servicio de backorder`);
+            }
+            const res = await response.json();
 
             if (!res.success || !res.data) {
-                Swal.fire("Error", "No se pudo obtener el detalle de backorder.", "error");
+                Swal.fire("Error", res.message || "No se pudo obtener el detalle de backorder.", "error");
                 return;
             }
 
@@ -3270,25 +3589,35 @@ window.ModuloDashboard = (function () {
         if (!ctx || !data || !Array.isArray(data.mensual) || data.mensual.length === 0) return;
 
         try {
+            let mensualFiltrado = data.mensual;
+            const hastaVal = document.getElementById('db-fecha-hasta')?.value;
+            if (hastaVal) {
+                const parts = hastaVal.split('-');
+                if (parts.length === 3) {
+                    const limitMonth = parseInt(parts[1], 10);
+                    if (!isNaN(limitMonth) && limitMonth > 0 && limitMonth <= 12 && mensualFiltrado.length > limitMonth) {
+                        mensualFiltrado = mensualFiltrado.slice(0, limitMonth);
+                    }
+                }
+            }
+
             const yearActual = data.year_actual || new Date().getFullYear();
             const yearPrev   = data.year_prev   || (yearActual - 1);
-            const labels     = data.mensual.map(d => d.mes);
+            const labels     = mensualFiltrado.map(d => d.mes);
 
             // Datos — garantizado 0 en meses sin registro
-            const ventasAct  = data.mensual.map(d => d.actual_dinero  || 0);
-            const ventasPrev = data.mensual.map(d => d.prev_dinero    || 0);
-            const pedidosAct = data.mensual.map(d => d.actual_pedidos || 0);
-            const pedidosPrev= data.mensual.map(d => d.prev_pedidos   || 0);
+            const ventasAct  = mensualFiltrado.map(d => d.actual_dinero  || 0);
+            const ventasPrev = mensualFiltrado.map(d => d.prev_dinero    || 0);
+            const pedidosAct = mensualFiltrado.map(d => d.actual_pedidos || 0);
+            const pedidosPrev= mensualFiltrado.map(d => d.prev_pedidos   || 0);
 
             // Reusar instancia existente para evitar leak de memoria
             if (_monthlyChartInstances[containerId]) {
                 _monthlyChartInstances[containerId].destroy();
             }
 
-            const AZUL_OSCURO   = 'rgba(30, 58, 138, 0.9)';
-            const GRIS_CLARO    = 'rgba(156, 163, 175, 0.75)';
-            const VERDE_PEDIDOS = 'rgba(16, 185, 129, 1)';
-            const AMBER_PEDIDOS = 'rgba(245, 158, 11, 0.8)';
+            const COLOR_2026 = '#2dce89'; // Verde Institucional para 2026
+            const COLOR_2025 = '#6c757d'; // Gris para 2025
 
             const _fmtCOP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
             const _fmtNum = v => new Intl.NumberFormat('es-CO').format(v);
@@ -3301,7 +3630,7 @@ window.ModuloDashboard = (function () {
                         {
                             label: `Ventas ${yearActual}`,
                             data: ventasAct,
-                            backgroundColor: AZUL_OSCURO,
+                            backgroundColor: COLOR_2026,
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
@@ -3310,7 +3639,7 @@ window.ModuloDashboard = (function () {
                         {
                             label: `Ventas ${yearPrev}`,
                             data: ventasPrev,
-                            backgroundColor: GRIS_CLARO,
+                            backgroundColor: COLOR_2025,
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
@@ -3320,14 +3649,14 @@ window.ModuloDashboard = (function () {
                             label: `Pedidos ${yearActual}`,
                             data: pedidosAct,
                             type: 'line',
-                            borderColor: VERDE_PEDIDOS,
+                            borderColor: COLOR_2026,
                             borderWidth: 2,
                             borderDash: [5, 5],
                             backgroundColor: 'transparent',
                             pointStyle: 'circle',
                             pointRadius: 5,
                             pointHoverRadius: 7,
-                            pointBackgroundColor: VERDE_PEDIDOS,
+                            pointBackgroundColor: COLOR_2026,
                             pointBorderColor: '#fff',
                             pointBorderWidth: 1.5,
                             tension: 0,
@@ -3337,14 +3666,14 @@ window.ModuloDashboard = (function () {
                             label: `Pedidos ${yearPrev}`,
                             data: pedidosPrev,
                             type: 'line',
-                            borderColor: AMBER_PEDIDOS,
+                            borderColor: COLOR_2025,
                             borderWidth: 1.5,
                             borderDash: [3, 3],
                             backgroundColor: 'transparent',
                             pointStyle: 'rect',
                             pointRadius: 4,
                             pointHoverRadius: 6,
-                            pointBackgroundColor: AMBER_PEDIDOS,
+                            pointBackgroundColor: COLOR_2025,
                             pointBorderColor: '#fff',
                             pointBorderWidth: 1,
                             tension: 0,
