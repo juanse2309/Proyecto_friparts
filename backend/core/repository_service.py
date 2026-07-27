@@ -4,7 +4,7 @@ Todos los métodos leen exclusivamente de PostgreSQL.
 El "Traductor Legacy" convierte nombres de columnas SQL → nombres originales de Sheets
 para que el frontend funcione sin modificaciones.
 """
-from backend.core.sql_database import db
+from backend.core.sql_database import db, rollback_seguro
 from sqlalchemy import text, func, cast, Numeric
 import logging
 
@@ -31,6 +31,37 @@ SHEET_TO_TABLE = {
     'produccion_inyeccion': 'db_inyeccion',
     'programacion_inyeccion': 'db_programacion',
 }
+
+class CatalogExclusionConfig:
+    """
+    Estructura paramétrica centralizada para la abstracción de filtros de catálogo y prefijos comerciales.
+    Elimina el acoplamiento rígido de cadenas fijas en la lógica de negocio.
+    """
+    REFERENCIAS_EXCLUIDAS_TOP = ['VEHICULO-03']
+    PREFIJOS_EXCLUIDOS_MENOS_VENDIDOS = ['PS', 'BDF', 'BSL', 'BL', 'VEHICULO-03']
+    PREFIJOS_EXCLUIDOS_SIN_ROTACION = ['IM']
+
+    @classmethod
+    def get_sql_exclusion_clause(cls, column_name: str, mode: str = 'menos_vendidos') -> str:
+        """
+        Genera cláusulas de exclusión SQL paramétricas optimizadas para preservar índices sargables.
+        """
+        if mode == 'top':
+            items = cls.REFERENCIAS_EXCLUIDAS_TOP
+            conds = [f"{column_name} NOT ILIKE '%{item}%'" for item in items]
+        elif mode == 'menos_vendidos':
+            items = cls.PREFIJOS_EXCLUIDOS_MENOS_VENDIDOS
+            conds = [
+                f"{column_name} NOT ILIKE '%{item}%'" if item == 'VEHICULO-03' else f"{column_name} NOT ILIKE '{item}%'"
+                for item in items
+            ]
+        elif mode == 'sin_rotacion':
+            items = cls.PREFIJOS_EXCLUIDOS_SIN_ROTACION
+            conds = [f"{column_name} NOT ILIKE '{item}%'" for item in items]
+        else:
+            return ""
+
+        return " AND " + " AND ".join(conds) if conds else ""
 
 # ─────────────────────────────────────────────────────────────
 # TRADUCTOR LEGACY  (columna SQL → nombre original en Sheets)
@@ -197,7 +228,7 @@ class RepositoryService:
             result = db.session.execute(text(sql), params or {})
             return [dict(row) for row in result.mappings()]
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[RepositoryService._query] {e}")
             return []
 
@@ -210,7 +241,7 @@ class RepositoryService:
             data = [dict(row) for row in result.mappings()]
             return self._map_to_legacy(data) if to_legacy else data
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_all] {table_name}: {e}")
             return []
 
@@ -226,7 +257,7 @@ class RepositoryService:
             data = [dict(row) for row in result.mappings()]
             return self._map_to_legacy(data) if to_legacy else data
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_by_filters] {table_name}: {e}")
             return []
 
@@ -239,7 +270,7 @@ class RepositoryService:
             db.session.commit()
             return True
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[insert_one] {table_name}: {e}")
             return False
 
@@ -256,7 +287,7 @@ class RepositoryService:
             db.session.commit()
             return True
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[update_one] {table_name}: {e}")
             return False
 
@@ -301,6 +332,7 @@ class RepositoryService:
             logger.info(f"[get_productos_all] {len(result)} productos retornados. {skipped} filas ignoradas.")
             return result
         except Exception as e:
+            rollback_seguro()
             import traceback
             logger.error(f"[get_productos_all] Error crítico: {e}\n{traceback.format_exc()}")
             return []
@@ -331,6 +363,7 @@ class RepositoryService:
                 '_id_sql':              p.id,
             }
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[buscar_producto] {codigo}: {e}")
             return None
     def buscar_por_termino_sql(self, termino, limit=50):
@@ -363,6 +396,7 @@ class RepositoryService:
                 })
             return result
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[buscar_por_termino_sql] {termino}: {e}")
             return []
 
@@ -382,7 +416,7 @@ class RepositoryService:
             db.session.commit()
             return True
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[actualizar_stock_sql] {e}")
             return False
 
@@ -416,7 +450,7 @@ class RepositoryService:
             logger.info(f"[get_clientes_all] {len(result)} clientes cargados con mapeo corecto.")
             return result
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_clientes_all] {e}")
             return []
 
@@ -492,7 +526,7 @@ class RepositoryService:
             
             return list(agrupados.values())
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_pedidos_pendientes_sql] ERROR: {e}")
             return []
 
@@ -611,7 +645,7 @@ class RepositoryService:
                 'scrap_almacen_desglose': scrap_ranking
             }
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_dashboard_kpis] {e}")
             return {
                 'inyeccion_ok': 0, 'inyeccion_pnc': 0,
@@ -653,7 +687,7 @@ class RepositoryService:
             rows = db.session.execute(text(sql), params).fetchall()
             return [{'nombre': str(r[0] or 'Desconocido').strip(), 'valor': _num(r[1]), 'pnc': _num(r[2])} for r in rows]
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_ranking_operarios_inyeccion] {e}")
             return []
 
@@ -674,7 +708,7 @@ class RepositoryService:
             rows = db.session.execute(text(sql), params).fetchall()
             return [{'maquina': str(r[0] or 'Desconocida').strip(), 'valor': _num(r[1])} for r in rows]
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_ranking_maquinas] {e}")
             return []
 
@@ -727,7 +761,7 @@ class RepositoryService:
                 })
             return resultado
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_ranking_operarios_pulido] {e}")
             return []
 
@@ -799,7 +833,7 @@ class RepositoryService:
                 "operario_referencia": refs_map
             }
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_analytics_pulido] {e}")
             return {"evolucion_puntos_op": {}, "operario_referencia": {}}
 
@@ -865,7 +899,7 @@ class RepositoryService:
                 "operario_referencia": refs_map
             }
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[get_analytics_inyeccion] {e}")
             return {"operario_referencia": {}}
 
@@ -884,6 +918,7 @@ class RepositoryService:
             rows = db.session.execute(text(sql)).mappings().all()
             return [dict(r) for r in rows]
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_stock_critico_sql] {e}")
             return []
 
@@ -985,6 +1020,7 @@ class RepositoryService:
                 "ranking_productos": ranking
             }
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_perdida_economica_scrap] ERROR: {e}")
             return {"total_perdida": 0, "ranking_productos": []}
 
@@ -1072,65 +1108,86 @@ class RepositoryService:
                         "prev_unidades": v_u, "prev_pedidos_unidades": p_u
                     })
             
-            # Si hay filtro, solo devolver los meses que tienen data en el rango actual o previo
+            # Truncar estrictamente la lista de meses según el rango 'hasta' (end_date)
             if start_date and end_date:
-                # Opcional: Podríamos filtrar data_map para que solo contenga meses dentro del rango
-                # Pero el frontend Chart.js maneja bien los 12 meses. 
-                # Si el usuario quiere ver "Progresión", tal vez quiera ver solo el rango.
-                # Por ahora devolvemos todos para no romper el layout de 12 meses si es lo esperado.
-                return list(data_map.values())
-            
+                try:
+                    sd = datetime.strptime(start_date, '%Y-%m-%d')
+                    ed = datetime.strptime(end_date, '%Y-%m-%d')
+                    min_m = max(1, min(sd.month, ed.month))
+                    max_m = min(12, max(sd.month, ed.month))
+                    return [data_map[m] for m in range(min_m, max_m + 1)]
+                except Exception as parse_err:
+                    logger.warning(f"No se pudo truncar la serie mensual por fecha: {parse_err}")
+
             return list(data_map.values())
 
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_rendimiento_mensual_sql] {e}")
             return []
 
     def get_admin_dashboard_metrics_sql(self, start_date=None, end_date=None):
         """Encapsula todas las métricas de Jefatura (SQL-Native) coincidiendo con frontend."""
-        try:
-            params = {'start': start_date, 'end': end_date}
-            filt = " WHERE fecha BETWEEN :start AND :end" if start_date and end_date else " WHERE 1=1"
-            
-            def _sql_cast_num(col):
-                return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+        params = {'start': start_date, 'end': end_date}
+        filt = " WHERE fecha BETWEEN :start AND :end" if start_date and end_date else " WHERE 1=1"
+        
+        def _sql_cast_num(col):
+            return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
 
+        # 1. Top Productos más vendidos
+        top_d = []
+        try:
+            excl_top = CatalogExclusionConfig.get_sql_exclusion_clause('productos', mode='top')
             sql_top_d = f"""
                 SELECT productos, 
                        SUM({_sql_cast_num('total_ingresos')}) as total_dinero,
                        SUM({_sql_cast_num('cantidad')}) as total_unidades
-                FROM db_ventas {filt} AND clasificacion ILIKE '%venta%'
+                FROM db_ventas {filt} AND clasificacion ILIKE '%venta%' {excl_top}
                 GROUP BY productos ORDER BY total_dinero DESC LIMIT 20
             """
             top_d = db.session.execute(text(sql_top_d), params).fetchall()
-            
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_admin_dashboard_metrics_sql - top_productos] {e}")
+
+        # 2. Productos menos vendidos
+        peor_d = []
+        try:
+            excl_peor = CatalogExclusionConfig.get_sql_exclusion_clause('productos', mode='menos_vendidos')
             sql_peor_d = f"""
                 SELECT productos, 
                        SUM({_sql_cast_num('total_ingresos')}) as total_dinero,
                        SUM({_sql_cast_num('cantidad')}) as total_unidades
-                FROM db_ventas {filt} AND clasificacion ILIKE '%venta%'
+                FROM db_ventas {filt} AND clasificacion ILIKE '%venta%' {excl_peor}
                 GROUP BY productos ORDER BY total_dinero ASC LIMIT 20
             """
             peor_d = db.session.execute(text(sql_peor_d), params).fetchall()
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_admin_dashboard_metrics_sql - peores_productos] {e}")
 
-            # 3. Incumplimiento (Backorder) - SQL Native con Impacto Financiero
-            # Se elimina el filtro de fecha temporalmente para validar volumen
+        # 3. Incumplimiento (Backorder) - SQL Native con Consolidador Relacional y Fallback defensivo
+        back_rows = []
+        try:
             sql_inc = f"""
                 WITH totals AS (
                     SELECT 
-                        nombres,
-                        productos as producto,
-                        SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
-                        SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty,
-                        MAX({_sql_cast_num('precio_promedio')}) as avg_price
-                    FROM db_ventas
-                    {filt}
-                    GROUP BY 1, 2
+                        COALESCE(e.nombre_canonical, b.nombres) as nombres,
+                        b.productos as producto,
+                        SUM(CASE WHEN b.clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as p_qty,
+                        SUM(CASE WHEN b.clasificacion ILIKE '%venta%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as v_qty,
+                        MAX({_sql_cast_num('b.precio_promedio')}) as avg_price
+                    FROM db_ventas b
+                    LEFT JOIN db_cliente_equivalencias e 
+                        ON UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))
+                        OR UPPER(TRIM(b.nombres)) ILIKE '%' || UPPER(TRIM(e.alias)) || '%'
+                    {filt.replace('WHERE fecha', 'WHERE b.fecha').replace('WHERE 1=1', 'WHERE 1=1')}
+                    GROUP BY COALESCE(e.nombre_canonical, b.nombres), b.productos
                 )
                 SELECT 
                     t.nombres,
                     t.producto, 
-                    '' as ref_final, -- Placeholder para mantener compatibilidad con el desempaquetado de tuplas
+                    '' as ref_final,
                     COALESCE(t.p_qty, 0) as p_qty, 
                     COALESCE(t.v_qty, 0) as v_qty, 
                     (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) as diff_qty,
@@ -1141,70 +1198,99 @@ class RepositoryService:
                 LIMIT 50
             """
             back_rows = db.session.execute(text(sql_inc), params).fetchall()
+        except Exception as e_join:
+            logger.warning(f"[get_admin_dashboard_metrics_sql - backorder JOIN fallback]: {e_join}")
+            rollback_seguro()
+            try:
+                sql_inc_fallback = f"""
+                    WITH totals AS (
+                        SELECT 
+                            nombres,
+                            productos as producto,
+                            SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
+                            SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty,
+                            MAX({_sql_cast_num('precio_promedio')}) as avg_price
+                        FROM db_ventas
+                        {filt}
+                        GROUP BY 1, 2
+                    )
+                    SELECT 
+                        t.nombres,
+                        t.producto, 
+                        '' as ref_final,
+                        COALESCE(t.p_qty, 0) as p_qty, 
+                        COALESCE(t.v_qty, 0) as v_qty, 
+                        (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) as diff_qty,
+                        COALESCE((COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) * COALESCE(t.avg_price, 0), 0) as diff_money
+                    FROM totals t
+                    WHERE (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) > 0
+                    ORDER BY diff_money DESC 
+                    LIMIT 50
+                """
+                back_rows = db.session.execute(text(sql_inc_fallback), params).fetchall()
+            except Exception as e_fb:
+                rollback_seguro()
+                logger.error(f"[get_admin_dashboard_metrics_sql - backorder fallback error]: {e_fb}")
 
-            # --- DEBUG LOGS (Instrucción del usuario) ---
-            for i, r in enumerate(back_rows[:5]):
-                logger.info(f"DEBUG BACKORDER: Producto: [{r[1]}], Codigo_Limpio: [{r[2]}], Costo Encontrado: [{r[6]}]")
+        # Mapeo de resultados de Backorder
+        inc_unidades = []
+        inc_dinero = []
+        backorder_list = []
+        
+        for r in back_rows:
+            cli = str(r[0] or 'Sin Cliente').strip()
+            prod = str(r[1] or 'Sin Producto').strip()
+            ref_fin = str(r[2] or '').strip()
+            p_qty = _num(r[3])
+            v_qty = _num(r[4])
+            diff_q = _num(r[5])
+            diff_m = _num(r[6])
             
-            # Mapeo a listas específicas para el Dashboard Admin
-            inc_unidades = []
-            inc_dinero = []
-            backorder_list = []
-            
-            for r in back_rows:
-                # r tiene 7 columnas: cli, prod, ref_fin, p_qty, v_qty, diff_q, diff_m
-                cli = str(r[0] or 'Sin Cliente').strip()
-                prod = str(r[1] or 'Sin Producto').strip()
-                ref_fin = str(r[2] or '').strip()
-                p_qty = _num(r[3])
-                v_qty = _num(r[4])
-                diff_q = _num(r[5])
-                diff_m = _num(r[6])
-                
-                inc_unidades.append({"cliente": cli, "producto": prod, "unidades_fallidas": diff_q})
-                inc_dinero.append({"cliente": cli, "producto": prod, "dinero_perdido": diff_m})
-                backorder_list.append({
-                    "producto": prod, 
-                    "cliente": cli,
-                    "clean_ref": ref_fin,
-                    "pedidos_qty": p_qty, 
-                    "ventas_qty": v_qty, 
-                    "pendiente_qty": diff_q,
-                    "pendiente_money": diff_m
-                })
+            inc_unidades.append({"cliente": cli, "producto": prod, "unidades_fallidas": diff_q})
+            inc_dinero.append({"cliente": cli, "producto": prod, "dinero_perdido": diff_m})
+            backorder_list.append({
+                "producto": prod, 
+                "cliente": cli,
+                "clean_ref": ref_fin,
+                "pedidos_qty": p_qty, 
+                "ventas_qty": v_qty, 
+                "pendiente_qty": diff_q,
+                "pendiente_money": diff_m
+            })
 
-            # Obtener Scrap para el resumen
+        # 4. Scrap para el resumen
+        scrap_money = 0
+        try:
             scrap_money = self.get_perdida_economica_scrap(start_date, end_date)
-
-            return {
-                "mensual": self.get_rendimiento_mensual_sql(start_date, end_date),
-                "top_productos": [{"producto": str(r[0] or 'Sin Producto').strip(), "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in top_d],
-                "peores_productos": [{"producto": str(r[0] or 'Sin Producto').strip(), "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in peor_d],
-                "backorder": backorder_list,
-                "incumplimiento_consolidado": [
-                    {
-                        "cliente": cli, 
-                        "unidades_fallidas": sum(item["pendiente_qty"] for item in backorder_list if item["cliente"] == cli),
-                        "dinero_perdido": sum(item["pendiente_money"] for item in backorder_list if item["cliente"] == cli)
-                    } for cli in sorted(list(set(item["cliente"] for item in backorder_list)))
-                ],
-                "incumplimiento_dinero": inc_dinero,
-                "incumplimiento_unidades": inc_unidades,
-                "resumen_unidades": sum(item["pendiente_qty"] for item in backorder_list),
-                "resumen_dinero": scrap_money
-            }
         except Exception as e:
-            logger.error(f"[get_admin_dashboard_metrics_sql] {e}")
-            return {
-                "mensual": [], 
-                "top_productos": [], 
-                "peores_productos": [],
-                "backorder": [], 
-                "incumplimiento_dinero": [], 
-                "incumplimiento_unidades": [],
-                "resumen_unidades": 0,
-                "resumen_dinero": 0
-            }
+            rollback_seguro()
+            logger.error(f"[get_admin_dashboard_metrics_sql - scrap]: {e}")
+
+        # 5. Rendimiento mensual
+        mensual_list = []
+        try:
+            mensual_list = self.get_rendimiento_mensual_sql(start_date, end_date)
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_admin_dashboard_metrics_sql - mensual]: {e}")
+
+        return {
+            "mensual": mensual_list,
+            "top_productos": [{"producto": str(r[0] or 'Sin Producto').strip(), "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in top_d],
+            "peores_productos": [{"producto": str(r[0] or 'Sin Producto').strip(), "ventas_dinero": _num(r[1]), "ventas_unidades": _num(r[2])} for r in peor_d],
+            "backorder": backorder_list,
+            "incumplimiento_consolidado": [
+                {
+                    "cliente": cli, 
+                    "unidades_fallidas": sum(item["pendiente_qty"] for item in backorder_list if item["cliente"] == cli),
+                    "dinero_perdido": sum(item["pendiente_money"] for item in backorder_list if item["cliente"] == cli)
+                } for cli in sorted(list(set(item["cliente"] for item in backorder_list)))
+            ],
+            "incumplimiento_dinero": inc_dinero,
+            "incumplimiento_unidades": inc_unidades,
+            "resumen_unidades": sum(item["pendiente_qty"] for item in backorder_list),
+            "resumen_dinero": scrap_money
+        }
 
 
     # ── HISTORIAL / TRAZABILIDAD ───────────────────────────────
@@ -1226,6 +1312,7 @@ class RepositoryService:
                 'ESTADO':         r.estado or '',
             } for r in rows]
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_historial_inyeccion] {e}")
             return []
 
@@ -1246,6 +1333,7 @@ class RepositoryService:
                 'HORA FIN':      r.hora_fin or '',
             } for r in rows]
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_historial_pulido] {e}")
             return []
 
@@ -1270,6 +1358,7 @@ class RepositoryService:
                 'TOTAL VENTA':    _num(r['total_ingresos']),
             } for r in res]
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_ventas_por_codigo] {e}")
             return []
 
@@ -1291,13 +1380,16 @@ class RepositoryService:
         sql = text(f"""
             WITH totals AS (
                 SELECT 
-                    productos as full_desc,
-                    TRIM(split_part(REPLACE(productos::TEXT, 'FR-', ''), ' ', 1)) as ref_final,
-                    SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
-                    SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty
-                FROM db_ventas
-                WHERE nombres ILIKE :cliente {filt}
-                GROUP BY productos
+                    b.productos as full_desc,
+                    TRIM(split_part(REPLACE(b.productos::TEXT, 'FR-', ''), ' ', 1)) as ref_final,
+                    SUM(CASE WHEN b.clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as p_qty,
+                    SUM(CASE WHEN b.clasificacion ILIKE '%venta%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as v_qty
+                FROM db_ventas b
+                LEFT JOIN db_cliente_equivalencias e 
+                    ON UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))
+                    OR UPPER(TRIM(b.nombres)) ILIKE '%' || UPPER(TRIM(e.alias)) || '%'
+                WHERE (b.nombres ILIKE :cliente OR COALESCE(e.nombre_canonical, b.nombres) ILIKE :cliente) {filt.replace('fecha', 'b.fecha')}
+                GROUP BY b.productos
             ),
             unique_costs AS (
                 SELECT referencia, MAX({_sql_cast_num('costo_total')}) as cost
@@ -1317,8 +1409,47 @@ class RepositoryService:
             ORDER BY (t.p_qty - t.v_qty) DESC
         """)
         
+        results = []
         try:
             results = db.session.execute(sql, params).fetchall()
+        except Exception as e_join:
+            logger.warning(f"[get_backorder_detalle_por_cliente_sql JOIN fallback]: {e_join}")
+            rollback_seguro()
+            sql_fallback = text(f"""
+                WITH totals AS (
+                    SELECT 
+                        productos as full_desc,
+                        TRIM(split_part(REPLACE(productos::TEXT, 'FR-', ''), ' ', 1)) as ref_final,
+                        SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
+                        SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty
+                    FROM db_ventas
+                    WHERE nombres ILIKE :cliente {filt}
+                    GROUP BY productos
+                ),
+                unique_costs AS (
+                    SELECT referencia, MAX({_sql_cast_num('costo_total')}) as cost
+                    FROM db_costos
+                    GROUP BY referencia
+                )
+                SELECT 
+                    t.full_desc,
+                    t.ref_final,
+                    t.p_qty,
+                    t.v_qty,
+                    (t.p_qty - t.v_qty) as diff_qty,
+                    COALESCE(c.cost, 0) as unit_cost
+                FROM totals t
+                LEFT JOIN unique_costs c ON t.ref_final = c.referencia
+                WHERE (t.p_qty - t.v_qty) > 0
+                ORDER BY (t.p_qty - t.v_qty) DESC
+            """)
+            try:
+                results = db.session.execute(sql_fallback, params).fetchall()
+            except Exception as e_fb:
+                rollback_seguro()
+                logger.error(f"[get_backorder_detalle_por_cliente_sql fallback error]: {e_fb}")
+
+        try:
             detalle = []
             for r in results:
                 diff = _num(r[4])
@@ -1368,6 +1499,7 @@ class RepositoryService:
             rows = db.session.execute(text(sql), params).fetchall()
             return [{"fecha": str(r[0]), "iny": int(r[1]), "pul": int(r[2])} for r in rows]
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_tendencia_produccion_sql] {e}")
             return []
 
@@ -1433,6 +1565,7 @@ class RepositoryService:
             rows = db.session.execute(text(sql), params).mappings().all()
             return [dict(r) for r in rows]
         except Exception as e:
+            rollback_seguro()
             logger.error(f"[get_desglose_mensual_ventas_sql] {e}")
             return []
 
@@ -1489,7 +1622,7 @@ class RepositoryService:
             db.session.commit()
             return len(datos_cartera)
         except Exception as e:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"[upsert_cartera_wo] Error en el UPSERT: {e}")
             raise e
 
