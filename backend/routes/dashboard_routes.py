@@ -2,7 +2,12 @@
 Rutas de dashboard.
 """
 from flask import Blueprint, jsonify, request
+from backend.core.sql_database import rollback_seguro
 from backend.core.repository_service import repository_service
+# Importados a nivel de módulo: si se resuelven dentro de un try/except propenso a
+# fallos, un error de DB deja el nombre sin definir y degenera en NameError en cascada.
+from backend.services.dashboard_service import DashboardService
+from backend.services.pulido_service import PulidoService
 # from backend.utils.formatters import to_int as to_int_seguro, clean_currency, parsear_fecha_dashboard
 import logging
 from backend.utils.cache_manager import cached_route, invalidate_cache
@@ -39,6 +44,7 @@ def obtener_dashboard():
 
         
     except Exception as e:
+        rollback_seguro()
         logger.error(f"Error en dashboard: {e}")
         return jsonify({
             'status': 'error',
@@ -105,24 +111,23 @@ def obtener_metricas_bi():
             ranking_iny_ops = repository_service.get_ranking_operarios_inyeccion(desde, hasta)
             ranking_maquinas_raw = repository_service.get_ranking_maquinas(desde, hasta)
 
-            from backend.services.dashboard_service import DashboardService
-            from backend.services.pulido_service import PulidoService
-
             maquinas_con_pct = DashboardService.calcular_porcentajes_maquinas(ranking_maquinas_raw)
 
             # 2. Analítica de Pulido → PulidoService (lógica de negocio aislada)
             pulido_profundo  = PulidoService.get_ranking_leaderboard(desde, hasta)
             analytics_pulido = PulidoService.get_analytics_completo(desde, hasta)
+            analytics_pulido["eficiencia_referencia"] = DashboardService.calcular_eficiencia_pulido_por_referencia(desde, hasta)
             analytics_inyeccion = repository_service.get_analytics_inyeccion(desde, hasta)
-            
+
             stock_critico = repository_service.get_stock_critico_sql()
             perdida_scrap = repository_service.get_perdida_economica_scrap(desde, hasta)
+            tendencia = repository_service.get_tendencia_produccion_sql(desde, hasta)
         except Exception as db_err:
-            db.session.rollback()
+            rollback_seguro()
             logger.error(f"❌ Error en consultas SQL de Dashboard BI: {db_err}")
-            kpis, ranking_iny_ops, ranking_maquinas_raw, maquinas_con_pct = {}, [], [], []
-            pulido_profundo, analytics_pulido, analytics_inyeccion = {}, {}, {}
-            stock_critico, perdida_scrap = [], 0
+            # PROHIBIDO degradar a ceros y seguir: eso produciría un HTTP 200 falso
+            # que cached_route congelaría durante 10 minutos. Se propaga para responder 500.
+            raise
 
         # 3. Estructura de salida compatible con Dashboard.js (Safe Access)
         stats = {
@@ -171,9 +176,6 @@ def obtener_metricas_bi():
             pulido_profundo=pulido_profundo,
             ranking_iny_ops=ranking_iny_ops
         )
-        
-        # 3. Tendencia de Producción
-        tendencia = repository_service.get_tendencia_produccion_sql(desde, hasta)
 
         # 4. Estructura de salida compatible con Dashboard.js (Safe Access)
         result_data = {
@@ -209,25 +211,18 @@ def obtener_metricas_bi():
         return jsonify({"status": "success", "success": True, "data": result_data}), 200
 
     except Exception as e:
+        rollback_seguro()
         import traceback
         logger.error(f"Error en dashboard BI: {e}\n{traceback.format_exc()}")
-        # Devolver ceros en lugar de 500 para que el frontend no colapse
-        fallback = {
-            "kpis": {
-                "inyeccion_ok": 0, "pulido_ok": 0, "scrap_total": 0,
-                "perdida_calidad_dinero": 0, "faltan_costos_pnc": [],
-                "scrap_detalle": {"inyeccion": 0, "pulido": 0, "ensamble": 0, "almacen": 0},
-                "scrap_almacen_desglose": []
-            },
-            "rankings": {"inyeccion_ops": [], "pulido_profundo": {}},
-            "maquinas": [], "tendencia": [],
-            "analytics_pulido": {"evolucion_puntos_op": {}, "operario_referencia": {}},
-            "analytics_inyeccion": {"operario_referencia": {}},
-            "insights_ia": [f"⚠️ Error temporal cargando datos: {str(e)[:80]}"],
-            "insight_ia": f"⚠️ Error temporal: {str(e)[:80]}",
-            "rango": {"desde": "", "hasta": ""}
-        }
-        return jsonify({"status": "success", "success": True, "data": fallback}), 200
+        # HTTP 500 obligatorio. cached_route SOLO almacena respuestas 200, de modo que
+        # un fallo transitorio de DB ya no queda congelado en caché durante 10 minutos.
+        # El detalle técnico queda en el log del servidor, no en la respuesta al cliente.
+        return jsonify({
+            "status": "error",
+            "success": False,
+            "error": "No fue posible calcular las métricas del dashboard.",
+            "data": None
+        }), 500
 
 # Mantener rutas viejas por compatibilidad si es necesario o redireccionarlas
 @dashboard_bp.route('/inyeccion', methods=['GET'])
@@ -251,6 +246,7 @@ def get_desglose_mensual():
         data = repository_service.get_desglose_mensual_ventas_sql(mes, anio, tipo_vista)
         return jsonify({"success": True, "data": data})
     except Exception as e:
+        rollback_seguro()
         logger.error(f"Error en get_desglose_mensual: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -303,9 +299,9 @@ def exportar_desglose_mensual():
             download_name=f'Reporte_Ventas_{mes}_{anio}.xlsx'
         )
     except Exception as e:
+        rollback_seguro()
         logger.error(f"❌ Error Crítico en Exportación Excel: {e}")
         return jsonify({"success": False, "error": f"Fallo en la generación del reporte: {str(e)}"}), 500
-        return str(e), 500
 
 
 # ── NUEVO ENDPOINT: Rendimiento Mensual Dedicado ──────────────────────────────
@@ -354,12 +350,16 @@ def get_monthly_performance():
         return jsonify({"success": True, "data": data}), 200
 
     except Exception as e:
+        rollback_seguro()
         import traceback
         logger.error(f"[/performance/monthly] {e}\n{traceback.format_exc()}")
+        # HTTP 500: devolver 200 con años en 0 hacía que el gráfico dibujara un
+        # comparativo vacío como si fuera un dato real.
         return jsonify({
-            "success": True,
-            "data": {"year_actual": 0, "year_prev": 0, "mensual": []}
-        }), 200
+            "success": False,
+            "error": "No fue posible calcular el comparativo mensual.",
+            "data": None
+        }), 500
 
 @dashboard_bp.route('/cartera', methods=['GET'])
 def get_dashboard_cartera():
@@ -375,6 +375,7 @@ def get_dashboard_cartera():
         }), 200
 
     except Exception as e:
+        rollback_seguro()
         logger.error(f"Error en endpoint /dashboard/cartera: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -383,8 +384,12 @@ def get_dashboard_rendimiento():
     """Retorna el rendimiento mensual para el tacómetro."""
     try:
         from backend.services.dashboard_service import DashboardService
+        desde_str = request.args.get('desde')
+        hasta_str = request.args.get('hasta')
+        desde = parsear_fecha_dashboard(desde_str) if desde_str else None
+        hasta = parsear_fecha_dashboard(hasta_str) if hasta_str else None
         
-        datos_rendimiento = DashboardService.get_rendimiento()
+        datos_rendimiento = DashboardService.get_rendimiento(desde, hasta)
         
         return jsonify({
             "success": True,
@@ -392,6 +397,7 @@ def get_dashboard_rendimiento():
         }), 200
 
     except Exception as e:
+        rollback_seguro()
         logger.error(f"Error en endpoint /dashboard/rendimiento: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -431,6 +437,7 @@ def get_scrap_detalle():
         data = DashboardService.get_scrap_detalle(item_id)
         return jsonify({"success": True, "item_id": item_id, "data": data}), 200
     except Exception as e:
+        rollback_seguro()
         logger.error(f"Error en /scrap-detalle: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -448,5 +455,44 @@ def get_sin_rotacion():
         data = DashboardService.get_productos_sin_rotacion(q=q, max_ventas=max_v)
         return jsonify({"success": True, "data": data}), 200
     except Exception as e:
+        rollback_seguro()
         logger.error(f"Error en /sin-rotacion: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@dashboard_bp.route('/drilldown/inyeccion', methods=['GET'])
+def drilldown_inyeccion_fecha():
+    """
+    Endpoint estricto de Drill-Down por fecha exacta (ISO YYYY-MM-DD) para auditoría de producción de inyección.
+    """
+    try:
+        import re
+        from datetime import datetime
+        from backend.services.dashboard_service import DashboardService
+
+        fecha_str = request.args.get('fecha', '').strip()
+        if not fecha_str:
+            return jsonify({
+                "success": False,
+                "error": "El parámetro 'fecha' es obligatorio y debe cumplir el formato ISO YYYY-MM-DD (ej. 2026-07-24)."
+            }), 400
+
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', fecha_str):
+            return jsonify({
+                "success": False,
+                "error": f"Formato de fecha inválido: '{fecha_str}'. Se requiere estrictamente el formato ISO YYYY-MM-DD."
+            }), 400
+
+        try:
+            datetime.strptime(fecha_str, '%Y-%m-%d')
+        except ValueError:
+            return jsonify({
+                "success": False,
+                "error": f"La fecha '{fecha_str}' no es una fecha válida del calendario ISO YYYY-MM-DD."
+            }), 400
+
+        res = DashboardService.get_drilldown_inyeccion_por_fecha(fecha_str)
+        return jsonify(res), 200 if res.get('success') else 500
+    except Exception as e:
+        rollback_seguro()
+        logger.error(f"Error en /api/dashboard/drilldown/inyeccion: {e}")
         return jsonify({"success": False, "error": str(e)}), 500

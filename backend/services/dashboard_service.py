@@ -1,5 +1,5 @@
 import logging
-from backend.core.sql_database import db
+from backend.core.sql_database import db, rollback_seguro
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,7 @@ class DashboardService:
                 "clientes_criticos": top_clientes
             }
         except Exception as e:
+            rollback_seguro()
             logger.error(f"Error consultando métricas de cartera: {e}")
             # Retorno seguro (default values) en caso de fallo
             return {
@@ -119,9 +120,40 @@ class DashboardService:
             }
 
     @staticmethod
-    def get_rendimiento():
+    def normalizar_cliente_alias(nombre: str) -> str:
+        """
+        Resuelve dinámicamente el alias del cliente consultando el mapeo relacional en DB (db_cliente_equivalencias / db_clientes).
+        Elimina el acoplamiento rígido de diccionarios estáticos en código.
+        """
+        if not nombre:
+            return ""
+        clean_name = str(nombre).strip()
+        upper_name = clean_name.upper()
+        if 'DISTRIBUJES' in upper_name and ('FC' in upper_name or 'CAUCHOS' in upper_name):
+            return 'FELIPE DUARTE MORENO'
+
+        try:
+            sql = text("""
+                SELECT COALESCE(
+                    (SELECT nombre_canonical FROM db_cliente_equivalencias WHERE UPPER(TRIM(alias)) = UPPER(TRIM(:nombre)) OR UPPER(TRIM(:nombre)) ILIKE '%' || UPPER(TRIM(alias)) || '%' OR UPPER(TRIM(alias)) ILIKE '%' || UPPER(TRIM(:nombre)) || '%' LIMIT 1),
+                    (SELECT razon_social FROM db_clientes WHERE UPPER(TRIM(alias)) = UPPER(TRIM(:nombre)) OR UPPER(TRIM(nombre)) = UPPER(TRIM(:nombre)) LIMIT 1),
+                    :nombre
+                )
+            """)
+            row = db.session.execute(sql, {"nombre": clean_name}).fetchone()
+            if row and row[0]:
+                return str(row[0]).strip()
+        except Exception as e:
+            logger.debug(f"[normalizar_cliente_alias DB lookup]: {e}")
+            rollback_seguro()
+
+        return clean_name
+
+    @staticmethod
+    def get_rendimiento(desde=None, hasta=None):
         """
         Devuelve el desglose de rendimiento de los últimos 12 meses con el índice del mes actual.
+        Soporta filtrado reactivo por fechas desde/hasta.
         """
         try:
             from backend.core.repository_service import repository_service
@@ -130,7 +162,9 @@ class DashboardService:
             current_month = now.month
             current_year = now.year
             
-            mensual_data = repository_service.get_rendimiento_mensual_sql()
+            start = str(desde) if desde else None
+            end = str(hasta) if hasta else None
+            mensual_data = repository_service.get_rendimiento_mensual_sql(start, end)
             
             rendimiento = []
             mes_actual_idx = 0
@@ -165,6 +199,7 @@ class DashboardService:
             }
             
         except Exception as e:
+            rollback_seguro()
             logger.error(f"Error consultando rendimiento: {e}")
             return {"mes_actual_idx": 0, "data": []}
 
@@ -251,6 +286,7 @@ class DashboardService:
             } for r in rows]
 
         except Exception as e:
+            rollback_seguro()
             logger.error(f"Error consultando detalle de scrap para {item_id}: {e}")
             return []
 
@@ -264,7 +300,10 @@ class DashboardService:
         try:
             max_ventas_val = max(0, min(50, int(max_ventas or 0)))
 
-            sql = """
+            from backend.core.repository_service import CatalogExclusionConfig
+            excl_sin_rot = CatalogExclusionConfig.get_sql_exclusion_clause('p.codigo_sistema', mode='sin_rotacion')
+
+            sql = f"""
                 SELECT 
                     p.id,
                     COALESCE(NULLIF(TRIM(p.codigo_sistema), ''), p.id_codigo, 'S/C') as codigo,
@@ -289,10 +328,11 @@ class DashboardService:
                 ) v_tot ON v_tot.ref = TRIM(UPPER(REPLACE(p.codigo_sistema::text, 'FR-', '')))
                 WHERE p.codigo_sistema IS NOT NULL AND p.codigo_sistema != ''
                   AND COALESCE(v_tot.total_ventas, 0) <= :max_ventas
+                  {excl_sin_rot}
                   AND (
                       :q_raw != '%%' OR (
                           p.codigo_sistema ILIKE 'FR-%' OR p.codigo_sistema ILIKE 'MT-%' 
-                          OR p.codigo_sistema ILIKE 'IM-%' OR p.codigo_sistema ILIKE 'DE-%'
+                          OR p.codigo_sistema ILIKE 'DE-%'
                           OR p.id_codigo ILIKE 'FR-%' OR p.id_codigo ILIKE 'MT-%'
                       )
                   )
@@ -338,5 +378,143 @@ class DashboardService:
                 "productos": resultado
             }
         except Exception as e:
+            rollback_seguro()
             logger.error(f"Error consultando productos sin/baja rotación: {e}")
             return {"total": 0, "productos": []}
+
+    @staticmethod
+    def get_drilldown_inyeccion_por_fecha(fecha_str):
+        """
+        Consulta los registros atómicos de inyección correspondientes a una fecha específica (YYYY-MM-DD),
+        agrupando OP, máquina, referencia, operario y calculando cantidades buenas y malas (PNC).
+        Optimizado con rango sargable para aprovechamiento de índices PostgreSQL.
+        """
+        try:
+            from datetime import datetime, timedelta
+            target_date = datetime.strptime(str(fecha_str).strip(), '%Y-%m-%d').date()
+            start_dt = datetime.combine(target_date, datetime.min.time())
+            end_dt = datetime.combine(target_date + timedelta(days=1), datetime.min.time())
+
+            sql = text("""
+                SELECT 
+                    COALESCE(NULLIF(TRIM(i.orden_produccion), ''), 'SIN OP')          AS orden_produccion,
+                    COALESCE(NULLIF(TRIM(i.maquina), ''), 'S/M')                     AS maquina,
+                    COALESCE(NULLIF(TRIM(i.id_codigo), ''), 'S/C')                    AS id_codigo,
+                    COALESCE(NULLIF(TRIM(p.descripcion), ''), 'Sin Descripción')     AS descripcion,
+                    COALESCE(NULLIF(TRIM(i.responsable), ''), 'S/R')                 AS operario,
+                    ROUND(SUM(COALESCE(i.cantidad_real, 0))::NUMERIC, 2)              AS buenas,
+                    ROUND(SUM(COALESCE(i.pnc_total, 0))::NUMERIC, 2)                 AS malas,
+                    COUNT(i.id)::INTEGER                                              AS total_registros
+                FROM db_inyeccion i
+                LEFT JOIN db_productos p ON TRIM(UPPER(REPLACE(p.codigo_sistema::text, 'FR-', ''))) = TRIM(UPPER(REPLACE(i.id_codigo::text, 'FR-', '')))
+                WHERE i.fecha_inicia >= :start_dt AND i.fecha_inicia < :end_dt
+                GROUP BY 
+                    COALESCE(NULLIF(TRIM(i.orden_produccion), ''), 'SIN OP'),
+                    COALESCE(NULLIF(TRIM(i.maquina), ''), 'S/M'),
+                    COALESCE(NULLIF(TRIM(i.id_codigo), ''), 'S/C'),
+                    COALESCE(NULLIF(TRIM(p.descripcion), ''), 'Sin Descripción'),
+                    COALESCE(NULLIF(TRIM(i.responsable), ''), 'S/R')
+                ORDER BY buenas DESC, malas DESC;
+            """)
+
+            rows = db.session.execute(sql, {'start_dt': start_dt, 'end_dt': end_dt}).mappings().all()
+
+            resultado = [{
+                'orden_produccion': r['orden_produccion'],
+                'maquina': r['maquina'],
+                'id_codigo': r['id_codigo'],
+                'descripcion': r['descripcion'],
+                'operario': r['operario'],
+                'buenas': float(r['buenas'] or 0),
+                'malas': float(r['malas'] or 0),
+                'total_registros': int(r['total_registros'] or 0)
+            } for r in rows]
+
+            return {
+                'success': True,
+                'fecha': fecha_str,
+                'total_filas': len(resultado),
+                'detalle': resultado
+            }
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_drilldown_inyeccion_por_fecha] Error consultando fecha {fecha_str}: {e}")
+            return {
+                'success': False,
+                'fecha': fecha_str,
+                'error': str(e),
+                'detalle': []
+            }
+
+    @staticmethod
+    def calcular_eficiencia_pulido_por_referencia(desde=None, hasta=None):
+        """
+        Cálculo optimizado que relaciona tiempo por lote y cantidad pulida para determinar 
+        de forma fidedigna qué operario procesa más rápido cada referencia específica.
+        Excluye operarias ignoradas ('NOHEMY', 'LAURA JIMENEZ').
+        """
+        try:
+            filt = " AND p.estado IN ('FINALIZADO', 'APROBADO') AND p.cantidad_real > 0 AND p.tiempo_total_minutos > 0"
+            params = {}
+            if desde and hasta:
+                filt += " AND p.fecha BETWEEN :desde AND :hasta"
+                params['desde'] = desde
+                params['hasta'] = hasta
+
+            sql = text(f"""
+                SELECT 
+                    UPPER(TRIM(p.codigo::text))                       AS referencia,
+                    UPPER(TRIM(p.responsable::text))                  AS operario,
+                    SUM(COALESCE(p.cantidad_real, 0))                 AS total_piezas,
+                    SUM(COALESCE(p.tiempo_total_minutos, 0))         AS total_minutos
+                FROM db_pulido p
+                WHERE 1=1 {filt}
+                GROUP BY 1, 2
+                HAVING SUM(COALESCE(p.cantidad_real, 0)) > 0 AND SUM(COALESCE(p.tiempo_total_minutos, 0)) > 0
+                ORDER BY 1, total_piezas DESC
+            """)
+
+            rows = db.session.execute(sql, params).mappings().all()
+
+            from backend.services.pulido_service import PulidoService
+            ref_map = {}
+
+            for r in rows:
+                op = r['operario']
+                if PulidoService._es_responsable_ignorado(op):
+                    continue
+
+                ref = r['referencia']
+                piezas = float(r['total_piezas'] or 0)
+                minutos = float(r['total_minutos'] or 0)
+
+                pz_min = round(piezas / minutos, 2) if minutos > 0 else 0.0
+                min_pz = round(minutos / piezas, 4) if piezas > 0 else 0.0
+
+                if ref not in ref_map:
+                    ref_map[ref] = []
+
+                ref_map[ref].append({
+                    "operario": op,
+                    "piezas": piezas,
+                    "minutos": minutos,
+                    "pz_por_minuto": pz_min,
+                    "minutos_por_pieza": min_pz
+                })
+
+            resumen_eficiencia = {}
+            for ref, ops in ref_map.items():
+                ops_sorted = sorted(ops, key=lambda x: x['pz_por_minuto'], reverse=True)
+                resumen_eficiencia[ref] = {
+                    "operario_mas_rapido": ops_sorted[0]['operario'],
+                    "velocidad_pz_min": ops_sorted[0]['pz_por_minuto'],
+                    "tiempo_min_pz": ops_sorted[0]['minutos_por_pieza'],
+                    "ranking_operarios": ops_sorted
+                }
+
+            return resumen_eficiencia
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[calcular_eficiencia_pulido_por_referencia] {e}")
+            return {}
+
