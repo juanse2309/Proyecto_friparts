@@ -41,50 +41,6 @@ def seguro_formatear_fecha(valor, formato='%d/%m/%Y %H:%M'):
     except:
         return str(valor)
 
-def normalizar_hora(hora_str):
-    """Convierte strings de hora sucios o localizados (ej: ' 5:00:00 p. m.') a formato HH:mm."""
-    if not hora_str or not isinstance(hora_str, str):
-        return ""
-    
-    import re
-    # Limpiar espacios extraños, puntos y normalizar am/pm
-    h = hora_str.strip().lower()
-    h = h.replace('.', '') # quitar puntos de p.m. -> pm
-    h = re.sub(r'\s+', ' ', h) # normalizar múltiples espacios a uno solo
-    
-    # Intentar parsear con formatos comunes
-    from datetime import datetime
-    formatos = [
-        '%I:%M:%S %p', # 05:00:00 pm
-        '%I:%M %p',    # 05:00 pm
-        '%H:%M:%S',    # 17:00:00
-        '%H:%M',       # 17:00
-        '%I:%M:%S%p',  # 05:00:00pm
-        '%I:%M%p'      # 05:00pm
-    ]
-    
-    # Manejo especial para el formato con espacio antes de am/pm que a veces falla en windows/linux
-    h = h.replace('a m', 'am').replace('p m', 'pm')
-    
-    for fmt in formatos:
-        try:
-            return datetime.strptime(h, fmt).strftime('%H:%M')
-        except:
-            continue
-            
-    # Si nada funciona, intentar extraer solo HH:mm con regex
-    match = re.search(r'(\d{1,2}:\d{2})', h)
-    if match:
-        time_part = match.group(1)
-        # Si contiene 'p' y no es 12, sumar 12
-        if 'p' in h:
-            h_int, m_int = map(int, time_part.split(':'))
-            if h_int < 12: h_int += 12
-            return f"{h_int:02d}:{m_int:02d}"
-        return time_part
-        
-    return ""
-
 @asistencia_bp.route('/colaboradores', methods=['GET'])
 @asistencia_bp.route('/personal_a_cargo', methods=['GET'])
 def obtener_colaboradores():

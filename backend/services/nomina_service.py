@@ -11,6 +11,7 @@ Cambios respecto a la versión anterior:
   - JOIN protege contra discrepancias entre colaborador/username con OR en nombre_completo.
 """
 
+import re
 import uuid
 import logging
 from datetime import datetime
@@ -37,6 +38,36 @@ def _parse_hours(val) -> float:
         return float(val)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _normalizar_hora(hora_str) -> str:
+    """Normaliza strings de hora sucios o localizados (ej: '5:00:00 p. m.') a 'HH:MM' 24h."""
+    if not hora_str or not isinstance(hora_str, str):
+        return ""
+
+    h = hora_str.strip().lower().replace('.', '')
+    h = re.sub(r'\s+', ' ', h)
+    h = h.replace('a m', 'am').replace('p m', 'pm')
+
+    formatos = [
+        '%I:%M:%S %p', '%I:%M %p',
+        '%H:%M:%S', '%H:%M',
+        '%I:%M:%S%p', '%I:%M%p',
+    ]
+    for fmt in formatos:
+        try:
+            return datetime.strptime(h, fmt).strftime('%H:%M')
+        except ValueError:
+            continue
+
+    match = re.search(r'(\d{1,2}):(\d{2})', h)
+    if match:
+        hh, mm = int(match.group(1)), int(match.group(2))
+        if 'p' in h and hh < 12:
+            hh += 12
+        return f"{hh:02d}:{mm:02d}"
+
+    return ""
 
 
 def _condicion_rol(division: str) -> str:
@@ -357,17 +388,29 @@ class ReglasAsistencia:
         if not registro.ingreso_real or not registro.salida_real or registro.ingreso_real.upper() == 'AUSENTE':
             return {"horas_ordinarias": 0.0, "horas_extras": 0.0}
 
+        ingreso_norm = _normalizar_hora(registro.ingreso_real)
+        salida_norm = _normalizar_hora(registro.salida_real)
+
         try:
             fmt = "%H:%M"
-            t_in = datetime.strptime(registro.ingreso_real, fmt)
-            t_out = datetime.strptime(registro.salida_real, fmt)
+            t_in = datetime.strptime(ingreso_norm, fmt)
+            t_out = datetime.strptime(salida_norm, fmt)
         except ValueError:
+            logger.warning(
+                f"[NOMINA] Formato de hora irreconocible en fecha={registro.fecha}: "
+                f"ingreso_real='{registro.ingreso_real}' salida_real='{registro.salida_real}'. "
+                f"Registrado como 0.0/0.0 — revisar origen del dato."
+            )
             return {"horas_ordinarias": 0.0, "horas_extras": 0.0}
 
         t_in_mins = t_in.hour * 60 + t_in.minute
         t_out_mins = t_out.hour * 60 + t_out.minute
-        
+
         if t_out_mins <= t_in_mins:
+            logger.warning(
+                f"[NOMINA] Salida <= Ingreso en fecha={registro.fecha}: "
+                f"ingreso={ingreso_norm} salida={salida_norm}. Registrado como 0.0/0.0."
+            )
             return {"horas_ordinarias": 0.0, "horas_extras": 0.0}
 
         total_mins = t_out_mins - t_in_mins
