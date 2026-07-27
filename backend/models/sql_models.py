@@ -248,6 +248,16 @@ class Pedido(db.Model):
     observaciones   = db.Column(db.Text,        nullable=True)
 
 
+class DbClienteEquivalencias(db.Model):
+    __tablename__ = 'db_cliente_equivalencias'
+    __table_args__ = {'extend_existing': True}
+
+    id               = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    alias            = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    nombre_canonical = db.Column(db.String(255), nullable=False)
+    created_at       = db.Column(db.DateTime, server_default=db.func.now())
+
+
 class Ensamble(db.Model):
     __tablename__ = 'db_ensambles'
     __table_args__ = {'extend_existing': True}
