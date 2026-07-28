@@ -9,3 +9,4 @@ class RegistroAsistencia:
     salida_real: Optional[str]
     rol_usuario: Optional[str] = None
     division: Optional[str] = None
+    colaborador: Optional[str] = None

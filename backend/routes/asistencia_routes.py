@@ -222,7 +222,8 @@ def guardar_asistencia():
             dto = RegistroAsistenciaDTO(
                 fecha=fecha_dt,
                 ingreso_real=ing_real,
-                salida_real=sal_real
+                salida_real=sal_real,
+                colaborador=nombre
             )
             calculo = ReglasAsistencia.calcular_jornada_y_extras(dto)
             h_ord = calculo['horas_ordinarias']

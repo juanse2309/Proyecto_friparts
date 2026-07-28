@@ -17,16 +17,17 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import text, func
 from backend.core.sql_database import db
-from backend.models.sql_models import CorteNomina, RegistroAsistencia as RegistroAsistenciaSQL
+from backend.models.sql_models import CorteNomina, RegistroAsistencia as RegistroAsistenciaSQL, Usuario
 from backend.models.nomina_models import RegistroAsistencia
-from backend.config.nomina_config import (
-    HORA_INICIO_JORNADA, HORA_FIN_JORNADA_L_J, HORA_FIN_JORNADA_VIERNES,
-    MINUTOS_DEDUCCION_ALIMENTACION_L_J, MINUTOS_DEDUCCION_ALIMENTACION_VIERNES, MINUTOS_DEDUCCION_ALIMENTACION_SABADO
-)
+from backend.config.nomina_config import PERFILES_HORARIO, MAPEO_PERFILES
 
 logger = logging.getLogger(__name__)
+
+# Cache en RAM de resoluciones nombre_completo/username -> username normalizado.
+# Vive durante el ciclo de vida del proceso (no se persiste, no expira).
+_cache_nombres_usuarios = {}
 
 
 # ── Helpers privados ──────────────────────────────────────────────────────────
@@ -209,7 +210,8 @@ def actualizar_registro_asistencia(registro_id: int, nuevo_ingreso: str, nueva_s
     dto = RegistroAsistencia(
         fecha=registro.fecha,
         ingreso_real=nuevo_ingreso,
-        salida_real=nueva_salida
+        salida_real=nueva_salida,
+        colaborador=registro.colaborador
     )
     
     calculo = ReglasAsistencia.calcular_jornada_y_extras(dto)
@@ -383,6 +385,49 @@ def construir_detalle_diario(registros_filtrados: list) -> list:
 
 
 class ReglasAsistencia:
+    _usuarios_precargados = False
+
+    @classmethod
+    def _resolver_username_colaborador(cls, nombre_crudo: str) -> str:
+        """
+        Resuelve nombre_completo o username crudo -> username normalizado (minúsculas, sin espacios).
+        Bulk Preload: en la primera invocación por proceso, carga TODOS los usuarios en
+        _cache_nombres_usuarios con una única consulta (elimina el N+1 del lazy loading individual).
+        """
+        if not cls._usuarios_precargados:
+            usuarios = db.session.query(Usuario.username, Usuario.nombre_completo).all()
+            for user in usuarios:
+                _cache_nombres_usuarios[user.username.strip().lower()] = user.username.strip().lower()
+                if user.nombre_completo:
+                    _cache_nombres_usuarios[user.nombre_completo.strip().lower()] = user.username.strip().lower()
+            cls._usuarios_precargados = True
+
+        if not nombre_crudo:
+            return ''
+
+        nombre_normalizado = nombre_crudo.strip().lower()
+        resultado = _cache_nombres_usuarios.get(nombre_normalizado)
+
+        if resultado is None:
+            # Invalidación reactiva: posible empleado creado después del preload. Consulta puntual.
+            usuario = db.session.query(Usuario).filter(
+                func.lower(Usuario.username) == nombre_normalizado
+            ).first()
+            if not usuario:
+                usuario = db.session.query(Usuario).filter(
+                    func.lower(func.trim(Usuario.nombre_completo)) == nombre_normalizado
+                ).first()
+
+            if usuario:
+                resultado = usuario.username.strip().lower()
+            else:
+                # No existe en db_usuarios: se asume operario legado, ya es el username.
+                resultado = nombre_normalizado.replace(' ', '')
+
+            _cache_nombres_usuarios[nombre_normalizado] = resultado
+
+        return resultado
+
     @classmethod
     def calcular_jornada_y_extras(cls, registro: RegistroAsistencia) -> dict:
         if not registro.ingreso_real or not registro.salida_real or registro.ingreso_real.upper() == 'AUSENTE':
@@ -430,15 +475,15 @@ class ReglasAsistencia:
                 "horas_extras": round(total_mins / 60.0, 2)
             }
 
-        w_start_dt = datetime.strptime(HORA_INICIO_JORNADA, fmt)
+        username_limpio = cls._resolver_username_colaborador(registro.colaborador)
+        perfil_id = MAPEO_PERFILES.get(username_limpio, 'ESTANDAR')
+        regla_dia = PERFILES_HORARIO[perfil_id][weekday]
+
+        w_start_dt = datetime.strptime(regla_dia['inicio'], fmt)
         w_start_mins = w_start_dt.hour * 60 + w_start_dt.minute
 
-        if weekday <= 3: # Lunes a Jueves
-            w_end_dt = datetime.strptime(HORA_FIN_JORNADA_L_J, fmt)
-            deduccion_mins = MINUTOS_DEDUCCION_ALIMENTACION_L_J
-        else: # Viernes
-            w_end_dt = datetime.strptime(HORA_FIN_JORNADA_VIERNES, fmt)
-            deduccion_mins = MINUTOS_DEDUCCION_ALIMENTACION_VIERNES
+        w_end_dt = datetime.strptime(regla_dia['fin'], fmt)
+        deduccion_mins = regla_dia['deduccion']
 
         w_end_mins = w_end_dt.hour * 60 + w_end_dt.minute
 

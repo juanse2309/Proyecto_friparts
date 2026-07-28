@@ -14,6 +14,7 @@ from backend.models.sql_models import (
 )
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion
+from backend.services.historial_service import preparar_movimientos_para_excel
 
 historial_bp = Blueprint('historial_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -687,6 +688,9 @@ def exportar_excel_historial_global():
             logger.error("Los resultados no son una lista")
             return jsonify({"success": False, "error": "Error interno"}), 500
 
+        # Normalizacion estricta a 24h (delegada al servicio, ver FRITECH V4.5)
+        resultados = preparar_movimientos_para_excel(resultados)
+
         wb = Workbook()
         ws = wb.active
         ws.title = "Historial Global"
@@ -747,7 +751,13 @@ def exportar_excel_historial_global():
                 cell = ws.cell(row=row_idx, column=col_idx, value=cell_val)
                 cell.border = thin_border
 
-                if col_idx in (4, 5, 6, 7, 8, 15): 
+                # Columnas 2 y 3 = Hora Inicio / Hora Fin: forzar formato Texto
+                # para que OpenPyXL/Excel nunca reinterprete el string 24h
+                # normalizado como una hora 12h dependiente del locale.
+                if col_idx in (2, 3):
+                    cell.number_format = '@'
+
+                if col_idx in (4, 5, 6, 7, 8, 15):
                     cell.alignment = text_align
                 else:
                     cell.alignment = data_align

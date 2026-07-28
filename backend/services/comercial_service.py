@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 # sobre db_ventas.vendedor y evita falsos positivos entre nombres similares.
 FILTRO_SCOPE_ROL = "(:es_comercial = FALSE OR UPPER(TRIM(COALESCE(v.vendedor, ''))) = UPPER(TRIM(:vendedor_user)))"
 FILTRO_VENDEDOR_OPCIONAL = "(:vendedor_filtro = '' OR UPPER(TRIM(COALESCE(v.vendedor, ''))) = UPPER(TRIM(:vendedor_filtro)))"
+# "Ventas Totales" no debe mezclar Pedidos (db_ventas.clasificacion='pedido'): sin este filtro,
+# toda cifra de este servicio suma venta+pedido en un solo numero (confirmado con datos reales:
+# Andres/2025 daba $5,309,314,039 = venta $2,590,839,285 + pedido $2,718,474,754).
+FILTRO_SOLO_VENTA = "UPPER(TRIM(COALESCE(v.clasificacion, ''))) = 'VENTA'"
 
 
 class ComercialHistoricoService:
@@ -101,6 +105,7 @@ class ComercialHistoricoService:
               AND v.fecha <= MAKE_DATE(:end_year, 12, 31)
               AND {FILTRO_SCOPE_ROL}
               AND {FILTRO_VENDEDOR_OPCIONAL}
+              AND {FILTRO_SOLO_VENTA}
             GROUP BY EXTRACT(YEAR FROM v.fecha)
             ORDER BY anio ASC;
         """)
@@ -115,6 +120,7 @@ class ComercialHistoricoService:
               AND v.fecha <= MAKE_DATE(:end_year, 12, 31)
               AND {FILTRO_SCOPE_ROL}
               AND {FILTRO_VENDEDOR_OPCIONAL}
+              AND {FILTRO_SOLO_VENTA}
             GROUP BY COALESCE(NULLIF(TRIM(v.zona), ''), 'SIN ZONA')
             ORDER BY total_ventas DESC;
         """)
@@ -129,6 +135,7 @@ class ComercialHistoricoService:
               AND v.fecha <= MAKE_DATE(:end_year, 12, 31)
               AND {FILTRO_SCOPE_ROL}
               AND {FILTRO_VENDEDOR_OPCIONAL}
+              AND {FILTRO_SOLO_VENTA}
             GROUP BY COALESCE(NULLIF(TRIM(v.nombres), ''), 'CLIENTE DESCONOCIDO')
             ORDER BY total_ventas DESC
             LIMIT 50;
@@ -193,6 +200,7 @@ class ComercialHistoricoService:
                   AND v.fecha <= MAKE_DATE(:end_year, 12, 31)
                   AND {FILTRO_SCOPE_ROL}
                   AND {FILTRO_VENDEDOR_OPCIONAL}
+                  AND {FILTRO_SOLO_VENTA}
                 GROUP BY 1, 2, 3, 4
             )
             SELECT *, COUNT(*) OVER()::INTEGER AS total_registros
@@ -289,6 +297,44 @@ class ComercialHistoricoService:
         worksheet.freeze_panes = 'B2'  # columna de zona siempre visible al hacer scroll horizontal
 
     @staticmethod
+    def _formatear_hoja_comparativo_cliente(worksheet, pivot_df):
+        """
+        Formato para la hoja comparativa Cliente x Mes (replica el informe de World Office):
+        columna 1 = cliente (texto), columnas intermedias = meses (dinero), última columna
+        'Total' y última fila 'TOTAL VENTAS' resaltadas en negrita, igual que el reporte de WO.
+        """
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+
+        fondo_header = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
+        fuente_header = Font(color='FFFFFF', bold=True)
+        fondo_total = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
+        fuente_negrita = Font(bold=True)
+
+        # pivot_df ya trae agregadas la columna 'Total' (derecha) y la fila 'TOTAL VENTAS' (abajo)
+        num_filas = len(pivot_df)
+        num_columnas = len(pivot_df.columns) + 1  # +1 por la columna de índice (cliente)
+        fila_total_excel = num_filas + 1  # fila 1 = encabezado; ultima fila de datos = TOTAL VENTAS
+
+        for idx in range(1, num_columnas + 1):
+            letra = get_column_letter(idx)
+            celda = worksheet.cell(row=1, column=idx)
+            celda.fill = fondo_header
+            celda.font = fuente_header
+            celda.alignment = Alignment(horizontal='center', vertical='center')
+            worksheet.column_dimensions[letra].width = 32 if idx == 1 else 16
+
+            for fila in range(2, fila_total_excel + 1):
+                celda_dato = worksheet.cell(row=fila, column=idx)
+                if idx > 1:
+                    celda_dato.number_format = '"$" #,##0'
+                if idx == num_columnas or fila == fila_total_excel:  # columna Total o fila TOTAL VENTAS
+                    celda_dato.font = fuente_negrita
+                    celda_dato.fill = fondo_total
+
+        worksheet.freeze_panes = 'B2'
+
+    @staticmethod
     def _query_ytd(user_id: int, username: str, user_role: str, start_year: int, end_year: int,
                     vendedor_filtro: str, corte_dt: date):
         """
@@ -321,6 +367,7 @@ class ComercialHistoricoService:
                   <= (EXTRACT(MONTH FROM :corte_dt), EXTRACT(DAY FROM :corte_dt))
               AND {FILTRO_SCOPE_ROL}
               AND {FILTRO_VENDEDOR_OPCIONAL}
+              AND {FILTRO_SOLO_VENTA}
         """
 
         query_anual = text(f"""
@@ -376,16 +423,32 @@ class ComercialHistoricoService:
             LIMIT 30;
         """)
 
+        # Ventas mensuales por cliente (comparativo, replica estructura del informe de World Office).
+        # Sin LIMIT: a diferencia de una tabla en el navegador, un Excel con cientos de filas no
+        # tiene costo de renderizado — respeta el mismo scope que el resto de hojas.
+        query_mensual_cliente = text(f"""
+            SELECT
+                EXTRACT(YEAR FROM v.fecha)::INTEGER AS anio,
+                EXTRACT(MONTH FROM v.fecha)::INTEGER AS mes,
+                COALESCE(NULLIF(TRIM(v.nombres), ''), 'CLIENTE DESCONOCIDO') AS cliente,
+                ROUND(SUM({ventas_expr})::NUMERIC, 2) AS total_ventas
+            FROM db_ventas v
+            {where_ytd}
+            GROUP BY 1, 2, 3
+            ORDER BY cliente ASC, anio ASC, mes ASC;
+        """)
+
         try:
             ytd_anual = [dict(r) for r in db.session.execute(query_anual, params).mappings().all()]
             ytd_zona = [dict(r) for r in db.session.execute(query_zona, params).mappings().all()]
             ytd_mensual_zona = [dict(r) for r in db.session.execute(query_mensual_zona, params).mappings().all()]
             top_clientes = [dict(r) for r in db.session.execute(query_top_clientes, params).mappings().all()]
+            ytd_mensual_cliente = [dict(r) for r in db.session.execute(query_mensual_cliente, params).mappings().all()]
         except Exception as e:
             logger.error(f"[COMERCIAL_SERVICE] Error generando agregación YTD: {e}")
             raise e
 
-        return ytd_anual, ytd_zona, ytd_mensual_zona, top_clientes, es_global
+        return ytd_anual, ytd_zona, ytd_mensual_zona, top_clientes, ytd_mensual_cliente, es_global
 
     @staticmethod
     def generar_excel_ytd_stream(user_id: int, username: str, user_role: str, start_year: int, end_year: int,
@@ -401,7 +464,7 @@ class ComercialHistoricoService:
 
         corte_dt = ComercialHistoricoService._resolver_fecha_corte(fecha_corte)
 
-        ytd_anual, ytd_zona, ytd_mensual_zona, top_clientes, _ = ComercialHistoricoService._query_ytd(
+        ytd_anual, ytd_zona, ytd_mensual_zona, top_clientes, ytd_mensual_cliente, _ = ComercialHistoricoService._query_ytd(
             user_id=user_id, username=username, user_role=user_role,
             start_year=start_year, end_year=end_year,
             vendedor_filtro=vendedor_filtro, corte_dt=corte_dt
@@ -411,12 +474,38 @@ class ComercialHistoricoService:
         df_zona = pd.DataFrame(ytd_zona)
         df_mensual_zona = pd.DataFrame(ytd_mensual_zona)
         df_top_clientes = pd.DataFrame(top_clientes)
+        df_mensual_cliente = pd.DataFrame(ytd_mensual_cliente)
 
         # Reshape puro (no reagrega nada): pivotea filas ya sumadas por SQL para lectura Y-o-Y.
         if not df_zona.empty:
             pivot_yoy = df_zona.pivot_table(index='zona', columns='anio', values='total_ventas', fill_value=0)
         else:
             pivot_yoy = pd.DataFrame()
+
+        # Comparativo Cliente x Mes (replica el informe "Comparativo Agrupado Por Vendedor" de WO):
+        # reshape puro de filas ya agregadas por SQL, más fila/columna de totales (sumas, no recálculo).
+        MESES_NOMBRE = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+            7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        if not df_mensual_cliente.empty:
+            df_mensual_cliente = df_mensual_cliente.copy()
+            df_mensual_cliente['periodo'] = df_mensual_cliente.apply(
+                lambda r: f"{MESES_NOMBRE[int(r['mes'])]} {int(r['anio'])}", axis=1
+            )
+            orden_periodos = (
+                df_mensual_cliente.drop_duplicates(subset=['anio', 'mes'])
+                .sort_values(['anio', 'mes'])['periodo'].tolist()
+            )
+            pivot_cliente_mes = df_mensual_cliente.pivot_table(
+                index='cliente', columns='periodo', values='total_ventas', aggfunc='sum', fill_value=0
+            )[orden_periodos]
+            pivot_cliente_mes['Total'] = pivot_cliente_mes.sum(axis=1)
+            fila_total = pivot_cliente_mes.sum(axis=0)
+            fila_total.name = 'TOTAL VENTAS'
+            pivot_cliente_mes = pd.concat([pivot_cliente_mes, fila_total.to_frame().T])
+        else:
+            pivot_cliente_mes = pd.DataFrame()
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -448,6 +537,12 @@ class ComercialHistoricoService:
             pivot_yoy.to_excel(writer, sheet_name='YoY Zona (Pivot)')
             if not pivot_yoy.empty:
                 ComercialHistoricoService._formatear_hoja_pivot(writer.sheets['YoY Zona (Pivot)'], pivot_yoy)
+
+            pivot_cliente_mes.to_excel(writer, sheet_name='Ventas Mensuales Cliente')
+            if not pivot_cliente_mes.empty:
+                ComercialHistoricoService._formatear_hoja_comparativo_cliente(
+                    writer.sheets['Ventas Mensuales Cliente'], pivot_cliente_mes
+                )
         output.seek(0)
 
         vendedor_slug = re.sub(r'[^A-Za-z0-9_-]+', '_', vendedor_filtro.strip())[:40] if vendedor_filtro else 'GLOBAL'

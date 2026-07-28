@@ -97,59 +97,56 @@ class AuditService:
         if registro_db and hasattr(registro_db, 'responsable') and registro_db.responsable:
             owner_db = str(registro_db.responsable).strip()
             
-            if owner_db and incoming_responsable:
-                if owner_db.upper() != incoming_responsable.upper():
-                    # Verificar si la sesión o el incoming pertenecen a un administrador
-                    from flask import request, session
-                    import unicodedata
-                    import jwt
-                    import os
-
-                    try:
-                        user_name = ""
-                        user_role = ""
-
-                        # 1. Intentar extraer identidad y rol directamente desde el JWT de la PWA
-                        auth_header = request.headers.get('Authorization')
-                        if auth_header and auth_header.startswith('Bearer '):
-                            token = auth_header.split(' ')[1]
-                            secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
-                            try:
-                                payload = jwt.decode(token, secret, algorithms=['HS256'])
-                                user_name = str(payload.get('user', '')).strip().upper()
-                                user_role = str(payload.get('role', '')).strip().upper()
-                            except Exception:
-                                pass
-
-                        # 2. Fallback a la sesión de Flask
-                        if not user_name:
-                            user_name = str(session.get('user', session.get('username', ''))).strip().upper()
-                        if not user_role:
-                            user_role = str(session.get('role', '')).strip().upper()
-
-                        # 3. Concatenar todo el contexto de identidad para una búsqueda robusta
-                        contexto_identidad = f"{user_name} {user_role} {incoming_responsable}".upper()
-                        contexto_identidad = ''.join((c for c in unicodedata.normalize('NFD', contexto_identidad) if unicodedata.category(c) != 'Mn'))
-                        
-                        keywords_administrativos = ['ADMIN', 'SUPERVISOR', 'JUAN', 'NOVOA', 'PAOLA', 'CEPEDA']
-                        
-                        if any(kw in contexto_identidad for kw in keywords_administrativos):
-                            logger.info(
-                                f"🛡️ [Ownership Bypass] Administrativo detectado en contexto '{contexto_identidad}'. "
-                                f"Autorizado para procesar registro de '{owner_db}'."
-                            )
-                            # RETORNO CLAVE: Devolvemos el owner original para no corromper la trazabilidad
-                            return owner_db
-                    except Exception as e:
-                        logger.error(f"Error evaluando by-pass infalible: {e}")
-
-                    logger.warning(
-                        f"⚠️ [Ownership Conflict] Intento de acceso denegado. "
-                        f"Dueño persistido: '{owner_db}' | Usuario entrante: '{incoming_responsable}'"
+            if owner_db and incoming_responsable and owner_db.upper() != incoming_responsable.upper():
+                if AuditService._usuario_autenticado_puede_override():
+                    logger.info(
+                        f"🛡️ [Ownership Override] Rol autorizado detectado en la sesión activa. "
+                        f"Se preserva el propietario original '{owner_db}' (solicitante: '{incoming_responsable}')."
                     )
-                    raise OwnershipMismatchException(
-                        responsable_db=owner_db,
-                        responsable_in=incoming_responsable
-                    )
+                    # Se conserva el owner original: no se sobrescribe la autoría del creador,
+                    # la trazabilidad de quién ejecutó la validación queda a cargo de validado_por/finalizado_por.
+                    return owner_db
+
+                logger.warning(
+                    f"⚠️ [Ownership Conflict] Intento de acceso denegado. "
+                    f"Dueño persistido: '{owner_db}' | Usuario entrante: '{incoming_responsable}'"
+                )
+                raise OwnershipMismatchException(
+                    responsable_db=owner_db,
+                    responsable_in=incoming_responsable
+                )
 
         return incoming_responsable
+
+    @staticmethod
+    def _usuario_autenticado_puede_override():
+        """
+        Determina si el usuario autenticado en la petición HTTP activa (JWT o sesión Flask)
+        posee un rol autorizado para omitir el Ownership Guard.
+
+        Evalúa EXCLUSIVAMENTE el rol resuelto por la capa de autenticación centralizada
+        (obtener_identidad_segura), nunca texto libre del payload — así un cliente no puede
+        forjar el override enviando un 'responsable' que contenga palabras como 'ADMIN'.
+
+        La coincidencia es unidireccional (rol_autorizado in rol_del_usuario): un rol
+        autorizado debe aparecer dentro del rol real del usuario. La dirección inversa
+        (rol_del_usuario in rol_autorizado) se evita a propósito porque roles de operario
+        como 'INYECCION' o 'PULIDO' son substring literal de 'JEFE INYECCION' / 'JEFE PULIDO',
+        lo que le daría bypass a cualquier operario común.
+        """
+        try:
+            from flask import request
+            from backend.utils.auth_middleware import obtener_identidad_segura, ROLES_VALIDACION_OVERRIDE
+            import unicodedata
+
+            _, raw_role = obtener_identidad_segura(request)
+            if not raw_role:
+                return False
+
+            role_norm = str(raw_role).strip().upper()
+            role_norm = ''.join(c for c in unicodedata.normalize('NFD', role_norm) if unicodedata.category(c) != 'Mn')
+
+            return any(r.upper() in role_norm for r in ROLES_VALIDACION_OVERRIDE)
+        except Exception as e:
+            logger.error(f"Error evaluando permiso de override de propiedad: {e}")
+            return False

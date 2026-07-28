@@ -486,6 +486,13 @@ const ModuloEnsamble = {
             return;
         }
 
+        const horaInicio = document.getElementById('reporte-hora-inicio')?.value || '';
+        const horaFin = document.getElementById('reporte-hora-fin')?.value || '';
+        if (horaInicio && horaFin && horaFin <= horaInicio) {
+            mostrarNotificacion('La Hora Fin debe ser estrictamente posterior a la Hora Inicio', 'error');
+            return;
+        }
+
         // ID de Ensamble Único para la operación
         if (!this.sessionId) {
             this.sessionId = 'ENS-' + Math.random().toString(36).substr(2, 9).toUpperCase();

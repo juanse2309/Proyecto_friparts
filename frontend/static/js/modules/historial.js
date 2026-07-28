@@ -753,6 +753,13 @@
             datos[input.dataset.col] = input.value;
         });
 
+        const horaInicio = datos['HORA INICIO'];
+        const horaFin = datos['HORA FIN'] || datos['HORA TERMINA'];
+        if (horaInicio && horaFin && horaFin <= horaInicio) {
+            mostrarNotificacion('La Hora Fin/Termina debe ser estrictamente posterior a la Hora Inicio', 'error');
+            return;
+        }
+
         // Añadir motivo a las observaciones si se proporcionó (Concatenar si ya existe en datos)
         if (motivo) {
             if (datos['OBSERVACIONES']) {
