@@ -24,10 +24,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ArchivarVentas2025")
 
-DATABASE_URL = os.environ.get(
-    'DATABASE_URL', 
-    'postgresql://admin_juan:5uM2TSjhKB2nIRPR41xJlmgJ5tKgaonX@dpg-d7f5mrpf9bms73a0a1g0-a.virginia-postgres.render.com/fritech_db'
-)
+from dotenv import load_dotenv
+load_dotenv()
+
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL no está configurada. Defínela en tu .env o entorno.")
 
 def ejecutar_migracion():
     logger.info("📡 Iniciando migración de histórico de ventas 2025...")

@@ -46,14 +46,18 @@ DB_DRIVER = os.getenv("WO_DB_DRIVER", "{ODBC Driver 17 for SQL Server}")
 DB_SERVER = os.getenv("WO_DB_SERVER", r"SERVERWO\WORLDOFFICE17")
 DB_DATABASE = os.getenv("WO_DB_DATABASE", "FRIPARTS2021")
 DB_UID = os.getenv("WO_DB_UID", "wo_cliente")
-DB_PWD = os.getenv("WO_DB_PWD", "wo_cliente")
+DB_PWD = os.getenv("WO_DB_PWD") or os.getenv("WO_PASSWORD")
+if not DB_PWD:
+    raise RuntimeError("WO_DB_PWD / WO_PASSWORD no está configurada")
 
 # URL de la API de FriTech en Render
 # NOTA: Cambiar esta URL por la URL real de producción en Render cuando esté desplegado.
 FRITECH_API_URL = os.getenv("FRITECH_API_URL", "https://proyecto-friparts.onrender.com/api/wo/recibir_datos")
 
 # API Key para autenticar contra la app en la nube
-WO_SYNC_API_KEY = os.getenv("WO_SYNC_API_KEY", "FriParts-WO-Sync-2026!")
+WO_SYNC_API_KEY = os.getenv("WO_SYNC_API_KEY")
+if not WO_SYNC_API_KEY:
+    raise RuntimeError("WO_SYNC_API_KEY no está configurada")
 
 
 # ====================================================================

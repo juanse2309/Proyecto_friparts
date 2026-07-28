@@ -10,10 +10,14 @@ load_dotenv()
 DB_SERVER = os.getenv("WO_SERVER", r"SERVERWO\WORLDOFFICE17")
 DB_DATABASE = os.getenv("WO_DB", "FRIPARTS2021")
 DB_UID = os.getenv("WO_USER", "wo_cliente")
-DB_PWD = os.getenv("WO_PASSWORD", "wo_cliente")
+DB_PWD = os.getenv("WO_PASSWORD")
+if not DB_PWD:
+    raise RuntimeError("WO_PASSWORD no está configurada")
 
 API_URL = os.getenv("SYNC_API_URL", "https://proyecto-friparts.onrender.com")
-SYNC_TOKEN = os.getenv("SYNC_TOKEN", "FriParts-WO-Sync-2026!")
+SYNC_TOKEN = os.getenv("SYNC_TOKEN")
+if not SYNC_TOKEN:
+    raise RuntimeError("SYNC_TOKEN no está configurada")
 
 conn_str = (
     f"DRIVER={{SQL Server}};"

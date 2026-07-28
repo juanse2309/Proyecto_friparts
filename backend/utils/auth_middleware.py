@@ -11,6 +11,9 @@ ROL_ADMINS = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA']
 ROL_JEFES = ['JEFE ALMACEN', 'JEFE INYECCION', 'JEFE PULIDO', 'JEFE DE PLANTA', 'JEFE ALISTAMIENTO']
 ROL_COMERCIALES = ['COMERCIAL', 'COMERCIAL FRIMETALS', 'STAFF FRIMETALS']
 ROL_OPERARIOS = ['INYECCION', 'PULIDO', 'ALISTAMIENTO', 'ENSAMBLE', 'AUXILIAR INVENTARIO']
+# Roles autorizados para omitir el Ownership Guard (ver AuditService._usuario_autenticado_puede_override).
+# Mantener sincronizado con los roles usados en @require_role de las rutas de validación.
+ROLES_VALIDACION_OVERRIDE = ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'INVENTARIO', 'CALIDAD', 'STAFF FRIMETALS', 'SUPERVISOR']
 
 def _obtener_jwt_secrets():
     """
@@ -36,9 +39,6 @@ def _obtener_jwt_secrets():
             candidatas.append(current_app.secret_key)
     except Exception:
         pass
-
-    # 3. Clave por defecto utilizada en auth_routes.py
-    candidatas.append('super_secret_pwa_key_2026')
 
     # Desduplicar preservando orden de prioridad
     unicas = []

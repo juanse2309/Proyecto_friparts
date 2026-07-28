@@ -15,10 +15,14 @@ DB_DRIVER   = os.getenv("WO_DB_DRIVER",  "{ODBC Driver 17 for SQL Server}")
 DB_SERVER   = os.getenv("WO_SERVER",     r"SERVERWO\WORLDOFFICE17")
 DB_DATABASE = os.getenv("WO_DB",         "FRIPARTS2021")
 DB_UID      = os.getenv("WO_USER",       "wo_cliente")
-DB_PWD      = os.getenv("WO_PASSWORD",   "wo_cliente")
+DB_PWD      = os.getenv("WO_PASSWORD")
+if not DB_PWD:
+    raise RuntimeError("WO_PASSWORD no está configurada")
 
 API_URL = os.getenv("API_RENDER_URL_COMERCIAL", "https://proyecto-friparts.onrender.com/api/wo/recibir_comercial")
-API_KEY = os.getenv("WO_SYNC_API_KEY", "FriParts-WO-Sync-2026!")
+API_KEY = os.getenv("WO_SYNC_API_KEY")
+if not API_KEY:
+    raise RuntimeError("WO_SYNC_API_KEY no está configurada")
 
 # Construir el string de conexión a SQL Server exactamente como en agente_wo.py
 conn_str = (

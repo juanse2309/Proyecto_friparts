@@ -53,7 +53,9 @@ def reiniciar_pedido_wo(id_pedido_numero, db_session):
     DB_SERVER   = os.environ.get("WO_SERVER", r"SERVERWO\WORLDOFFICE17")
     DB_DATABASE = os.environ.get("WO_DB", "FRIPARTS2021")
     DB_UID      = os.environ.get("WO_USER", "wo_cliente")
-    DB_PWD      = os.environ.get("WO_PASSWORD", "wo_cliente")
+    DB_PWD      = os.environ.get("WO_PASSWORD")
+    if not DB_PWD:
+        raise RuntimeError("WO_PASSWORD no está configurada")
 
     conn_str = (
         f"DRIVER={{SQL Server}};"

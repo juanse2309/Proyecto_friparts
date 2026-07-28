@@ -7,6 +7,8 @@ import uuid
 import traceback
 import time as time_module # Usar alias para no chocar con datetime.time
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import json
 import math
 import pandas as pd
@@ -36,18 +38,15 @@ app = Flask(__name__,
 CORS(app)
 
 # Required for Flask Sessions
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_friparts_key_2026")
+FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY")
+if not FLASK_SECRET_KEY:
+    raise RuntimeError(
+        "FLASK_SECRET_KEY no está configurada. Defínela como variable de entorno "
+        "(archivo .env en local, panel de Environment en Render en producción)."
+    )
+app.secret_key = FLASK_SECRET_KEY
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = True
-
-@app.before_request
-def debug_login_headers():
-    if request.path.startswith('/api/auth/login') or request.path.startswith('/api/auth/metals/login'):
-        logger.info(f"--- DEBUG PWA LOGIN HEADERS ({request.path}) ---")
-        logger.info(f"Origin: {request.headers.get('Origin')}")
-        logger.info(f"Cookie: {request.headers.get('Cookie')}")
-        logger.info(f"User-Agent: {request.headers.get('User-Agent')}")
-        logger.info("----------------------------------")
 
 @app.before_request
 def restore_session_from_token():
@@ -65,7 +64,9 @@ def restore_session_from_token():
         token = auth_header.split(' ')[1]
         try:
             import jwt
-            secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+            secret = os.environ.get('JWT_PWA_SECRET')
+            if not secret:
+                raise RuntimeError("JWT_PWA_SECRET no configurada")
             payload = jwt.decode(token, secret, algorithms=['HS256'])
             
             session['user'] = payload['user']
@@ -80,10 +81,12 @@ def get_now_colombia():
     return datetime.now(COLOMBIA_TZ)
 
 # --- CONFIGURACIÃ“N SQL (SQL-First) ---
-DATABASE_URL = os.environ.get(
-    'DATABASE_URL', 
-    'postgresql://admin_juan:5uM2TSjhKB2nIRPR41xJlmgJ5tKgaonX@dpg-d7f5mrpf9bms73a0a1g0-a.virginia-postgres.render.com/fritech_db'
-)
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL no está configurada. Defínela como variable de entorno "
+        "(archivo .env en local, panel de Environment en Render en producción)."
+    )
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
@@ -2823,9 +2826,11 @@ def crear_producto_dual():
     """Registra un nuevo producto en db_productos usando SQL."""
     try:
         from backend.models.sql_models import Producto
+        from backend.utils.formatters import preservar_o_normalizar_prefijo
         data = request.json
         id_codigo = str(data.get('id_codigo', '')).strip().upper()
-        codigo_sistema = str(data.get('codigo_sistema', '')).strip().upper()
+        codigo_sistema_raw = str(data.get('codigo_sistema', '')).strip()
+        codigo_sistema = preservar_o_normalizar_prefijo(codigo_sistema_raw or id_codigo)
         descripcion = str(data.get('descripcion', '')).strip()
         precio = data.get('precio', 0)
         stock_inicial = data.get('stock_inicial', 0)
@@ -2835,7 +2840,7 @@ def crear_producto_dual():
 
         nuevo_prod = Producto(
             id_codigo=id_codigo,
-            codigo_sistema=codigo_sistema if codigo_sistema else id_codigo,
+            codigo_sistema=codigo_sistema,
             descripcion=descripcion,
             precio=precio,
             p_terminado=stock_inicial

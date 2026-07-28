@@ -50,15 +50,8 @@ def metals_login():
             return jsonify({"success": False, "message": "Faltan datos"}), 400
 
         user = Usuario.query.filter_by(username=usuario_nombre, activo=True).first()
-        
-        # --- DEBUG LOGIN ---
-        print("--- DEBUG LOGIN ---")
-        print(f"1. Usuario buscado: '{usuario_nombre}'")
-        print(f"2. ¿Usuario encontrado en BD?: {user is not None}")
-        if user:
-            print(f"3. Hash/Password en BD: '{user.password_hash}'")
-        print(f"4. Contraseña enviada por frontend: '{password}'")
-        print("-------------------")
+
+        logger.info(f"Intento de login metals: usuario='{usuario_nombre}', encontrado={user is not None}")
 
         if not user:
              return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
@@ -76,7 +69,9 @@ def metals_login():
 
             # --- JWT para PWA Offline Auth ---
             import jwt, os
-            secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+            secret = os.environ.get('JWT_PWA_SECRET')
+            if not secret:
+                raise RuntimeError("JWT_PWA_SECRET no está configurada")
             pwa_token = jwt.encode({
                 'user': user.username,
                 'role': rol_upper,
@@ -201,7 +196,9 @@ def login():
              
              # --- JWT para PWA Offline Auth ---
              import jwt, os
-             secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+             secret = os.environ.get('JWT_PWA_SECRET')
+             if not secret:
+                 raise RuntimeError("JWT_PWA_SECRET no está configurada")
              pwa_token = jwt.encode({
                  'user': user.username,
                  'role': rol_display,
@@ -353,7 +350,9 @@ def login_client():
         
         # --- JWT para PWA Offline Auth ---
         import jwt, os
-        secret = os.environ.get('JWT_PWA_SECRET', 'super_secret_pwa_key_2026')
+        secret = os.environ.get('JWT_PWA_SECRET')
+        if not secret:
+            raise RuntimeError("JWT_PWA_SECRET no está configurada")
         pwa_token = jwt.encode({
             'user': user.username,
             'role': 'CLIENTE',

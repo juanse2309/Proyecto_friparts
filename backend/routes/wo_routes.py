@@ -297,9 +297,9 @@ def recibir_comercial():
     """
     # Validar Token de Seguridad
     api_key_header = request.headers.get('X-API-Key') or request.headers.get('X-Sync-Token')
-    api_key_env = os.environ.get('SYNC_TOKEN') or os.environ.get('WO_SYNC_API_KEY') or "FriParts-WO-Sync-2026!"
+    api_key_env = os.environ.get('SYNC_TOKEN') or os.environ.get('WO_SYNC_API_KEY')
 
-    if api_key_header != api_key_env:
+    if not api_key_env or api_key_header != api_key_env:
         logger.warning(f"⚠️ Sincronización comercial WO no autorizada. Token recibido: {api_key_header}")
         return jsonify({"success": False, "error": "No autorizado. Token de sincronización inválido o ausente."}), 401
 
@@ -482,8 +482,6 @@ def sincronizar_automatica():
     token_recibido = request.args.get('token') or request.headers.get('X-Sync-Token')
     token_esperado = os.getenv('SYNC_TOKEN')
 
-    logger.info(f"DEBUG SYNC: Recibido={token_recibido}, Esperado={token_esperado}")
-
     if token_esperado is None:
         logger.error("❌ Variable de entorno SYNC_TOKEN no configurada en el servidor (es None).")
         return jsonify({"status": "error", "message": "Error de configuración de seguridad: SYNC_TOKEN es None"}), 500
@@ -502,7 +500,9 @@ def sincronizar_automatica():
     DB_SERVER   = os.getenv("WO_SERVER",     r"SERVERWO\WORLDOFFICE17")
     DB_DATABASE = os.getenv("WO_DB",         "FRIPARTS2021")
     DB_UID      = os.getenv("WO_USER",       "wo_cliente")
-    DB_PWD      = os.getenv("WO_PASSWORD",   "wo_cliente")
+    DB_PWD      = os.getenv("WO_PASSWORD")
+    if not DB_PWD:
+        return jsonify({"status": "error", "message": "WO_PASSWORD no está configurada en el servidor"}), 500
 
     conn_str = (
         f"DRIVER={{SQL Server}};"
