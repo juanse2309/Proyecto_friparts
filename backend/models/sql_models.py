@@ -336,6 +336,7 @@ class Usuario(db.Model):
     username        = db.Column(db.String(100), unique=True, nullable=False, index=True)
     password_hash   = db.Column(db.String(255), nullable=False)
     nombre_completo = db.Column(db.String(150), nullable=True)
+    alias_vendedor_wo = db.Column(db.String(150), nullable=True) # Nombre exacto tal como llega en db_ventas.vendedor (World Office), para match estricto sin depender del nombre de login
     rol             = db.Column(db.String(50),  default='operario')
     cedula          = db.Column(db.String(20),  nullable=True) # Identificación oficial del usuario
     nit_empresa     = db.Column(db.String(50),  nullable=True, index=True) # Identificación empresarial para clientes B2B
