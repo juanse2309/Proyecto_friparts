@@ -20,7 +20,6 @@ PERFILES_HORARIO = {
 }
 
 MAPEO_PERFILES = {
-    # PENDIENTE: REEMPLAZAR 'paola_username' POR EL USERNAME REAL DE LOGUEO DE LA COLABORADORA
-    'paola_username': 'FLEX_1'
+    'paola nimisica': 'FLEX_1'
     # El resto caerá en ESTANDAR por defecto. Todas las llaves deben estar en minúsculas.
 }
