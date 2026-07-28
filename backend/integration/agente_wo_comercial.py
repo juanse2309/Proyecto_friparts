@@ -94,7 +94,7 @@ def ejecutar_extraccion():
         INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D 
             ON E.Autonumerico = D.Pertenece_A
         WHERE YEAR(E.Fecha) >= 2024
-          AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL')
+          AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL', 'DMC')
           AND E.Anulado = 0;
         """
         
@@ -117,11 +117,11 @@ def ejecutar_extraccion():
             
             if tipo_doc == 'PED':
                 item['clasificacion'] = 'pedido'
-            elif tipo_doc in ['FV', 'COT', 'NC', 'NCV', 'NCCL']:
+            elif tipo_doc in ['FV', 'COT', 'NC', 'NCV', 'NCCL', 'DMC']:
                 item['clasificacion'] = 'venta'
-                
-                # Ajuste matemático para devoluciones/notas crédito
-                if tipo_doc in ['NC', 'NCV', 'NCCL']:
+
+                # Ajuste matemático para devoluciones/notas crédito/devolución de mercancía
+                if tipo_doc in ['NC', 'NCV', 'NCCL', 'DMC']:
                     # Se asume que total_ingresos viene en positivo, lo volvemos negativo
                     item['total_ingresos'] = float(item.get('total_ingresos', 0)) * -1
                 

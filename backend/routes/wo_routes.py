@@ -555,9 +555,8 @@ def sincronizar_automatica():
         INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D
             ON E.Autonumerico = D.Pertenece_A
         WHERE YEAR(E.Fecha) >= YEAR(GETDATE()) - 1
-          AND E.Tipo_de_Documento IN ('FV', 'PED')
-          AND E.Anulado = 0
-          AND D.Cantidad > 0;
+          AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL', 'DMC')
+          AND E.Anulado = 0;
         """
         cursor.execute(sql)
         columnas = [column[0] for column in cursor.description]
@@ -568,14 +567,18 @@ def sincronizar_automatica():
 
         for row in cursor.fetchall():
             item = dict(zip(columnas, row))
-            
+
             tipo_doc = item.get('tipo_doc', '').strip()
-            if tipo_doc == 'FV':
-                clasif = 'venta'
-                cant_fv += 1
-            elif tipo_doc == 'PED':
+            if tipo_doc == 'PED':
                 clasif = 'pedido'
                 cant_pd += 1
+            elif tipo_doc in ('FV', 'COT', 'NC', 'NCV', 'NCCL', 'DMC'):
+                clasif = 'venta'
+                if tipo_doc == 'FV':
+                    cant_fv += 1
+                # Ajuste matematico para devoluciones/notas credito/devolucion de mercancia
+                if tipo_doc in ('NC', 'NCV', 'NCCL', 'DMC'):
+                    item['total_ingresos'] = float(item.get('total_ingresos', 0) or 0) * -1
             else:
                 clasif = 'desconocido'
 
