@@ -82,6 +82,58 @@ const ComercialHistoricoModule = (() => {
             }, 300);
             inputSearch.addEventListener('input', buscarDebounced);
         }
+
+        const btnExportExcel = document.getElementById('btn-export-excel');
+        if (btnExportExcel) {
+            btnExportExcel.addEventListener('click', descargarExcel);
+        }
+    };
+
+    // El endpoint exige Authorization: Bearer <token>, por lo que no se puede usar
+    // un <a href> plano — se pide como blob y se dispara la descarga manualmente.
+    const descargarExcel = async () => {
+        const btn = document.getElementById('btn-export-excel');
+        const { startYear, endYear } = getFiltrosAnio();
+        const iconoOriginal = btn ? btn.innerHTML : '';
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generando...';
+        }
+
+        try {
+            const { headers, token } = getAuthHeaders();
+            const params = new URLSearchParams({ start_year: startYear, end_year: endYear, token });
+            const response = await fetch(`/api/comercial/historico/excel?${params.toString()}`, { headers });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Error HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename="?([^"]+)"?/);
+            const nombreArchivo = match ? match[1] : `Comercial_YTD_${startYear}-${endYear}.xlsx`;
+
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = nombreArchivo;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+        } catch (error) {
+            console.error('Error al descargar el Excel:', error);
+            alert('No se pudo generar el Excel: ' + error.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = iconoOriginal;
+            }
+        }
     };
 
     const getAuthHeaders = () => {
