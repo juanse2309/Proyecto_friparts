@@ -178,6 +178,8 @@ class RawVentas(db.Model):
     total_ingresos  = db.Column(db.Numeric(18, 2), default=0)
     precio_promedio = db.Column(db.Numeric(18, 2), default=0)
     clasificacion   = db.Column(db.String(80),  nullable=True)
+    vendedor        = db.Column(db.String(150), index=True, nullable=True)
+    zona            = db.Column(db.String(100), index=True, nullable=True)
     # estado no existe en la DB real
 
 

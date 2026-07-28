@@ -413,15 +413,17 @@ def recibir_comercial():
                 'cantidad': cantidad,
                 'total_ingresos': total_ingresos,
                 'precio_promedio': precio_promedio,
-                'clasificacion': clasif
+                'clasificacion': clasif,
+                'vendedor': str(item.get('vendedor') or '').strip()[:150],
+                'zona': str(item.get('zona') or '').strip()[:100]
             })
 
         # Persistir el chunk actual en la tabla Staging
         if mappings_chunk:
             sql_insert = text("""
-                INSERT INTO db_ventas_staging 
-                (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion) 
-                VALUES (:fecha, :documento, :nombres, :productos, :cantidad, :total_ingresos, :precio_promedio, :clasificacion)
+                INSERT INTO db_ventas_staging
+                (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona)
+                VALUES (:fecha, :documento, :nombres, :productos, :cantidad, :total_ingresos, :precio_promedio, :clasificacion, :vendedor, :zona)
             """)
             db.session.execute(sql_insert, mappings_chunk)
             db.session.commit()
@@ -433,8 +435,8 @@ def recibir_comercial():
                 # Transacción ultrarrápida: Swap de tablas en el motor SQL
                 db.session.execute(text("TRUNCATE db_ventas"))
                 db.session.execute(text("""
-                    INSERT INTO db_ventas (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion)
-                    SELECT fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion 
+                    INSERT INTO db_ventas (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona)
+                    SELECT fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona
                     FROM db_ventas_staging
                 """))
                 db.session.commit()
@@ -538,17 +540,19 @@ def sincronizar_automatica():
 
         # 4. Extraer datos comerciales
         sql = """
-        SELECT 
+        SELECT
             E.Fecha AS fecha,
             (E.prefijo + '-' + CAST(E.Numero_de_Documento AS VARCHAR)) AS documento,
             E.Nombre_tercero_externo AS nombres,
+            E.Nombres_tercero_interno AS vendedor,
+            E.Ciudad_Encabezado AS zona,
             D.Producto AS productos,
             CAST(D.Cantidad AS FLOAT) AS cantidad,
             CAST((D.Cantidad * D.Valor_Unitario * (1 - (D.Descuento/100.0))) AS FLOAT) AS total_ingresos,
             CAST(D.Valor_Unitario AS FLOAT) AS precio_promedio,
             E.Tipo_de_Documento AS tipo_doc
         FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
-        INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D 
+        INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D
             ON E.Autonumerico = D.Pertenece_A
         WHERE YEAR(E.Fecha) >= YEAR(GETDATE()) - 1
           AND E.Tipo_de_Documento IN ('FV', 'PED')
@@ -587,7 +591,9 @@ def sincronizar_automatica():
                 'cantidad': float(item.get('cantidad') or 0.0),
                 'total_ingresos': float(item.get('total_ingresos') or 0.0),
                 'precio_promedio': float(item.get('precio_promedio') or 0.0),
-                'clasificacion': clasif
+                'clasificacion': clasif,
+                'vendedor': str(item.get('vendedor') or '').strip()[:150],
+                'zona': str(item.get('zona') or '').strip()[:100]
             })
 
         conn.close()

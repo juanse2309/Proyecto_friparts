@@ -79,10 +79,12 @@ def ejecutar_extraccion():
             
         # 2. Consulta SQL Definitiva simplificada
         sql = """
-        SELECT 
+        SELECT
             E.Fecha AS fecha,
             (E.prefijo + '-' + CAST(E.Numero_de_Documento AS VARCHAR)) AS documento,
             E.Nombre_tercero_externo AS nombres,
+            E.Nombres_tercero_interno AS vendedor,
+            E.Ciudad_Encabezado AS zona,
             D.Producto AS productos, -- ESTE ES EL ID QUE USAREMOS PARA EL MAPEO
             CAST(D.Cantidad AS FLOAT) AS cantidad,
             CAST((D.Cantidad * D.Valor_Unitario * (1 - (D.Descuento/100.0))) AS FLOAT) AS total_ingresos,
