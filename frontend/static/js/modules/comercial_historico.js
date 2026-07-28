@@ -11,7 +11,16 @@ document.addEventListener('DOMContentLoaded', () => {
 const ComercialHistoricoModule = (() => {
     let chartInteranualInstance = null;
     let chartZonasInstance = null;
-    let rawDetalleRows = [];
+
+    // Estado de paginación server-side del detalle (nunca acumulamos todo el dataset en el cliente)
+    let paginaActual = 1;
+    let terminoBusqueda = '';
+    let debounceTimer = null;
+
+    const debounce = (fn, delayMs) => (...args) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => fn(...args), delayMs);
+    };
 
     const currencyFormatter = new Intl.NumberFormat('es-CO', {
         style: 'currency',
@@ -30,7 +39,7 @@ const ComercialHistoricoModule = (() => {
 
     const init = () => {
         setupEventListeners();
-        cargarDatos();
+        cargarTodo();
     };
 
     const setupEventListeners = () => {
@@ -39,7 +48,7 @@ const ComercialHistoricoModule = (() => {
         const endSelect = document.getElementById('filter-end-year');
 
         if (btnRefresh) {
-            btnRefresh.addEventListener('click', cargarDatos);
+            btnRefresh.addEventListener('click', () => { paginaActual = 1; cargarTodo(); });
         }
 
         if (startSelect) {
@@ -47,7 +56,8 @@ const ComercialHistoricoModule = (() => {
                 if (endSelect && Number(endSelect.value) < Number(startSelect.value)) {
                     endSelect.value = startSelect.value;
                 }
-                cargarDatos();
+                paginaActual = 1;
+                cargarTodo();
             });
         }
 
@@ -56,33 +66,50 @@ const ComercialHistoricoModule = (() => {
                 if (startSelect && Number(startSelect.value) > Number(endSelect.value)) {
                     startSelect.value = endSelect.value;
                 }
-                cargarDatos();
+                paginaActual = 1;
+                cargarTodo();
             });
         }
 
+        // Debounce: evita que cada tecla dispare una consulta + re-render completo
+        // de la tabla en el hilo principal (esa era la causa del "página no responde").
         const inputSearch = document.getElementById('input-search-detalle');
         if (inputSearch) {
-            inputSearch.addEventListener('input', (e) => {
-                filtrarTablaDetalle(e.target.value.toLowerCase().trim());
-            });
+            const buscarDebounced = debounce(() => {
+                terminoBusqueda = inputSearch.value.toLowerCase().trim();
+                paginaActual = 1;
+                cargarDetalle();
+            }, 300);
+            inputSearch.addEventListener('input', buscarDebounced);
         }
     };
 
-    const cargarDatos = async () => {
-        const startYear = document.getElementById('filter-start-year')?.value || 2024;
-        const endYear = document.getElementById('filter-end-year')?.value || 2026;
+    const getAuthHeaders = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token') || urlParams.get('pwa_token') || localStorage.getItem('pwa_token') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+        const headers = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        return { headers, token };
+    };
 
-        mostrarEstadoCargando();
+    const getFiltrosAnio = () => ({
+        startYear: document.getElementById('filter-start-year')?.value || 2024,
+        endYear: document.getElementById('filter-end-year')?.value || 2026
+    });
+
+    const cargarTodo = () => {
+        cargarResumen();
+        cargarDetalle();
+    };
+
+    // Resumen ejecutivo: KPIs, gráficos, zonas y top clientes. Payload liviano
+    // (decenas de filas) — se recarga solo al cambiar el rango de años.
+    const cargarResumen = async () => {
+        const { startYear, endYear } = getFiltrosAnio();
+        mostrarEstadoCargandoResumen();
 
         try {
-            const urlParams = new URLSearchParams(window.location.search);
-            const token = urlParams.get('token') || urlParams.get('pwa_token') || localStorage.getItem('pwa_token') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-
-            const headers = {};
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-
+            const { headers, token } = getAuthHeaders();
             const fetchUrl = `/api/comercial/historico?start_year=${startYear}&end_year=${endYear}&token=${encodeURIComponent(token)}`;
             const response = await fetch(fetchUrl, { headers });
             const data = await response.json();
@@ -99,12 +126,46 @@ const ComercialHistoricoModule = (() => {
             renderGraficoZonas(data.resumen_zonas);
             renderTablaZonas(data.resumen_zonas);
             renderTablaClientes(data.top_clientes);
-            
-            rawDetalleRows = data.detalle_agrupado || [];
-            renderTablaDetalle(rawDetalleRows);
 
         } catch (error) {
-            console.error('Error en la llamada AJAX:', error);
+            console.error('Error en la llamada AJAX (resumen):', error);
+            mostrarError('Fallo en la comunicación con el servidor');
+        }
+    };
+
+    // Detalle consolidado: 100% server-side (agregación, búsqueda y paginación
+    // corren en PostgreSQL). Nunca se carga ni se filtra el dataset completo en el cliente.
+    const cargarDetalle = async () => {
+        const { startYear, endYear } = getFiltrosAnio();
+        const tbody = document.getElementById('tbody-detalle');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Consultando página ${paginaActual}...</td></tr>`;
+        }
+
+        try {
+            const { headers, token } = getAuthHeaders();
+            const params = new URLSearchParams({
+                start_year: startYear,
+                end_year: endYear,
+                pagina: paginaActual,
+                tam_pagina: 100,
+                busqueda: terminoBusqueda,
+                token
+            });
+            const response = await fetch(`/api/comercial/historico/detalle?${params.toString()}`, { headers });
+            const data = await response.json();
+
+            if (!data.success) {
+                console.error('Error al cargar detalle:', data.error);
+                mostrarError(data.error || 'Error desconocido');
+                return;
+            }
+
+            renderTablaDetalle(data.filas || []);
+            renderPaginacion(data.paginacion);
+
+        } catch (error) {
+            console.error('Error en la llamada AJAX (detalle):', error);
             mostrarError('Fallo en la comunicación con el servidor');
         }
     };
@@ -324,31 +385,44 @@ const ComercialHistoricoModule = (() => {
         `).join('');
     };
 
-    const filtrarTablaDetalle = (query) => {
-        if (!query) {
-            renderTablaDetalle(rawDetalleRows);
-            return;
-        }
+    const renderPaginacion = (paginacion) => {
+        const contenedor = document.getElementById('paginacion-detalle');
+        if (!contenedor || !paginacion) return;
 
-        const filtered = rawDetalleRows.filter(r => 
-            String(r.cliente || '').toLowerCase().includes(query) ||
-            String(r.zona || '').toLowerCase().includes(query) ||
-            String(r.anio || '').includes(query)
-        );
+        const { pagina, total_paginas, total_registros } = paginacion;
 
-        renderTablaDetalle(filtered);
+        contenedor.innerHTML = `
+            <span class="text-muted small me-3">${numberFormatter.format(total_registros)} registros · Página ${pagina} de ${total_paginas}</span>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-pagina-prev" ${pagina <= 1 ? 'disabled' : ''}>
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <button class="btn btn-outline-secondary btn-sm ms-1" id="btn-pagina-next" ${pagina >= total_paginas ? 'disabled' : ''}>
+                <i class="fas fa-chevron-right"></i>
+            </button>
+        `;
+
+        document.getElementById('btn-pagina-prev')?.addEventListener('click', () => {
+            if (paginaActual > 1) {
+                paginaActual -= 1;
+                cargarDetalle();
+            }
+        });
+        document.getElementById('btn-pagina-next')?.addEventListener('click', () => {
+            if (paginaActual < total_paginas) {
+                paginaActual += 1;
+                cargarDetalle();
+            }
+        });
     };
 
-    const mostrarEstadoCargando = () => {
+    const mostrarEstadoCargandoResumen = () => {
         const tbodyZonas = document.getElementById('tbody-zonas');
         const tbodyClientes = document.getElementById('tbody-clientes');
-        const tbodyDetalle = document.getElementById('tbody-detalle');
 
         const spinnerRow = (cols) => `<tr><td colspan="${cols}" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Consultando agregaciones en PostgreSQL...</td></tr>`;
 
         if (tbodyZonas) tbodyZonas.innerHTML = spinnerRow(3);
         if (tbodyClientes) tbodyClientes.innerHTML = spinnerRow(4);
-        if (tbodyDetalle) tbodyDetalle.innerHTML = spinnerRow(7);
     };
 
     const mostrarError = (mensaje) => {

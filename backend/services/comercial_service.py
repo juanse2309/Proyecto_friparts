@@ -34,20 +34,25 @@ class ComercialHistoricoService:
         """
 
     @staticmethod
-    def _resolver_alias_vendedor(user_id: int, username: str) -> str:
+    def _resolver_alias_vendedor(username: str) -> str:
         """
         Resuelve el valor a comparar contra db_ventas.vendedor (match exacto):
         prioriza db_usuarios.alias_vendedor_wo (nombre tal como lo escribe World
         Office) y cae al nombre de login si el alias no está configurado.
+
+        Se busca por `username` (no por user_id de sesión): ningún endpoint de
+        login en auth_routes.py escribe session['user_id']/['usuario_id'], por lo
+        que ese id siempre llega en 0 y resolvería, para cualquier usuario, el
+        alias del registro id=0 en vez del propio.
         """
         try:
             from backend.models.sql_models import Usuario
-            if user_id is not None:
-                usuario = Usuario.query.get(int(user_id))
+            if username:
+                usuario = Usuario.query.filter_by(username=str(username)).first()
                 if usuario and usuario.alias_vendedor_wo and usuario.alias_vendedor_wo.strip():
                     return usuario.alias_vendedor_wo.strip()
         except Exception as e:
-            logger.warning(f"[COMERCIAL_SERVICE] No se pudo resolver alias_vendedor_wo para user_id={user_id}: {e}")
+            logger.warning(f"[COMERCIAL_SERVICE] No se pudo resolver alias_vendedor_wo para username={username!r}: {e}")
         return str(username or '')
 
     @staticmethod
@@ -75,7 +80,7 @@ class ComercialHistoricoService:
 
         ventas_expr = ComercialHistoricoService._expr_ajustado_nc('total_ingresos')
         cantidad_expr = ComercialHistoricoService._expr_ajustado_nc('cantidad')
-        vendedor_scope = ComercialHistoricoService._resolver_alias_vendedor(user_id, username)
+        vendedor_scope = ComercialHistoricoService._resolver_alias_vendedor(username)
 
         params = {
             'start_year': int(start_year),
@@ -84,30 +89,6 @@ class ComercialHistoricoService:
             'vendedor_user': vendedor_scope,
             'vendedor_filtro': ''  # sin acotar adicionalmente en esta vista
         }
-
-        query = text(f"""
-            SELECT
-                EXTRACT(YEAR FROM v.fecha)::INTEGER AS anio,
-                EXTRACT(MONTH FROM v.fecha)::INTEGER AS mes,
-                COALESCE(NULLIF(TRIM(v.zona), ''), 'SIN ZONA') AS zona,
-                COALESCE(NULLIF(TRIM(v.nombres), ''), 'CLIENTE DESCONOCIDO') AS cliente,
-                ROUND(SUM({ventas_expr})::NUMERIC, 2) AS total_ventas,
-                ROUND(SUM({cantidad_expr})::NUMERIC, 2) AS total_unidades,
-                COUNT(v.id)::INTEGER AS total_transacciones
-            FROM db_ventas v
-            WHERE v.fecha >= MAKE_DATE(:start_year, 1, 1)
-              AND v.fecha <= MAKE_DATE(:end_year, 12, 31)
-              AND {FILTRO_SCOPE_ROL}
-              AND {FILTRO_VENDEDOR_OPCIONAL}
-            GROUP BY 1, 2, 3, 4
-            ORDER BY anio ASC, mes ASC, total_ventas DESC;
-        """)
-
-        try:
-            rows = [dict(r) for r in db.session.execute(query, params).mappings().all()]
-        except Exception as e:
-            logger.error(f"[COMERCIAL_SERVICE] Error ejecutando consulta histórica: {e}")
-            raise e
 
         query_resumen = text(f"""
             SELECT
@@ -163,8 +144,85 @@ class ComercialHistoricoService:
             'seguridad': {'vista_global': es_global, 'usuario': username},
             'resumen_anual': resumen_anual,
             'resumen_zonas': resumen_zonas,
-            'top_clientes': top_clientes,
-            'detalle_agrupado': rows
+            'top_clientes': top_clientes
+        }
+
+    @staticmethod
+    def obtener_detalle_paginado(user_id: int, username: str, user_role: str, start_year: int, end_year: int,
+                                  pagina: int = 1, tam_pagina: int = 100, busqueda: str = '') -> dict:
+        """
+        Detalle consolidado (Año, Mes, Zona, Cliente) con paginación server-side.
+        La agregación (GROUP BY) y el filtro de búsqueda corren en PostgreSQL;
+        el LIMIT/OFFSET evita que el DTO crezca sin techo a medida que se acumulan años.
+        """
+        role_upper = str(user_role or '').strip().upper()
+        es_global = role_upper in ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA']
+        es_comercial = not es_global
+
+        pagina = max(1, int(pagina or 1))
+        tam_pagina = min(200, max(10, int(tam_pagina or 100)))  # techo duro: nunca mas de 200 filas por respuesta
+        offset = (pagina - 1) * tam_pagina
+
+        ventas_expr = ComercialHistoricoService._expr_ajustado_nc('total_ingresos')
+        cantidad_expr = ComercialHistoricoService._expr_ajustado_nc('cantidad')
+        vendedor_scope = ComercialHistoricoService._resolver_alias_vendedor(username)
+
+        params = {
+            'start_year': int(start_year),
+            'end_year': int(end_year),
+            'es_comercial': es_comercial,
+            'vendedor_user': vendedor_scope,
+            'vendedor_filtro': '',
+            'busqueda': str(busqueda or '').strip(),
+            'tam_pagina': tam_pagina,
+            'offset': offset
+        }
+
+        query = text(f"""
+            WITH agrupado AS (
+                SELECT
+                    EXTRACT(YEAR FROM v.fecha)::INTEGER AS anio,
+                    EXTRACT(MONTH FROM v.fecha)::INTEGER AS mes,
+                    COALESCE(NULLIF(TRIM(v.zona), ''), 'SIN ZONA') AS zona,
+                    COALESCE(NULLIF(TRIM(v.nombres), ''), 'CLIENTE DESCONOCIDO') AS cliente,
+                    ROUND(SUM({ventas_expr})::NUMERIC, 2) AS total_ventas,
+                    ROUND(SUM({cantidad_expr})::NUMERIC, 2) AS total_unidades,
+                    COUNT(v.id)::INTEGER AS total_transacciones
+                FROM db_ventas v
+                WHERE v.fecha >= MAKE_DATE(:start_year, 1, 1)
+                  AND v.fecha <= MAKE_DATE(:end_year, 12, 31)
+                  AND {FILTRO_SCOPE_ROL}
+                  AND {FILTRO_VENDEDOR_OPCIONAL}
+                GROUP BY 1, 2, 3, 4
+            )
+            SELECT *, COUNT(*) OVER()::INTEGER AS total_registros
+            FROM agrupado
+            WHERE (:busqueda = '' OR cliente ILIKE '%' || :busqueda || '%' OR zona ILIKE '%' || :busqueda || '%')
+            ORDER BY anio ASC, mes ASC, total_ventas DESC
+            LIMIT :tam_pagina OFFSET :offset;
+        """)
+
+        try:
+            filas = [dict(r) for r in db.session.execute(query, params).mappings().all()]
+        except Exception as e:
+            logger.error(f"[COMERCIAL_SERVICE] Error en detalle paginado: {e}")
+            raise e
+
+        total_registros = filas[0]['total_registros'] if filas else 0
+        for f in filas:
+            f.pop('total_registros', None)
+
+        total_paginas = max(1, (total_registros + tam_pagina - 1) // tam_pagina)
+
+        return {
+            'success': True,
+            'filas': filas,
+            'paginacion': {
+                'pagina': pagina,
+                'tam_pagina': tam_pagina,
+                'total_registros': total_registros,
+                'total_paginas': total_paginas
+            }
         }
 
     @staticmethod
@@ -181,7 +239,7 @@ class ComercialHistoricoService:
 
         ventas_expr = ComercialHistoricoService._expr_ajustado_nc('total_ingresos')
         cantidad_expr = ComercialHistoricoService._expr_ajustado_nc('cantidad')
-        vendedor_scope = ComercialHistoricoService._resolver_alias_vendedor(user_id, username)
+        vendedor_scope = ComercialHistoricoService._resolver_alias_vendedor(username)
 
         params = {
             'start_year': int(start_year),

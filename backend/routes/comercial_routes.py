@@ -44,6 +44,42 @@ def api_obtener_comercial_historico():
         return jsonify({'success': False, 'error': 'Error interno extrayendo datos analíticos', 'detalle': str(e)}), 500
 
 
+@comercial_bp.route('/api/comercial/historico/detalle', methods=['GET'])
+@require_role(ROLES_PERMITIDOS_COMERCIAL)
+def api_obtener_comercial_detalle():
+    """
+    Detalle consolidado paginado (Año, Mes, Zona, Cliente). Server-side: la agregación,
+    el filtro de búsqueda y el LIMIT/OFFSET corren en PostgreSQL — nunca se envían
+    más de `tam_pagina` filas (tope duro 200) al navegador.
+    """
+    try:
+        user_name, user_role = obtener_identidad_segura(request)
+        user_id = session.get('user_id') or session.get('usuario_id') or 0
+
+        start_year = request.args.get('start_year', default=2024, type=int)
+        end_year = request.args.get('end_year', default=2026, type=int)
+        pagina = request.args.get('pagina', default=1, type=int)
+        tam_pagina = request.args.get('tam_pagina', default=100, type=int)
+        busqueda = request.args.get('busqueda', default='', type=str)
+
+        data = ComercialHistoricoService.obtener_detalle_paginado(
+            user_id=user_id,
+            username=user_name,
+            user_role=user_role,
+            start_year=start_year,
+            end_year=end_year,
+            pagina=pagina,
+            tam_pagina=tam_pagina,
+            busqueda=busqueda
+        )
+
+        return jsonify(data), 200
+
+    except Exception as e:
+        logger.error(f"[COMERCIAL_ROUTES] Error en /api/comercial/historico/detalle: {e}")
+        return jsonify({'success': False, 'error': 'Error interno extrayendo el detalle', 'detalle': str(e)}), 500
+
+
 @comercial_bp.route('/api/comercial/historico/excel', methods=['GET'])
 @require_role(ROLES_PERMITIDOS_COMERCIAL)
 def exportar_comercial_excel():
