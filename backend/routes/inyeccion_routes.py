@@ -181,7 +181,7 @@ def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=Fal
             except: pass
 
 @inyeccion_bp.route('/api/inyeccion/lote', methods=['POST'])
-@require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE', 'PULIDO'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION', 'ENSAMBLE', 'PULIDO', 'AUXILIAR INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD'])
 def registrar_inyeccion_lote():
     """
     PASO 1-3: SQL-First Validation Workflow.

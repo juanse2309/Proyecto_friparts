@@ -49,7 +49,7 @@ def obtener_colaboradores():
     if not user:
         return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
 
-    roles_autorizados = [r.upper() for r in (ROL_ADMINS + ROL_JEFES)]
+    roles_autorizados = [r.upper() for r in (ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO'])]
     user_role = str(role).strip().upper() if role else ''
     if not any(allowed in user_role for allowed in roles_autorizados):
         return jsonify({'status': 'error', 'message': 'Acceso denegado: permisos insuficientes'}), 403
