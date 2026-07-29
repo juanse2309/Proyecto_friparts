@@ -300,13 +300,40 @@ class ComercialHistoricoService:
     @staticmethod
     def obtener_crecimiento_clientes(user_id: int, username: str, user_role: str,
                                       anio_base: int, anio_comparacion: int, zona: str = None,
-                                      busqueda: str = '') -> dict:
+                                      busqueda: str = '', aplicar_ytd: bool = False) -> dict:
         """
         Compara ventas por cliente entre anio_base y anio_comparacion (YoY). La
         agregación por cliente/ciudad y el filtro de búsqueda por nombre corren en
         PostgreSQL; el cálculo de crecimiento (incluida la división por cero cuando
         el cliente es nuevo) se resuelve aquí, nunca en la ruta ni en el frontend.
         Respeta el mismo aislamiento por rol que el resto del servicio (FILTRO_SCOPE_ROL).
+
+        aplicar_ytd=True corta ambos años en el mismo (mes, día) de hoy, para no
+        comparar un año cerrado (12 meses) contra uno en curso (ej. 7 meses) — la
+        falacia estadística que producía crecimientos negativos irreales cuando
+        anio_comparacion es el año actual. Mismo criterio que _query_ytd, pero vía
+        TO_CHAR(v.fecha, 'MM-DD') en vez de la tupla (mes, día).
+
+        El corte YTD ahora vive dentro de cada CASE (no en el WHERE): además de
+        venta_base/venta_comparacion (recortadas a YTD), también se necesita
+        venta_base_anio_completo (SIN recortar) para poder distinguir un cliente
+        que no compró en absoluto en el año base de uno que sí compró, pero después
+        del corte YTD — son casos económicamente distintos ('REACTIVADO' vs
+        'SIN_VENTA_EN_VENTANA') y solo se pueden separar teniendo ambas sumas.
+
+        `clasificacion` resuelve la falacia de "NUEVO": antes, cualquier cliente con
+        venta_base_ytd=0 se marcaba NUEVO, incluso si llevaba años comprando (ver
+        caso HUGO ARMANDO BALLESTAS JOLY: su única compra en el año base fue en
+        agosto, después del corte YTD de julio, y aun así aparecía "NUEVO"). Ahora
+        se cruza con `primera_compra_historica` (MIN(fecha) de TODA la vida del
+        cliente en db_ventas, sin importar año) para diferenciar:
+          - NUEVO: su primera compra en la historia es del año de comparación en
+            adelante (nunca compró antes).
+          - REACTIVADO: tiene historia anterior al año base, pero no compró nada
+            dentro del año base (ni siquiera fuera de la ventana YTD).
+          - SIN_VENTA_EN_VENTANA: sí compró en el año base, pero después del corte
+            YTD (por eso venta_base_ytd da 0 aunque el cliente esté activo).
+          - ACTIVO: tiene venta_base_ytd > 0, se calcula el % de crecimiento normal.
         """
         role_upper = str(user_role or '').strip().upper()
         es_global = role_upper in ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA']
@@ -321,6 +348,8 @@ class ComercialHistoricoService:
         if zona_normalizada and not ciudades_zona:
             logger.warning(f"[COMERCIAL_SERVICE] Zona '{zona_normalizada}' no está mapeada en MAPEO_ZONAS; se ignora el filtro.")
 
+        limite_mmdd = datetime.now().strftime('%m-%d')
+
         params = {
             'anio_base': int(anio_base),
             'anio_comparacion': int(anio_comparacion),
@@ -330,24 +359,64 @@ class ComercialHistoricoService:
             'zona_activa': zona_activa,
             'ciudades_zona': ciudades_zona or [''],  # placeholder inocuo cuando zona_activa=False
             'busqueda': str(busqueda or '').strip(),
+            'aplicar_ytd': bool(aplicar_ytd),
+            'limite_mmdd': limite_mmdd,
         }
 
+        # (:aplicar_ytd = FALSE OR TO_CHAR(...) <= :limite_mmdd) va DENTRO de cada
+        # CASE (no en el WHERE): venta_base_anio_completo necesita las mismas filas
+        # sin el recorte YTD para poder distinguir REACTIVADO de SIN_VENTA_EN_VENTANA.
         query = text(f"""
+            WITH cliente_origen AS (
+                -- Primera compra de CADA cliente en TODA la historia de db_ventas,
+                -- sin filtrar por año/zona/búsqueda (solo scope de rol + "venta real"):
+                -- filtrar por zona aquí sería incorrecto si el cliente cambió de
+                -- ciudad entre su primera compra y ahora.
+                SELECT
+                    UPPER(TRIM(v.nombres)) AS cliente,
+                    MIN(v.fecha) AS primera_compra_historica
+                FROM db_ventas v
+                WHERE {FILTRO_SCOPE_ROL}
+                  AND {FILTRO_VENDEDOR_OPCIONAL}
+                  AND {FILTRO_SOLO_VENTA}
+                GROUP BY 1
+            ),
+            ventas_periodo AS (
+                SELECT
+                    COALESCE(NULLIF(TRIM(v.nombres), ''), 'CLIENTE DESCONOCIDO') AS cliente,
+                    COALESCE(NULLIF(TRIM(v.zona), ''), 'SIN ZONA') AS ciudad,
+                    ROUND(SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_base
+                                    AND (:aplicar_ytd = FALSE OR TO_CHAR(v.fecha, 'MM-DD') <= :limite_mmdd)
+                                   THEN {ventas_expr} ELSE 0 END)::NUMERIC, 2) AS venta_base,
+                    ROUND(SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_comparacion
+                                    AND (:aplicar_ytd = FALSE OR TO_CHAR(v.fecha, 'MM-DD') <= :limite_mmdd)
+                                   THEN {ventas_expr} ELSE 0 END)::NUMERIC, 2) AS venta_comparacion,
+                    ROUND(SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_base
+                                   THEN {ventas_expr} ELSE 0 END)::NUMERIC, 2) AS venta_base_anio_completo
+                FROM db_ventas v
+                WHERE EXTRACT(YEAR FROM v.fecha)::INTEGER IN (:anio_base, :anio_comparacion)
+                  AND {FILTRO_SCOPE_ROL}
+                  AND {FILTRO_VENDEDOR_OPCIONAL}
+                  AND {FILTRO_SOLO_VENTA}
+                  AND (:zona_activa = FALSE OR TRIM(UPPER(COALESCE(v.zona, ''))) = ANY(:ciudades_zona))
+                  AND (:busqueda = '' OR v.nombres ILIKE '%' || :busqueda || '%')
+                GROUP BY 1, 2
+                HAVING SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_base
+                                 AND (:aplicar_ytd = FALSE OR TO_CHAR(v.fecha, 'MM-DD') <= :limite_mmdd)
+                                THEN {ventas_expr} ELSE 0 END) <> 0
+                    OR SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_comparacion
+                                 AND (:aplicar_ytd = FALSE OR TO_CHAR(v.fecha, 'MM-DD') <= :limite_mmdd)
+                                THEN {ventas_expr} ELSE 0 END) <> 0
+            )
             SELECT
-                COALESCE(NULLIF(TRIM(v.nombres), ''), 'CLIENTE DESCONOCIDO') AS cliente,
-                COALESCE(NULLIF(TRIM(v.zona), ''), 'SIN ZONA') AS ciudad,
-                ROUND(SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_base THEN {ventas_expr} ELSE 0 END)::NUMERIC, 2) AS venta_base,
-                ROUND(SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_comparacion THEN {ventas_expr} ELSE 0 END)::NUMERIC, 2) AS venta_comparacion
-            FROM db_ventas v
-            WHERE EXTRACT(YEAR FROM v.fecha)::INTEGER IN (:anio_base, :anio_comparacion)
-              AND {FILTRO_SCOPE_ROL}
-              AND {FILTRO_VENDEDOR_OPCIONAL}
-              AND {FILTRO_SOLO_VENTA}
-              AND (:zona_activa = FALSE OR TRIM(UPPER(COALESCE(v.zona, ''))) = ANY(:ciudades_zona))
-              AND (:busqueda = '' OR v.nombres ILIKE '%' || :busqueda || '%')
-            GROUP BY 1, 2
-            HAVING SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_base THEN {ventas_expr} ELSE 0 END) <> 0
-                OR SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_comparacion THEN {ventas_expr} ELSE 0 END) <> 0;
+                vp.cliente,
+                vp.ciudad,
+                vp.venta_base,
+                vp.venta_comparacion,
+                vp.venta_base_anio_completo,
+                co.primera_compra_historica
+            FROM ventas_periodo vp
+            LEFT JOIN cliente_origen co ON co.cliente = UPPER(TRIM(vp.cliente));
         """)
 
         try:
@@ -359,14 +428,21 @@ class ComercialHistoricoService:
         # Consolida por (cliente, zona-región): un mismo cliente puede aparecer bajo
         # más de una ciudad entre los dos años (traslado, sucursal); se suman antes
         # de calcular el crecimiento para no duplicarlo en la tabla final.
+        # primera_compra_historica se agrupa solo por nombre de cliente (no por
+        # ciudad) en la CTE, así que su valor ya es idéntico en todas las filas del
+        # mismo cliente — basta con tomarlo una vez, no sumarlo.
         consolidado = {}
         for f in filas:
             ciudad_upper = str(f['ciudad']).strip().upper()
             zona_cliente = CIUDAD_A_ZONA.get(ciudad_upper, 'SIN ZONA')
             clave = (f['cliente'], zona_cliente)
-            acc = consolidado.setdefault(clave, {'venta_base': 0.0, 'venta_comparacion': 0.0})
+            acc = consolidado.setdefault(clave, {
+                'venta_base': 0.0, 'venta_comparacion': 0.0,
+                'venta_base_anio_completo': 0.0, 'primera_compra_historica': f['primera_compra_historica']
+            })
             acc['venta_base'] += float(f['venta_base'] or 0)
             acc['venta_comparacion'] += float(f['venta_comparacion'] or 0)
+            acc['venta_base_anio_completo'] += float(f['venta_base_anio_completo'] or 0)
 
         # Lookup de NIT *después* de agregar las ventas (nunca antes vía JOIN):
         # db_ventas no tiene columna NIT, solo db_ventas.nombres (texto libre) y
@@ -394,16 +470,40 @@ class ComercialHistoricoService:
         for (cliente, zona_cliente), valores in consolidado.items():
             venta_base = round(valores['venta_base'], 2)
             venta_comparacion = round(valores['venta_comparacion'], 2)
+            venta_base_anio_completo = round(valores['venta_base_anio_completo'], 2)
+            primera_compra = valores['primera_compra_historica']
 
-            if venta_base > 0:
-                crecimiento_pct = round(((venta_comparacion - venta_base) / venta_base) * 100, 2)
-                es_nuevo = False
-            elif venta_comparacion > 0:
-                crecimiento_pct = 100.0  # cliente nuevo en anio_comparacion: sin base para dividir
+            # Sin match en cliente_origen (nombre en blanco -> 'CLIENTE DESCONOCIDO'
+            # no cruza contra UPPER(TRIM(nombres))='' ): no hay forma de saber su
+            # antigüedad real, se trata como NUEVO por defecto (no se puede probar
+            # lo contrario).
+            anio_primera_compra = primera_compra.year if primera_compra else anio_comparacion
+
+            if anio_primera_compra >= anio_comparacion:
+                clasificacion = 'NUEVO'
                 es_nuevo = True
+            elif venta_base == 0 and anio_primera_compra < anio_base:
+                clasificacion = 'REACTIVADO'
+                es_nuevo = False
+            elif venta_base == 0 and venta_base_anio_completo > 0:
+                clasificacion = 'SIN_VENTA_EN_VENTANA'
+                es_nuevo = False
+            elif venta_base > 0:
+                clasificacion = 'ACTIVO'
+                es_nuevo = False
+            else:
+                # Remanente no cubierto por las 4 reglas del Arquitecto: primera
+                # compra cae en un año intermedio (anio_base < año < anio_comparacion,
+                # solo posible si los años elegidos no son consecutivos) y venta_base=0
+                # en todo el año base. Es un cliente que ya existía antes de
+                # anio_comparacion, así que se trata igual que REACTIVADO.
+                clasificacion = 'REACTIVADO'
+                es_nuevo = False
+
+            if clasificacion == 'ACTIVO':
+                crecimiento_pct = round(((venta_comparacion - venta_base) / venta_base) * 100, 2)
             else:
                 crecimiento_pct = 0.0
-                es_nuevo = False
 
             resultado.append({
                 'cliente_nit': nit_por_nombre.get(str(cliente).strip().upper()),
@@ -413,6 +513,7 @@ class ComercialHistoricoService:
                 'venta_anio_comp': venta_comparacion,
                 'variacion_cop': round(venta_comparacion - venta_base, 2),
                 'crecimiento_pct': crecimiento_pct,
+                'clasificacion': clasificacion,
                 'es_nuevo': es_nuevo
             })
 
@@ -420,7 +521,12 @@ class ComercialHistoricoService:
 
         return {
             'success': True,
-            'periodo': {'anio_base': int(anio_base), 'anio_comparacion': int(anio_comparacion)},
+            'periodo': {
+                'anio_base': int(anio_base),
+                'anio_comparacion': int(anio_comparacion),
+                'ytd_aplicado': bool(aplicar_ytd),
+                'limite_mmdd': limite_mmdd if aplicar_ytd else None
+            },
             'zona_filtro': zona_normalizada or None,
             'seguridad': {'vista_global': es_global, 'usuario': username},
             'clientes': resultado

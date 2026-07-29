@@ -86,8 +86,8 @@ def api_obtener_comercial_detalle():
 def api_obtener_crecimiento_clientes():
     """
     Controlador delgado: captura y sanitiza los parámetros de QueryString
-    (anio_base, anio_comparacion, zona, busqueda) y delega toda la agregación
-    SQL y el cálculo de crecimiento YoY al servicio.
+    (anio_base, anio_comparacion, zona, busqueda, ytd) y delega toda la
+    agregación SQL y el cálculo de crecimiento YoY al servicio.
     """
     try:
         user_name, user_role = obtener_identidad_segura(request)
@@ -99,6 +99,16 @@ def api_obtener_crecimiento_clientes():
         zona = request.args.get('zona', default='', type=str).strip()
         busqueda = request.args.get('busqueda', default='', type=str).strip()
 
+        # Fallback: si el cliente no envía 'ytd' explícito, se activa solo cuando
+        # anio_comparacion es el año en curso (ahí es donde comparar 12 meses
+        # contra un año parcial produce crecimientos negativos irreales). Si el
+        # cliente sí envía 'true'/'false', se respeta esa decisión explícita.
+        ytd_param = request.args.get('ytd', default=None, type=str)
+        if ytd_param is None:
+            aplicar_ytd = (anio_comparacion == anio_actual)
+        else:
+            aplicar_ytd = ytd_param.strip().lower() == 'true'
+
         data = ComercialHistoricoService.obtener_crecimiento_clientes(
             user_id=user_id,
             username=user_name,
@@ -106,7 +116,8 @@ def api_obtener_crecimiento_clientes():
             anio_base=anio_base,
             anio_comparacion=anio_comparacion,
             zona=zona,
-            busqueda=busqueda
+            busqueda=busqueda,
+            aplicar_ytd=aplicar_ytd
         )
 
         return jsonify(data), 200
