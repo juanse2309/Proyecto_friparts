@@ -8,6 +8,18 @@ const ModuloNomina = (function () {
     let detalleDiario = [];
     let totalRegsPendientes = 0;
 
+    function obtenerHeadersAutenticados() {
+        const token = (typeof AuthModule !== 'undefined' && AuthModule.getToken)
+            ? AuthModule.getToken()
+            : (localStorage.getItem('pwa_token') || localStorage.getItem('token') || localStorage.getItem('jwt'));
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
+    }
+
     async function inicializar() {
         console.log("💼 ModuloNomina: Inicializando...");
         await cargarConsolidado();
@@ -55,7 +67,9 @@ const ModuloNomina = (function () {
                 division = selectDiv.value;
             }
 
-            const response = await fetch(`/api/asistencia/consolidado_pendiente?division=${division}`);
+            const response = await fetch(`/api/asistencia/consolidado_pendiente?division=${division}`, {
+                headers: obtenerHeadersAutenticados()
+            });
             const data = await response.json();
 
             if (data.status === 'success') {
@@ -107,15 +121,14 @@ const ModuloNomina = (function () {
         if (totalRegsPendientes === 0) return;
 
         const currentUser = (typeof AuthModule !== 'undefined') ? AuthModule.currentUser : null;
-        const usuarioStr = currentUser?.nombre || currentUser?.username || null;
-        
+
         let division = currentUser?.division?.toLowerCase() || null;
         const selectDiv = document.getElementById('nomina-select-division');
         if (selectDiv) {
             division = selectDiv.value;
         }
 
-        if (!usuarioStr || !division) {
+        if (!division) {
             Swal.fire('Sesión no válida', 'No se puede autorizar el corte: sesión inválida o expirada. Recargue la página e intente nuevamente.', 'error');
             return;
         }
@@ -140,10 +153,8 @@ const ModuloNomina = (function () {
         try {
             const response = await fetch('/api/asistencia/ejecutar_corte', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: obtenerHeadersAutenticados(),
                 body: JSON.stringify({
-                    total_registros: totalRegsPendientes,
-                    usuario: usuarioStr,
                     division: division
                 })
             });

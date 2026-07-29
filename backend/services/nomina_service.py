@@ -159,13 +159,17 @@ def marcar_registros_procesados(division: str, p_inicio, p_fin) -> int:
     return result.rowcount
 
 
-def ejecutar_corte_db(division: str, usuario: str) -> dict:
+def ejecutar_corte_db(division: str, usuario_auditoria: str) -> dict:
     """
     Orquesta el corte completo dentro de una transacción atómica:
       1. Detecta periodo pendiente.
       2. Actualiza masivamente db_asistencia.
       3. Crea el registro histórico en db_cortes_nomina con el total de filas.
       4. Commit único.
+
+    usuario_auditoria debe ser la identidad resuelta server-side (JWT/sesión vía
+    obtener_identidad_segura), nunca un valor tomado del payload del cliente:
+    es lo único que queda grabado en usuario_que_corta/usuario_autoriza.
 
     Retorna un dict con claves: id_corte, periodo, filas_afectadas.
     Lanza ValueError si no hay registros pendientes.
@@ -176,12 +180,12 @@ def ejecutar_corte_db(division: str, usuario: str) -> dict:
         raise ValueError("No hay registros pendientes para procesar.")
 
     filas = marcar_registros_procesados(division, p_inicio, p_fin)
-    id_corte = registrar_corte_nomina(division, usuario, p_inicio, p_fin, total_registros=filas)
+    id_corte = registrar_corte_nomina(division, usuario_auditoria, p_inicio, p_fin, total_registros=filas)
     db.session.commit()
 
     logger.info(
         f"✅ Corte {id_corte} ({division}) completado: "
-        f"{filas} registros de {p_inicio} a {p_fin} marcados como PROCESADO."
+        f"{filas} registros de {p_inicio} a {p_fin} marcados como PROCESADO por '{usuario_auditoria}'."
     )
     return {
         "id_corte": id_corte,

@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 from datetime import datetime
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request
 
 from backend.core.sql_database import db
 from backend.models.sql_models import RegistroAsistencia
@@ -286,18 +286,22 @@ def guardar_asistencia():
 @asistencia_bp.route('/guardar_ausencia', methods=['POST'])
 def guardar_ausencia():
     """Guarda un registro de ausencia en SQL."""
+    user_name, user_role = obtener_identidad_segura(request)
+    if not user_name:
+        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+
     try:
-        # Validación de Permisos Manual
-        user_role = session.get('role', '').upper()
+        # Validación de Permisos
+        user_role = str(user_role or '').upper()
         ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
         es_autorizado = any(r in user_role for r in ADMS) or 'JEFE' in user_role
-        
+
         if not es_autorizado:
             return jsonify({'status': 'error', 'message': 'No tiene permisos para reportar ausencias'}), 403
         data = request.json
         if not data or 'registro' not in data:
             return jsonify({'status': 'error', 'message': 'Datos inválidos'}), 400
-        
+
         reg = data['registro']
         from backend.models.sql_models import RegistroAsistencia
         from backend.core.sql_database import db
@@ -310,15 +314,15 @@ def guardar_ausencia():
             salida_real='',
             horas_ordinarias=0,
             horas_extras=0,
-            # Columna 'jefe' eliminada
             estado='AUSENTE',
-            estado_pago='PENDIENTE', 
+            estado_pago='PENDIENTE',
             motivo=reg.get('motivo', ''),
-            comentarios=reg.get('comentarios', '')
+            comentarios=reg.get('comentarios', ''),
+            registrado_por=user_name
         )
         db.session.add(nueva_ausencia)
         db.session.commit()
-        
+
         return jsonify({'status': 'success', 'message': 'Ausencia registrada correctamente en SQL'}), 200
 
     except Exception as e:
@@ -435,8 +439,9 @@ def obtener_registros_dia():
 @require_role(ROL_ADMINS)
 def obtener_consolidado_pendiente():
     """Orquestador de respuesta. Lógica de negocio en nomina_service."""
-    # 1. Validar sesión activa
-    if not session or not session.get('user'):
+    # 1. Validar identidad (JWT o sesión Flask)
+    user, role = obtener_identidad_segura(request)
+    if not user:
         return jsonify({
             'status': 'error',
             'message': 'Sesión inválida o nula. Debe autenticarse en el sistema.'
@@ -448,7 +453,7 @@ def obtener_consolidado_pendiente():
         division = request.args.get('division', 'friparts').lower()
 
         # 2. Validar rol para permitir bypass ('all')
-        user_role = str(session.get('role', '')).upper()
+        user_role = str(role or '').upper()
         is_global_admin = user_role in ROLES_NOMINA_GLOBAL
 
         if division == 'all':
@@ -496,8 +501,9 @@ def obtener_consolidado_pendiente():
 @require_role(ROL_ADMINS)
 def ejecutar_corte():
     """Orquestador de respuesta. Lógica de negocio en nomina_service.ejecutar_corte_db()."""
-    # 1. Validar sesión activa
-    if not session or not session.get('user'):
+    # 1. Validar identidad (JWT o sesión Flask) — única fuente de verdad para la auditoría
+    user_name, role = obtener_identidad_segura(request)
+    if not user_name:
         return jsonify({
             'status': 'error',
             'message': 'Sesión inválida o nula. Debe autenticarse en el sistema.'
@@ -512,18 +518,10 @@ def ejecutar_corte():
             'message': 'El cuerpo de la solicitud no es un JSON válido.'
         }), 400
 
-    usuario = data.get('usuario', '').strip()
     division = data.get('division', '').strip().lower()
 
-    # 3. Validar campos requeridos en el payload
-    if not usuario:
-        return jsonify({
-            'status': 'error',
-            'message': 'El payload no contiene la información del usuario que autoriza el corte ("usuario" requerido).'
-        }), 400
-
-    # 4. Validar privilegios sobre la división seleccionada
-    user_role = str(session.get('role', '')).upper()
+    # 3. Validar privilegios sobre la división seleccionada
+    user_role = str(role or '').upper()
     is_global_admin = user_role in ROLES_NOMINA_GLOBAL
 
     if division == 'all':
@@ -539,7 +537,7 @@ def ejecutar_corte():
         }), 400
 
     try:
-        resultado = ejecutar_corte_db(division=division, usuario=usuario)
+        resultado = ejecutar_corte_db(division=division, usuario_auditoria=user_name)
         return jsonify({
             'status': 'success',
             'periodo': (
