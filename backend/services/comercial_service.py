@@ -15,6 +15,70 @@ FILTRO_VENDEDOR_OPCIONAL = "(:vendedor_filtro = '' OR UPPER(TRIM(COALESCE(v.vend
 # Andres/2025 daba $5,309,314,039 = venta $2,590,839,285 + pedido $2,718,474,754).
 FILTRO_SOLO_VENTA = "UPPER(TRIM(COALESCE(v.clasificacion, ''))) = 'VENTA'"
 
+# Mapeo estático de configuración: agrupa ciudades (tal como llegan en db_ventas.zona,
+# poblado desde Ciudad_Encabezado de World Office) en macro-zonas comerciales.
+# Construido a partir de `SELECT UPPER(TRIM(zona)), COUNT(*) FROM db_ventas GROUP BY 1`
+# corrido contra la base real (2026-07-29), cubriendo el listado completo de ciudades
+# con ventas registradas. Cualquier ciudad nueva que no esté aquí cae en 'SIN ZONA'.
+# Ambigüedades marcadas con comentario: ubicación asignada por mejor criterio geográfico,
+# no verificada 1:1 contra el maestro de clientes — validar si la precisión de zona importa.
+MAPEO_ZONAS = {
+    'Llanos': [
+        'VILLAVICENCIO', 'YOPAL', 'GRANADA', 'ACACIAS', 'ACACÍAS', 'PUERTO LOPEZ', 'PUERTO LÓPEZ',
+        'PUERTO GAITAN', 'PUERTO GAITÁN', 'SAN JOSE DEL GUAVIARE', 'SAN JOSÉ DEL GUAVIARE',
+        'TAME', 'SARAVENA', 'AGUAZUL',
+        'VILLANUEVA',  # Villanueva, Casanare (sin espacio en el dato real)
+    ],
+    'Costa': [
+        'BARRANQUILLA', 'CARTAGENA', 'SANTA MARTA', 'MONTERIA', 'MONTERÍA', 'SINCELEJO',
+        'VALLEDUPAR', 'RIOHACHA', 'SOLEDAD', 'AGUACHICA', 'AGUSTIN CODAZZI', 'AGUSTÍN CODAZZI',
+        'CIENEGA', 'CIÉNEGA',
+        'VILLA NUEVA',  # ambiguo: se asume Villanueva, La Guajira (con espacio en el dato real)
+    ],
+    'Eje Cafetero': [
+        'MANIZALES', 'PEREIRA', 'ARMENIA', 'DOSQUEBRADAS', 'LA VIRGINIA', 'RISARALDA',
+        'QUINCHIA', 'QUINCHÍA',
+    ],
+    'Antioquia': [
+        'MEDELLIN', 'MEDELLÍN', 'BELLO', 'ITAGUI', 'ENVIGADO', 'RIONEGRO', 'SABANETA',
+        'LA ESTRELLA', 'MARINILLA',
+    ],
+    'Centro': [
+        'BOGOTA', 'BOGOTA D.C.', 'SOACHA', 'CHIA', 'CHÍA', 'ZIPAQUIRA', 'ZIPAQUIRÁ',
+        'FACATATIVA', 'MOSQUERA', 'FUNZA', 'LA CALERA', 'VILLA DE SAN DIEGO DE UBATE',
+        'CAJICA', 'CAJICÁ', 'VILLETA', 'LA MESA',
+        'MADRID',  # asumido Madrid, Cundinamarca (sin sufijo de país, a diferencia de las capitales internacionales)
+        'TUNJA', 'CHIQUINQUIRA', 'CHIQUINQUIRÁ', 'SAMACA', 'SAMACÁ', 'RAMIRIQUI', 'RAMIRIQUÍ',
+        'MIRAFLORES', 'SOGAMOSO', 'NOBSA', 'CHOACHI', 'CHOACHÍ', 'DUITAMA',
+        'FUSAGASUGA', 'FUSAGASUGÁ',
+        'SAN JUAN',  # ambiguo por nombre genérico, bajo volumen
+    ],
+    'Santanderes': [
+        'BUCARAMANGA', 'CUCUTA', 'CÚCUTA', 'FLORIDABLANCA', 'PIEDECUESTA', 'GIRON', 'GIRÓN',
+        'BARRANCABERMEJA', 'SAN ALBERTO',  # San Alberto, Cesar: corredor Magdalena Medio junto a Barrancabermeja
+        'BARBOSA',  # ambiguo: homónimo con Barbosa, Antioquia; se asume Barbosa, Santander
+    ],
+    'Suroccidente': [
+        'CALI', 'PALMIRA', 'POPAYAN', 'POPAYÁN', 'PASTO', 'TULUA', 'TULUÁ', 'BUENAVENTURA',
+        'BUGA', 'GUADALAJARA DE BUGA',  # nombre oficial completo de Buga tal como llega en el dato real
+        'YUMBO', 'JAMUNDI', 'JAMUNDÍ', 'SANTANDER DE QUILICHAO', 'IPIALES', 'SAMANIEGO',
+        'PIENDAMO', 'PIENDAMÓ',
+        'NARIÑO', 'NARINO',  # departamento usado como zona genérica en algunos registros
+    ],
+    'Tolima Huila': [
+        'IBAGUE', 'IBAGUÉ', 'NEIVA', 'ESPINAL', 'GIRARDOT', 'PITALITO', 'PLANADAS',
+        'ANZOATEGUI',  # Anzoátegui, Tolima
+        'LA DORADA', 'PUERTO TRIUNFO',  # corredor Magdalena Medio (La Dorada-Caldas / Puerto Triunfo-Antioquia)
+        'FLORENCIA', 'CARTAGENA DEL CHAIRA', 'CARTAGENA DEL CHAIRÁ',  # Caquetá; NO confundir con Cartagena (Costa)
+    ],
+    'Internacional': [
+        'QUITO-ECUADOR', 'LIMA-PERU', 'LIMA-PERÚ', 'SANTO DOMINGO-', 'SAN PEDRO SULA',
+        'LA PAZ BOLIVIA', 'PANAMA', 'PANAMÁ', 'SANTIAGO DE CHILE',
+    ],
+}
+# Inverso precalculado: ciudad -> zona, para etiquetar cada cliente por región una sola vez.
+CIUDAD_A_ZONA = {ciudad: zona for zona, ciudades in MAPEO_ZONAS.items() for ciudad in ciudades}
+
 
 class ComercialHistoricoService:
     """
@@ -231,6 +295,135 @@ class ComercialHistoricoService:
                 'total_registros': total_registros,
                 'total_paginas': total_paginas
             }
+        }
+
+    @staticmethod
+    def obtener_crecimiento_clientes(user_id: int, username: str, user_role: str,
+                                      anio_base: int, anio_comparacion: int, zona: str = None,
+                                      busqueda: str = '') -> dict:
+        """
+        Compara ventas por cliente entre anio_base y anio_comparacion (YoY). La
+        agregación por cliente/ciudad y el filtro de búsqueda por nombre corren en
+        PostgreSQL; el cálculo de crecimiento (incluida la división por cero cuando
+        el cliente es nuevo) se resuelve aquí, nunca en la ruta ni en el frontend.
+        Respeta el mismo aislamiento por rol que el resto del servicio (FILTRO_SCOPE_ROL).
+        """
+        role_upper = str(user_role or '').strip().upper()
+        es_global = role_upper in ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA']
+        es_comercial = not es_global
+
+        ventas_expr = ComercialHistoricoService._expr_ajustado_nc('total_ingresos')
+        vendedor_scope = ComercialHistoricoService._resolver_alias_vendedor(username)
+
+        zona_normalizada = str(zona or '').strip()
+        ciudades_zona = MAPEO_ZONAS.get(zona_normalizada, []) if zona_normalizada else []
+        zona_activa = bool(zona_normalizada) and bool(ciudades_zona)
+        if zona_normalizada and not ciudades_zona:
+            logger.warning(f"[COMERCIAL_SERVICE] Zona '{zona_normalizada}' no está mapeada en MAPEO_ZONAS; se ignora el filtro.")
+
+        params = {
+            'anio_base': int(anio_base),
+            'anio_comparacion': int(anio_comparacion),
+            'es_comercial': es_comercial,
+            'vendedor_user': vendedor_scope,
+            'vendedor_filtro': '',
+            'zona_activa': zona_activa,
+            'ciudades_zona': ciudades_zona or [''],  # placeholder inocuo cuando zona_activa=False
+            'busqueda': str(busqueda or '').strip(),
+        }
+
+        query = text(f"""
+            SELECT
+                COALESCE(NULLIF(TRIM(v.nombres), ''), 'CLIENTE DESCONOCIDO') AS cliente,
+                COALESCE(NULLIF(TRIM(v.zona), ''), 'SIN ZONA') AS ciudad,
+                ROUND(SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_base THEN {ventas_expr} ELSE 0 END)::NUMERIC, 2) AS venta_base,
+                ROUND(SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_comparacion THEN {ventas_expr} ELSE 0 END)::NUMERIC, 2) AS venta_comparacion
+            FROM db_ventas v
+            WHERE EXTRACT(YEAR FROM v.fecha)::INTEGER IN (:anio_base, :anio_comparacion)
+              AND {FILTRO_SCOPE_ROL}
+              AND {FILTRO_VENDEDOR_OPCIONAL}
+              AND {FILTRO_SOLO_VENTA}
+              AND (:zona_activa = FALSE OR TRIM(UPPER(COALESCE(v.zona, ''))) = ANY(:ciudades_zona))
+              AND (:busqueda = '' OR v.nombres ILIKE '%' || :busqueda || '%')
+            GROUP BY 1, 2
+            HAVING SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_base THEN {ventas_expr} ELSE 0 END) <> 0
+                OR SUM(CASE WHEN EXTRACT(YEAR FROM v.fecha) = :anio_comparacion THEN {ventas_expr} ELSE 0 END) <> 0;
+        """)
+
+        try:
+            filas = [dict(r) for r in db.session.execute(query, params).mappings().all()]
+        except Exception as e:
+            logger.error(f"[COMERCIAL_SERVICE] Error generando crecimiento de clientes: {e}")
+            raise e
+
+        # Consolida por (cliente, zona-región): un mismo cliente puede aparecer bajo
+        # más de una ciudad entre los dos años (traslado, sucursal); se suman antes
+        # de calcular el crecimiento para no duplicarlo en la tabla final.
+        consolidado = {}
+        for f in filas:
+            ciudad_upper = str(f['ciudad']).strip().upper()
+            zona_cliente = CIUDAD_A_ZONA.get(ciudad_upper, 'SIN ZONA')
+            clave = (f['cliente'], zona_cliente)
+            acc = consolidado.setdefault(clave, {'venta_base': 0.0, 'venta_comparacion': 0.0})
+            acc['venta_base'] += float(f['venta_base'] or 0)
+            acc['venta_comparacion'] += float(f['venta_comparacion'] or 0)
+
+        # Lookup de NIT *después* de agregar las ventas (nunca antes vía JOIN):
+        # db_ventas no tiene columna NIT, solo db_ventas.nombres (texto libre) y
+        # db_clientes.identificacion; un JOIN previo al SUM podría duplicar ventas
+        # si un nombre matchea más de un registro en db_clientes. DISTINCT ON
+        # garantiza como máximo un NIT por nombre normalizado (el de menor id).
+        nombres_normalizados = list({str(cliente).strip().upper() for (cliente, _z) in consolidado.keys()})
+        nit_por_nombre = {}
+        if nombres_normalizados:
+            try:
+                query_nits = text("""
+                    SELECT DISTINCT ON (UPPER(TRIM(nombre)))
+                        UPPER(TRIM(nombre)) AS nombre_normalizado,
+                        identificacion AS nit
+                    FROM db_clientes
+                    WHERE UPPER(TRIM(nombre)) = ANY(:nombres_clientes)
+                    ORDER BY UPPER(TRIM(nombre)), id ASC;
+                """)
+                filas_nits = db.session.execute(query_nits, {'nombres_clientes': nombres_normalizados}).mappings().all()
+                nit_por_nombre = {r['nombre_normalizado']: r['nit'] for r in filas_nits}
+            except Exception as e:
+                logger.warning(f"[COMERCIAL_SERVICE] No se pudo resolver NIT de clientes: {e}")
+
+        resultado = []
+        for (cliente, zona_cliente), valores in consolidado.items():
+            venta_base = round(valores['venta_base'], 2)
+            venta_comparacion = round(valores['venta_comparacion'], 2)
+
+            if venta_base > 0:
+                crecimiento_pct = round(((venta_comparacion - venta_base) / venta_base) * 100, 2)
+                es_nuevo = False
+            elif venta_comparacion > 0:
+                crecimiento_pct = 100.0  # cliente nuevo en anio_comparacion: sin base para dividir
+                es_nuevo = True
+            else:
+                crecimiento_pct = 0.0
+                es_nuevo = False
+
+            resultado.append({
+                'cliente_nit': nit_por_nombre.get(str(cliente).strip().upper()),
+                'cliente_nombre': cliente,
+                'zona_region': zona_cliente,
+                'venta_anio_base': venta_base,
+                'venta_anio_comp': venta_comparacion,
+                'variacion_cop': round(venta_comparacion - venta_base, 2),
+                'crecimiento_pct': crecimiento_pct,
+                'es_nuevo': es_nuevo
+            })
+
+        resultado.sort(key=lambda r: r['variacion_cop'], reverse=True)
+
+        return {
+            'success': True,
+            'periodo': {'anio_base': int(anio_base), 'anio_comparacion': int(anio_comparacion)},
+            'zona_filtro': zona_normalizada or None,
+            'seguridad': {'vista_global': es_global, 'usuario': username},
+            'clientes': resultado
         }
 
     @staticmethod

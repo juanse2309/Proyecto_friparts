@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from flask import Blueprint, jsonify, request, render_template, session, send_file
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, obtener_identidad_segura
 from backend.services.comercial_service import ComercialHistoricoService
@@ -78,6 +79,41 @@ def api_obtener_comercial_detalle():
     except Exception as e:
         logger.error(f"[COMERCIAL_ROUTES] Error en /api/comercial/historico/detalle: {e}")
         return jsonify({'success': False, 'error': 'Error interno extrayendo el detalle', 'detalle': str(e)}), 500
+
+
+@comercial_bp.route('/api/comercial/crecimiento-clientes', methods=['GET'])
+@require_role(ROLES_PERMITIDOS_COMERCIAL)
+def api_obtener_crecimiento_clientes():
+    """
+    Controlador delgado: captura y sanitiza los parámetros de QueryString
+    (anio_base, anio_comparacion, zona, busqueda) y delega toda la agregación
+    SQL y el cálculo de crecimiento YoY al servicio.
+    """
+    try:
+        user_name, user_role = obtener_identidad_segura(request)
+        user_id = session.get('user_id') or session.get('usuario_id') or 0
+
+        anio_actual = datetime.now().year
+        anio_base = request.args.get('anio_base', default=anio_actual - 1, type=int)
+        anio_comparacion = request.args.get('anio_comparacion', default=anio_actual, type=int)
+        zona = request.args.get('zona', default='', type=str).strip()
+        busqueda = request.args.get('busqueda', default='', type=str).strip()
+
+        data = ComercialHistoricoService.obtener_crecimiento_clientes(
+            user_id=user_id,
+            username=user_name,
+            user_role=user_role,
+            anio_base=anio_base,
+            anio_comparacion=anio_comparacion,
+            zona=zona,
+            busqueda=busqueda
+        )
+
+        return jsonify(data), 200
+
+    except Exception as e:
+        logger.error(f"[COMERCIAL_ROUTES] Error en /api/comercial/crecimiento-clientes: {e}")
+        return jsonify({'success': False, 'error': 'Error interno calculando el crecimiento de clientes', 'detalle': str(e)}), 500
 
 
 @comercial_bp.route('/api/comercial/historico/excel', methods=['GET'])
