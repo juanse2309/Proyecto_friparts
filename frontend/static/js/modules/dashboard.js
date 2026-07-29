@@ -382,9 +382,10 @@ window.ModuloDashboard = (function () {
             try {
                 if (data.analytics_pulido) {
                     cacheAnalyticsPulido = data.analytics_pulido;
-                    if (data.analytics_pulido.eficiencia_referencia) {
-                        renderTablaEficienciaPulido(data.analytics_pulido.eficiencia_referencia);
-                    }
+                    // Módulo dado de baja temporalmente (corrupción de datos backend): renderTablaEficienciaPulido deshabilitado.
+                    // if (data.analytics_pulido.eficiencia_referencia) {
+                    //     renderTablaEficienciaPulido(data.analytics_pulido.eficiencia_referencia);
+                    // }
                 }
                 renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
                 renderTablaPulido(data.rankings?.pulido_profundo || {});

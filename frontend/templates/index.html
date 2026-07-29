@@ -547,6 +547,7 @@
         <ul class="sidebar-menu"> <!-- Menú items - mantener igual -->
             <li class="menu-item" data-page="dashboard"> <a href="#"><i class="fas fa-chart-line"></i><span>Dashboard
                         IA</span></a> </li>
+            <li class="menu-item" data-page="comercial-historico"> <a href="#" onclick="cargarPagina('comercial-historico')"><i class="fas fa-chart-line text-success"></i><span>Analítica Comercial</span></a> </li>
             <li class="menu-item" data-page="inventario"> <a href="#"><i class="fas fa-boxes"></i><span>Productos y
                         Existencias</span></a> </li>
             <li class="menu-item" data-page="inyeccion"> <a href="#"><i
@@ -572,7 +573,6 @@
             <li class="menu-item" data-page="asistencia"> <a href="#"><i class="fas fa-user-clock"></i><span>Control de
                         Asistencia</span></a> </li>
             <li class="menu-item" id="nav-notificaciones" data-page="notificaciones"> <a href="#"><i class="fas fa-bullhorn"></i><span>Notificaciones Push</span></a> </li>
-            <li class="menu-item" data-page="comercial-historico"> <a href="#" onclick="cargarPagina('comercial-historico')"><i class="fas fa-chart-line text-success"></i><span>Analítica Comercial</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i
@@ -1512,7 +1512,8 @@
                     </div>
 
                     <!-- Tarjeta de Analítica de Eficiencia de Pulido por Referencia -->
-                    <div class="row mt-4 mb-4">
+                    <!-- Módulo dado de baja temporalmente (corrupción de datos backend): oculto con d-none hasta reparar. -->
+                    <div class="row mt-4 mb-4 d-none">
                         <div class="col-12">
                             <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
                                 <div class="card-header bg-white border-0 pt-4 pb-3 d-flex flex-wrap justify-content-between align-items-center border-bottom">

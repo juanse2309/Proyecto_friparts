@@ -560,10 +560,13 @@ class DashboardService:
     @staticmethod
     def calcular_eficiencia_pulido_por_referencia(desde=None, hasta=None):
         """
-        Cálculo optimizado que relaciona tiempo por lote y cantidad pulida para determinar 
+        Cálculo optimizado que relaciona tiempo por lote y cantidad pulida para determinar
         de forma fidedigna qué operario procesa más rápido cada referencia específica.
         Excluye operarias ignoradas ('NOHEMY', 'LAURA JIMENEZ').
         """
+        # Módulo dado de baja temporalmente por corrupción de datos (orden del Arquitecto de Software).
+        # TODO: Refactorizar cálculo por datos erróneos
+        return {}
         try:
             filt = " AND p.estado IN ('FINALIZADO', 'APROBADO') AND p.cantidad_real > 0 AND p.tiempo_total_minutos > 0"
             params = {}
