@@ -120,11 +120,11 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
  
     # Sincronización de PNC Detallado
     pnc_detail = data.get('pnc_detail', [])
-    if pnc_detail:
-        db.session.query(PncInyeccion).filter_by(id_inyeccion=registro.id_pulido).delete()
-        db.session.query(PncPulido).filter_by(id_pulido=registro.id_pulido).delete()
-        db.session.query(PncEnsamble).filter_by(id_ensamble=registro.id_pulido).delete()
+    db.session.query(PncInyeccion).filter_by(id_inyeccion=registro.id_pulido).delete()
+    db.session.query(PncPulido).filter_by(id_pulido=registro.id_pulido).delete()
+    db.session.query(PncEnsamble).filter_by(id_ensamble=registro.id_pulido).delete()
 
+    if pnc_detail:
         for pnc_item in pnc_detail:
             proc = pnc_item.get('proceso', '').upper()
             cant = float(pnc_item.get('cantidad') or 0)
@@ -155,6 +155,29 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                     cantidad=cant,
                     criterio=crit
                 ))
+    else:
+        # Fix de Sincronización: si el payload trae el agregado (pnc_pulido/
+        # pnc_inyeccion) SIN el desglose itemizado, la tabla hija no puede
+        # quedar huérfana de la maestra — o el Dashboard (que lee de
+        # db_pnc_pulido/db_pnc_inyeccion) subcuenta este PNC en silencio.
+        # Se reutiliza el criterio de texto libre del header si vino, y si
+        # no, se cae a un genérico explícito para no perder trazabilidad.
+        if registro.pnc_pulido and registro.pnc_pulido > 0:
+            db.session.add(PncPulido(
+                id_pnc_pulido=uuid.uuid4().hex[:8],
+                id_pulido=registro.id_pulido,
+                codigo=registro.codigo,
+                cantidad=registro.pnc_pulido,
+                criterio=registro.criterio_pnc_pulido or 'Diferencia/Sobrante (Sin Desglose)'
+            ))
+        if registro.pnc_inyeccion and registro.pnc_inyeccion > 0:
+            db.session.add(PncInyeccion(
+                id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                id_inyeccion=registro.id_pulido,
+                id_codigo=registro.codigo,
+                cantidad=registro.pnc_inyeccion,
+                criterio=registro.criterio_pnc_inyeccion or 'Diferencia/Sobrante (Sin Desglose)'
+            ))
 
     db.session.flush()
 

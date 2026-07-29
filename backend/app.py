@@ -2036,40 +2036,66 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
     """
     Helper para registrar PNC en las tablas específicas de producción.
     Diferencia entre pnc_inyeccion (usa id_codigo) y pnc_pulido (usa codigo).
+
+    Para Inyección puebla las 5 columnas tipadas de db_pnc_inyeccion con el
+    mismo clasificador (_clasificar_pnc_tipado) que usan registrar_inyeccion_lote
+    y validar_lote_inyeccion en inyeccion_routes.py — antes esta función era una
+    cuarta implementación independiente que solo concatenaba texto libre
+    ("{motivo} - {observaciones}") sin tocar ninguna columna tipada, y era una
+    de las fuentes confirmadas del ~95% "Sin Clasificar" medido en producción.
+
+    Pulido y Ensamble no tienen columnas tipadas (decisión de Fase 1: no se
+    migra el esquema todavía), así que ahí solo se normaliza el texto del
+    motivo contra el catálogo único de PncService en vez de guardarlo crudo.
     """
     try:
         import uuid
         tipo = str(tipo_proceso).lower()
         pk_id = uuid.uuid4().hex[:8] # Hexadecimal de 8 caracteres (DBeaver)
-        
+
         if tipo == 'inyeccion':
             from backend.models.sql_models import PncInyeccion
+            from backend.routes.inyeccion_routes import _clasificar_pnc_tipado, _criterio_texto_tipado
+
+            tipado, total_tipado = _clasificar_pnc_tipado([{'cantidad': cantidad_pnc, 'criterio': criterio_pnc}])
+            if total_tipado <= 0:
+                logger.warning(f"⚠️ [PNC Inyeccion] '{criterio_pnc}' (cantidad={cantidad_pnc}) no clasificó en ninguna columna tipada para {codigo_producto}")
+
+            criterio_final = _criterio_texto_tipado(tipado)
+            if observaciones:
+                criterio_final += f" | Obs: {observaciones}"
+
             nueva_pnc = PncInyeccion(
                 id_pnc_inyeccion=pk_id,
                 id_inyeccion=str(id_operacion),
                 id_codigo=codigo_producto,
                 cantidad=cantidad_pnc,
-                criterio=f"{criterio_pnc} - {observaciones}".strip(' -'),
-                codigo_ensamble="AUDITORIA PULIDO"
+                criterio=criterio_final,
+                codigo_ensamble="AUDITORIA PULIDO",
+                **tipado
             )
         elif tipo == 'pulido':
             from backend.models.sql_models import PncPulido
+            from backend.services.pnc_service import pnc_service
+            motivo_normalizado = pnc_service.normalizar_criterio(criterio_pnc, "pulido")
             nueva_pnc = PncPulido(
                 id_pnc_pulido=pk_id,
                 id_pulido=str(id_operacion),
                 codigo=codigo_producto,
                 cantidad=cantidad_pnc,
-                criterio=f"{criterio_pnc} - {observaciones}".strip(' -'),
+                criterio=f"{motivo_normalizado} - {observaciones}".strip(' -'),
                 codigo_ensamble="AUDITORIA PULIDO"
             )
         elif tipo == 'ensamble':
             from backend.models.sql_models import PncEnsamble
+            from backend.services.pnc_service import pnc_service
+            motivo_normalizado = pnc_service.normalizar_criterio(criterio_pnc, "ensamble")
             nueva_pnc = PncEnsamble(
                 id_pnc_ensamble=pk_id,
                 id_ensamble=str(id_operacion),
                 id_codigo=codigo_producto,
                 cantidad=cantidad_pnc,
-                criterio=f"{criterio_pnc} - {observaciones}".strip(' -'),
+                criterio=f"{motivo_normalizado} - {observaciones}".strip(' -'),
                 codigo_ensamble="AUDITORIA PULIDO"
             )
         else:

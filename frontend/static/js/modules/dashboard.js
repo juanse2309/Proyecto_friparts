@@ -25,6 +25,7 @@ window.ModuloDashboard = (function () {
     let lastJefaturaData = null;
     let inc_consolidado_original = [];
     let currentIncSortMode = localStorage.getItem('db_toggle_mode') || 'units'; // 'units' or 'money'
+    let currentPncMode = localStorage.getItem('db_pnc_toggle_mode') || 'money'; // 'units' or 'money' — Desglose de Scrap/PNC (independiente del toggle de Jefatura). Default 'money': es la capacidad nueva que se busca destacar.
     let cacheAnalyticsPulido = null; // Cache para Analiticas de Pulido 
     window.ventasCache = {}; // Caché global de sesión para drill-down mensual (Juan Sebastian Request)
     
@@ -952,7 +953,7 @@ window.ModuloDashboard = (function () {
         }
     }
 
-    async function renderChartPNC(legacyPnc) {
+    async function renderChartPNC(legacyPnc, modo = currentPncMode) {
         const ctx = document.getElementById('chartPNCGlobal') || document.getElementById('chartPNC');
         if (!ctx) return;
 
@@ -966,7 +967,12 @@ window.ModuloDashboard = (function () {
             if (!res.success) throw new Error(res.error || 'Unknown error');
 
             const totales = res.totales_area;
-            const modosFalla = res.modos_falla_area;
+            const esModoDinero = modo === 'money';
+            // Modos de Falla: Dinero usa el desglose costeado por criterio (modos_falla_dinero_area,
+            // agregado en PncService); Unidades mantiene el desglose de cantidades de siempre.
+            const modosFalla = esModoDinero
+                ? (res.modos_falla_dinero_area || {})
+                : (res.modos_falla_area || {});
             const pareto = res.pareto_referencias;
 
             // Actualizar el total global en el badge del card de calidad
@@ -1125,18 +1131,26 @@ window.ModuloDashboard = (function () {
                                 },
                                 didOpen: () => {
                                     const modalCtx = document.getElementById('chartModalPNC').getContext('2d');
-                                    
+
                                     // Crear gradiente premium rojo para el modal de fallas
                                     const modalGrad = modalCtx.createLinearGradient(0, 0, 0, 300);
                                     modalGrad.addColorStop(0, 'rgba(239, 68, 68, 0.9)');
                                     modalGrad.addColorStop(1, 'rgba(185, 28, 28, 0.8)');
+
+                                    // Formato condicionado al modo activo (Dinero vs Unidades)
+                                    const formatCOP_Modal = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                                    const formatearValorModal = (val) => esModoDinero ? formatCOP_Modal.format(val) : `${Math.round(val).toLocaleString()} Pz`;
+                                    const formatearTickModal = (val) => {
+                                        if (!esModoDinero) return val.toLocaleString();
+                                        return val >= 1000000 ? `$${(val / 1000000).toFixed(1)}M` : formatCOP_Modal.format(val);
+                                    };
 
                                     new Chart(modalCtx, {
                                         type: 'bar',
                                         data: {
                                             labels: Object.keys(modos),
                                             datasets: [{
-                                                label: 'Cantidad',
+                                                label: esModoDinero ? 'Costo del Defecto ($)' : 'Cantidad (Pz)',
                                                 data: Object.values(modos),
                                                 backgroundColor: modalGrad,
                                                 borderColor: '#ef4444',
@@ -1153,13 +1167,17 @@ window.ModuloDashboard = (function () {
                                                 tooltip: {
                                                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
                                                     padding: 10,
-                                                    cornerRadius: 8
+                                                    cornerRadius: 8,
+                                                    callbacks: {
+                                                        label: (context) => ` ${formatearValorModal(context.raw)}`
+                                                    }
                                                 }
                                             },
                                             scales: {
                                                 y: {
                                                     beginAtZero: true,
-                                                    grid: { color: 'rgba(226, 232, 240, 0.5)' }
+                                                    grid: { color: 'rgba(226, 232, 240, 0.5)' },
+                                                    ticks: { callback: formatearTickModal }
                                                 },
                                                 x: {
                                                     grid: { display: false },
@@ -1292,6 +1310,22 @@ window.ModuloDashboard = (function () {
                 });
             }
         }
+    }
+
+    // Toggle Dinero/Unidades del desglose de Scrap y PNC (independiente del
+    // toggle global de Jefatura — no depende de lastJefaturaData porque la
+    // tarjeta de PNC es visible para todos los roles).
+    function setModoPnc(modo) {
+        if (currentPncMode === modo) return;
+        currentPncMode = modo;
+        localStorage.setItem('db_pnc_toggle_mode', modo);
+
+        const btnMoney = document.getElementById('toggle-pnc-money');
+        const btnUnits = document.getElementById('toggle-pnc-units');
+        if (btnMoney) btnMoney.classList.toggle('active', modo === 'money');
+        if (btnUnits) btnUnits.classList.toggle('active', modo === 'units');
+
+        renderChartPNC(null, modo);
     }
 
     function renderScrapAlmacenDetalle(desglose) {
@@ -2561,6 +2595,9 @@ window.ModuloDashboard = (function () {
                             const mesNum = index + 1; // Enero=1, etc.
                             mostrarDrillDownVentas(mesNum, anioSeleccionado, label);
                         }
+                    },
+                    onHover: (event, chartElement) => {
+                        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
                     }
                 }
             });
@@ -2897,6 +2934,9 @@ window.ModuloDashboard = (function () {
                             // Re-render chart to highlight selected index
                             renderChartRendimientoMensualNew(rendimientoDataCompleto, currentRendimientoMode, index);
                         }
+                    },
+                    onHover: (event, chartElement) => {
+                        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
                     },
                     plugins: {
                         legend: { position: 'top' },
@@ -3772,6 +3812,9 @@ window.ModuloDashboard = (function () {
                                 mostrarDrillDownVentas(mesNum, anio, label);
                             }
                         }
+                    },
+                    onHover: (event, chartElement) => {
+                        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
                     }
                 }
             });
@@ -3883,6 +3926,7 @@ window.ModuloDashboard = (function () {
         });
         window.ModuloDashboard.reRenderizarVistaActiva();
     };
+    window.ModuloDashboard.setModoPnc = setModoPnc;
 
     return window.ModuloDashboard;
 })();

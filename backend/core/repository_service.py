@@ -927,98 +927,164 @@ class RepositoryService:
             logger.error(f"[get_stock_critico_sql] {e}")
             return []
 
-    def get_perdida_economica_scrap(self, desde=None, hasta=None):
+    def get_pnc_detalle_costeado(self, desde=None, hasta=None, columnas_tipadas_inyeccion=None):
         """
-        Calcula la pérdida financiera por scrap usando id_codigo en todas las tablas de detalle.
+        Fuente cruda 100% SQL, costeada contra db_costos por referencia:
+        una fila por (área, referencia, criterio). Inyección viene YA
+        pivotada por columna tipada (quemado_manchado, rebaba_excesiva, ...)
+        en vez de texto libre — evita que esta capa SQL tenga que adivinar
+        nada. Pulido/Ensamble traen su `criterio` de texto libre tal cual;
+        normalizarlo es responsabilidad de la capa de negocio (PncService),
+        no de este repositorio.
+
+        `columnas_tipadas_inyeccion`: dict {columna_sql: criterio_normalizado}
+        inyectado por el caller (PncService es la fuente de verdad del
+        catálogo) para no crear un import circular entre ambos módulos.
+
+        Devuelve: [{area, ref, criterio, cantidad, costo_unitario, costo_total}, ...]
         """
         try:
+            # Fallback local si no se inyecta el mapeo (mantiene el método usable standalone)
+            columnas_iny = columnas_tipadas_inyeccion or {
+                "quemado_manchado": "Quemado/Manchado",
+                "incompleto_falta_llenado": "Incompleto",
+                "rebaba_excesiva": "Rebaba",
+                "burbuja_porosidad": "Burbujas/Porosidad",
+                "deformacion_rechupado": "Rechupe/Deformado",
+            }
+
             params = {'desde': desde, 'hasta': hasta}
             filt_iny = " WHERE i.fecha_inicia BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
             filt_pul = " WHERE d.fecha BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
             filt_ens = " WHERE e.fecha BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
 
-            # Cast ultra-robusto: Comas a puntos + Limpieza regex
             def _user_cast(col):
                 return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
 
-            sql_ctes = f"""
+            union_iny_tipado = " UNION ALL ".join(
+                f"""SELECT 'inyeccion' as area, TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref,
+                           '{criterio}' as criterio, SUM(COALESCE(p.{col}, 0)) as qty
+                    FROM db_pnc_inyeccion p
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia
+                        FROM db_inyeccion WHERE fecha_inicia IS NOT NULL
+                        ORDER BY id_inyeccion, fecha_inicia DESC
+                    ) i ON p.id_inyeccion = i.id_inyeccion
+                    {filt_iny}
+                    GROUP BY 1, 2, 3"""
+                for col, criterio in columnas_iny.items()
+            )
+            columnas_suma_sql = " + ".join(f"COALESCE(p.{c}, 0)" for c in columnas_iny.keys())
+
+            sql = text(f"""
                 WITH unique_costs AS (
-                    SELECT 
-                        TRIM(UPPER(REPLACE(referencia::TEXT, 'FR-', ''))) as ref_costo, 
+                    SELECT
+                        TRIM(UPPER(REPLACE(referencia::TEXT, 'FR-', ''))) as ref_costo,
                         MAX({_user_cast('costo_total')}) as cost
                     FROM db_costos
                     GROUP BY 1
                 ),
-                scrap_unificado AS (
-                    -- Bloque INYECCIÓN: Usa id_codigo
-                    SELECT 
-                        TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref, 
-                        SUM({_user_cast('p.cantidad')}) as qty 
+                pnc_crudo AS (
+                    {union_iny_tipado}
+
+                    UNION ALL
+
+                    -- Remanente de Inyección sin clasificar (cantidad > 0 pero columnas tipadas en 0,
+                    -- p.ej. PNC de cierre/validación de lote con criterio de texto libre)
+                    SELECT
+                        'inyeccion' as area,
+                        TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref,
+                        'Sin Clasificar' as criterio,
+                        SUM(GREATEST(COALESCE(p.cantidad, 0) - ({columnas_suma_sql}), 0)) as qty
                     FROM db_pnc_inyeccion p
                     LEFT JOIN (
-                        SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia, maquina 
-                        FROM db_inyeccion 
-                        WHERE fecha_inicia IS NOT NULL
+                        SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia
+                        FROM db_inyeccion WHERE fecha_inicia IS NOT NULL
                         ORDER BY id_inyeccion, fecha_inicia DESC
                     ) i ON p.id_inyeccion = i.id_inyeccion
                     {filt_iny}
-                    GROUP BY TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', ''))
-                    
+                    GROUP BY 1, 2, 3
+
                     UNION ALL
-                    
-                    -- Bloque PULIDO: Usa p.codigo (Mapeo DBeaver)
-                    SELECT 
-                        TRIM(REPLACE(p.codigo::TEXT, 'FR-', '')) as ref, 
-                        SUM({_user_cast('p.cantidad')}) as qty 
+
+                    -- Pulido: criterio de texto libre tal cual (se normaliza en PncService)
+                    SELECT
+                        'pulido' as area,
+                        TRIM(REPLACE(p.codigo::TEXT, 'FR-', '')) as ref,
+                        COALESCE(NULLIF(TRIM(p.criterio), ''), 'Otros') as criterio,
+                        SUM({_user_cast('p.cantidad')}) as qty
                     FROM db_pnc_pulido p
                     LEFT JOIN (
-                        SELECT DISTINCT ON (id_pulido::text) id_pulido::text as id_pulido, fecha 
-                        FROM db_pulido 
-                        WHERE fecha IS NOT NULL
+                        SELECT DISTINCT ON (id_pulido::text) id_pulido::text as id_pulido, fecha
+                        FROM db_pulido WHERE fecha IS NOT NULL
                         ORDER BY id_pulido::text, fecha DESC
                     ) d ON p.id_pulido::text = d.id_pulido
                     {filt_pul}
-                    GROUP BY TRIM(REPLACE(p.codigo::TEXT, 'FR-', ''))
-                    
+                    GROUP BY 1, 2, 3
+
                     UNION ALL
-                    
-                    -- Bloque ENSAMBLE: Usa p.id_codigo (Mapeo DBeaver)
-                    SELECT 
-                        TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref, 
-                        SUM({_user_cast('p.cantidad')}) as qty 
+
+                    -- Ensamble: criterio de texto libre tal cual (se normaliza en PncService)
+                    SELECT
+                        'ensamble' as area,
+                        TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref,
+                        COALESCE(NULLIF(TRIM(p.criterio), ''), 'Otros') as criterio,
+                        SUM({_user_cast('p.cantidad')}) as qty
                     FROM db_pnc_ensamble p
                     LEFT JOIN db_ensambles e ON p.id_ensamble = e.id_ensamble
                     {filt_ens}
-                    GROUP BY TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', ''))
+                    GROUP BY 1, 2, 3
                 )
-            """
-
-            # 1. Obtener Total Pérdida
-            sql_total = f"{sql_ctes} SELECT COALESCE(SUM(COALESCE(s.qty, 0) * COALESCE(c.cost, 0)), 0) FROM scrap_unificado s LEFT JOIN unique_costs c ON s.ref = c.ref_costo WHERE s.qty > 0"
-            res_total = db.session.execute(text(sql_total), params).fetchone()
-            total_perdida = _num(res_total[0]) if res_total else 0
-
-            # 2. Obtener Ranking Productos (Pareto Top Scrap)
-            sql_ranking = f"""
-                {sql_ctes}
-                SELECT 
-                    s.ref as producto, 
-                    SUM(s.qty) as cantidad, 
-                    SUM(s.qty * COALESCE(c.cost, 0)) as perdida_dinero
-                FROM scrap_unificado s
+                SELECT
+                    s.area, s.ref, s.criterio, s.qty as cantidad,
+                    COALESCE(c.cost, 0) as costo_unitario,
+                    s.qty * COALESCE(c.cost, 0) as costo_total
+                FROM pnc_crudo s
                 LEFT JOIN unique_costs c ON s.ref = c.ref_costo
-                GROUP BY s.ref
-                ORDER BY perdida_dinero DESC, cantidad DESC
-                LIMIT 10
-            """
-            res_ranking = db.session.execute(text(sql_ranking), params).fetchall()
-            ranking = []
-            for r in res_ranking:
-                ranking.append({
-                    "producto": r[0],
-                    "cantidad": _num(r[1]),
-                    "costo": _num(r[2]) # "costo" mapea a dinero perdido para el frontend
-                })
+                WHERE s.qty > 0
+            """)
+
+            rows = db.session.execute(sql, params).mappings().all()
+            return [{
+                "area": r["area"],
+                "ref": r["ref"],
+                "criterio": r["criterio"],
+                "cantidad": _num(r["cantidad"]),
+                "costo_unitario": _num(r["costo_unitario"]),
+                "costo_total": _num(r["costo_total"]),
+            } for r in rows]
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_pnc_detalle_costeado] ERROR: {e}")
+            return []
+
+    def get_perdida_economica_scrap(self, desde=None, hasta=None):
+        """
+        Calcula la pérdida financiera por scrap agrupada por referencia.
+        Reutiliza get_pnc_detalle_costeado (fuente única costeada) en vez de
+        repetir su propia CTE — antes esta función y el desglose por
+        criterio del Dashboard consultaban la misma data con dos queries
+        independientes que podían divergir.
+        """
+        try:
+            filas = self.get_pnc_detalle_costeado(desde=desde, hasta=hasta)
+
+            total_perdida = sum(f["costo_total"] for f in filas)
+
+            por_ref = {}
+            for f in filas:
+                ref = f["ref"]
+                if not ref:
+                    continue
+                acc = por_ref.setdefault(ref, {"cantidad": 0.0, "costo": 0.0})
+                acc["cantidad"] += f["cantidad"]
+                acc["costo"] += f["costo_total"]
+
+            ranking = sorted(
+                [{"producto": ref, "cantidad": v["cantidad"], "costo": v["costo"]} for ref, v in por_ref.items()],
+                key=lambda x: (x["costo"], x["cantidad"]),
+                reverse=True
+            )[:10]
 
             return {
                 "total_perdida": total_perdida,

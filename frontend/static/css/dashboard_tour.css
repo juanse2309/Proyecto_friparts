@@ -1,0 +1,133 @@
+/* Dashboard Tour — capa visual mínima sobre Bootstrap Popover. Sin dependencias nuevas. */
+
+/*
+ * Ícono de ayuda/tooltip destacado en las tarjetas del Dashboard.
+ * Se aplica explícitamente vía .dashboard-help-icon y, además, se adopta
+ * automáticamente en todos los íconos de ayuda ya existentes en las tarjetas
+ * (mismo patrón data-bs-toggle="tooltip" usado hoy) para no tener que tocar
+ * cada card en index.html. Especificidad (#id + tag + atributo) > .text-muted
+ * de Bootstrap, por lo que no requiere !important ni altera la grilla.
+ */
+.dashboard-help-icon,
+#dashboard-page i[data-bs-toggle="tooltip"] {
+    color: #3b82f6;
+    cursor: help;
+    padding: 3px;
+    border-radius: 50%;
+    background-color: rgba(59, 130, 246, 0.12);
+    transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.dashboard-help-icon:hover,
+#dashboard-page i[data-bs-toggle="tooltip"]:hover {
+    color: #fff;
+    background-color: #3b82f6;
+    transform: scale(1.15);
+}
+
+.dtour-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    z-index: 10000;
+    animation: dtour-fade-in 0.2s ease;
+}
+
+@keyframes dtour-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Elemento resaltado: se eleva por encima del overlay (10000) */
+.dtour-highlight {
+    position: relative;
+    z-index: 10001;
+    outline: 3px solid #3b82f6;
+    outline-offset: 4px;
+    border-radius: 12px;
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25), 0 10px 30px rgba(0, 0, 0, 0.35);
+    background-color: #fff;
+}
+
+/* Popover del tour: se eleva por encima del overlay y del elemento resaltado */
+.popover.dtour-popover {
+    z-index: 10002;
+    max-width: 320px;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+.popover.dtour-popover .popover-header {
+    background: #3b82f6;
+    color: #fff;
+    font-weight: 700;
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
+}
+
+.popover.dtour-popover .popover-body {
+    padding: 1rem;
+    color: #1e293b;
+}
+
+.dtour-progress {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.35rem;
+}
+
+.dtour-body-text {
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.dtour-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.85rem;
+    gap: 0.5rem;
+}
+
+.dtour-btn {
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 8px;
+    border: none;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.dtour-btn-primary {
+    background: #3b82f6;
+    color: #fff;
+}
+
+.dtour-btn-primary:hover {
+    background: #2563eb;
+}
+
+.dtour-btn-secondary {
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.dtour-btn-secondary:hover {
+    background: #cbd5e1;
+}
+
+.dtour-btn-link {
+    background: transparent;
+    color: #94a3b8;
+    text-decoration: underline;
+    padding: 0.3rem 0;
+}
+
+.dtour-btn-link:hover {
+    color: #64748b;
+}

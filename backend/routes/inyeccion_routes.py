@@ -40,72 +40,66 @@ def _asignar_autoridad_y_estado(registro, es_validacion, payload_responsable, us
 
     return responsable, estado
 
-# Catálogos oficiales de motivos de rechazo (PNC)
-INYECCION_CRITERIOS = ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"]
-PULIDO_CRITERIOS = ["Rayado", "Porosidad", "Exceso de Rebaba", "Medida Incorrecta", "Mal Acabado", "Otros"]
-ENSAMBLE_CRITERIOS = ["Falta de Componente", "Mal Ajuste", "Inserto Defectuoso", "Daño Físico", "Otros"]
+# Catálogo único de criterios PNC: vive en PncService (antes había una copia
+# aquí y otra en gerencia_routes.py, con nombres canónicos distintos que
+# hacían que el mismo texto libre se clasificara diferente según quién lo leyera).
+from backend.services.pnc_service import pnc_service
+normalizar_criterio = pnc_service.normalizar_criterio
 
-def normalizar_criterio(criterio, area):
-    if not criterio:
-        return "Otros"
-    
-    crit_lower = str(criterio).lower().strip()
-    
-    # Remover cualquier indicio de números entre paréntesis como "(90)"
-    import re
-    crit_lower = re.sub(r'\s*\(\d+\)\s*', '', crit_lower).strip()
-    
-    if area == "inyeccion":
-        if "rechupe" in crit_lower:
-            return "Rechupe"
-        if "quemado" in crit_lower:
-            return "Quemado"
-        if "retencion" in crit_lower or "retención" in crit_lower:
-            return "Retención"
-        if "escaso" in crit_lower or "incompleto" in crit_lower:
-            return "Incompleto/Escaso"
-        if "contamina" in crit_lower:
-            return "Contaminado"
-        if "mancha" in crit_lower:
-            return "Mancha"
-        if "deforma" in crit_lower:
-            return "Deformado"
-        for c in INYECCION_CRITERIOS[:-1]:
-            if c.lower() in crit_lower:
-                return c
-        return "Otros"
-        
-    elif area == "pulido":
-        if "rayado" in crit_lower or "raya" in crit_lower:
-            return "Rayado"
-        if "porosidad" in crit_lower or "poros" in crit_lower:
-            return "Porosidad"
-        if "rebaba" in crit_lower:
-            return "Exceso de Rebaba"
-        if "medida" in crit_lower or "incorrecta" in crit_lower:
-            return "Medida Incorrecta"
-        if "acabado" in crit_lower:
-            return "Mal Acabado"
-        for c in PULIDO_CRITERIOS[:-1]:
-            if c.lower() in crit_lower:
-                return c
-        return "Otros"
-        
-    elif area == "ensamble":
-        if "componente" in crit_lower or "falta" in crit_lower:
-            return "Falta de Componente"
-        if "ajuste" in crit_lower or "mal aju" in crit_lower:
-            return "Mal Ajuste"
-        if "inserto" in crit_lower or "defectuoso" in crit_lower:
-            return "Inserto Defectuoso"
-        if "daño" in crit_lower or "fisico" in crit_lower or "físico" in crit_lower:
-            return "Daño Físico"
-        for c in ENSAMBLE_CRITERIOS[:-1]:
-            if c.lower() in crit_lower:
-                return c
-        return "Otros"
-        
-    return "Otros"
+
+def _clasificar_pnc_tipado(pnc_items):
+    """
+    Clasifica una lista de {cantidad, criterio} en las 5 columnas tipadas de
+    db_pnc_inyeccion (quemado_manchado, incompleto_falta_llenado,
+    rebaba_excesiva, burbuja_porosidad, deformacion_rechupado).
+
+    Única implementación de este if/elif — antes vivía duplicada dentro del
+    loop de items de registrar_inyeccion_lote y otra vez en el bloque de PNC
+    "adicionales" al final de la misma función. Ahora la reutilizan las 3
+    rutas de escritura de Inyección (registrar_inyeccion_lote en sus dos
+    bloques, y validar_lote_inyeccion) para que clasifiquen exactamente igual.
+
+    Devuelve (dict_columnas_tipadas, total).
+    """
+    acumulado = {
+        'quemado_manchado': 0.0,
+        'incompleto_falta_llenado': 0.0,
+        'rebaba_excesiva': 0.0,
+        'burbuja_porosidad': 0.0,
+        'deformacion_rechupado': 0.0,
+    }
+    for p_def in pnc_items or []:
+        c_pnc = to_float(p_def.get('cantidad') or 0)
+        if c_pnc <= 0:
+            continue
+        crit = str(p_def.get('criterio') or p_def.get('motivo') or 'Otro').lower().strip()
+
+        if any(x in crit for x in ["quemado", "mancha", "contaminado"]):
+            acumulado['quemado_manchado'] += c_pnc
+        elif any(x in crit for x in ["incompleto", "escaso", "falta", "llenado"]):
+            acumulado['incompleto_falta_llenado'] += c_pnc
+        elif "rebaba" in crit:
+            acumulado['rebaba_excesiva'] += c_pnc
+        elif any(x in crit for x in ["burbuja", "porosidad"]):
+            acumulado['burbuja_porosidad'] += c_pnc
+        elif any(x in crit for x in ["deform", "rechupe", "chupado", "hundido", "flujo"]):
+            acumulado['deformacion_rechupado'] += c_pnc
+        else:
+            acumulado['deformacion_rechupado'] += c_pnc
+
+    return acumulado, sum(acumulado.values())
+
+
+def _criterio_texto_tipado(tipado):
+    """Texto legible compuesto a partir del dict de columnas tipadas (para el campo `criterio`)."""
+    return (
+        f"Quemado: {int(tipado['quemado_manchado'])}, "
+        f"Falta Llenado: {int(tipado['incompleto_falta_llenado'])}, "
+        f"Rebaba: {int(tipado['rebaba_excesiva'])}, "
+        f"Burbujas: {int(tipado['burbuja_porosidad'])}, "
+        f"Deformacion: {int(tipado['deformacion_rechupado'])}"
+    )
+
 
 def generar_id_lote_trazabilidad(fecha, maquina, op, codigo):
     """
@@ -356,50 +350,21 @@ def registrar_inyeccion_lote():
 
             # Registro de PNC detallado (Desglose Misión 1) - Modificado para el nuevo diseño de columnas
             db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).delete()
-            
+
             pnc_list_global = data.get('pnc_list', [])
             pnc_items_para_este_codigo = [p for p in pnc_list_global if p.get('codigo') == codigo_raw or normalizar_codigo(p.get('codigo')) == id_cod]
-            
-            quemado_manchado = 0
-            incompleto_falta_llenado = 0
-            rebaba_excesiva = 0
-            burbuja_porosidad = 0
-            deformacion_rechupado = 0
 
-            for p_def in pnc_items_para_este_codigo:
-                c_pnc = to_float(p_def.get('cantidad') or 0)
-                if c_pnc <= 0:
-                    continue
-                crit = str(p_def.get('criterio') or 'Otro').lower().strip()
-                
-                if any(x in crit for x in ["quemado", "mancha", "contaminado"]):
-                    quemado_manchado += c_pnc
-                elif any(x in crit for x in ["incompleto", "escaso", "falta", "llenado"]):
-                    incompleto_falta_llenado += c_pnc
-                elif "rebaba" in crit:
-                    rebaba_excesiva += c_pnc
-                elif any(x in crit for x in ["burbuja", "porosidad"]):
-                    burbuja_porosidad += c_pnc
-                elif any(x in crit for x in ["deform", "rechupe", "chupado", "hundido", "flujo"]):
-                    deformacion_rechupado += c_pnc
-                else:
-                    deformacion_rechupado += c_pnc
+            tipado, total_pnc_detallado = _clasificar_pnc_tipado(pnc_items_para_este_codigo)
 
-            total_pnc_detallado = quemado_manchado + incompleto_falta_llenado + rebaba_excesiva + burbuja_porosidad + deformacion_rechupado
-            
             if total_pnc_detallado > 0:
                 nuevo_pnc = PncInyeccion(
                     id_pnc_inyeccion=uuid.uuid4().hex[:8],
                     id_inyeccion=id_iny,
                     id_codigo=id_cod,
                     cantidad=total_pnc_detallado,
-                    criterio=f"Quemado: {int(quemado_manchado)}, Falta Llenado: {int(incompleto_falta_llenado)}, Rebaba: {int(rebaba_excesiva)}, Burbujas: {int(burbuja_porosidad)}, Deformacion: {int(deformacion_rechupado)}",
+                    criterio=_criterio_texto_tipado(tipado),
                     codigo_ensamble=registro.codigo_ensamble,
-                    quemado_manchado=quemado_manchado,
-                    incompleto_falta_llenado=incompleto_falta_llenado,
-                    rebaba_excesiva=rebaba_excesiva,
-                    burbuja_porosidad=burbuja_porosidad,
-                    deformacion_rechupado=deformacion_rechupado
+                    **tipado
                 )
                 db.session.add(nuevo_pnc)
                 registro.pnc_total = int(round(total_pnc_detallado))
@@ -502,30 +467,43 @@ def registrar_inyeccion_lote():
         if id_prog and id_prog != 'LEGACY':
             db.session.query(ProgramacionInyeccion).filter_by(id=id_prog).update({'estado': 'COMPLETADO'})
 
-        # 4. Procesar PNC Adicionales del Modal de Cierre (NUEVO)
+        # 4. Procesar PNC "huérfanas" del Modal de Cierre: entradas de pnc_list
+        # cuyo código NO corresponde a ningún item de este lote (p.ej. PNC de
+        # una referencia distinta a las que se están inyectando en este envío).
+        # El Bloque 1 (dentro del loop de arriba) ya procesó y clasificó en
+        # columnas tipadas todo lo que sí coincide con algún item del lote —
+        # reprocesarlo aquí lo duplicaría. Antes este bloque hacía un DELETE
+        # de TODO PncInyeccion del lote sin filtrar por código, lo que borraba
+        # en la misma transacción lo que el Bloque 1 acababa de crear.
+        codigos_items_lote = {
+            normalizar_codigo(it.get('codigo_producto') or it.get('id_codigo'))
+            for it in items
+        }
         pnc_list = data.get('pnc_list', [])
-        if pnc_list:
-            logger.info(f" 🚩 Procesando {len(pnc_list)} PNC adicionales para el lote {id_iny_lote}")
-            
-            # Limpiar PNC previos vinculados al lote para evitar duplicados en re-validación
-            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny_lote).delete()
-            
-            for pnc_data in pnc_list:
-                cod_raw = pnc_data.get('codigo', '')
-                cod_norm = normalizar_codigo(cod_raw)
-                cant_pnc = to_float(pnc_data.get('cantidad') or 0)
-                motivo = pnc_data.get('criterio') or pnc_data.get('motivo') or 'Otros'
-                motivo_norm = normalizar_criterio(motivo, "inyeccion")
-                
-                if cant_pnc > 0:
-                    nuevo_pnc_row = PncInyeccion(
+        pnc_huerfanos_por_codigo = {}
+        for p in pnc_list:
+            cod_norm = normalizar_codigo(p.get('codigo'))
+            if cod_norm and cod_norm not in codigos_items_lote:
+                pnc_huerfanos_por_codigo.setdefault(cod_norm, []).append(p)
+
+        if pnc_huerfanos_por_codigo:
+            logger.info(f" 🚩 Procesando PNC huérfanas (código fuera del lote) para {id_iny_lote}: {list(pnc_huerfanos_por_codigo.keys())}")
+
+            for cod_norm, defs in pnc_huerfanos_por_codigo.items():
+                # Se limpia SOLO el código puntual que se va a reescribir —
+                # nunca todo el lote, para no pisar al Bloque 1.
+                db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny_lote, id_codigo=cod_norm).delete()
+
+                tipado_h, total_h = _clasificar_pnc_tipado(defs)
+                if total_h > 0:
+                    db.session.add(PncInyeccion(
                         id_pnc_inyeccion=uuid.uuid4().hex[:8],
                         id_inyeccion=id_iny_lote,
                         id_codigo=cod_norm,
-                        cantidad=cant_pnc,
-                        criterio=motivo_norm
-                    )
-                    db.session.add(nuevo_pnc_row)
+                        cantidad=total_h,
+                        criterio=_criterio_texto_tipado(tipado_h),
+                        **tipado_h
+                    ))
 
         db.session.commit()
         logger.info(f" ✅ Lote {id_iny_lote} ({nuevo_estado}) procesado con {len(items)} items.")
@@ -599,19 +577,40 @@ def validar_lote_inyeccion(id_inyeccion):
 
             codigo = str(reg.id_codigo)
             cantidad_inyectada = reg.cantidad_real or 0
-            
-            # Sobreescritura oficial desde el Payload de Validación
-            pnc_inyeccion = 0
-            if codigo in items_dict:
-                pnc_inyeccion = float(items_dict[codigo].get('pnc_inyeccion', 0))
+            item_payload = items_dict.get(codigo, {})
 
-            from backend.models.sql_models import PncInyeccion
+            # Sobreescritura oficial desde el Payload de Validación
+            pnc_inyeccion = float(item_payload.get('pnc_inyeccion', 0) or 0)
+            # Desglose estructurado que el frontend YA envía por item
+            # (inyeccion.js: items.map(i => ({..., pnc_list, pnc_pulido_list})))
+            # pero que esta ruta ignoraba por completo — el PNC quedaba huérfano,
+            # sin ninguna columna tipada, solo el agregado sin clasificar.
+            pnc_list_item = item_payload.get('pnc_list', [])
+            pnc_pulido_list_item = item_payload.get('pnc_pulido_list', [])
+
+            from backend.models.sql_models import PncInyeccion, PncPulido
             import uuid
 
             # Eliminar registros PNC anteriores creados en validaciones previas para este lote/código
             db.session.query(PncInyeccion).filter_by(id_inyeccion=reg.id_inyeccion, id_codigo=codigo).delete()
+            db.session.query(PncPulido).filter_by(id_pulido=reg.id_inyeccion, codigo=codigo).delete()
 
-            if pnc_inyeccion > 0:
+            tipado, total_tipado = _clasificar_pnc_tipado(pnc_list_item)
+            if total_tipado > 0:
+                # Desglose disponible: se clasifica igual que registrar_inyeccion_lote,
+                # llenando las columnas tipadas en vez de dejar solo el agregado.
+                db.session.add(PncInyeccion(
+                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                    id_inyeccion=reg.id_inyeccion,
+                    id_codigo=codigo,
+                    cantidad=total_tipado,
+                    criterio=_criterio_texto_tipado(tipado),
+                    codigo_ensamble='AUDITORIA INYECCION',
+                    **tipado
+                ))
+            elif pnc_inyeccion > 0:
+                # Fallback: sin desglose estructurado en el payload, se registra
+                # el agregado como antes para que la fila no quede huérfana.
                 db.session.add(PncInyeccion(
                     id_pnc_inyeccion=uuid.uuid4().hex[:8],
                     id_inyeccion=reg.id_inyeccion,
@@ -620,6 +619,23 @@ def validar_lote_inyeccion(id_inyeccion):
                     criterio='PNC Reportado en Validación',
                     codigo_ensamble='AUDITORIA INYECCION'
                 ))
+
+            # PNC de Pulido detectado durante esta validación de Inyección
+            # (el desglose vive en db_pnc_pulido, no en db_pnc_inyeccion).
+            if pnc_pulido_list_item:
+                total_pulido_item = sum(to_float(p.get('cantidad') or 0) for p in pnc_pulido_list_item)
+                if total_pulido_item > 0:
+                    criterio_pulido_str = ", ".join(
+                        f"{p.get('criterio') or p.get('motivo') or 'Otro'}: {int(to_float(p.get('cantidad') or 0))}"
+                        for p in pnc_pulido_list_item if to_float(p.get('cantidad') or 0) > 0
+                    )
+                    db.session.add(PncPulido(
+                        id_pnc_pulido=uuid.uuid4().hex[:8],
+                        id_pulido=reg.id_inyeccion,
+                        codigo=codigo,
+                        cantidad=total_pulido_item,
+                        criterio=criterio_pulido_str or 'PNC Pulido Reportado en Validación de Inyección'
+                    ))
 
             # Flujo Directo de Inventario: Sumamos a por_pulir lo que se inyectó (menos defectuosas PNC)
             buenas_por_pulir = max(0, cantidad_inyectada - pnc_inyeccion)

@@ -13,6 +13,7 @@
     <title>FriTech - Sistema de Producción</title> <!-- CSS -->
     <link rel="stylesheet" href="/static/css/styles.css?v=1.6.1">
     <link rel="stylesheet" href="/static/css/dashboard.css?v=1.6.1">
+    <link rel="stylesheet" href="/static/css/dashboard_tour.css?v=1.0.0">
     <link rel="stylesheet" href="/static/css/mobile-ux.css?v=1.6.1">
     <link rel="stylesheet" href="/static/css/mobile.css?v=1.6.1">
     <link rel="stylesheet" href="/static/css/tv_vista.css?v=1.6.1">
@@ -858,7 +859,7 @@
                         <p class="subtitle">Monitor en Tiempo Real: Inyección y Pulido</p>
                     </div>
                     <!-- FILTRO DE FECHAS BI -->
-                    <div class="top-controls d-flex align-items-center gap-3 flex-shrink-0">
+                    <div class="top-controls d-flex align-items-center gap-3 flex-shrink-0" id="dashboard-filtros-globales">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0"><i
                                     class="fas fa-calendar-alt text-muted"></i></span>
@@ -872,9 +873,13 @@
                         <button class="btn btn-primary btn-analiza shadow-sm" onclick="ModuloDashboard.refrescar()">
                             <i class="fas fa-search"></i> <span>Analizar</span>
                         </button>
-                        <button class="btn btn-outline-secondary btn-sm shadow-sm"
+                        <button class="btn btn-outline-secondary btn-sm shadow-sm" id="dashboard-btn-refrescar"
                             onclick="ModuloDashboard.refrescarDatos()" title="Refrescar datos sin cambiar filtros">
                             <i class="fas fa-sync-alt"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm shadow-sm"
+                            onclick="DashboardTour.iniciar()" title="Ver tutorial del dashboard">
+                            <i class="fas fa-circle-question dashboard-help-icon"></i>
                         </button>
                     </div>
                 </header>
@@ -888,7 +893,7 @@
                                 <div class="card-header bg-white border-0 pt-4 pb-0">
                                     <h5 class="fw-bold mb-0 text-dark">
                                         <i class="fas fa-bolt text-warning me-2"></i> Reporte Avanzado del Bot de Planta
-                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip"
+                                        <i class="fas fa-info-circle ms-2 fs-6 text-muted" id="dashboard-icono-ayuda-ejemplo" data-bs-toggle="tooltip"
                                             title="Análisis inteligente que mezcla eficiencia de producción (según fecha) con impacto comercial (histórico general)."></i>
                                     </h5>
                                 </div>
@@ -990,7 +995,7 @@
                                             <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
                                                 title="Comparación de rendimiento del año actual frente al año anterior (YoY)"></i>
                                         </h5>
-                                        <div class="d-flex gap-2">
+                                        <div class="d-flex gap-2" id="dashboard-toggle-unidades-dinero">
                                             <button class="chart-toggle-btn active" id="toggle-mensual-units"
                                                 onclick="window.ModuloDashboard.toggleChartView('mensual', 'units')"
                                                 title="Ver en Unidades">
@@ -1192,7 +1197,7 @@
                                         <h5 class="card-title fw-bold mb-0" style="color: #1e293b;"><i
                                                 class="fas fa-star text-warning me-2"></i>Top 10 Productos
                                             <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
-                                                title="Ranking de referencias con mayor rotación y valor facturado (Dato Histórico General)."></i>
+                                                title="Ranking de referencias con mayor rotación y valor facturado (Filtrado por fecha)."></i>
                                         </h5>
                                         <div class="d-flex gap-2">
                                             <button class="chart-toggle-btn active" id="toggle-mejores-units"
@@ -1223,7 +1228,7 @@
                                         <h5 class="card-title fw-bold mb-0" style="color: #1e293b;"><i
                                                 class="fas fa-arrow-down text-danger me-2"></i>Top 10 Menos Vendidos
                                             <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
-                                                title="Productos con menor desempeño en ventas según facturación (Dato Histórico General)."></i>
+                                                title="Productos con menor desempeño en ventas según facturación (Filtrado por fecha)."></i>
                                         </h5>
                                         <div class="d-flex gap-2">
                                             <button class="chart-toggle-btn active" id="toggle-peores-units"
@@ -1257,6 +1262,8 @@
                                                 <h5 class="fw-bold mb-1 text-dark">
                                                     <i class="fas fa-boxes text-warning me-2"></i> Productos sin Movimiento / Baja Rotación
                                                     <span class="badge bg-secondary rounded-pill ms-2" id="badge-total-sin-rotacion">0</span>
+                                                    <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
+                                                        title="Productos del catálogo con ventas menores o iguales al límite configurado en los últimos 12 meses. Ventana fija: no depende del filtro de fechas superior."></i>
                                                 </h5>
                                                 <small class="text-muted">Productos en catálogo con ventas <= al límite configurado en los últimos 12 meses</small>
                                             </div>
@@ -1290,7 +1297,7 @@
 
                         <!-- Columna Inyección -->
                         <div class="col-lg-6">
-                            <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                            <div class="card shadow-sm border-0 h-100" id="dashboard-card-inyeccion" style="border-radius: 16px;">
                                 <div
                                     class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
                                     <h5 class="fw-bold mb-0 text-dark">Top Rendimiento Inyección
@@ -1359,8 +1366,23 @@
                         <!-- Scrap / PNC Pareteo Breakdown -->
                         <div class="col-12">
                             <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
-                                <div class="card-header bg-white border-0 pt-4 pb-2">
-                                    <h5 class="fw-bold mb-0 text-dark"><i class="fas fa-dumpster text-danger me-2"></i> Análitica de Scrap y PNC</h5>
+                                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center flex-wrap">
+                                    <h5 class="fw-bold mb-0 text-dark"><i class="fas fa-dumpster text-danger me-2"></i> Análitica de Scrap y PNC
+                                        <i class="fas fa-info-circle ms-1 fs-6 text-muted" data-bs-toggle="tooltip"
+                                            title="Desglose de piezas No Conformes por área (Inyección, Pulido, Ensamble), FPY Global e Índice de Desperdicio, calculado sobre el rango de fechas filtrado."></i>
+                                    </h5>
+                                    <div class="d-flex gap-2" id="dashboard-toggle-pnc">
+                                        <button class="chart-toggle-btn" id="toggle-pnc-units"
+                                            onclick="window.ModuloDashboard.setModoPnc('units')"
+                                            title="Ver Modos de Falla en Unidades">
+                                            <i class="fas fa-box"></i>
+                                        </button>
+                                        <button class="chart-toggle-btn active" id="toggle-pnc-money"
+                                            onclick="window.ModuloDashboard.setModoPnc('money')"
+                                            title="Ver Modos de Falla en Dinero">
+                                            <i class="fas fa-dollar-sign"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="card-body p-4">
                                     <div class="row g-4 align-items-center">
@@ -1370,7 +1392,7 @@
                                             </div>
                                         </div>
                                         <div class="col-md-6">
-                                            <div class="d-flex flex-column gap-3">
+                                            <div class="d-flex flex-column gap-3" id="dashboard-kpis-eficiencia-desperdicio">
                                                  <!-- KPI 1: Pérdida Financiera Scrap ($) -->
                                                  <div class="card border-0 bg-light" style="border-radius: 12px;">
                                                      <div class="card-body p-4">
@@ -4901,6 +4923,7 @@
 
     <!-- Funcionalidades de Módulos (IMPORTANTE: ui_ux debe ir ANTES) -->
     <script src="/static/js/modules/dashboard.js?v=1.6.4"></script>
+    <script src="/static/js/modules/dashboard_tour.js?v=1.0.0"></script>
     <script>console.log("✅ dashboard.js cargado");</script>
     <script src="/static/js/modules/inventario.js?v=1.6.3"></script>
     <script src="/static/js/modules/inyeccion.js?v=1.6.4"></script>
