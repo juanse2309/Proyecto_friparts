@@ -146,13 +146,13 @@ def marcar_registros_procesados(division: str, p_inicio, p_fin) -> int:
     join = _join_colaborador()
 
     sql = text(f"""
-        UPDATE db_asistencia
+        UPDATE db_asistencia AS a
         SET estado_pago = 'PROCESADO'
         FROM db_usuarios u
         WHERE {join}
-          AND db_asistencia.fecha >= :p_inicio
-          AND db_asistencia.fecha <= :p_fin
-          AND COALESCE(db_asistencia.estado_pago, 'PENDIENTE') != 'PROCESADO'
+          AND a.fecha >= :p_inicio
+          AND a.fecha <= :p_fin
+          AND COALESCE(a.estado_pago, 'PENDIENTE') != 'PROCESADO'
           {cond}
     """)
     result = db.session.execute(sql, {"p_inicio": p_inicio, "p_fin": p_fin})
