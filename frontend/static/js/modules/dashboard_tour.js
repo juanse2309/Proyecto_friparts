@@ -232,6 +232,19 @@ window.DashboardTour = (function () {
         mostrarPaso(0);
     }
 
+    // Señal puramente de DOM (sin llamar funciones internas de ModuloDashboard):
+    // ni el loader de pantalla completa puede seguir visible, ni el bot puede seguir
+    // mostrando su placeholder estático — ambos indican que los datos aún no llegaron.
+    function pantallaListaParaTour() {
+        const loader = document.getElementById('global-loader');
+        if (esVisible(loader)) return false;
+
+        const bot = document.getElementById('dashboard-bot-text');
+        if (bot && bot.textContent.trim().startsWith('Analizando datos de la planta en tiempo real')) return false;
+
+        return true;
+    }
+
     function autoIniciarSiNoVisto() {
         let visto;
         try {
@@ -240,10 +253,23 @@ window.DashboardTour = (function () {
             console.warn('DashboardTour: localStorage no disponible', e);
             return;
         }
-        if (visto === null) {
-            // Margen para asegurar que el layout del dashboard terminó de pintarse
-            setTimeout(iniciar, 600);
-        }
+        if (visto !== null) return;
+
+        // Espera a que el contenido real haya cargado (evita que el tour se dibuje
+        // encima de placeholders/spinners); tope de seguridad por si el bot falla.
+        const ESPERA_MAX_MS = 8000;
+        const POLL_MS = 300;
+        const inicioEspera = Date.now();
+
+        const esperarCargaYArrancar = () => {
+            if (pantallaListaParaTour() || Date.now() - inicioEspera >= ESPERA_MAX_MS) {
+                setTimeout(iniciar, 300);
+                return;
+            }
+            setTimeout(esperarCargaYArrancar, POLL_MS);
+        };
+
+        setTimeout(esperarCargaYArrancar, 600);
     }
 
     // --- Auto-arranque desacoplado ---

@@ -14,7 +14,6 @@ window.ModuloDashboard = (function () {
     let chartPNCPareto = null;
     let selectedOperators = []; // Para comparativa cara a cara
 
-    let chartPulidoBoard = null;
     let chartPulidoRankingInst = null;
     let chartMensualInst = null;
     let chartRendimientoMensualNewInst = null;
@@ -235,9 +234,11 @@ window.ModuloDashboard = (function () {
                 // El cache ya se actualizó en el flujo Promise.all anterior si entró por ahí
             }
 
-            // Initialize Bootstrap tooltips if they exist
+            // Initialize Bootstrap tooltips if they exist. cargarDatos() puede correr
+            // varias veces sobre los mismos nodos (refresco, cambio de filtro); reusar
+            // la instancia existente evita el error "more than one instance per element".
             const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-            const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+            const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => bootstrap.Tooltip.getInstance(tooltipTriggerEl) || new bootstrap.Tooltip(tooltipTriggerEl));
 
         } catch (error) {
             console.error("Error en Dashboard BI / Jefatura:", error);
@@ -390,7 +391,6 @@ window.ModuloDashboard = (function () {
                 }
                 renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
                 renderTablaPulido(data.rankings?.pulido_profundo || {});
-                renderChartPulidoLeaderboard(data.rankings?.pulido_profundo || {});
             } catch (errPulido) {
                 console.error("⚠️ Error defensivo renderizando Pulido:", errPulido);
             }
@@ -1591,12 +1591,13 @@ window.ModuloDashboard = (function () {
         // Mostrar TODAS las operadoras
         const operadoras = Object.keys(profundo);
         if (operadoras.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No hay datos de pulido en este rango.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No hay datos de pulido en este rango.</td></tr>';
             return;
         }
 
-        // Ordenar por puntaje de esfuerzo desc (Requerimiento 2)
-        const sortedOps = operadoras.sort((a, b) => (profundo[b].puntos || 0) - (profundo[a].puntos || 0));
+        // Ordenar por volumen físico (Unidades Totales) desc
+        const totalDe = (op) => (profundo[op].buenas || 0) + (profundo[op].pnc || 0);
+        const sortedOps = operadoras.sort((a, b) => totalDe(b) - totalDe(a));
 
         sortedOps.forEach((op, idx) => {
             const dataOp = profundo[op];
@@ -1611,21 +1612,16 @@ window.ModuloDashboard = (function () {
             const calidadYield = (buenas > 0 && pnc > 0 && calidadRaw > 99) ? calidadRaw.toFixed(2) : Math.round(calidadRaw);
             const ylColor = calidadRaw > 95 ? 'success' : (calidadRaw > 85 ? 'warning' : 'danger');
 
-            const efProductiva = (dataOp.eficiencia === null || dataOp.eficiencia === undefined) ? null : dataOp.eficiencia;
-            const efTimeColor = efProductiva === null ? 'secondary' : (efProductiva > 90 ? 'success' : (efProductiva >= 70 ? 'warning' : 'danger'));
-            const efProductivaLabel = efProductiva === null ? 'N/A' : `${efProductiva}%`;
-
             const topProd = mix[0] ? mix[0].prod : "N/A";
 
             // Preparar el detalle para el alert combinando analytics_pulido si existe
             let detalleMixStr = '';
             if (cacheAnalyticsPulido && cacheAnalyticsPulido.operario_referencia && cacheAnalyticsPulido.operario_referencia[op]) {
                 const refs = cacheAnalyticsPulido.operario_referencia[op];
-                // refs es un objeto { [ref]: { cantidad_total, puntos_unidad, costo_unidad } }
+                // refs es un objeto { [ref]: { cantidad_total, costo_unidad } }
                 const arr = Object.keys(refs).map(r => ({
                     ref: r,
                     cantidad: refs[r].cantidad_total || 0,
-                    pts_u: refs[r].puntos_unidad || 0,
                     costo_u: refs[r].costo_unidad || 0
                 })).sort((a, b) => b.cantidad - a.cantidad);
                 detalleMixStr = encodeURIComponent(JSON.stringify(arr));
@@ -1633,7 +1629,6 @@ window.ModuloDashboard = (function () {
                 const arr = mix.slice(0, 5).map(p => ({
                     ref: p.prod,
                     cantidad: p.qty,
-                    pts_u: p.u_pts || 1,
                     costo_u: 0
                 }));
                 detalleMixStr = encodeURIComponent(JSON.stringify(arr));
@@ -1649,28 +1644,24 @@ window.ModuloDashboard = (function () {
                 // Si es clic en botón (si hubiera), lo maneja el botón
                 if (e.target.closest('button')) return;
                 const insightText = dataOp.insight || "Sin insights disponibles para Pulido.";
-                mostrarModalOperador(op, buenas, 'Pulido', insightText, detalleMixStr, dataOp.puntos || 0, dataOp.pnc_operario, dataOp.pnc_maquina);
+                mostrarModalOperador(op, buenas, 'Pulido', insightText, detalleMixStr, dataOp.pnc_operario, dataOp.pnc_maquina);
             };
             tr.classList.add('hover-scale');
             tr.innerHTML = `
                 <td class="ps-4">
-                    ${idx === 0 ? '<i class="fas fa-medal text-warning fs-5" title="Líder de Esfuerzo"></i>' : `<span class="badge bg-light text-dark border">${idx + 1}</span>`}
+                    ${idx === 0 ? '<i class="fas fa-medal text-warning fs-5" title="Líder en Producción"></i>' : `<span class="badge bg-light text-dark border">${idx + 1}</span>`}
                 </td>
                 <td class="text-center">
-                    <input type="checkbox" class="comparison-checkbox form-check-input" 
-                        ${isChecked ? 'checked' : ''} 
+                    <input type="checkbox" class="comparison-checkbox form-check-input"
+                        ${isChecked ? 'checked' : ''}
                         data-op="${op}"
-                        onchange="window.ModuloDashboard.toggleOperatorSelection('${op}', ${buenas}, ${pnc}, ${costoPnc}, ${calidadYield}, ${dataOp.puntos || 0}, ${dataOp.tiempo_estandar || 0}, '${detalleMixStr}')">
+                        onchange="window.ModuloDashboard.toggleOperatorSelection('${op}', ${buenas}, ${pnc}, ${costoPnc}, ${calidadYield}, ${dataOp.tiempo_estandar || 0}, '${detalleMixStr}')">
                 </td>
                 <td>
                     <div class="fw-bold">${op}</div>
                     <small class="text-muted">Expertiz: <span class="badge bg-info text-white">${topProd}</span></small>
                 </td>
-                <td class="text-center fw-bold text-primary">${Math.round(dataOp.puntos || 0).toLocaleString()} pts</td>
                 <td class="text-center fw-bold text-dark">${total.toLocaleString()}</td>
-                <td class="text-center">
-                    <span class="badge bg-${efTimeColor} fs-6 shadow-sm"><i class="fas fa-stopwatch me-1"></i> ${efProductivaLabel}</span>
-                </td>
                 <td>
                     <div class="d-flex align-items-center gap-2">
                         <div class="progress flex-grow-1" style="height: 8px; border-radius: 10px; background-color: #e2e8f0;">
@@ -2010,26 +2001,19 @@ window.ModuloDashboard = (function () {
     /**
      * Alterna la vista de las gráficas entre Dinero y Unidades
      */
-    function mostrarModalOperador(nombre, totalOks, proceso, insightStr, detalleMix = null, puntos = null, pnc_propio = 0, pnc_maquina = 0) {
+    function mostrarModalOperador(nombre, totalOks, proceso, insightStr, detalleMix = null, pnc_propio = 0, pnc_maquina = 0) {
 
         let extraHtml = '';
         if (detalleMix) {
             let mixLines = '';
             try {
                 const arr = JSON.parse(decodeURIComponent(detalleMix));
-                const isInyeccion = proceso.toUpperCase().includes('INYECCION') || proceso.toUpperCase().includes('INYECCIÓN');
-                
-                let sumPuntos = 0;
 
                 const filasHtml = arr.map(item => {
-                    const totalPts = item.cantidad * item.pts_u;
-                    sumPuntos += totalPts;
                     return `
                         <tr class="modal-ref-item" data-search="${String(item.ref || '').toLowerCase()}">
                             <td class="text-start fw-medium"><i class="fas fa-cube text-muted me-1"></i> ${item.ref}</td>
                             <td><span class="badge bg-light text-dark border">${(item.cantidad || 0).toLocaleString()}</span></td>
-                            <td style="${isInyeccion ? 'display:none;' : ''}">${(item.pts_u || 0).toLocaleString()}</td>
-                            <td class="fw-bold text-primary" style="${isInyeccion ? 'display:none;' : ''}">${Math.round(totalPts).toLocaleString()}</td>
                         </tr>
                     `;
                 }).join('');
@@ -2041,19 +2025,11 @@ window.ModuloDashboard = (function () {
                                 <tr>
                                     <th class="text-start">Referencia</th>
                                     <th>Cantidad</th>
-                                    <th style="${isInyeccion ? 'display:none;' : ''}">Pts/U</th>
-                                    <th style="${isInyeccion ? 'display:none;' : ''}">Total Puntos</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${filasHtml}
                             </tbody>
-                            <tfoot class="bg-light fw-bold" style="${isInyeccion ? 'display:none;' : ''}">
-                                <tr>
-                                    <td colspan="3" class="text-end border-top-0 pt-3">TOTAL PUNTOS:</td>
-                                    <td class="text-primary fs-6 border-top-0 pt-3">${Math.round(sumPuntos).toLocaleString()} pts</td>
-                                </tr>
-                            </tfoot>
                         </table>
                     </div>
                 `;
@@ -2065,7 +2041,7 @@ window.ModuloDashboard = (function () {
             extraHtml = `
                 <div class="mt-4 text-start">
                     <h6 class="fw-bold text-uppercase text-secondary mb-3 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2" style="font-size: 0.8rem; letter-spacing: 1px;">
-                        <span><i class="fas fa-list-ol ms-1"></i> Análisis de Costos y Puntos</span>
+                        <span><i class="fas fa-list-ol ms-1"></i> Referencias Producidas</span>
                         <div class="input-group input-group-sm rounded-pill overflow-hidden border" style="max-width: 200px;">
                             <span class="input-group-text bg-white border-0"><i class="fas fa-search text-muted"></i></span>
                             <input type="text" id="modal-search-ref" class="form-control border-0 px-1 shadow-none" placeholder="Buscar ref..." style="font-size: 0.8rem;">
@@ -2127,19 +2103,13 @@ window.ModuloDashboard = (function () {
                         ${pncBreakdownHtml}
 
                         <div class="row g-3">
-                            <div class="col-6 col-md-4">
+                            <div class="col-12 col-md-4">
                                 <div class="card shadow-none border rounded-4 p-3 h-100 text-center">
                                     <span class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Piezas Buenas</span>
                                     <div class="fs-4 fw-bold text-dark">${totalOks.toLocaleString()}</div>
                                 </div>
                             </div>
-                            <div class="col-6 col-md-4">
-                                <div class="card shadow-none border rounded-4 p-3 h-100 text-center">
-                                    <span class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Eficiencia Real</span>
-                                    <div class="fs-4 fw-bold text-primary">${Math.round(puntos || 0).toLocaleString()} <small style="font-size: 0.7rem;">pts</small></div>
-                                </div>
-                            </div>
-                            <div class="col-12 col-md-4">
+                            <div class="col-12 col-md-8">
                                 <div class="card shadow-none border rounded-4 p-3 h-100 text-center bg-light">
                                     <span class="text-muted small text-uppercase fw-bold mb-1" style="font-size: 0.65rem;">Sugerencia IA</span>
                                     <div class="small fw-medium text-secondary" style="line-height: 1.2;">${insightStr}</div>
@@ -2334,104 +2304,6 @@ window.ModuloDashboard = (function () {
         });
     }
 
-    function renderChartPulidoLeaderboard(profundo) {
-        const ctx = document.getElementById('chartPulidoLeaderboard');
-        if (!ctx || !profundo || typeof profundo !== 'object') return;
-
-        // 1. Procesar datos REALES del objeto profundo
-        const operadoras = Object.keys(profundo);
-        // Ordenamos descendentemente por puntos
-        const sortedOps = operadoras.sort((a, b) => (profundo[b].puntos || 0) - (profundo[a].puntos || 0));
-
-        // Tomar el Top 5 o Top 10 para la gráfica
-        const topN = sortedOps.slice(0, 7);
-
-        const labels = topN;
-        const dataPuntos = topN.map(op => profundo[op].puntos || 0);
-
-        // Crear gradientes para un look más "premium"
-        const chartCtx = ctx.getContext('2d');
-        const gradientGold = chartCtx.createLinearGradient(0, 0, 0, 400);
-        gradientGold.addColorStop(0, 'rgba(251, 191, 36, 1)'); // Amber 400
-        gradientGold.addColorStop(1, 'rgba(217, 119, 6, 0.8)'); // Amber 600
-
-        const gradientBlue = chartCtx.createLinearGradient(0, 0, 0, 400);
-        gradientBlue.addColorStop(0, 'rgba(99, 102, 241, 1)'); // Indigo 500
-        gradientBlue.addColorStop(1, 'rgba(67, 56, 202, 0.8)'); // Indigo 700
-
-        // 2. Colores (Dorado para el #1)
-        const bgColors = dataPuntos.map((val, idx) => idx === 0 ? gradientGold : gradientBlue);
-        const borderColors = dataPuntos.map((val, idx) => idx === 0 ? 'rgba(217, 119, 6, 1)' : 'rgba(67, 56, 202, 1)');
-
-        if (chartPulidoBoard) chartPulidoBoard.destroy();
-
-        chartPulidoBoard = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Puntaje de Esfuerzo',
-                    data: dataPuntos,
-                    backgroundColor: bgColors,
-                    borderColor: borderColors,
-                    borderWidth: 0, // Quitamos borde para look más limpio con el gradiente
-                    borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
-                    barPercentage: 0.5,
-                    categoryPercentage: 0.7,
-                    hoverBackgroundColor: borderColors // Efecto hover
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: {
-                    duration: 1500,
-                    easing: 'easeOutQuart'
-                },
-                layout: {
-                    padding: { top: 20 } // Espacio para que no se pegue arriba
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)', // Slate 900
-                        titleFont: { size: 14, weight: 'bold' },
-                        bodyFont: { size: 13 },
-                        padding: 12,
-                        cornerRadius: 8,
-                        displayColors: false,
-                        callbacks: {
-                            label: (context) => `⭐ ${Math.round(context.raw).toLocaleString()} Puntos de Esfuerzo`
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: {
-                            color: 'rgba(226, 232, 240, 0.5)', // Slate 200 muy suave
-                            drawBorder: false
-                        },
-                        ticks: {
-                            font: { weight: '600' },
-                            color: '#64748b', // Slate 500
-                            padding: 10
-                        }
-                    },
-                    x: {
-                        grid: { display: false, drawBorder: false },
-                        ticks: {
-                            font: { weight: 'bold', size: 11 },
-                            color: '#334155', // Slate 700
-                            maxRotation: 25,
-                            minRotation: 0
-                        }
-                    }
-                }
-            }
-        });
-    }
-
     // --- Helpers de Formateo ---
     const formatCOP = (num) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(num);
     const formatNumber = (num) => new Intl.NumberFormat('es-CO').format(num);
@@ -2471,7 +2343,19 @@ window.ModuloDashboard = (function () {
             // Ocultar líneas de Pedidos en Unidades si no hay datos reales
             const hayPedidosUnidades = !isMoney && dataActualPedidos.some(v => v > 0);
 
-            if (chartMensualInst) chartMensualInst.destroy();
+            // Suma consolidada del año actual (nodo DOM, cero texto estático embebido en el canvas)
+            const totalConsolidadoActual = dataActualVentas.reduce((acc, v) => acc + v, 0);
+            const totalNode = document.getElementById('total-consolidado-anual');
+            if (totalNode) {
+                totalNode.innerText = `Total ${yearActual}: ${isMoney ? formatCOP(totalConsolidadoActual) : formatNumber(totalConsolidadoActual) + ' unds'}`;
+            }
+
+            // Destruir cualquier Chart.js atado a este canvas, sin importar qué función
+            // lo haya creado (renderChartMensual o renderChartMonthlyPerformance comparten
+            // el mismo <canvas id="chartMensual">; solo chartMensualInst no alcanza a detectar
+            // instancias creadas por la otra función, causando "Canvas is already in use").
+            const chartExistente = Chart.getChart(ctx);
+            if (chartExistente) chartExistente.destroy();
 
             // Configuración Cromática Institucional (2025: Gris #6c757d, 2026: Verde #2dce89)
             const COLOR_2026 = '#2dce89'; // Verde Institucional para 2026
@@ -3483,7 +3367,7 @@ window.ModuloDashboard = (function () {
         }
     }
 
-    function toggleOperatorSelection(nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar, detalleMix = null) {
+    function toggleOperatorSelection(nombre, buenas, pnc, costoPnc, eficiencia, tiempoEstandar, detalleMix = null) {
         const index = selectedOperators.findIndex(s => s.nombre === nombre);
         if (index > -1) {
             selectedOperators.splice(index, 1);
@@ -3498,7 +3382,7 @@ window.ModuloDashboard = (function () {
                 renderTablaPulido(lastJefaturaData?.profundo_pulido || {}); // Refrescar para desmarcar el checkbox
                 return;
             }
-            selectedOperators.push({ nombre, buenas, pnc, costoPnc, eficiencia, puntos, tiempoEstandar, detalleMix });
+            selectedOperators.push({ nombre, buenas, pnc, costoPnc, eficiencia, tiempoEstandar, detalleMix });
         }
 
         actualizarUIComparativa();
@@ -3525,7 +3409,6 @@ window.ModuloDashboard = (function () {
 
         grid.innerHTML = '';
 
-        const maxPuntos = Math.max(...selectedOperators.map(o => o.puntos || 0));
         const minCosto = Math.min(...selectedOperators.map(o => o.costoPnc));
         const maxEfi = Math.max(...selectedOperators.map(o => o.eficiencia));
 
@@ -3533,7 +3416,6 @@ window.ModuloDashboard = (function () {
             const fmtMoney = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v);
             const precisionEfi = op.buenas === (op.buenas + op.pnc) ? 100 : ((op.buenas / (op.buenas + op.pnc)) * 100).toFixed(2);
 
-            const esGanadorPuntos = (op.puntos || 0) === maxPuntos && maxPuntos > 0;
             const esGanadorCalidad = op.costoPnc === minCosto;
 
             // Procesar Mix para el Top 5
@@ -3544,13 +3426,11 @@ window.ModuloDashboard = (function () {
                     mixHtml = arr.map(item => {
                         const ref = String(item.ref || '').trim().substring(0, 25); // Truncar si es muy largo
                         const qty = item.cantidad || 0;
-                        const pts = (item.cantidad || 0) * (item.pts_u || 0);
                         return `
                 <div class="d-flex justify-content-between align-items-center mb-1 pb-1 border-bottom border-light">
                     <span style="font-size: 0.65rem; color: #475569;" class="text-truncate" title="${item.ref}">${ref}</span>
                     <div class="d-flex align-items-center gap-1">
                         <span class="badge bg-light text-dark" style="font-size: 0.6rem;">${qty.toLocaleString()} pz</span>
-                        <span class="badge bg-white text-primary border border-primary border-opacity-10" style="font-size: 0.6rem; min-width: 45px;">${Math.round(pts).toLocaleString()} pts</span>
                     </div>
                 </div>
                 `;
@@ -3561,27 +3441,13 @@ window.ModuloDashboard = (function () {
             }
 
             const html = `
-                <div class="comparison-column ${esGanadorPuntos ? 'winner-column' : ''}">
-                    ${esGanadorPuntos ? '<div class="winner-badge"><i class="fas fa-medal me-1"></i> Líder de Esfuerzo</div>' : ''}
+                <div class="comparison-column">
                     <div class="comparison-header">
                         <div class="comparison-avatar">
                             <i class="fas fa-user-ninja"></i>
                         </div>
                         <h4 class="fw-bold text-dark mb-1" style="font-size: 1.1rem;">${op.nombre}</h4>
                         <span class="text-muted small">Experto en Pulido</span>
-                    </div>
-
-                    <div class="comparison-metric bg-light">
-                        <div class="metric-row">
-                            <div class="metric-label-group">
-                                <div class="metric-icon"><i class="fas fa-star text-warning"></i></div>
-                                <span class="metric-label">Esfuerzo (Pts)</span>
-                            </div>
-                            <span class="metric-value ${esGanadorPuntos ? 'metric-highlight' : ''}">${(op.puntos || 0).toLocaleString(undefined, { minimumFractionDigits: 1 })}</span>
-                        </div>
-                        <div class="comparison-progress-container mt-3">
-                            <div class="comparison-progress-bar bg-warning" style="width: ${maxPuntos > 0 ? ((op.puntos || 0) / maxPuntos) * 100 : 0}%"></div>
-                        </div>
                     </div>
 
                     <div class="mb-3 px-3">
@@ -3698,16 +3564,27 @@ window.ModuloDashboard = (function () {
             const pedidosAct = mensualFiltrado.map(d => d.actual_pedidos || 0);
             const pedidosPrev= mensualFiltrado.map(d => d.prev_pedidos   || 0);
 
-            // Reusar instancia existente para evitar leak de memoria
-            if (_monthlyChartInstances[containerId]) {
-                _monthlyChartInstances[containerId].destroy();
-            }
+            // Destruir cualquier Chart.js atado a este canvas, sin importar qué función lo
+            // haya creado (renderChartMensual y renderChartMonthlyPerformance comparten el
+            // mismo <canvas>; _monthlyChartInstances por sí solo no detecta instancias creadas
+            // por la otra función, causando "Canvas is already in use").
+            const chartExistente = Chart.getChart(ctx);
+            if (chartExistente) chartExistente.destroy();
 
             const COLOR_2026 = '#2dce89'; // Verde Institucional para 2026
             const COLOR_2025 = '#6c757d'; // Gris para 2025
 
             const _fmtCOP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
             const _fmtNum = v => new Intl.NumberFormat('es-CO').format(v);
+
+            // Suma consolidada del año actual (mismo nodo DOM que renderChartMensual;
+            // esta función es la que realmente repinta el canvas al cambiar el filtro
+            // de fechas, así que el total debe actualizarse aquí también).
+            const totalConsolidadoActual = ventasAct.reduce((acc, v) => acc + v, 0);
+            const totalNode = document.getElementById('total-consolidado-anual');
+            if (totalNode) {
+                totalNode.innerText = `Total ${yearActual}: ${_fmtCOP(totalConsolidadoActual)}`;
+            }
 
             _monthlyChartInstances[containerId] = new Chart(ctx, {
                 type: 'bar',

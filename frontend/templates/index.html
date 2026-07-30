@@ -1009,6 +1009,7 @@
                                         </div>
                                     </div>
                                     <div class="card-body p-4">
+                                        <h5 id="total-consolidado-anual" class="text-end fw-bold text-primary mb-2"></h5>
                                         <div style="position: relative; height: 350px; width: 100%;">
                                             <canvas id="chartMensual"></canvas>
                                         </div>
@@ -1443,30 +1444,6 @@
                     </div>
                     </div>
 
-                    <!-- Fila para Gráficas Core Chart.js -->
-                    <div class="row g-4 mb-4 mt-2" id="dashboard-section-pulido-leaderboard"
-                        data-role-access="ADMIN,PULIDO">
-                        <!-- 1. Gráfica: Leaderboard de Pulido -->
-                        <div class="col-12">
-                            <div class="card shadow-sm h-100 border-0 rounded-4">
-                                <div class="card-body p-4">
-                                    <div class="d-flex justify-content-between align-items-center mb-4">
-                                        <h5 class="card-title fw-bold mb-0" style="color: #1e293b;">
-                                            <i class="fas fa-trophy text-warning me-2"></i> Rendimiento Pulido
-                                            <i class="fas fa-info-circle ms-2 fs-6 text-muted" data-bs-toggle="tooltip"
-                                                title="Ranking de productividad y eficiencia del equipo de pulido (Filtrado por fecha)."></i>
-                                        </h5>
-                                        <span class="badge bg-light text-secondary rounded-pill border">Top
-                                            Operarias</span>
-                                    </div>
-                                    <div style="position: relative; height: 320px; width: 100%;">
-                                        <canvas id="chartPulidoLeaderboard"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- FILA: Ranking de Producción Pulido (Piezas) -->
                     <div class="row g-4 mb-4 mt-2" id="dashboard-section-pulido-kpis" data-role-access="ADMIN,PULIDO">
                         <div class="col-12">
@@ -1511,16 +1488,14 @@
                                                     <th class="ps-4" style="width: 5%;"># Rank</th>
                                                     <th style="width: 5%;" class="text-center"><i
                                                             class="fas fa-check-square"></i></th>
-                                                    <th style="width: 25%;">Responsable</th>
-                                                    <th class="text-center" style="width: 15%;">Puntaje de Esfuerzo</th>
-                                                    <th class="text-center" style="width: 15%;">Unidades Totales</th>
-                                                    <th class="text-center" style="width: 15%;">Eficiencia (Tiempo)</th>
-                                                    <th style="width: 20%;">Calidad (Yield)</th>
+                                                    <th style="width: 30%;">Responsable</th>
+                                                    <th class="text-center" style="width: 30%;">Unidades Totales</th>
+                                                    <th style="width: 30%;">Calidad (Yield)</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <tr>
-                                                    <td colspan="7" class="text-center py-5 text-muted">
+                                                    <td colspan="5" class="text-center py-5 text-muted">
                                                         <div class="spinner-border spinner-border-sm text-primary me-2"
                                                             role="status"></div> Cargando datos en vivo de Pulido...
                                                     </td>

@@ -145,7 +145,6 @@ COLUMNS_TO_LEGACY = {
     # Costos
     'referencia':           'REFERENCIA',
     'costo_total':          'COSTO TOTAL',
-    'puntos_pieza':         'PUNTOS PIEZA',
     'tiempo_minutos':       'TIEMPO MINUTOS',
 
     # PNC
@@ -713,7 +712,7 @@ class RepositoryService:
             return []
 
     def get_ranking_operarios_pulido(self, desde=None, hasta=None, limit=20):
-        """Ranking extendido de pulido (SQL-Native) con Puntos y Eficiencia."""
+        """Ranking extendido de pulido (SQL-Native) por volumen físico y Eficiencia."""
         try:
             from backend.utils.formatters import sql_normalizar_codigo_fr
             params = {'lim': limit}
@@ -724,13 +723,11 @@ class RepositoryService:
                 params['hasta'] = hasta
 
             sql = f"""
-                SELECT 
+                SELECT
                     UPPER(TRIM(p.responsable)) as responsable,
                     COALESCE(SUM(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as buenas,
                     COALESCE(SUM(NULLIF(regexp_replace(p.pnc_pulido::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as pnc,
                     COALESCE(SUM(NULLIF(regexp_replace(p.tiempo_total_minutos::text, '[^0-9]', '', 'g'), '')::INTEGER), 0) as tiempo_real,
-                    COALESCE(SUM(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER * COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC), 0) as puntos,
-                    -- Igual que puntos, pero solo con lotes que tienen tiempo_total_minutos capturado:
                     -- tiempo_real tampoco incluye los lotes sin tiempo, y mezclar poblaciones distintas
                     -- en el numerador/denominador de la eficiencia dispara el ratio.
                     COALESCE(SUM(CASE WHEN COALESCE(p.tiempo_total_minutos, 0) > 0 THEN NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER ELSE 0 END * COALESCE(NULLIF(regexp_replace(REPLACE(c.tiempo_estandar::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC), 0) as tiempo_std
@@ -738,28 +735,26 @@ class RepositoryService:
                 LEFT JOIN db_costos c ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
                 WHERE 1=1 {filt}
                 GROUP BY UPPER(TRIM(p.responsable))
-                ORDER BY puntos DESC
+                ORDER BY buenas DESC
                 LIMIT :lim
             """
             rows = db.session.execute(text(sql), params).fetchall()
-            
+
             resultado = []
             for r in rows:
                 nombre = str(r[0] or 'Desconocido').strip()
                 buenas = int(r[1])
                 pnc = int(r[2])
                 t_real = int(r[3])
-                puntos = int(r[4])
-                t_std = float(r[5])
-                
+                t_std = float(r[4])
+
                 # Eficiencia = (Tiempo Standard / Tiempo Real) * 100
                 eficiencia = round((t_std / t_real * 100), 1) if t_real > 0 else 0
-                
+
                 resultado.append({
                     'nombre': nombre,
                     'valor': buenas,
                     'pnc': pnc,
-                    'puntos': puntos,
                     'eficiencia': eficiencia,
                     'minutos': t_real
                 })
@@ -768,79 +763,6 @@ class RepositoryService:
             rollback_seguro()
             logger.error(f"[get_ranking_operarios_pulido] {e}")
             return []
-
-    def get_analytics_pulido(self, desde=None, hasta=None):
-        """Genera datos avanzados de pulido: evolución de puntos y detalle por referencia."""
-        try:
-            from backend.utils.formatters import sql_normalizar_codigo_fr
-            params = {}
-            filt = ""
-            if desde and hasta:
-                filt = " AND p.fecha BETWEEN :desde AND :hasta"
-                params['desde'] = desde
-                params['hasta'] = hasta
-
-            # 1. Evolución Mensual de Puntos
-            sql_evol = f"""
-                SELECT
-                    TO_CHAR(p.fecha, 'YYYY-MM') as mes,
-                    UPPER(TRIM(p.responsable)) as responsable,
-                    SUM(COALESCE(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER, 0) *
-                        COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as puntos
-                FROM db_pulido p
-                LEFT JOIN db_costos c ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
-                WHERE 1=1 {filt}
-                GROUP BY 1, 2
-                ORDER BY 1 ASC, puntos DESC
-            """
-            rows_evol = db.session.execute(text(sql_evol), params).fetchall()
-            evolucion = {}
-            for r in rows_evol:
-                mes = str(r[0] or 'Sin Mes').strip()
-                res = str(r[1] or 'Desconocido').strip()
-                pts = float(r[2] or 0)
-                
-                if mes not in evolucion: evolucion[mes] = {}
-                evolucion[mes][res] = pts
-
-            # 2. Detalle por Referencia (para el modal)
-            sql_refs = f"""
-                SELECT
-                    UPPER(TRIM(p.responsable)) as responsable,
-                    {sql_normalizar_codigo_fr('p.codigo')} as referencia,
-                    SUM(COALESCE(NULLIF(regexp_replace(p.cantidad_real::text, '[^0-9]', '', 'g'), '')::INTEGER, 0)) as qty,
-                    MAX(COALESCE(NULLIF(regexp_replace(REPLACE(c.puntos_por_pieza::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as pts_u,
-                    MAX(COALESCE(NULLIF(regexp_replace(REPLACE(c.costo_total::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC) as costo_u
-                FROM db_pulido p
-                LEFT JOIN db_costos c ON {sql_normalizar_codigo_fr('p.codigo')} = {sql_normalizar_codigo_fr('c.referencia')}
-                WHERE 1=1 {filt}
-                GROUP BY 1, 2
-                ORDER BY 1, qty DESC
-            """
-            rows_refs = db.session.execute(text(sql_refs), params).fetchall()
-            refs_map = {}
-            for r in rows_refs:
-                res = str(r[0] or 'Desconocido').strip()
-                ref = str(r[1] or 'Sin Referencia').strip()
-                qty = int(r[2] or 0)
-                pts_u = float(r[3] or 0)
-                costo_u = float(r[4] or 0)
-                
-                if res not in refs_map: refs_map[res] = {}
-                refs_map[res][ref] = {
-                    "cantidad_total": qty,
-                    "puntos_unidad": pts_u,
-                    "costo_unidad": costo_u
-                }
-
-            return {
-                "evolucion_puntos_op": evolucion,
-                "operario_referencia": refs_map
-            }
-        except Exception as e:
-            rollback_seguro()
-            logger.error(f"[get_analytics_pulido] {e}")
-            return {"evolucion_puntos_op": {}, "operario_referencia": {}}
 
     def get_analytics_inyeccion(self, desde=None, hasta=None):
         """Genera detalle de referencias por operario para Inyección (Buenas y PNC)"""
