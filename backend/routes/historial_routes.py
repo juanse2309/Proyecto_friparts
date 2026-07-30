@@ -14,7 +14,7 @@ from backend.models.sql_models import (
 )
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion
-from backend.services.historial_service import preparar_movimientos_para_excel
+from backend.services.historial_service import preparar_movimientos_para_excel, generar_excel_historial_global
 
 historial_bp = Blueprint('historial_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -302,55 +302,121 @@ def obtener_historial_global():
         # 6. PNC
         if not tipo_filtro or tipo_filtro == 'PNC':
             try:
-                from sqlalchemy import func, cast, Date as SADate
+                # NOTA CRITICA (reemplaza el outerjoin ORM anterior): el campo
+                # de enlace (id_inyeccion / id_pulido / id_ensamble) NO es
+                # unico por fila en las tablas de produccion -- un mismo lote
+                # multi-SKU agrupa varias filas (una por id_codigo), y ademas
+                # se detectaron colisiones REALES entre lotes NO relacionados
+                # (ej. id_inyeccion 'INY-890801A3' con 7 filas del lote real
+                # + 1 fila intrusa de otro dia/otra orden; varios id_pulido
+                # cortos tipo 'PUL-52248' compartidos por producciones sin
+                # relacion). Un JOIN directo contra la tabla completa
+                # multiplicaba cada fila de PNC una vez por cada match (bug
+                # de fan-out: un solo PNC aparecia triplicado/quintuplicado
+                # en el Historial Global).
+                #
+                # Fix: cada bloque arma una fila "representante" por lote via
+                # DISTINCT ON, y ademas cuenta cuantas combinaciones DISTINTAS
+                # de (fecha, orden) existen bajo ese mismo id de lote. Si hay
+                # mas de una (n_combinaciones > 1) el id esta en colision real
+                # entre eventos distintos: NO se adivina cual es el correcto,
+                # se marca 'ID AMBIGUO' en vez de mostrar una fecha/orden que
+                # podria ser la equivocada.
 
-                # PNC INYECCIÓN — cast DateTime → Date para comparación correcta de rango
-                iny_query = db.session.query(PncInyeccion, ProduccionInyeccion).outerjoin(
-                    ProduccionInyeccion, PncInyeccion.id_inyeccion == ProduccionInyeccion.id_inyeccion
-                ).filter(
-                    cast(ProduccionInyeccion.fecha_inicia, SADate) >= f_desde,
-                    cast(ProduccionInyeccion.fecha_inicia, SADate) <= f_hasta
-                )
-                logger.info(
-                    f"🔍 [Historial-PNC-INY] CAST(fecha_inicia AS DATE) >= '{f_desde}' AND <= '{f_hasta}'"
-                )
-                for pnc, prod in iny_query.all():
+                sql_pnc_iny = text("""
+                    WITH combos AS (
+                        SELECT id_inyeccion, fecha_inicia, orden_produccion, maquina
+                        FROM db_inyeccion
+                        WHERE id_inyeccion IS NOT NULL
+                        GROUP BY id_inyeccion, fecha_inicia, orden_produccion, maquina
+                    ),
+                    ambiguedad AS (
+                        SELECT id_inyeccion, COUNT(*) as n_combinaciones
+                        FROM combos
+                        GROUP BY id_inyeccion
+                    ),
+                    representante AS (
+                        SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia, orden_produccion, maquina
+                        FROM db_inyeccion
+                        WHERE id_inyeccion IS NOT NULL
+                        ORDER BY id_inyeccion, fecha_inicia DESC
+                    )
+                    SELECT
+                        p.id_row, p.id_codigo, p.cantidad, p.criterio, p.codigo_ensamble, p.id_inyeccion,
+                        r.fecha_inicia, r.orden_produccion, r.maquina,
+                        COALESCE(a.n_combinaciones, 1) as n_combinaciones
+                    FROM db_pnc_inyeccion p
+                    LEFT JOIN representante r ON p.id_inyeccion = r.id_inyeccion
+                    LEFT JOIN ambiguedad a ON r.id_inyeccion = a.id_inyeccion
+                    WHERE r.id_inyeccion IS NULL
+                       OR COALESCE(a.n_combinaciones, 1) > 1
+                       OR (CAST(r.fecha_inicia AS DATE) BETWEEN :desde AND :hasta)
+                """)
+                res_pnc_iny = db.session.execute(sql_pnc_iny, {"desde": f_desde, "hasta": f_hasta}).mappings().all()
+                for r in res_pnc_iny:
+                    ambiguo = (r.get('n_combinaciones') or 1) > 1
+                    fecha_inicia = r.get('fecha_inicia') if not ambiguo else None
                     movimientos.append({
-                        'Fecha': getattr(prod.fecha_inicia, 'strftime', lambda x: '')('%d/%m/%Y') if prod and prod.fecha_inicia else 'S/F',
+                        'Fecha': fecha_inicia.strftime('%d/%m/%Y') if fecha_inicia else ('ID AMBIGUO' if ambiguo else 'S/F'),
                         'Tipo': 'PNC',
-                        'Producto': safe_str(getattr(pnc, 'id_codigo', '')),
+                        'Producto': safe_str(r.get('id_codigo', '')),
                         'Responsable': 'INYECCION',
-                        'Cant': to_float(getattr(pnc, 'cantidad', 0)),
-                        'Orden': safe_str(getattr(pnc, 'id_inyeccion', '')),
-                        'maquina': 'N/A',
+                        'Cant': to_float(r.get('cantidad', 0)),
+                        'Orden': (safe_str(r.get('orden_produccion', '')) if not ambiguo else '') or safe_str(r.get('id_inyeccion', '')),
+                        'maquina': format_maquina(r.get('maquina'), 'INYECCION') if (r.get('maquina') and not ambiguo) else 'N/A',
                         'peso_bujes': None,
                         'cavidades': None,
                         'duracion_segundos': None,
                         'tiempo_total_minutos': None,
                         'segundos_por_unidad': None,
                         'Extra': 'PNC Inyeccion',
-                        'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
+                        'Detalle': f"Criterio: {safe_str(r.get('criterio', ''))} | Notas: {safe_str(r.get('codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_pnc_inyeccion',
-                        'fila': to_int(getattr(pnc, 'id_row', 0))
+                        'fila': to_int(r.get('id_row', 0))
                     })
 
-                # PNC PULIDO — ProduccionPulido.fecha también es DateTime
-                pul_query = db.session.query(PncPulido, ProduccionPulido).outerjoin(
-                    ProduccionPulido, PncPulido.id_pulido == ProduccionPulido.id_pulido
-                ).filter(
-                    cast(ProduccionPulido.fecha, SADate) >= f_desde,
-                    cast(ProduccionPulido.fecha, SADate) <= f_hasta
-                )
-                for pnc, prod in pul_query.all():
+                # PNC PULIDO — mismo patron. Pulido no maneja concepto de
+                # maquina (format_maquina ya fuerza 'N/A' para este proceso).
+                sql_pnc_pul = text("""
+                    WITH combos AS (
+                        SELECT id_pulido::text as id_pulido, fecha, orden_produccion
+                        FROM db_pulido
+                        GROUP BY id_pulido::text, fecha, orden_produccion
+                    ),
+                    ambiguedad AS (
+                        SELECT id_pulido, COUNT(*) as n_combinaciones
+                        FROM combos
+                        GROUP BY id_pulido
+                    ),
+                    representante AS (
+                        SELECT DISTINCT ON (id_pulido::text) id_pulido::text as id_pulido, fecha, orden_produccion
+                        FROM db_pulido
+                        ORDER BY id_pulido::text, fecha DESC
+                    )
+                    SELECT
+                        p.id_row, p.codigo, p.cantidad, p.criterio, p.codigo_ensamble, p.id_pulido,
+                        r.fecha, r.orden_produccion,
+                        COALESCE(a.n_combinaciones, 1) as n_combinaciones
+                    FROM db_pnc_pulido p
+                    LEFT JOIN representante r ON p.id_pulido::text = r.id_pulido
+                    LEFT JOIN ambiguedad a ON r.id_pulido = a.id_pulido
+                    WHERE r.id_pulido IS NULL
+                       OR COALESCE(a.n_combinaciones, 1) > 1
+                       OR (CAST(r.fecha AS DATE) BETWEEN :desde AND :hasta)
+                """)
+                res_pnc_pul = db.session.execute(sql_pnc_pul, {"desde": f_desde, "hasta": f_hasta}).mappings().all()
+                for r in res_pnc_pul:
+                    ambiguo = (r.get('n_combinaciones') or 1) > 1
+                    fecha = r.get('fecha') if not ambiguo else None
                     movimientos.append({
-                        'Fecha': getattr(prod.fecha, 'strftime', lambda x: '')('%d/%m/%Y') if prod and prod.fecha else 'S/F',
+                        'Fecha': fecha.strftime('%d/%m/%Y') if fecha else ('ID AMBIGUO' if ambiguo else 'S/F'),
                         'Tipo': 'PNC',
-                        'Producto': safe_str(getattr(pnc, 'codigo', '')),
+                        'Producto': safe_str(r.get('codigo', '')),
                         'Responsable': 'PULIDO',
-                        'Cant': to_float(getattr(pnc, 'cantidad', 0)),
-                        'Orden': safe_str(getattr(pnc, 'id_pulido', '')),
+                        'Cant': to_float(r.get('cantidad', 0)),
+                        'Orden': (safe_str(r.get('orden_produccion', '')) if not ambiguo else '') or safe_str(r.get('id_pulido', '')),
                         'maquina': 'N/A',
                         'peso_bujes': None,
                         'cavidades': None,
@@ -358,28 +424,54 @@ def obtener_historial_global():
                         'tiempo_total_minutos': None,
                         'segundos_por_unidad': None,
                         'Extra': 'PNC Pulido',
-                        'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
+                        'Detalle': f"Criterio: {safe_str(r.get('criterio', ''))} | Notas: {safe_str(r.get('codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_pnc_pulido',
-                        'fila': to_int(getattr(pnc, 'id_row', 0))
+                        'fila': to_int(r.get('id_row', 0))
                     })
 
-                # PNC ENSAMBLE — Ensamble.fecha es DateTime
-                ens_query = db.session.query(PncEnsamble, Ensamble).outerjoin(
-                    Ensamble, PncEnsamble.id_ensamble == Ensamble.id_ensamble
-                ).filter(
-                    cast(Ensamble.fecha, SADate) >= f_desde,
-                    cast(Ensamble.fecha, SADate) <= f_hasta
-                )
-                for pnc, prod in ens_query.all():
+                # PNC ENSAMBLE — mismo patron (auditado: 0 grupos ambiguos
+                # hoy, pero se deja la misma guarda por si aparecen a futuro;
+                # Ensamble tampoco maneja concepto de maquina).
+                sql_pnc_ens = text("""
+                    WITH combos AS (
+                        SELECT id_ensamble, fecha, op_numero
+                        FROM db_ensambles
+                        GROUP BY id_ensamble, fecha, op_numero
+                    ),
+                    ambiguedad AS (
+                        SELECT id_ensamble, COUNT(*) as n_combinaciones
+                        FROM combos
+                        GROUP BY id_ensamble
+                    ),
+                    representante AS (
+                        SELECT DISTINCT ON (id_ensamble) id_ensamble, fecha, op_numero
+                        FROM db_ensambles
+                        ORDER BY id_ensamble, fecha DESC
+                    )
+                    SELECT
+                        p.id_row, p.id_codigo, p.cantidad, p.criterio, p.codigo_ensamble, p.id_ensamble,
+                        r.fecha, r.op_numero,
+                        COALESCE(a.n_combinaciones, 1) as n_combinaciones
+                    FROM db_pnc_ensamble p
+                    LEFT JOIN representante r ON p.id_ensamble = r.id_ensamble
+                    LEFT JOIN ambiguedad a ON r.id_ensamble = a.id_ensamble
+                    WHERE r.id_ensamble IS NULL
+                       OR COALESCE(a.n_combinaciones, 1) > 1
+                       OR (CAST(r.fecha AS DATE) BETWEEN :desde AND :hasta)
+                """)
+                res_pnc_ens = db.session.execute(sql_pnc_ens, {"desde": f_desde, "hasta": f_hasta}).mappings().all()
+                for r in res_pnc_ens:
+                    ambiguo = (r.get('n_combinaciones') or 1) > 1
+                    fecha = r.get('fecha') if not ambiguo else None
                     movimientos.append({
-                        'Fecha': getattr(prod.fecha, 'strftime', lambda x: '')('%d/%m/%Y') if prod and prod.fecha else 'S/F',
+                        'Fecha': fecha.strftime('%d/%m/%Y') if fecha else ('ID AMBIGUO' if ambiguo else 'S/F'),
                         'Tipo': 'PNC',
-                        'Producto': safe_str(getattr(pnc, 'id_codigo', '')),
+                        'Producto': safe_str(r.get('id_codigo', '')),
                         'Responsable': 'ENSAMBLE',
-                        'Cant': to_float(getattr(pnc, 'cantidad', 0)),
-                        'Orden': safe_str(getattr(pnc, 'id_ensamble', '')),
+                        'Cant': to_float(r.get('cantidad', 0)),
+                        'Orden': (safe_str(r.get('op_numero', '')) if not ambiguo else '') or safe_str(r.get('id_ensamble', '')),
                         'maquina': 'N/A',
                         'peso_bujes': None,
                         'cavidades': None,
@@ -387,11 +479,11 @@ def obtener_historial_global():
                         'tiempo_total_minutos': None,
                         'segundos_por_unidad': None,
                         'Extra': 'PNC Ensamble',
-                        'Detalle': f"Criterio: {safe_str(getattr(pnc, 'criterio', ''))} | Notas: {safe_str(getattr(pnc, 'codigo_ensamble', ''))}",
+                        'Detalle': f"Criterio: {safe_str(r.get('criterio', ''))} | Notas: {safe_str(r.get('codigo_ensamble', ''))}",
                         'HORA_INICIO': '',
                         'HORA_FIN': '',
                         'hoja': 'db_pnc_ensamble',
-                        'fila': to_int(getattr(pnc, 'id_row', 0))
+                        'fila': to_int(r.get('id_row', 0))
                     })
 
             except Exception as e:
@@ -670,20 +762,16 @@ def actualizar_registro_historial():
 
 @historial_bp.route('/api/exportar-historial-global', methods=['GET'])
 def exportar_excel_historial_global():
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
-    from io import BytesIO
     from flask import send_file
-    
+
     try:
         # Llamar directamente a la función existente para obtener los datos
         response = obtener_historial_global()
         if type(response) == tuple and len(response) > 1 and response[1] != 200:
             return response
-            
+
         resultados = response.get_json() if hasattr(response, 'get_json') else response
-        
+
         if not isinstance(resultados, list):
             logger.error("Los resultados no son una lista")
             return jsonify({"success": False, "error": "Error interno"}), 500
@@ -691,90 +779,8 @@ def exportar_excel_historial_global():
         # Normalizacion estricta a 24h (delegada al servicio, ver FRITECH V4.5)
         resultados = preparar_movimientos_para_excel(resultados)
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Historial Global"
-
-        header_font = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
-        header_fill = PatternFill(start_color='2C3E50', end_color='2C3E50', fill_type='solid')
-        header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        thin_border = Border(
-            left=Side(style='thin', color='D5D8DC'),
-            right=Side(style='thin', color='D5D8DC'),
-            top=Side(style='thin', color='D5D8DC'),
-            bottom=Side(style='thin', color='D5D8DC')
-        )
-        zebra_fill = PatternFill(start_color='F2F3F4', end_color='F2F3F4', fill_type='solid')
-        data_align = Alignment(horizontal='center', vertical='center')
-        text_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
-
-        columnas = [
-            'Fecha', 'Hora Inicio', 'Hora Fin', 'Tipo', 'Responsable', 
-            'Producto', 'Orden Prod.', 'Máquina', 'Cantidad',
-            'Peso Bujes (g)', 'Cavidades', 'Duración (s)', 'Tiempo Total (min)', 'Seg/Unidad',
-            'Detalle'
-        ]
-
-        for col_idx, titulo in enumerate(columnas, 1):
-            cell = ws.cell(row=1, column=col_idx, value=titulo)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_align
-            cell.border = thin_border
-
-        for row_idx, r in enumerate(resultados, 2):
-            fila = [
-                r.get('Fecha', ''),
-                r.get('HORA_INICIO', ''),
-                r.get('HORA_FIN', ''),
-                r.get('Tipo', ''),
-                r.get('Responsable', ''),
-                r.get('Producto', ''),
-                r.get('Orden', ''),
-                r.get('maquina', 'N/A'),
-                r.get('Cant', 0),
-                r.get('peso_bujes'),
-                r.get('cavidades'),
-                r.get('duracion_segundos'),
-                r.get('tiempo_total_minutos'),
-                r.get('segundos_por_unidad'),
-                r.get('Detalle', '')
-            ]
-
-            for col_idx, valor in enumerate(fila, 1):
-                # Purgar estrictamente cualquier representación de nulo a None para celda vacía en Excel
-                if valor is None or (isinstance(valor, float) and (valor != valor)) or str(valor).strip().lower() in ('nan', 'none', 'null'):
-                    cell_val = None
-                else:
-                    cell_val = valor
-
-                cell = ws.cell(row=row_idx, column=col_idx, value=cell_val)
-                cell.border = thin_border
-
-                # Columnas 2 y 3 = Hora Inicio / Hora Fin: forzar formato Texto
-                # para que OpenPyXL/Excel nunca reinterprete el string 24h
-                # normalizado como una hora 12h dependiente del locale.
-                if col_idx in (2, 3):
-                    cell.number_format = '@'
-
-                if col_idx in (4, 5, 6, 7, 8, 15):
-                    cell.alignment = text_align
-                else:
-                    cell.alignment = data_align
-
-            if row_idx % 2 == 0:
-                for col_idx in range(1, len(columnas) + 1):
-                    ws.cell(row=row_idx, column=col_idx).fill = zebra_fill
-
-        anchos = [12, 11, 11, 12, 20, 18, 15, 15, 10, 14, 10, 12, 16, 12, 40]
-        for i, w in enumerate(anchos, 1):
-            ws.column_dimensions[get_column_letter(i)].width = w
-
-        ws.freeze_panes = 'A2'
-
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
+        # Construcción del Workbook delegada al servicio (arquitectura: rutas sin lógica de negocio)
+        output = generar_excel_historial_global(resultados)
 
         fecha_archivo = datetime.now().strftime('%Y-%m-%d')
         filename = f"Historial_Global_{fecha_archivo}.xlsx"
