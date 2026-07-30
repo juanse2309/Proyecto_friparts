@@ -12,7 +12,7 @@ from backend.services.audit_service import AuditService, OwnershipMismatchExcept
 from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion, preservar_o_normalizar_prefijo
+from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
 
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
@@ -555,7 +555,10 @@ def validar_lote_inyeccion(id_inyeccion):
 
         payload = request.get_json(silent=True) or {}
         items_payload = payload.get('items', [])
-        items_dict = { str(item.get('codigo', '')): item for item in items_payload }
+        # Clave normalizada sin prefijo 'FR-': reg.id_codigo puede traerlo (lote creado
+        # vía flujo MES) o no (flujo manual), así que ambos lados del cruce deben
+        # comparar en el mismo formato o el lookup falla en silencio (item_payload = {}).
+        items_dict = { normalizar_codigo_sin_prefijo(item.get('codigo', '')): item for item in items_payload }
 
         usuario_activo = _obtener_usuario_activo()
         validador_actual = AuditService.resolver_y_validar_validador(payload.get('validador'), usuario_activo)
@@ -575,7 +578,7 @@ def validar_lote_inyeccion(id_inyeccion):
             if reg.estado == 'CERRADO':
                 continue
 
-            codigo = str(reg.id_codigo)
+            codigo = normalizar_codigo_sin_prefijo(reg.id_codigo)
             cantidad_inyectada = reg.cantidad_real or 0
             item_payload = items_dict.get(codigo, {})
 
@@ -1336,11 +1339,12 @@ def registrar_pnc_inyeccion():
         from backend.utils.formatters import normalizar_codigo
         id_cod = normalizar_codigo(id_codigo) if id_codigo else None
 
-        # Fallback de producto si no se recibe
+        # Fallback de producto si no se recibe (misma normalizar_codigo() de la línea de arriba,
+        # para no mezclar dos convenciones distintas de id_cod dentro de la misma función)
         if not id_cod:
             first_prod = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_iny).first()
             if first_prod:
-                id_cod = first_prod.id_codigo
+                id_cod = normalizar_codigo(first_prod.id_codigo)
 
         if not id_cod:
             return jsonify({"success": False, "error": "El campo id_codigo es obligatorio"}), 400

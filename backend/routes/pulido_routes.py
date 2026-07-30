@@ -3,7 +3,7 @@ from sqlalchemy import text
 from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usuario_activo
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
-from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo
+from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 import uuid
 from datetime import datetime
@@ -119,6 +119,10 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
     db.session.flush()
  
     # Sincronización de PNC Detallado
+    # registro.codigo lleva el prefijo 'FR-' (preservar_o_normalizar_prefijo), pero las
+    # tablas de PNC se indexan sin prefijo para no fragmentar 'FR-1005' / '1005' en filas
+    # distintas — se sanitiza aquí explícitamente antes de tocar el ORM.
+    codigo_pnc = normalizar_codigo_sin_prefijo(registro.codigo)
     pnc_detail = data.get('pnc_detail', [])
     db.session.query(PncInyeccion).filter_by(id_inyeccion=registro.id_pulido).delete()
     db.session.query(PncPulido).filter_by(id_pulido=registro.id_pulido).delete()
@@ -135,7 +139,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                 db.session.add(PncInyeccion(
                     id_pnc_inyeccion=uuid.uuid4().hex[:8],
                     id_inyeccion=registro.id_pulido,
-                    id_codigo=registro.codigo,
+                    id_codigo=codigo_pnc,
                     cantidad=cant,
                     criterio=crit
                 ))
@@ -143,7 +147,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                 db.session.add(PncPulido(
                     id_pnc_pulido=uuid.uuid4().hex[:8],
                     id_pulido=registro.id_pulido,
-                    codigo=registro.codigo,
+                    codigo=codigo_pnc,
                     cantidad=cant,
                     criterio=crit
                 ))
@@ -151,7 +155,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                 db.session.add(PncEnsamble(
                     id_pnc_ensamble=uuid.uuid4().hex[:8],
                     id_ensamble=registro.id_pulido,
-                    id_codigo=registro.codigo,
+                    id_codigo=codigo_pnc,
                     cantidad=cant,
                     criterio=crit
                 ))
@@ -166,7 +170,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
             db.session.add(PncPulido(
                 id_pnc_pulido=uuid.uuid4().hex[:8],
                 id_pulido=registro.id_pulido,
-                codigo=registro.codigo,
+                codigo=codigo_pnc,
                 cantidad=registro.pnc_pulido,
                 criterio=registro.criterio_pnc_pulido or 'Diferencia/Sobrante (Sin Desglose)'
             ))
@@ -174,7 +178,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
             db.session.add(PncInyeccion(
                 id_pnc_inyeccion=uuid.uuid4().hex[:8],
                 id_inyeccion=registro.id_pulido,
-                id_codigo=registro.codigo,
+                id_codigo=codigo_pnc,
                 cantidad=registro.pnc_inyeccion,
                 criterio=registro.criterio_pnc_inyeccion or 'Diferencia/Sobrante (Sin Desglose)'
             ))

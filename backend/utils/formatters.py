@@ -71,6 +71,22 @@ def sql_normalizar_codigo_fr(expresion_sql: str) -> str:
     return f"CASE WHEN {base} ~ '^[0-9]+$' THEN 'FR-' || {base} ELSE {base} END"
 
 
+def normalizar_codigo_sin_prefijo(codigo) -> str:
+    """
+    Sanitiza un código para las tablas de PNC (db_pnc_inyeccion, db_pnc_pulido,
+    db_pnc_ensamble, db_pnc): quita EXCLUSIVAMENTE el prefijo 'FR-' (case-insensitive)
+    para unificar 'FR-1005' y '1005' bajo una sola clave de agrupación.
+    A diferencia de normalizar_codigo(), preserva intacto cualquier otro prefijo
+    (MT-, CAR-, CB-...) para no pisar códigos de otras divisiones/tablas.
+    """
+    if codigo is None:
+        return ""
+    cod = str(codigo).strip().upper()
+    if cod.startswith('FR-'):
+        return cod[3:].strip()
+    return cod
+
+
 def preservar_o_normalizar_prefijo(codigo: str, prefijo_defecto: str = "FR-") -> str:
     """
     Garantiza que el código tenga un prefijo válido para db_productos.

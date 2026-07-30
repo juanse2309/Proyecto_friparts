@@ -7,7 +7,9 @@ from datetime import datetime
 import uuid
 import time
 import random
+from sqlalchemy.orm import validates
 from backend.core.sql_database import db
+from backend.utils.formatters import normalizar_codigo_sin_prefijo
 
 
 class Producto(db.Model):
@@ -97,6 +99,11 @@ class PncInyeccion(db.Model):
     burbuja_porosidad        = db.Column(db.Numeric(18, 2), default=0)
     deformacion_rechupado    = db.Column(db.Numeric(18, 2), default=0)
 
+    @validates('id_codigo')
+    def _sanitizar_id_codigo(self, key, value):
+        """Blindaje obligatorio: ningún registro puede persistirse con prefijo 'FR-' colgando."""
+        return normalizar_codigo_sin_prefijo(value) if value else value
+
 
 class PncPulido(db.Model):
     __tablename__ = 'db_pnc_pulido'
@@ -105,10 +112,15 @@ class PncPulido(db.Model):
     id_row           = db.Column(db.Integer, primary_key=True, default=lambda: int(time.time() % 100000000) + random.randint(100000000, 900000000))
     id_pnc_pulido    = db.Column(db.String(80), index=True, default=lambda: uuid.uuid4().hex[:8])
     id_pulido        = db.Column(db.Text, index=True) # OID 25
-    codigo           = db.Column(db.String(50), index=True) 
+    codigo           = db.Column(db.String(50), index=True)
     cantidad         = db.Column(db.Numeric(18, 2), default=0)
     criterio         = db.Column(db.String(200), nullable=True)
     codigo_ensamble  = db.Column(db.String(50), nullable=True)
+
+    @validates('codigo')
+    def _sanitizar_codigo(self, key, value):
+        """Blindaje obligatorio: ningún registro puede persistirse con prefijo 'FR-' colgando."""
+        return normalizar_codigo_sin_prefijo(value) if value else value
 
 
 class PncEnsamble(db.Model):
@@ -122,6 +134,11 @@ class PncEnsamble(db.Model):
     cantidad         = db.Column(db.Numeric(18, 2), default=0)
     criterio         = db.Column(db.String(200), nullable=True)
     codigo_ensamble  = db.Column(db.String(50), nullable=True)
+
+    @validates('id_codigo')
+    def _sanitizar_id_codigo(self, key, value):
+        """Blindaje obligatorio: ningún registro puede persistirse con prefijo 'FR-' colgando."""
+        return normalizar_codigo_sin_prefijo(value) if value else value
 
 
 class ProduccionPulido(db.Model):
@@ -302,6 +319,11 @@ class Pnc(db.Model):
     cantidad        = db.Column(db.Numeric(18, 2), default=0)
     criterio        = db.Column(db.String(255), nullable=True)
     codigo_ensamble = db.Column(db.String(50),  nullable=True)
+
+    @validates('id_codigo')
+    def _sanitizar_id_codigo(self, key, value):
+        """Blindaje obligatorio: ningún registro puede persistirse con prefijo 'FR-' colgando."""
+        return normalizar_codigo_sin_prefijo(value) if value else value
 
 
 class BujeRevuelto(db.Model):
