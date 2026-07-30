@@ -5,6 +5,7 @@ from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usu
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
 from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.services.pulido_service import PulidoService
 import uuid
 from datetime import datetime
 import pytz
@@ -77,40 +78,38 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
         tiempo_acumulado_ms = float(data.get('tiempo_acumulado_ms') or 0)
         segundos_totales = segundos_segmento + int(tiempo_acumulado_ms / 1000)
 
-        descuento_programado_ms = float(data.get('descuento_programado_ms') or 0)
-        if descuento_programado_ms > 0:
-            segundos_totales = max(0, segundos_totales - int(descuento_programado_ms / 1000))
-        
+        # Autoridad matemática del descuento por pausas programadas: PulidoService.
+        # El frontend solo aporta hora_inicio/hora_fin crudas (Zero Trust) — el
+        # cálculo de intersección de intervalos vive exclusivamente en la capa de servicio.
+        descuento_info = PulidoService.calcular_descuento_pausas_programadas(t_ini, t_fin)
+        segundos_descuento = descuento_info['segundos_descuento']
+        if segundos_descuento > 0:
+            segundos_totales = max(0, segundos_totales - segundos_descuento)
+
         registro.duracion_segundos = segundos_totales
         registro.tiempo_total_minutos = float(round(segundos_totales / 60.0, 2))
-        
+
         cant = float(registro.cantidad_real or 0)
         if cant > 0:
             registro.segundos_por_unidad = float(round(segundos_totales / cant, 2))
         else:
             registro.segundos_por_unidad = 0.0
-        
-        try:
-            detalle = data.get('detalle_descuento_programado')
-            if isinstance(detalle, str):
-                detalle = json.loads(detalle)
-            if isinstance(detalle, list) and descuento_programado_ms > 0:
-                payload = {
-                    "descuento_programado_min": round(descuento_programado_ms / 60000.0, 2),
-                    "detalle": detalle
-                }
-                tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
-                obs = (registro.observaciones or "")
-                if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
-                    pre = obs.split("[AUTO_BREAK]")[0]
-                    post = obs.split("[/AUTO_BREAK]")[-1]
-                    registro.observaciones = (pre + tag + post).strip()
-                else:
-                    registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
-        except Exception as e:
-            logger.warning(f"[AUTO_BREAK] No se pudo persistir detalle: {e}")
 
-        logger.info(f" [TIME-DEBUG] {registro.id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, DescProg: {descuento_programado_ms}ms, Total: {segundos_totales}s")
+        if descuento_info['detalle']:
+            payload = {
+                "descuento_programado_min": round(segundos_descuento / 60.0, 2),
+                "detalle": descuento_info['detalle']
+            }
+            tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
+            obs = (registro.observaciones or "")
+            if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
+                pre = obs.split("[AUTO_BREAK]")[0]
+                post = obs.split("[/AUTO_BREAK]")[-1]
+                registro.observaciones = (pre + tag + post).strip()
+            else:
+                registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
+
+        logger.info(f" [TIME-DEBUG] {registro.id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, DescProgramado: {segundos_descuento}s, Total: {segundos_totales}s")
     else:
         registro.duracion_segundos = 0
         registro.tiempo_total_minutos = 0.0

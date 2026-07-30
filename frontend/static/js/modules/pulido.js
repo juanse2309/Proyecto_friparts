@@ -15,8 +15,6 @@ const ModuloPulido = {
     tiempoAcumuladoMs: 0, // NUEVO: Tiempo de segmentos anteriores
     timerInterval: null,
     sessionId: null,
-    // Descuentos automáticos por pausas programadas (ms)
-    descuentoProgramadoMs: 0,
 
     // PNC Dynamic State
     pncRows: [],
@@ -163,7 +161,6 @@ const ModuloPulido = {
             startTime: this.startTime ? this.startTime.getTime() : null,
             totalPausaMs: this.totalPausaMs,
             tiempoAcumuladoMs: this.tiempoAcumuladoMs,
-            descuentoProgramadoMs: this.descuentoProgramadoMs || 0,
             enPausa: this.enPausa,
             pausaTime: this.pausaTime ? this.pausaTime.getTime() : null,
             sesionesEnPausa: this.sesionesEnPausa,
@@ -210,7 +207,6 @@ const ModuloPulido = {
                 this.startTime = new Date(estado.startTime);
                 this.totalPausaMs = estado.totalPausaMs;
                 this.tiempoAcumuladoMs = estado.tiempoAcumuladoMs || 0;
-                this.descuentoProgramadoMs = estado.descuentoProgramadoMs || 0;
                 this.enPausa = estado.enPausa;
                 if (estado.pausaTime) this.pausaTime = new Date(estado.pausaTime);
 
@@ -768,9 +764,7 @@ const ModuloPulido = {
         
         const now = new Date();
         const segmentTime = now - this.startTime - this.totalPausaMs;
-        const descuentoSegmento = this.calcularDescuentoProgramadoMs(this.startTime, now);
         const totalElapsedMs = this.tiempoAcumuladoMs + segmentTime;
-        const totalDescuentoProgramadoMs = (this.descuentoProgramadoMs || 0) + descuentoSegmento;
 
         const prodRaw = document.getElementById('buscador-productos').value;
         const prod = this.normalizarCodigo(prodRaw);
@@ -784,8 +778,7 @@ const ModuloPulido = {
             op,
             lote,
             resp,
-            tiempoAcumuladoMs: totalElapsedMs,
-            descuentoProgramadoMs: totalDescuentoProgramadoMs
+            tiempoAcumuladoMs: totalElapsedMs
         };
 
         // Guardado preventivo en DB
@@ -806,10 +799,9 @@ const ModuloPulido = {
         mostrarLoading(false);
 
         this.sesionesEnPausa.push(sessionToPause);
-        
+
         // Reset local para nueva urgencia
         this.limpiarSesionLocal();
-        this.descuentoProgramadoMs = totalDescuentoProgramadoMs; // conservar acumulado para el operario
         this.renderCola();
         this.guardarEstadoLocal();
 
@@ -899,7 +891,6 @@ const ModuloPulido = {
         this.startTime = null;
         this.totalPausaMs = 0;
         this.tiempoAcumuladoMs = 0;
-        // NOTA: descuentoProgramadoMs se conserva por operario para sesiones multi-segmento
         this.enPausa = false;
 
         document.getElementById('pulido-idle-msg').style.display = 'block';
@@ -929,18 +920,15 @@ const ModuloPulido = {
 
         const now = new Date();
         
-        // El tiempo total es la suma de lo acumulado (sesiones previas) + el segmento actual
+        // El tiempo total es la suma de lo acumulado (sesiones previas) + el segmento actual.
+        // El descuento por pausas programadas (Desayuno/Almuerzo) lo calcula y aplica
+        // exclusivamente el backend (PulidoService) a partir de hora_inicio/hora_fin crudas.
         const msSegmentoActual = this.startTime ? (now - this.startTime - this.totalPausaMs) : 0;
         const msTotales = this.tiempoAcumuladoMs + msSegmentoActual;
-        const descuentoSegmento = (this.startTime ? this.calcularDescuentoProgramadoMs(this.startTime, now) : 0);
-        const descuentoTotal = (this.descuentoProgramadoMs || 0) + descuentoSegmento;
-        const msEfectivos = Math.max(0, msTotales - descuentoTotal);
-        
+
         const totalMin = Math.floor(msTotales / 60000);
         const totalSec = Math.floor(msTotales / 1000);
-        const efectivoMin = Math.floor(msEfectivos / 60000);
-        const efectivoSec = Math.floor(msEfectivos / 1000);
-        
+
         // Validación flexible: 30 segundos para urgencias/retomados, 1 min para nuevos
         const umbralSegundos = (this.tiempoAcumuladoMs > 0) ? 10 : 30; 
 
@@ -955,14 +943,10 @@ const ModuloPulido = {
         }
 
         document.getElementById('modal-tiempo-total').innerText = totalMin + ' min ' + (totalSec % 60) + 's';
-        document.getElementById('modal-tiempo-efectivo').innerText =
-            `${efectivoMin} min ${(efectivoSec % 60)}s`;
+        // El tiempo efectivo (descontadas las pausas programadas) lo calcula el
+        // backend al persistir el reporte — aquí solo se muestra el tiempo bruto.
+        document.getElementById('modal-tiempo-efectivo').innerText = totalMin + ' min ' + (totalSec % 60) + 's';
 
-        // Mostrar descuento programado si aplica (sin depender de HTML preexistente)
-        const descuentoMin = Math.floor(descuentoTotal / 60000);
-        const descuentoSec = Math.floor(descuentoTotal / 1000);
-        this._renderDescuentoProgramadoUI(descuentoTotal, descuentoMin, descuentoSec);
-        
         // Reset inputs modal
         document.getElementById('cantidad-recibida-pro').value = 0;
         document.getElementById('resultado-buenas-pro').innerText = '0';
@@ -1119,11 +1103,6 @@ const ModuloPulido = {
     // ==========================================
 
     guardarReportePro: async function () {
-        const now = new Date();
-        const descuentoSegmento = (this.startTime ? this.calcularDescuentoProgramadoMs(this.startTime, now) : 0);
-        const descuentoTotal = (this.descuentoProgramadoMs || 0) + descuentoSegmento;
-        const detalleDescuento = this.generarDetalleDescuentoProgramado(this.startTime, now);
-
         // Agrupar PNC por proceso para compatibilidad con DB
         const pncData = this.pncRows.map(row => ({
             proceso: document.getElementById(`pnc-proc-${row.id}`)?.value,
@@ -1162,8 +1141,6 @@ const ModuloPulido = {
             almacen_destino: 'P. TERMINADO',
             modo: 'PRO',
             tiempo_acumulado_ms: this.tiempoAcumuladoMs,
-            descuento_programado_ms: descuentoTotal,
-            detalle_descuento_programado: detalleDescuento,
             pnc_detail: pncData,
             revueltos: revueltosData
         };
@@ -1523,107 +1500,6 @@ const ModuloPulido = {
             const input = document.getElementById('responsable-pulido-input');
             if (input) input.value = lastResp;
         }
-    },
-
-    // ==========================================================
-    // PAUSAS PROGRAMADAS (descuento automático)
-    // ==========================================================
-    getVentanasPausasProgramadas: function () {
-        // Ventanas fijas locales (Bogotá) por turno estándar
-        return [
-            { tipo: 'MICROBREAK', inicio: '07:00', fin: '07:05' },
-            { tipo: 'DESAYUNO',   inicio: '09:00', fin: '09:20' },
-            { tipo: 'MICROBREAK', inicio: '11:00', fin: '11:05' },
-            { tipo: 'ALMUERZO',   inicio: '13:00', fin: '13:40' },
-            { tipo: 'MICROBREAK', inicio: '15:00', fin: '15:05' }
-        ];
-    },
-
-    _toDateTimeSameDay: function (baseDate, hhmm) {
-        const [h, m] = hhmm.split(':').map(n => parseInt(n, 10));
-        const d = new Date(baseDate);
-        d.setHours(h, m, 0, 0);
-        return d;
-    },
-
-    _overlapMs: function (aStart, aEnd, bStart, bEnd) {
-        const start = Math.max(aStart.getTime(), bStart.getTime());
-        const end = Math.min(aEnd.getTime(), bEnd.getTime());
-        return Math.max(0, end - start);
-    },
-
-    calcularDescuentoProgramadoMs: function (inicio, fin) {
-        if (!inicio || !fin) return 0;
-        const aStart = new Date(inicio);
-        const aEnd = new Date(fin);
-        if (isNaN(aStart.getTime()) || isNaN(aEnd.getTime()) || aEnd <= aStart) return 0;
-
-        // Soportar cruces de medianoche (muy raro). Si cruza, limitamos a mismo día para evitar descuento erróneo.
-        const sameDay = aStart.toDateString() === aEnd.toDateString();
-        if (!sameDay) return 0;
-
-        let total = 0;
-        for (const v of this.getVentanasPausasProgramadas()) {
-            const bStart = this._toDateTimeSameDay(aStart, v.inicio);
-            const bEnd = this._toDateTimeSameDay(aStart, v.fin);
-            total += this._overlapMs(aStart, aEnd, bStart, bEnd);
-        }
-        return total;
-    },
-
-    generarDetalleDescuentoProgramado: function (inicio, fin) {
-        if (!inicio || !fin) return [];
-        const aStart = new Date(inicio);
-        const aEnd = new Date(fin);
-        const sameDay = aStart.toDateString() === aEnd.toDateString();
-        if (!sameDay) return [];
-
-        const detalle = [];
-        for (const v of this.getVentanasPausasProgramadas()) {
-            const bStart = this._toDateTimeSameDay(aStart, v.inicio);
-            const bEnd = this._toDateTimeSameDay(aStart, v.fin);
-            const ms = this._overlapMs(aStart, aEnd, bStart, bEnd);
-            if (ms > 0) {
-                detalle.push({
-                    tipo: v.tipo,
-                    inicio: v.inicio,
-                    fin: v.fin,
-                    minutos: Math.round(ms / 60000)
-                });
-            }
-        }
-        return detalle;
-    },
-
-    _renderDescuentoProgramadoUI: function (descuentoTotalMs, descuentoMin, descuentoSec) {
-        const modal = document.getElementById('modal-reporte-final');
-        if (!modal) return;
-
-        let el = document.getElementById('modal-descuento-programado');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'modal-descuento-programado';
-            el.style.marginTop = '6px';
-            el.style.fontSize = '0.9rem';
-            el.style.color = '#0f172a';
-            // Insertar cerca de los totales si existen
-            const anchor = document.getElementById('modal-tiempo-efectivo')?.parentElement || modal;
-            anchor.appendChild(el);
-        }
-
-        if (!descuentoTotalMs || descuentoTotalMs <= 0) {
-            el.innerHTML = '';
-            return;
-        }
-
-        const detalle = this.generarDetalleDescuentoProgramado(this.startTime, new Date());
-        const breakdown = detalle.length
-            ? `<div class="text-muted" style="font-size:0.8rem;">${detalle.map(d => `${d.tipo} ${d.inicio}-${d.fin} (${d.minutos}m)`).join(' · ')}</div>`
-            : '';
-        el.innerHTML = `
-            <div><strong>Descuento automático:</strong> ${descuentoMin} min ${(descuentoSec % 60)}s (pausas programadas)</div>
-            ${breakdown}
-        `;
     },
 
     limpiarFormulario: function() {
