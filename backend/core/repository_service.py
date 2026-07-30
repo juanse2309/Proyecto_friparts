@@ -887,11 +887,7 @@ class RepositoryService:
                 f"""SELECT 'inyeccion' as area, TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref,
                            '{criterio}' as criterio, SUM(COALESCE(p.{col}, 0)) as qty
                     FROM db_pnc_inyeccion p
-                    LEFT JOIN (
-                        SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia
-                        FROM db_inyeccion WHERE fecha_inicia IS NOT NULL
-                        ORDER BY id_inyeccion, fecha_inicia DESC
-                    ) i ON p.id_inyeccion = i.id_inyeccion
+                    LEFT JOIN iny_repr i ON p.id_inyeccion = i.id_inyeccion
                     {filt_iny}
                     GROUP BY 1, 2, 3"""
                 for col, criterio in columnas_iny.items()
@@ -906,6 +902,14 @@ class RepositoryService:
                     FROM db_costos
                     GROUP BY 1
                 ),
+                -- Fila representante por id_inyeccion, calculada UNA sola vez y
+                -- reutilizada por las 6 ramas de inyección de abajo (antes cada
+                -- rama repetia este mismo DISTINCT ON sobre db_inyeccion completa).
+                iny_repr AS (
+                    SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia
+                    FROM db_inyeccion WHERE fecha_inicia IS NOT NULL
+                    ORDER BY id_inyeccion, fecha_inicia DESC
+                ),
                 pnc_crudo AS (
                     {union_iny_tipado}
 
@@ -919,11 +923,7 @@ class RepositoryService:
                         'Sin Clasificar' as criterio,
                         SUM(GREATEST(COALESCE(p.cantidad, 0) - ({columnas_suma_sql}), 0)) as qty
                     FROM db_pnc_inyeccion p
-                    LEFT JOIN (
-                        SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia
-                        FROM db_inyeccion WHERE fecha_inicia IS NOT NULL
-                        ORDER BY id_inyeccion, fecha_inicia DESC
-                    ) i ON p.id_inyeccion = i.id_inyeccion
+                    LEFT JOIN iny_repr i ON p.id_inyeccion = i.id_inyeccion
                     {filt_iny}
                     GROUP BY 1, 2, 3
 

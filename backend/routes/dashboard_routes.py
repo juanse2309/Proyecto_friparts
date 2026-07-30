@@ -75,7 +75,6 @@ def obtener_metricas_bi():
             analytics_inyeccion = repository_service.get_analytics_inyeccion(desde, hasta)
 
             stock_critico = repository_service.get_stock_critico_sql()
-            perdida_scrap = repository_service.get_perdida_economica_scrap(desde, hasta)
             tendencia = repository_service.get_tendencia_produccion_sql(desde, hasta)
         except Exception as db_err:
             rollback_seguro()

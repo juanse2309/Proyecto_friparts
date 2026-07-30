@@ -4,12 +4,14 @@ import logging
 import traceback
 from backend.core.sql_database import db
 from backend.services.pnc_service import pnc_service
+from backend.utils.cache_manager import cached_route
 
 gerencia_bp = Blueprint('gerencia_bp', __name__)
 logger = logging.getLogger(__name__)
 
 
 @gerencia_bp.route('/api/gerencia/metricas-pnc', methods=['GET'])
+@cached_route(namespace='gerencia_pnc', ttl=600)
 def obtener_metricas_pnc():
     """
     Dashboard PNC (Lean Manufacturing): consolida las métricas de producto
