@@ -879,6 +879,13 @@ class RepositoryService:
             filt_iny = " WHERE i.fecha_inicia BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
             filt_pul = " WHERE d.fecha BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
             filt_ens = " WHERE e.fecha BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
+            # Filtro empujado DENTRO de las CTEs de representante (abajo): sin esto,
+            # el DISTINCT ON + ORDER BY escanea y ordena la tabla db_inyeccion/db_pulido
+            # COMPLETA incluso cuando el usuario pide un solo día, y el filtro de fecha
+            # (filt_iny/filt_pul de arriba) recién se aplica DESPUÉS, sobre el resultado
+            # ya materializado. Al acotar aquí, Postgres solo ordena las filas del rango.
+            filt_iny_cte = " AND fecha_inicia BETWEEN :desde AND :hasta" if desde and hasta else ""
+            filt_pul_cte = " AND fecha BETWEEN :desde AND :hasta" if desde and hasta else ""
 
             def _user_cast(col):
                 return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
@@ -907,7 +914,7 @@ class RepositoryService:
                 -- rama repetia este mismo DISTINCT ON sobre db_inyeccion completa).
                 iny_repr AS (
                     SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia
-                    FROM db_inyeccion WHERE fecha_inicia IS NOT NULL
+                    FROM db_inyeccion WHERE fecha_inicia IS NOT NULL{filt_iny_cte}
                     ORDER BY id_inyeccion, fecha_inicia DESC
                 ),
                 pnc_crudo AS (
@@ -938,7 +945,7 @@ class RepositoryService:
                     FROM db_pnc_pulido p
                     LEFT JOIN (
                         SELECT DISTINCT ON (id_pulido::text) id_pulido::text as id_pulido, fecha
-                        FROM db_pulido WHERE fecha IS NOT NULL
+                        FROM db_pulido WHERE fecha IS NOT NULL{filt_pul_cte}
                         ORDER BY id_pulido::text, fecha DESC
                     ) d ON p.id_pulido::text = d.id_pulido
                     {filt_pul}
