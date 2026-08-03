@@ -9,7 +9,7 @@ import time
 import random
 from sqlalchemy.orm import validates
 from backend.core.sql_database import db
-from backend.utils.formatters import normalizar_codigo_sin_prefijo
+from backend.utils.formatters import normalizar_codigo_sin_prefijo, preservar_o_normalizar_prefijo
 
 
 class Producto(db.Model):
@@ -78,6 +78,13 @@ class ProduccionInyeccion(db.Model):
     tiempo_total_minutos = db.Column(db.Numeric(10, 2), default=0)
     segundos_por_unidad  = db.Column(db.Integer, default=0)
     departamento         = db.Column(db.String(100), default='Inyeccion')
+
+    @validates('id_codigo')
+    def _sanitizar_id_codigo(self, key, value):
+        """Blindaje obligatorio: db_inyeccion siempre persiste CON prefijo 'FR-'
+        (a diferencia de las tablas de PNC). Evita que un código sin normalizar
+        fragmente el mismo lote en dos filas ('FR-9843' / '9843')."""
+        return preservar_o_normalizar_prefijo(value) if value else value
 
 
 class PncInyeccion(db.Model):

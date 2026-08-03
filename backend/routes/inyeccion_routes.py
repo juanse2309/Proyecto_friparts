@@ -1,569 +1,59 @@
-import os
 import uuid
-import json
 import logging
-import traceback
-import pytz
-from datetime import datetime
 from flask import Blueprint, jsonify, request
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, _obtener_usuario_activo
-from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion, DistribucionOpPedidos, Pedido, TrazabilidadLote
-from backend.config.settings import Settings
-from backend.services.audit_service import AuditService, OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException
-from backend.services.inyeccion_service import InyeccionService
-from backend.services.pausas_service import PausasService
-from backend.config.constants import FALLBACK_OPERARIO
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-
-from backend.utils.formatters import to_float, to_int, calcular_metricas_inyeccion, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
+from backend.services.audit_service import OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException
+from backend.services.inyeccion_service import InyeccionService, LoteInyeccionNoEncontradoException, ProgramacionNoEncontradaException
 
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
 
 
-def _asignar_autoridad_y_estado(registro, es_validacion, payload_responsable, usuario_activo):
-    """
-    Auxiliar privada para asignar autoría y estado según sea proceso de validación o producción regular.
-    """
-    if es_validacion:
-        validador = AuditService.resolver_y_validar_validador(payload_responsable, usuario_activo)
-        responsable = registro.responsable if (registro and registro.responsable) else AuditService.resolver_y_validar_propietario(None, payload_responsable)
-        estado = 'VALIDADO'
-        if registro:
-            registro.validado_por = validador
-    else:
-        responsable = AuditService.resolver_y_validar_propietario(registro, payload_responsable)
-        estado = 'PENDIENTE'
-        if registro:
-            registro.finalizado_por = usuario_activo or 'SISTEMA'
-
-    if registro:
-        registro.responsable = responsable
-        registro.estado = estado
-
-    return responsable, estado
-
-# Catálogo único de criterios PNC: vive en PncService (antes había una copia
-# aquí y otra en gerencia_routes.py, con nombres canónicos distintos que
-# hacían que el mismo texto libre se clasificara diferente según quién lo leyera).
-from backend.services.pnc_service import pnc_service
-normalizar_criterio = pnc_service.normalizar_criterio
-
-
-def _clasificar_pnc_tipado(pnc_items):
-    """
-    Clasifica una lista de {cantidad, criterio} en las 5 columnas tipadas de
-    db_pnc_inyeccion (quemado_manchado, incompleto_falta_llenado,
-    rebaba_excesiva, burbuja_porosidad, deformacion_rechupado).
-
-    Única implementación de este if/elif — antes vivía duplicada dentro del
-    loop de items de registrar_inyeccion_lote y otra vez en el bloque de PNC
-    "adicionales" al final de la misma función. Ahora la reutilizan las 3
-    rutas de escritura de Inyección (registrar_inyeccion_lote en sus dos
-    bloques, y validar_lote_inyeccion) para que clasifiquen exactamente igual.
-
-    Devuelve (dict_columnas_tipadas, total).
-    """
-    acumulado = {
-        'quemado_manchado': 0.0,
-        'incompleto_falta_llenado': 0.0,
-        'rebaba_excesiva': 0.0,
-        'burbuja_porosidad': 0.0,
-        'deformacion_rechupado': 0.0,
-    }
-    for p_def in pnc_items or []:
-        c_pnc = to_float(p_def.get('cantidad') or 0)
-        if c_pnc <= 0:
-            continue
-        crit = str(p_def.get('criterio') or p_def.get('motivo') or 'Otro').lower().strip()
-
-        if any(x in crit for x in ["quemado", "mancha", "contaminado"]):
-            acumulado['quemado_manchado'] += c_pnc
-        elif any(x in crit for x in ["incompleto", "escaso", "falta", "llenado"]):
-            acumulado['incompleto_falta_llenado'] += c_pnc
-        elif "rebaba" in crit:
-            acumulado['rebaba_excesiva'] += c_pnc
-        elif any(x in crit for x in ["burbuja", "porosidad"]):
-            acumulado['burbuja_porosidad'] += c_pnc
-        elif any(x in crit for x in ["deform", "rechupe", "chupado", "hundido", "flujo"]):
-            acumulado['deformacion_rechupado'] += c_pnc
-        else:
-            acumulado['deformacion_rechupado'] += c_pnc
-
-    return acumulado, sum(acumulado.values())
-
-
-def _criterio_texto_tipado(tipado):
-    """Texto legible compuesto a partir del dict de columnas tipadas (para el campo `criterio`)."""
-    return (
-        f"Quemado: {int(tipado['quemado_manchado'])}, "
-        f"Falta Llenado: {int(tipado['incompleto_falta_llenado'])}, "
-        f"Rebaba: {int(tipado['rebaba_excesiva'])}, "
-        f"Burbujas: {int(tipado['burbuja_porosidad'])}, "
-        f"Deformacion: {int(tipado['deformacion_rechupado'])}"
-    )
-
-
-def generar_id_lote_trazabilidad(fecha, maquina, op, codigo):
-    """
-    Genera un id_lote único con formato YYYYMMDD-Maquina-OP-Codigo.
-    Si ya existe en la base de datos de trazabilidad, le agrega un sufijo incremental
-    para evitar conflictos de llave primaria (pkey UniqueViolation).
-    """
-    from datetime import datetime
-    from backend.models.sql_models import TrazabilidadLote
-    
-    fecha_str = fecha.strftime('%Y%m%d') if fecha else datetime.now().strftime('%Y%m%d')
-    maquina_clean = str(maquina or 'MAQ').replace(' ', '')
-    op_clean = str(op or 'SIN_OP').replace(' ', '')
-    codigo_clean = str(codigo or 'COD').replace(' ', '')
-    
-    base_id = f"{fecha_str}-{maquina_clean}-{op_clean}-{codigo_clean}"
-    
-    existe = db.session.query(TrazabilidadLote).filter_by(id_lote=base_id).first()
-    if not existe:
-        return base_id
-        
-    idx = 1
-    while True:
-        candidate_id = f"{base_id}-{idx}"
-        existe_cand = db.session.query(TrazabilidadLote).filter_by(id_lote=candidate_id).first()
-        if not existe_cand:
-            return candidate_id
-        idx += 1
-
-def process_pdf_and_drive_internal(data, pnc=0, producto_nombre="", is_batch=False, items_batch=None):
-    """
-    Versión interna para generación de PDF y subida a Drive.
-    Resiliente a errores de cuota o permisos.
-    """
-    try:
-        from backend.utils.report_service import PDFGenerator
-        from backend.utils.report_service import PDFGenerator
-        
-        # 1. Determinar Metadatos y Nombre de Archivo
-        maquina = str(data.get('maquina') or 'S-M').replace(" ", "-")
-        fecha_raw = str(data.get('fecha_inicio') or datetime.now().strftime('%Y-%m-%d'))
-        fecha_clean = fecha_raw.split(' ')[0].replace('/', '-') 
-        op = str(data.get('orden_produccion') or 'S-OP').replace(" ", "-")
-        tmp_filename = f"{fecha_clean}_{op}_{maquina}.pdf".replace(" ", "_")
-        
-        import re
-        tmp_filename = re.sub(r'[\\/*?:"<>|]', "", tmp_filename)
-        tmp_path = os.path.join(os.getcwd(), "temp_reports")
-        if not os.path.exists(tmp_path):
-            os.makedirs(tmp_path)
-            
-        local_file = os.path.join(tmp_path, tmp_filename)
-        
-        # 2. Generar PDF
-        if is_batch:
-            success = PDFGenerator.generar_reporte_inyeccion_lote(data, items_batch, local_file)
-        else:
-            success = PDFGenerator.generar_reporte_inyeccion(data, local_file, pnc, producto_nombre)
-
-        if not success:
-            return False, "Error al generar el archivo PDF localmente."
-
-        # 3. [DISABLED] Subir a Drive (Eliminado por decommissoning Google)
-        logger.info(f" ✅ PDF generado localmente: {tmp_filename}. (Subida a Drive deshabilitada)")
-        return True, None
-
-    except Exception as e:
-        logger.error(f" ❌ ERROR CRÍTICO en proceso PDF/Drive: {str(e)}")
-        return False, str(e)
-    finally:
-        if 'local_file' in locals() and os.path.exists(local_file):
-            try: os.remove(local_file)
-            except: pass
-
 @inyeccion_bp.route('/api/inyeccion/lote', methods=['POST'])
 @require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION', 'ENSAMBLE', 'PULIDO', 'AUXILIAR INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD'])
 def registrar_inyeccion_lote():
     """
-    PASO 1-3: SQL-First Validation Workflow.
-    Paso 1: SQL Data. Paso 2: Stock. Paso 3: Estado VALIDADO. Paso 4: PDF (Opcional).
+    PASO 1-4: SQL-First Validation Workflow (controller delgado).
+    Parsea el request, delega toda la orquestación a InyeccionService.registrar_lote
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
+    data = request.json or {}
+    usuario_activo = _obtener_usuario_activo()
+
     try:
-        from backend.utils.formatters import normalizar_codigo, to_float, to_int
-        data = request.json
-        turno = data.get('turno', {})
-        items = data.get('items', [])
-        
-        if not items:
-            return jsonify({'success': False, 'error': 'No hay items para registrar'}), 400
+        resultado = InyeccionService.registrar_lote(data, usuario_activo)
+        return jsonify(resultado), 200
 
-        from backend.utils.formatters import resolver_operario
-        maquina = str(turno.get('maquina', '')).strip()
-        fecha_str = turno.get('fecha_inicio', '')
-        
-        try:
-            bogota_tz = pytz.timezone('America/Bogota')
-            ahora_col = datetime.now(bogota_tz)
-            fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d').date() if fecha_str else ahora_col.date()
-        except:
-            fecha_dt = ahora_col.date()
-
-        # Usar un flag para determinar si es VALIDACIÓN (Paola) o REGISTRO (Operario)
-        es_validacion = turno.get('es_validacion', False)
-        nuevo_estado = 'VALIDADO' if es_validacion else 'PENDIENTE'
-
-        # Extraer ID de Inyección del turno para unificar el lote
-        id_iny_lote = turno.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
-        maquina_lote = turno.get('maquina')
-        
-        movimientos_inventario = []
-
-        for item in items:
-            from backend.app import registrar_entrada, registrar_salida
-            
-            # --- Identificación del Registro ---
-            id_sql = item.get('id_sql') or item.get('id')
-            id_iny = item.get('id_inyeccion') or id_iny_lote
-            codigo_raw = item.get('codigo_producto') or item.get('id_codigo')
-            id_cod = normalizar_codigo(codigo_raw)
-            
-            # 1. Búsqueda Robusta del Registro Existente (Evitar Duplicados)
-            registro = None
-            if id_sql:
-                registro = db.session.get(ProduccionInyeccion, id_sql)
-            
-            if not registro and id_iny:
-                # Buscar por id_inyeccion + id_codigo (Lógica principal de lotes)
-                registro = db.session.query(ProduccionInyeccion).filter_by(
-                    id_inyeccion=id_iny, 
-                    id_codigo=id_cod
-                ).first()
-
-            # Fallback Manual: Si no hay ID de lote pero hay Maquina + Responsable + Código + Fecha hoy
-            if not registro and not id_sql:
-                responsable_busqueda = resolver_operario(turno.get('responsable'))
-                registro = db.session.query(ProduccionInyeccion).filter(
-                    ProduccionInyeccion.maquina == maquina,
-                    ProduccionInyeccion.responsable == responsable_busqueda,
-                    ProduccionInyeccion.id_codigo == id_cod,
-                    db.func.date(ProduccionInyeccion.fecha_inicia) == fecha_dt,
-                    ProduccionInyeccion.estado == 'EN_PROCESO'
-                ).order_by(ProduccionInyeccion.id.desc()).first()
-
-            # Guard de ownership y asignación de autoría mediante helper privado.
-            # usuario_activo proviene exclusivamente de la identidad autenticada por
-            # @require_role (JWT/sesión) — nunca se rellena con datos autorreportados
-            # del payload, para que finalizado_por no pueda ser falsificado.
-            try:
-                usuario_activo = _obtener_usuario_activo()
-                responsable_input = turno.get('responsable') or data.get('responsable') or data.get('validador')
-                responsable, nuevo_estado = _asignar_autoridad_y_estado(
-                    registro, 
-                    es_validacion, 
-                    responsable_input, 
-                    usuario_activo
-                )
-            except OwnershipMismatchException as e:
-                return jsonify({
-                    "success": False,
-                    "error": e.message,
-                    "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-                    "responsable_db": e.responsable_db,
-                    "responsable_in": e.responsable_in
-                }), 409
-            except ValidadorRequeridoException as e:
-                return jsonify({
-                    "success": False,
-                    "error": e.message,
-                    "code": "VALIDADOR_REQUERIDO"
-                }), 400
-
-            if not registro:
-                logger.info(f"🆕 [Inyeccion] Creando nuevo registro: {id_iny} - {id_cod}")
-                registro = ProduccionInyeccion(id_inyeccion=id_iny, estado=nuevo_estado, id_codigo=id_cod)
-                db.session.add(registro)
-            else:
-                logger.info(f"🔄 [Inyeccion] Actualizando registro existente (ID SQL: {registro.id})")
-
-            # --- Sincronización de Campos ---
-            registro.id_codigo      = id_cod
-            registro.maquina        = maquina
-            registro.fecha_inicia   = datetime.combine(fecha_dt, datetime.min.time())
-            registro.departamento   = 'Inyeccion'
-            
-            # --- BLINDAJE DE DATOS (int(round(float)) para BigInt/Integer) ---
-            disparos      = to_float(item.get('cantidad') or item.get('contador_maq') or 0)
-            num_cavidades = to_int(item.get('no_cavidades') or item.get('cavidades') or 1)
-            cant_real     = to_int(item.get('cantidad_real') or 0)
-            p_bujes       = to_float(item.get('peso_bujes') or 0)
-            
-            # Asignación a modelo unificado (int4/bigint)
-            registro.cantidad_real = cant_real
-            registro.cavidades     = num_cavidades
-            registro.molde         = to_int(item.get('molde') or 0)
-            
-            # Sincronización de Contadores y Métricas Recuperadas (JSON Mapping)
-            disparos      = to_float(item.get('cant_contador') or item.get('disparos') or 0)
-            registro.cant_contador      = to_int(disparos) # Blindaje BigInt
-            registro.produccion_teorica = to_float(item.get('produccion_teorica') or (disparos * num_cavidades))
-            registro.peso_bujes         = to_float(item.get('peso_bujes') or 0)
-            registro.peso_lote          = str(round(cant_real * registro.peso_bujes, 4))
-            
-            # Metadatos y Tiempos (Fix hora_llegada)
-            registro.observaciones  = item.get('observaciones') or ''
-            registro.hora_llegada   = item.get('hora_llegada') or item.get('horaLlegada') or turno.get('hora_llegada')
-            registro.hora_inicio    = item.get('hora_inicio') or turno.get('hora_inicio')
-            registro.hora_termina   = item.get('hora_fin') or item.get('hora_termina') or turno.get('hora_fin') or turno.get('hora_termina')
-            registro.almacen_destino = item.get('almacen_destino') or turno.get('almacen_destino', 'POR PULIR')
-            registro.codigo_ensamble = item.get('codigo_ensamble')
-            registro.orden_produccion = item.get('orden_produccion') or turno.get('orden_produccion')
-            
-            # Sanitización de PNC
-            pnc_val = to_int(item.get('pnc') or item.get('pnc_total') or 0)
-            registro.pnc_total   = pnc_val
-            pnc_det = item.get('criterio_pnc') or item.get('pnc_detalle')
-            registro.pnc_detalle = normalizar_criterio(pnc_det, "inyeccion") if pnc_det else None # NULL en DB
-            
-            # Pesos y Movimientos
-            registro.entrada = str(to_float(item.get('entrada') or turno.get('entrada_manual') or 0))
-            registro.salida  = str(to_float(item.get('salida') or turno.get('salida_manual') or 0))
-
-            # --- Cálculo de Tiempos y Métricas ---
-            h_inicio = registro.hora_inicio
-            h_fin = registro.hora_termina
-
-            if h_inicio and h_fin:
-                try:
-                    hi_h, hi_m = h_inicio.split(':')
-                    hf_h, hf_m = h_fin.split(':')
-                    
-                    # Usar la FECHA del formulario (fecha_dt), NO datetime.now()
-                    dt_inicio = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day,
-                                         int(hi_h), int(hi_m), 0)
-                    dt_fin = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day,
-                                      int(hf_h), int(hf_m), 0)
-                    
-                    diff = dt_fin - dt_inicio
-                    segundos = int(diff.total_seconds())
-                    if segundos < 0: segundos += 86400 # Cruce medianoche
-
-                    # Barrera arquitectónica: rechaza duraciones imposibles (típico
-                    # error de digitar 6:50 en vez de 18:50) antes de persistir nada.
-                    InyeccionService.validar_duracion_turno(segundos)
-
-                    # Descuento de pausas programadas (Desayuno/Almuerzo), igual que
-                    # Pulido: el operario reporta hora real, el backend descuenta.
-                    descuento_info = PausasService.calcular_descuento_pausas_programadas(dt_inicio, dt_fin)
-                    segundos_descuento = descuento_info['segundos_descuento']
-                    segundos_netos = max(0, segundos - segundos_descuento)
-
-                    registro.duracion_segundos = segundos_netos
-                    registro.tiempo_total_minutos, registro.segundos_por_unidad = calcular_metricas_inyeccion(segundos_netos, cant_real)
-
-                    if descuento_info['detalle']:
-                        payload = {
-                            "descuento_programado_min": round(segundos_descuento / 60.0, 2),
-                            "detalle": descuento_info['detalle']
-                        }
-                        tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
-                        obs = (registro.observaciones or "")
-                        if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
-                            pre = obs.split("[AUTO_BREAK]")[0]
-                            post = obs.split("[/AUTO_BREAK]")[-1]
-                            registro.observaciones = (pre + tag + post).strip()
-                        else:
-                            registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
-
-                    registro.fecha_inicia = dt_inicio
-                    registro.fecha_fin = dt_fin
-                except TurnoInvalidoException:
-                    raise
-                except Exception as e_time:
-                    logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
-
-            # Registro de PNC detallado (Desglose Misión 1) - Modificado para el nuevo diseño de columnas
-            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).delete()
-
-            pnc_list_global = data.get('pnc_list', [])
-            pnc_items_para_este_codigo = [p for p in pnc_list_global if p.get('codigo') == codigo_raw or normalizar_codigo(p.get('codigo')) == id_cod]
-
-            tipado, total_pnc_detallado = _clasificar_pnc_tipado(pnc_items_para_este_codigo)
-
-            if total_pnc_detallado > 0:
-                nuevo_pnc = PncInyeccion(
-                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                    id_inyeccion=id_iny,
-                    id_codigo=id_cod,
-                    cantidad=total_pnc_detallado,
-                    criterio=_criterio_texto_tipado(tipado),
-                    codigo_ensamble=registro.codigo_ensamble,
-                    **tipado
-                )
-                db.session.add(nuevo_pnc)
-                registro.pnc_total = int(round(total_pnc_detallado))
-                registro.pnc_detalle = nuevo_pnc.criterio
-            elif pnc_val > 0:
-                # Fallback por si usan el formulario viejo
-                nuevo_pnc = PncInyeccion(
-                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                    id_inyeccion=id_iny,
-                    id_codigo=id_cod,
-                    cantidad=float(pnc_val),
-                    criterio=registro.pnc_detalle or 'Otro',
-                    codigo_ensamble=registro.codigo_ensamble,
-                    deformacion_rechupado=float(pnc_val)
-                )
-                db.session.add(nuevo_pnc)
-
-            # --- PASO 2: Actualizar Stock (Sólo si es validación) ---
-            if es_validacion:
-                try:
-                    # Descontar materia prima según el BOM
-                    from backend.services.bom_service import calcular_descuentos_ensamble
-                    bom_res = calcular_descuentos_ensamble(id_cod, cant_real)
-                    if bom_res.get('success'):
-                        for comp in bom_res.get('componentes', []):
-                            mov = registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
-                            if mov and "error" not in mov:
-                                movimientos_inventario.append(mov)
-
-                    # Actualizar inventario final (Flujo directo: todo va a POR PULIR)
-                    if cant_real > 0:
-                        mov_ent = registrar_entrada(id_cod, cant_real, "POR PULIR")
-                        if mov_ent and "error" not in mov_ent:
-                            movimientos_inventario.append(mov_ent)
-
-                except Exception as e_stock:
-                    logger.error(f"Error stock en validación form {id_cod}: {e_stock}")
-
-                # --- Lógica de Cubetas de Contingencia Express para Validación Manual ---
-                op_actual = registro.orden_produccion
-                if op_actual and str(op_actual).strip() != 'SIN OP':
-                    try:
-                        from backend.models.sql_models import DistribucionOpPedidos
-                        
-                        op_limpia = str(op_actual or '').strip()
-                        from backend.utils.formatters import normalizar_codigo
-                        codigo_limpio = normalizar_codigo(id_cod)
-                        
-                        # Buscar las cubetas por OP y Referencia
-                        cubetas = db.session.query(DistribucionOpPedidos).filter(
-                            DistribucionOpPedidos.op_world_office == op_limpia,
-                            DistribucionOpPedidos.codigo_producto == codigo_limpio
-                        ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
-
-                        piezas_por_repartir = float(registro.cantidad_real or 0)
-                        
-                        # Validación y creación de cubeta de contingencia
-                        if not cubetas and piezas_por_repartir > 0:
-                            # Intentar buscar el id_pedido de otra cubeta asociada a la misma OP
-                            pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
-                                DistribucionOpPedidos.op_world_office == op_limpia
-                            ).first()
-                            id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
-                            
-                            logger.info(f" ⚠️ [INYECCION-CONTINGENCIA-MANUAL] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
-                            nueva_cubeta = DistribucionOpPedidos(
-                                op_world_office=op_limpia,
-                                id_pedido=id_pedido_final,
-                                codigo_producto=codigo_limpio,
-                                cant_requerida=piezas_por_repartir,
-                                cant_inyectada=piezas_por_repartir,
-                                cant_pulida=0,
-                                cant_ensamblada=0,
-                                cant_alistada=0
-                            )
-                            db.session.add(nueva_cubeta)
-                            db.session.flush() # Sincronizar temporalmente en sesión
-                            cubetas = [nueva_cubeta]
-                            piezas_por_repartir = 0.0 # Consumido por completo
-                        
-                        logger.info(f" 📦 [INYECCION-FIFO-MANUAL] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
-
-                        for cubeta in cubetas:
-                            if piezas_por_repartir <= 0:
-                                break
-                            
-                            falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_inyectada or 0))
-                            if falta > 0:
-                                if piezas_por_repartir >= falta:
-                                    cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + falta
-                                    piezas_por_repartir -= falta
-                                else:
-                                    cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + piezas_por_repartir
-                                    piezas_por_repartir = 0
-                    except Exception as e_dist:
-                        logger.error(f"Error en distribucion FIFO manual {id_cod}: {e_dist}")
-
-        # --- PASO 3: Confirmar Transacción SQL ---
-        id_prog = turno.get('id_programacion')
-        if id_prog and id_prog != 'LEGACY':
-            db.session.query(ProgramacionInyeccion).filter_by(id=id_prog).update({'estado': 'COMPLETADO'})
-
-        # 4. Procesar PNC "huérfanas" del Modal de Cierre: entradas de pnc_list
-        # cuyo código NO corresponde a ningún item de este lote (p.ej. PNC de
-        # una referencia distinta a las que se están inyectando en este envío).
-        # El Bloque 1 (dentro del loop de arriba) ya procesó y clasificó en
-        # columnas tipadas todo lo que sí coincide con algún item del lote —
-        # reprocesarlo aquí lo duplicaría. Antes este bloque hacía un DELETE
-        # de TODO PncInyeccion del lote sin filtrar por código, lo que borraba
-        # en la misma transacción lo que el Bloque 1 acababa de crear.
-        codigos_items_lote = {
-            normalizar_codigo(it.get('codigo_producto') or it.get('id_codigo'))
-            for it in items
-        }
-        pnc_list = data.get('pnc_list', [])
-        pnc_huerfanos_por_codigo = {}
-        for p in pnc_list:
-            cod_norm = normalizar_codigo(p.get('codigo'))
-            if cod_norm and cod_norm not in codigos_items_lote:
-                pnc_huerfanos_por_codigo.setdefault(cod_norm, []).append(p)
-
-        if pnc_huerfanos_por_codigo:
-            logger.info(f" 🚩 Procesando PNC huérfanas (código fuera del lote) para {id_iny_lote}: {list(pnc_huerfanos_por_codigo.keys())}")
-
-            for cod_norm, defs in pnc_huerfanos_por_codigo.items():
-                # Se limpia SOLO el código puntual que se va a reescribir —
-                # nunca todo el lote, para no pisar al Bloque 1.
-                db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny_lote, id_codigo=cod_norm).delete()
-
-                tipado_h, total_h = _clasificar_pnc_tipado(defs)
-                if total_h > 0:
-                    db.session.add(PncInyeccion(
-                        id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                        id_inyeccion=id_iny_lote,
-                        id_codigo=cod_norm,
-                        cantidad=total_h,
-                        criterio=_criterio_texto_tipado(tipado_h),
-                        **tipado_h
-                    ))
-
-        db.session.commit()
-        logger.info(f" ✅ Lote {id_iny_lote} ({nuevo_estado}) procesado con {len(items)} items.")
-        
-        # --- PASO 4: PDF (Opcional y Resiliente) ---
-        pdf_ok = False
-        try:
-            pdf_ok, _ = process_pdf_and_drive_internal(data=turno, items_batch=items, is_batch=True)
-        except Exception as e_pdf:
-            logger.error(f" ⚠️ Error en módulo PDF (Omitiendo): {e_pdf}")
-
+    except OwnershipMismatchException as e:
         return jsonify({
-            'success': True,
-            'mensaje': f'Lote {nuevo_estado} exitosamente',
-            'pdf_generated': pdf_ok,
-            'pdf_status': "success" if pdf_ok else "failed",
-            'movimientos_inventario': movimientos_inventario
-        }), 200
+            "success": False,
+            "error": e.message,
+            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            "responsable_db": e.responsable_db,
+            "responsable_in": e.responsable_in
+        }), 409
+
+    except ValidadorRequeridoException as e:
+        return jsonify({
+            "success": False,
+            "error": e.message,
+            "code": "VALIDADOR_REQUERIDO"
+        }), 400
 
     except TurnoInvalidoException as e:
-        db.session.rollback()
         return jsonify({
             "success": False,
             "error": e.message,
             "code": "TURNO_DURACION_INVALIDA"
         }), 400
 
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
     except Exception as e:
-        db.session.rollback()
         logger.error(f" ❌ Error en registrar_inyeccion_lote: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @inyeccion_bp.route('/api/inyeccion/iniciar_turno', methods=['POST'])
 def iniciar_turno_inyeccion():
@@ -571,7 +61,6 @@ def iniciar_turno_inyeccion():
     [DEPRECATED] Lógica de lotes en vivo eliminada.
     Se mantiene ruta como dummy para retrocompatibilidad segura.
     """
-    import uuid
     return jsonify({
         "success": True,
         "message": "Turno iniciado (Flujo Directo)",
@@ -582,148 +71,35 @@ def iniciar_turno_inyeccion():
 @require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD'])
 def validar_lote_inyeccion(id_inyeccion):
     """
-    Endpoint para validación rápida de un lote completo.
-    Calcula el cruce aritmético del WIP y actualiza el inventario de forma atómica.
+    Controller delgado: parsea el request, delega a InyeccionService.validar_lote
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
+    data = request.get_json(silent=True) or {}
+    usuario_activo = _obtener_usuario_activo()
+
     try:
-        from backend.models.sql_models import ProduccionInyeccion
-        from backend.app import registrar_entrada, registrar_salida, db_productos, db
-        from backend.services.bom_service import calcular_descuentos_ensamble
+        resultado = InyeccionService.validar_lote(id_inyeccion, data, usuario_activo)
+        return jsonify(resultado), 200
 
-        payload = request.get_json(silent=True) or {}
-        items_payload = payload.get('items', [])
-        # Clave normalizada sin prefijo 'FR-': reg.id_codigo puede traerlo (lote creado
-        # vía flujo MES) o no (flujo manual), así que ambos lados del cruce deben
-        # comparar en el mismo formato o el lookup falla en silencio (item_payload = {}).
-        items_dict = { normalizar_codigo_sin_prefijo(item.get('codigo', '')): item for item in items_payload }
+    except LoteInyeccionNoEncontradoException as e:
+        return jsonify({"success": False, "error": e.message}), 404
 
-        usuario_activo = _obtener_usuario_activo()
-        validador_actual = AuditService.resolver_y_validar_validador(payload.get('validador'), usuario_activo)
-
-        # Buscar por id_inyeccion en db_inyeccion
-        registros_iny = ProduccionInyeccion.query.filter_by(id_inyeccion=id_inyeccion).all()
-        if not registros_iny:
-            # Fallback a ID numerico de SQL por si el front manda id_sql
-            single_reg = ProduccionInyeccion.query.get(id_inyeccion)
-            if single_reg:
-                registros_iny = [single_reg]
-
-        if not registros_iny:
-            return jsonify({"success": False, "error": "Reporte de inyección no encontrado"}), 404
-
-        for reg in registros_iny:
-            if reg.estado == 'CERRADO':
-                continue
-
-            codigo = normalizar_codigo_sin_prefijo(reg.id_codigo)
-            cantidad_inyectada = reg.cantidad_real or 0
-            item_payload = items_dict.get(codigo, {})
-
-            # Sobreescritura oficial desde el Payload de Validación
-            pnc_inyeccion = float(item_payload.get('pnc_inyeccion', 0) or 0)
-            # Desglose estructurado que el frontend YA envía por item
-            # (inyeccion.js: items.map(i => ({..., pnc_list, pnc_pulido_list})))
-            # pero que esta ruta ignoraba por completo — el PNC quedaba huérfano,
-            # sin ninguna columna tipada, solo el agregado sin clasificar.
-            pnc_list_item = item_payload.get('pnc_list', [])
-            pnc_pulido_list_item = item_payload.get('pnc_pulido_list', [])
-
-            from backend.models.sql_models import PncInyeccion, PncPulido
-            import uuid
-
-            # Eliminar registros PNC anteriores creados en validaciones previas para este lote/código
-            db.session.query(PncInyeccion).filter_by(id_inyeccion=reg.id_inyeccion, id_codigo=codigo).delete()
-            db.session.query(PncPulido).filter_by(id_pulido=reg.id_inyeccion, codigo=codigo).delete()
-
-            tipado, total_tipado = _clasificar_pnc_tipado(pnc_list_item)
-            if total_tipado > 0:
-                # Desglose disponible: se clasifica igual que registrar_inyeccion_lote,
-                # llenando las columnas tipadas en vez de dejar solo el agregado.
-                db.session.add(PncInyeccion(
-                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                    id_inyeccion=reg.id_inyeccion,
-                    id_codigo=codigo,
-                    cantidad=total_tipado,
-                    criterio=_criterio_texto_tipado(tipado),
-                    codigo_ensamble='AUDITORIA INYECCION',
-                    **tipado
-                ))
-            elif pnc_inyeccion > 0:
-                # Fallback: sin desglose estructurado en el payload, se registra
-                # el agregado como antes para que la fila no quede huérfana.
-                db.session.add(PncInyeccion(
-                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                    id_inyeccion=reg.id_inyeccion,
-                    id_codigo=codigo,
-                    cantidad=int(pnc_inyeccion),
-                    criterio='PNC Reportado en Validación',
-                    codigo_ensamble='AUDITORIA INYECCION'
-                ))
-
-            # PNC de Pulido detectado durante esta validación de Inyección
-            # (el desglose vive en db_pnc_pulido, no en db_pnc_inyeccion).
-            if pnc_pulido_list_item:
-                total_pulido_item = sum(to_float(p.get('cantidad') or 0) for p in pnc_pulido_list_item)
-                if total_pulido_item > 0:
-                    criterio_pulido_str = ", ".join(
-                        f"{p.get('criterio') or p.get('motivo') or 'Otro'}: {int(to_float(p.get('cantidad') or 0))}"
-                        for p in pnc_pulido_list_item if to_float(p.get('cantidad') or 0) > 0
-                    )
-                    db.session.add(PncPulido(
-                        id_pnc_pulido=uuid.uuid4().hex[:8],
-                        id_pulido=reg.id_inyeccion,
-                        codigo=codigo,
-                        cantidad=total_pulido_item,
-                        criterio=criterio_pulido_str or 'PNC Pulido Reportado en Validación de Inyección'
-                    ))
-
-            # Flujo Directo de Inventario: Sumamos a por_pulir lo que se inyectó (menos defectuosas PNC)
-            buenas_por_pulir = max(0, cantidad_inyectada - pnc_inyeccion)
-
-            es_prueba = '9999' in str(reg.id_inyeccion) or 'PRUEBA' in str(reg.id_inyeccion).upper() or '9999' in str(reg.orden_produccion) or 'PRUEBA' in str(reg.orden_produccion).upper()
-
-            if not es_prueba:
-                # Descontar materia prima según el BOM
-                if cantidad_inyectada > 0:
-                    bom_res = calcular_descuentos_ensamble(codigo, cantidad_inyectada)
-                    if bom_res.get('success'):
-                        for comp in bom_res.get('componentes', []):
-                            registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
-
-                # Actualizar inventario final (Validation is single point of entry para Inyeccion)
-                if buenas_por_pulir > 0:
-                    producto = db.session.query(db_productos).filter_by(codigo_sistema=codigo).first()
-                    if producto:
-                        producto.por_pulir = (producto.por_pulir or 0) + buenas_por_pulir
-                    else:
-                        logger.warning(f"Producto {codigo} no encontrado en db_productos para actualizar por_pulir")
-            else:
-                logger.info(f"🧪 [SANDBOX] Reporte {reg.id_inyeccion} validado en MODO PRUEBA. Se ignoró cruce de inventario.")
-
-            # Marcar registro de inyeccion como CERRADO
-            reg.validado_por = validador_actual
-            reg.estado = 'CERRADO'
-            from datetime import datetime
-            reg.fecha_fin = datetime.now()
-            # Mantener la cantidad_real original (bruto inyectado) o actualizarla? 
-            # Como el requerimiento es que cantidad_real sea la produccion teórica, la dejamos.
-            reg.pnc_total = pnc_inyeccion
-
-        db.session.commit()
-        # Invalidar caché del MES
-        try:
-            from backend.app import clear_mes_cache
-            clear_mes_cache()
-        except:
-            pass
-
-        logger.info(f"✅ [Validación] Lote {id_inyeccion} cerrado y validado correctamente por {validador_actual}.")
-        return jsonify({"success": True, "message": f"Lote {id_inyeccion} validado e inventario actualizado"})
+    except OwnershipMismatchException as e:
+        return jsonify({
+            "success": False,
+            "error": e.message,
+            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            "responsable_db": e.responsable_db,
+            "responsable_in": e.responsable_in
+        }), 409
 
     except ValidadorRequeridoException as e:
         return jsonify({"success": False, "error": e.message, "code": "VALIDADOR_REQUERIDO"}), 400
+
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
     except Exception as e:
-        db.session.rollback()
         logger.error(f"❌ Error validando lote {id_inyeccion}: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -738,292 +114,57 @@ def get_inyeccion_stats():
 @inyeccion_bp.route('/api/programacion/guardar', methods=['POST'])
 def guardar_programacion_diaria():
     """
-    Registra la planificación del turno de la tarde anterior en db_programacion
-    y crea su distribución asociada de cubetas por pedido en db_distribucion_op_pedidos
-    dejando op_world_office como NULL.
-    Soporta múltiples productos en el mismo montaje de forma atómica.
+    Controller delgado: parsea el request, delega a InyeccionService.guardar_programacion
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
+    data = request.get_json()
+
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"success": False, "error": "No se recibieron datos"}), 400
-
-        # --- Extracción y Validación de campos principales ---
-        maquina = data.get('maquina')
-        fecha_str = data.get('fecha')
-        
-        if not all([maquina, fecha_str]):
-            return jsonify({"success": False, "error": "Los campos maquina y fecha son obligatorios"}), 400
-
-        # Parsear fecha de forma robusta
-        try:
-            fecha_dt = datetime.strptime(fecha_str.split('T')[0], '%Y-%m-%d').date()
-        except Exception as e_date:
-            logger.error(f"Error parseando fecha '{fecha_str}': {e_date}")
-            return jsonify({"success": False, "error": "Formato de fecha inválido. Usar YYYY-MM-DD"}), 400
-
-        # Extraer parámetros comunes
-        responsable_planta = data.get('responsable_planta')
-        observaciones = data.get('observaciones')
-        pedidos_asignados = data.get('pedidos_asignados', [])
-
-        # Parsear molde
-        try:
-            molde_val = int(float(data.get('molde'))) if data.get('molde') is not None else None
-        except (ValueError, TypeError) as e_molde:
-            return jsonify({"success": False, "error": f"Error en formato de molde: {str(e_molde)}"}), 400
-
-        # Obtener lista de productos (Multi-SKU) o construir fallback para flujo singular
-        productos = data.get('productos')
-        if not productos:
-            codigo_sistema = data.get('codigo_sistema')
-            if not codigo_sistema:
-                return jsonify({"success": False, "error": "Debes especificar al menos un producto (codigo_sistema o productos)"}), 400
-            
-            try:
-                cavidades_val = int(float(data.get('cavidades'))) if data.get('cavidades') is not None else 1
-                cantidad_val = float(data.get('cantidad') or 0)
-            except (ValueError, TypeError) as e_num:
-                return jsonify({"success": False, "error": f"Error en formato de cavidades/cantidad: {str(e_num)}"}), 400
-
-            productos = [{
-                "codigo_sistema": codigo_sistema,
-                "cavidades": cavidades_val,
-                "cantidad": cantidad_val
-            }]
-
-        # --- Iniciar Transacción Atómica ---
-        from sqlalchemy.dialects.postgresql import insert
-        from sqlalchemy import text
-
-        programaciones_ids = []
-        for prod_data in productos:
-            cod_sistema = prod_data.get('codigo_sistema')
-            if not cod_sistema:
-                raise ValueError("Cada producto del montaje debe especificar 'codigo_sistema'")
-
-            try:
-                cav_val = int(float(prod_data.get('cavidades') or 1))
-                cant_val = float(prod_data.get('cantidad') or 0)
-            except (ValueError, TypeError) as e_num:
-                raise ValueError(f"Error en campos numéricos para producto {cod_sistema}: {e_num}")
-
-            try:
-                # Buscar si ya existe la programación para hacer UPSERT
-                existente = db.session.query(ProgramacionInyeccion).filter(
-                    ProgramacionInyeccion.fecha == fecha_dt,
-                    ProgramacionInyeccion.maquina == maquina,
-                    ProgramacionInyeccion.codigo_sistema == cod_sistema,
-                    db.func.coalesce(ProgramacionInyeccion.molde, 0) == (molde_val if molde_val is not None else 0)
-                ).first()
-
-                if existente:
-                    # UPDATE
-                    existente.cantidad = cant_val
-                    existente.cavidades = cav_val
-                    existente.responsable_planta = responsable_planta
-                    existente.observaciones = observaciones
-                    existente.estado = 'PROGRAMADO'
-                    db.session.flush()
-                    programaciones_ids.append(existente.id)
-                else:
-                    # INSERT
-                    nueva_prog = ProgramacionInyeccion(
-                        fecha=fecha_dt,
-                        codigo_sistema=cod_sistema,
-                        maquina=maquina,
-                        cantidad=cant_val,
-                        estado='PROGRAMADO',
-                        molde=molde_val,
-                        cavidades=cav_val,
-                        responsable_planta=responsable_planta,
-                        observaciones=observaciones,
-                        op_world_office=None
-                    )
-                    db.session.add(nueva_prog)
-                    db.session.flush()
-                    programaciones_ids.append(nueva_prog.id)
-
-            except SQLAlchemyError as err:
-                db.session.rollback()
-                logger.error(f"Error en UPSERT de programación {cod_sistema}: {err}")
-                raise ValueError(f"No se pudo guardar la programación para el producto {cod_sistema}")
-
-        # Para evitar cubetas duplicadas al reprogramar (UPSERT)
-        # Limpiamos las distribuciones planificadas previas (con OP = None) para los productos del montaje
-        for prod_data in productos:
-            cod_sistema = prod_data.get('codigo_sistema')
-            if cod_sistema:
-                db.session.query(DistribucionOpPedidos).filter(
-                    DistribucionOpPedidos.codigo_producto == cod_sistema,
-                    DistribucionOpPedidos.op_world_office.is_(None)
-                ).delete(synchronize_session=False)
-
-        # Insertar registros correspondientes en db_distribucion_op_pedidos
-        for pedido in pedidos_asignados:
-            id_pedido = pedido.get('id_pedido')
-            cant_req = pedido.get('cant_requerida')
-            # Si no viene codigo_producto en la cubeta, se asocia al primer producto programado
-            cod_prod_cubeta = pedido.get('codigo_producto') or productos[0].get('codigo_sistema')
-
-            if not id_pedido or cant_req is None:
-                raise ValueError("Cada pedido asignado debe incluir 'id_pedido' y 'cant_requerida'")
-
-            try:
-                cant_req_val = int(float(cant_req))
-            except (ValueError, TypeError):
-                raise ValueError(f"Cantidad requerida inválida para el pedido {id_pedido}")
-
-            nueva_dist = DistribucionOpPedidos(
-                op_world_office=None,  # Nullable para ser actualizado en la mañana
-                id_pedido=id_pedido,
-                codigo_producto=cod_prod_cubeta,
-                cant_requerida=cant_req_val,
-                cant_inyectada=0,
-                cant_pulida=0,
-                cant_ensamblada=0,
-                cant_alistada=0
-            )
-            db.session.add(nueva_dist)
-
-        # Guardar en base de datos de manera atómica
-        db.session.commit()
-
-        logger.info(f"✅ {len(programaciones_ids)} Programación(es) creada(s)/actualizada(s) exitosamente. Pedidos distribuidos: {len(pedidos_asignados)}")
-        return jsonify({
-            "success": True,
-            "message": f"Programación diaria ({len(programaciones_ids)} referencias) y cubetas creadas correctamente",
-            "id_programacion": programaciones_ids[0] if programaciones_ids else None
-        }), 201
+        resultado = InyeccionService.guardar_programacion(data)
+        return jsonify(resultado), 201
 
     except ValueError as val_err:
-        db.session.rollback()
         logger.warning(f"⚠️ Error de validación en guardar_programacion_diaria: {val_err}")
         return jsonify({"success": False, "error": str(val_err)}), 400
+
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}\n{traceback.format_exc()}")
+        logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}")
         return jsonify({"success": False, "error": "Error interno del servidor al guardar la programación"}), 500
 
 
 @inyeccion_bp.route('/api/pedidos/pendientes/<codigo>', methods=['GET'])
 def obtener_pedidos_pendientes(codigo):
     """
-    Obtiene el listado de pedidos abiertos (PENDIENTE, ABIERTO, etc.) o con
-    cantidades pendientes de despacho para un código de producto específico.
+    Controller delgado: delega la consulta a InyeccionService.obtener_pedidos_pendientes
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
     try:
-        if not codigo:
-            return jsonify({"success": False, "error": "Código de producto es requerido"}), 400
+        resultado = InyeccionService.obtener_pedidos_pendientes(codigo)
+        return jsonify(resultado), 200
 
-        # Consultar pedidos usando coincidencia por contenedor ilike
-        pedidos_activos = db.session.query(Pedido).filter(
-            Pedido.id_codigo.ilike(f"%{codigo}%"),
-            Pedido.estado.in_(['PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO'])
-        ).all()
-
-        resultados = []
-        for p in pedidos_activos:
-            try:
-                cant_solicitada = float(p.cantidad or 0)
-                cant_alistada = float(p.cant_alistada or 0)
-            except (ValueError, TypeError):
-                cant_solicitada = 0.0
-                cant_alistada = 0.0
-
-            cant_pendiente = max(0.0, cant_solicitada - cant_alistada)
-
-            # Incluir el pedido si tiene saldo pendiente o si su estado es abierto
-            if cant_pendiente > 0 or p.estado in ['PENDIENTE', 'ABIERTO']:
-                resultados.append({
-                    "id_pedido": p.id_pedido,
-                    "cliente": p.cliente or "CLIENTE GENERAL",
-                    "cantidad_solicitada": int(cant_solicitada),
-                    "cantidad_pendiente": int(cant_pendiente)
-                })
-
-        # Evitar duplicados agrupando por ID de pedido (Consolidación Real)
-        pedidos_unicos = {}
-        for res in resultados:
-            id_ped = res["id_pedido"]
-            if id_ped not in pedidos_unicos:
-                pedidos_unicos[id_ped] = res
-            else:
-                # Sumamos cantidades en caso de duplicidad física en BD
-                pedidos_unicos[id_ped]["cantidad_solicitada"] += res["cantidad_solicitada"]
-                pedidos_unicos[id_ped]["cantidad_pendiente"] += res["cantidad_pendiente"]
-
-        return jsonify({
-            "success": True,
-            "pedidos": list(pedidos_unicos.values())
-        }), 200
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
-        logger.error(f"❌ Error en obtener_pedidos_pendientes para el código {codigo}: {e}\n{traceback.format_exc()}")
+        logger.error(f"❌ Error en obtener_pedidos_pendientes para el código {codigo}: {e}")
         return jsonify({"success": False, "error": "Error interno del servidor al consultar pedidos"}), 500
 
 
 @inyeccion_bp.route('/api/produccion/verificar_demanda/<codigo>', methods=['GET'])
 def verificar_demanda_b2b(codigo):
     """
-    Agrega las unidades de pedidos B2B pendientes contra el stock actual en bodega.
-    Suma las cantidades directamente para evitar falsas duplicaciones.
+    Controller delgado: delega la consulta a InyeccionService.obtener_demanda_b2b
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
     try:
-        if not codigo:
-            return jsonify({"success": False, "error": "El código es requerido"}), 400
+        resultado = InyeccionService.obtener_demanda_b2b(codigo)
+        return jsonify(resultado), 200
 
-        from backend.models.sql_models import Pedido, Producto
-
-        # 1. Consultar pedidos con normalización flexible ILIKE
-        pedidos_activos = db.session.query(Pedido).filter(
-            Pedido.id_codigo.ilike(f"%{codigo}%"),
-            Pedido.estado.in_(['PENDIENTE', 'ABIERTO', 'Alistamiento', 'ALISTADO', 'EXPORTADO_WO'])
-        ).all()
-
-        unidades_pedidas_b2b = 0.0
-        for p in pedidos_activos:
-            try:
-                cant_solicitada = float(p.cantidad or 0)
-                cant_alistada = float(p.cant_alistada or 0)
-            except (ValueError, TypeError):
-                cant_solicitada = 0.0
-                cant_alistada = 0.0
-
-            cant_pendiente = max(0.0, cant_solicitada - cant_alistada)
-            unidades_pedidas_b2b += cant_pendiente
-
-        # 2. Consultar el stock actual en bodega del producto
-        prod = db.session.query(Producto).filter(
-            (Producto.codigo_sistema.ilike(f"%{codigo}%")) |
-            (Producto.id_codigo.ilike(f"%{codigo}%"))
-        ).first()
-
-        stock_terminado = 0.0
-        stock_bodega = 0.0
-
-        if prod:
-            stock_terminado = float(prod.p_terminado or 0)
-            stock_bodega = float(prod.stock_bodega or 0)
-
-        stock_actual_disponible = stock_terminado + stock_bodega
-
-        # --- AUDITORÍA DE DEMANDA ---
-        print(f"--- AUDITORÍA DE DEMANDA PARA: {codigo} ---")
-        print(f"Unidades calculadas B2B: {unidades_pedidas_b2b}")
-        print(f"Stock Disponible: {stock_actual_disponible}")
-
-        return jsonify({
-            "success": True,
-            "codigo": codigo,
-            "unidades_pedidas_b2b": int(round(unidades_pedidas_b2b)),
-            "stock_actual_disponible": int(round(stock_actual_disponible)),
-            "stock_terminado": int(round(stock_terminado)),
-            "stock_bodega": int(round(stock_bodega))
-        }), 200
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
-        logger.error(f"❌ Error en verificar_demanda para {codigo}: {e}\n{traceback.format_exc()}")
+        logger.error(f"❌ Error en verificar_demanda para {codigo}: {e}")
         return jsonify({"success": False, "error": "Error interno al verificar la demanda"}), 500
 
 
@@ -1040,133 +181,33 @@ def mes_pendientes_validacion():
 @require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE'])
 def mes_iniciar_trabajo():
     """
-    Fase 4: Inicia el trabajo en la máquina a partir de una programación vespertina.
-    Registra la OP de World Office, actualiza estado a EN_PROCESO para la
-    referencia programada seleccionada,
-    propaga la OP a las cubetas de pedidos y crea el lote de inyección correspondiente.
+    Controller delgado: parsea el request, delega a InyeccionService.iniciar_trabajo
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
+    data = request.get_json() or {}
+    usuario_activo = _obtener_usuario_activo()
+
     try:
-        data = request.get_json()
-        id_prog = data.get('id_programacion')
-        op_world_office = data.get('op_world_office')
+        resultado = InyeccionService.iniciar_trabajo(data, usuario_activo)
+        return jsonify(resultado), 200
 
-        if not id_prog or not op_world_office:
-            return jsonify({"success": False, "error": "Los campos id_programacion y op_world_office son obligatorios"}), 400
+    except ProgramacionNoEncontradaException as e:
+        return jsonify({"success": False, "error": e.message}), 404
 
-        # Normalizar OP
-        op_world_office = str(op_world_office).strip().upper()
-
-        # 1. Buscar la programación vespertina de referencia en db_programacion
-        prog_inicial = db.session.query(ProgramacionInyeccion).get(id_prog)
-        if not prog_inicial:
-            return jsonify({"success": False, "error": "Programación no encontrada"}), 404
-
-        # 2. Agrupar el bloque entero (Montaje)
-        programaciones_bloque = db.session.query(ProgramacionInyeccion).filter(
-            ProgramacionInyeccion.maquina == prog_inicial.maquina,
-            ProgramacionInyeccion.fecha == prog_inicial.fecha,
-            ProgramacionInyeccion.estado == 'PROGRAMADO',
-            ProgramacionInyeccion.molde == prog_inicial.molde
-        ).all()
-        
-        if prog_inicial not in programaciones_bloque:
-            programaciones_bloque.append(prog_inicial)
-
-        # 3. Generar un lote ID_INYECCION compartido para el lote físico del montaje
-        id_inyeccion_bloque = f"INY-{uuid.uuid4().hex[:8].upper()}"
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz).replace(tzinfo=None)
-
-        logger.info(f"⚡ Iniciando trabajo para la máquina {prog_inicial.maquina}, Referencias: {len(programaciones_bloque)}")
-        
-        # Guard de ownership centralizado con AuditService
-        try:
-            operario_inicia = AuditService.resolver_y_validar_propietario(None, data.get('responsable') or data.get('operario') or prog_inicial.responsable_planta)
-        except OwnershipMismatchException as e:
-            return jsonify({
-                "success": False,
-                "error": e.message,
-                "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-                "responsable_db": e.responsable_db,
-                "responsable_in": e.responsable_in
-            }), 409
-
-        # 4. Procesar en bloque de forma atómica
-        for prog in programaciones_bloque:
-            # Actualizar estado de la programación diaria
-            prog.estado = 'EN_PROCESO'
-            prog.op_world_office = op_world_office
-
-            # Propagar la OP a las cubetas de pedidos correspondientes
-            db.session.query(DistribucionOpPedidos).filter(
-                DistribucionOpPedidos.codigo_producto == prog.codigo_sistema,
-                DistribucionOpPedidos.op_world_office.is_(None)
-            ).update({DistribucionOpPedidos.op_world_office: op_world_office}, synchronize_session=False)
-
-            # Crear lote en ProduccionInyeccion (db_inyeccion)
-            # NOTA: db_programacion guarda el código SIN prefijo ('9304'); se normaliza
-            # a 'FR-9304' al persistir en db_inyeccion para evitar fragmentación de SKU.
-            hora_inicio_str = ahora.strftime('%H:%M')
-            id_codigo_norm = preservar_o_normalizar_prefijo(prog.codigo_sistema)
-            nueva_prod = ProduccionInyeccion(
-                id_inyeccion=id_inyeccion_bloque,
-                fecha_inicia=ahora,
-                id_codigo=id_codigo_norm,
-                responsable=operario_inicia,
-                maquina=prog.maquina,
-                molde=prog.molde,
-                cavidades=prog.cavidades,
-                estado='EN_PROCESO',
-                orden_produccion=op_world_office,
-                observaciones=prog.observaciones,
-                programado_por=prog.responsable_planta,
-                iniciado_por=operario_inicia,
-                hora_inicio=hora_inicio_str,
-                cantidad_real=0,
-                cant_contador=0,
-                almacen_destino='POR PULIR',
-                departamento='Inyeccion'
-            )
-            db.session.add(nueva_prod)
-
-            # --- MES PASO 1: Crear Lote de Trazabilidad por cada referencia del montaje ---
-            id_lote_mes = f"{prog.fecha.strftime('%Y%m%d')}-{prog.maquina.replace(' ', '')}-{op_world_office}-{prog.codigo_sistema}"
-            if not db.session.get(TrazabilidadLote, id_lote_mes):
-                lote_traz = TrazabilidadLote(
-                    id_lote=id_lote_mes,
-                    orden_produccion=op_world_office,
-                    id_codigo=id_codigo_norm,
-                    maquina=prog.maquina,
-                    id_inyeccion=id_inyeccion_bloque,
-                    estado_actual='ABIERTO_PRODUCCION',
-                    fecha_creacion=ahora,
-                    responsable=prog.responsable_planta or "Supervisor",
-                    cantidad_inyectada=0,
-                    por_pulir=0
-                )
-                db.session.add(lote_traz)
-                logger.info(f"🟢 [Trazabilidad] Lote MES creado: {id_lote_mes} | OP: {op_world_office} | Ref: {prog.codigo_sistema}")
-
-        db.session.commit()
-        
-        # Opcional: Invalidar el cache del MES
-        try:
-            from backend.app import clear_mes_cache
-            clear_mes_cache()
-        except:
-            pass
-
-        logger.info(f"🚀 Trabajo iniciado en bloque en {prog_inicial.maquina}. OP: {op_world_office}. Lote único: {id_inyeccion_bloque}")
-
+    except OwnershipMismatchException as e:
         return jsonify({
-            "success": True,
-            "message": f"Trabajo iniciado con éxito en la {prog_inicial.maquina} para {len(programaciones_bloque)} referencias del montaje.",
-            "id_inyeccion": id_inyeccion_bloque
-        }), 200
+            "success": False,
+            "error": e.message,
+            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            "responsable_db": e.responsable_db,
+            "responsable_in": e.responsable_in
+        }), 409
+
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error al iniciar trabajo en el MES: {e}\n{traceback.format_exc()}")
+        logger.error(f"❌ Error al iniciar trabajo en el MES: {e}")
         return jsonify({"success": False, "error": "Error interno al iniciar el trabajo"}), 500
 
 
@@ -1174,351 +215,60 @@ def mes_iniciar_trabajo():
 @require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE'])
 def mes_reportar():
     """
-    Fase 4: Finalización de Turno y Reporte de Inyección (Lógica de Cubetas FIFO).
-    Procesa el cierre a partir de los cierres (contador físico) y las cubetas de pedidos
-    para la OP asociada de forma transaccional y limpia.
+    Controller delgado: parsea el request, delega a InyeccionService.reportar_trabajo
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
+    data = request.get_json() or {}
+    usuario_activo = _obtener_usuario_activo()
+
     try:
-        data = request.get_json() or {}
-        id_iny = data.get('id_inyeccion')
-        cierres = int(data.get('cierres', 0))
-        hf_str = data.get('hora_fin')
-        hi_str = data.get('hora_inicio')
+        resultado = InyeccionService.reportar_trabajo(data, usuario_activo)
+        return jsonify(resultado), 200
 
-        if not id_iny:
-            return jsonify({"success": False, "error": "El campo id_inyeccion es obligatorio"}), 400
+    except LoteInyeccionNoEncontradoException as e:
+        return jsonify({"success": False, "error": e.message}), 404
 
-        # 1. Buscar registros en db_inyeccion asociados to este id_inyeccion
-        prods_en_lote = db.session.query(ProduccionInyeccion).filter(
-            ProduccionInyeccion.id_inyeccion == id_iny
-        ).all()
-        
-        if not prods_en_lote:
-            return jsonify({"success": False, "error": "Lote de producción no encontrado"}), 404
-
-        # Guard de ownership centralizado con AuditService
-        try:
-            operario_final = AuditService.resolver_y_validar_propietario(
-                prods_en_lote[0], 
-                data.get('responsable') or data.get('operario')
-            )
-        except OwnershipMismatchException as e:
-            return jsonify({
-                "success": False,
-                "error": e.message,
-                "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-                "responsable_db": e.responsable_db,
-                "responsable_in": e.responsable_in
-            }), 409
-
-        # 2. Procesar cada producto en el lote físicamente
-        colombia_tz_rep = pytz.timezone('America/Bogota')
-        ahora_rep = datetime.now(colombia_tz_rep).replace(tzinfo=None)
-        total_teorica = 0
-
-        for prod in prods_en_lote:
-            cavidades = prod.cavidades or 1
-            piezas_inyectadas = cierres * cavidades
-            total_teorica += piezas_inyectadas
-
-            # Guardar el operario final
-            if operario_final:
-                prod.responsable = operario_final
-
-            # ── Hora inicio y fin: primero la del frontend (si viene), sino timestamp del servidor ──
-            if hi_str:
-                prod.hora_inicio = hi_str
-            
-            hora_fin_resuelta = hf_str or ahora_rep.strftime('%H:%M')
-            prod.hora_termina = hora_fin_resuelta
-
-            # Sincronizar fechas con los valores ingresados (o servidor)
-            fecha_base = prod.fecha_inicia or ahora_rep
-            try:
-                # Ajustar inicio si el operario lo editó en el popup
-                if hi_str:
-                    h_i, m_i = map(int, hi_str.split(':'))
-                    fecha_base = fecha_base.replace(hour=h_i, minute=m_i, second=0, microsecond=0)
-                    prod.fecha_inicia = fecha_base
-                    
-                h_f, m_f = map(int, hora_fin_resuelta.split(':'))
-                prod.fecha_fin = fecha_base.replace(hour=h_f, minute=m_f, second=0, microsecond=0)
-
-                # Calcular duración y métricas. Barrera arquitectónica: rechaza
-                # duraciones imposibles (negativas o >12h) antes de persistir —
-                # antes este delta negativo se clampeaba a 0 en silencio.
-                delta_seg = int((prod.fecha_fin - fecha_base).total_seconds())
-                InyeccionService.validar_duracion_turno(delta_seg)
-
-                # Descuento de pausas programadas (Desayuno/Almuerzo), igual que
-                # Pulido: el operario reporta hora real, el backend descuenta.
-                descuento_info = PausasService.calcular_descuento_pausas_programadas(fecha_base, prod.fecha_fin)
-                segundos_descuento = descuento_info['segundos_descuento']
-                prod.duracion_segundos = max(0, delta_seg - segundos_descuento)
-                prod.tiempo_total_minutos, prod.segundos_por_unidad = calcular_metricas_inyeccion(prod.duracion_segundos, piezas_inyectadas)
-
-                if descuento_info['detalle']:
-                    payload = {
-                        "descuento_programado_min": round(segundos_descuento / 60.0, 2),
-                        "detalle": descuento_info['detalle']
-                    }
-                    tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
-                    obs = (prod.observaciones or "")
-                    if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
-                        pre = obs.split("[AUTO_BREAK]")[0]
-                        post = obs.split("[/AUTO_BREAK]")[-1]
-                        prod.observaciones = (pre + tag + post).strip()
-                    else:
-                        prod.observaciones = (obs + "\n" + tag).strip() if obs else tag
-            except TurnoInvalidoException:
-                raise
-            except Exception as ex:
-                logger.warning(f"⚠️ Error al calcular tiempos en reportar: {ex}")
-                prod.fecha_fin = ahora_rep
-
-            # Guardar la cantidad producida y actualizar estado a PENDIENTE
-            prod.cantidad_real = piezas_inyectadas
-            prod.cant_contador = piezas_inyectadas
-            prod.produccion_teorica = piezas_inyectadas
-            prod.estado = 'PENDIENTE'
-
-            # ── MES PASO 2: Actualizar cantidad_inyectada en TODOS los lotes de trazabilidad
-            # (un montaje multi-referencia genera un lote por referencia, no solo el primero)
-            lotes_cierre = db.session.query(TrazabilidadLote).filter_by(
-                id_inyeccion=id_iny,
-                id_codigo=prod.id_codigo
-            ).all()
-            if lotes_cierre:
-                for lote_cierre in lotes_cierre:
-                    lote_cierre.cantidad_inyectada = piezas_inyectadas
-                    lote_cierre.por_pulir = piezas_inyectadas
-                    logger.info(f"🔄 [Trazabilidad] Lote {lote_cierre.id_lote} ({prod.id_codigo}) → {piezas_inyectadas} piezas | por_pulir: {piezas_inyectadas}")
-            else:
-                # Fallback: buscar cualquier lote vinculado al id_inyeccion
-                lote_generico = db.session.query(TrazabilidadLote).filter_by(id_inyeccion=id_iny).first()
-                if lote_generico:
-                    lote_generico.cantidad_inyectada = piezas_inyectadas
-                    lote_generico.por_pulir = piezas_inyectadas
-                    logger.warning(f"⚠️ [Trazabilidad] Fallback – lote {lote_generico.id_lote} actualizado con {piezas_inyectadas} piezas (por_pulir: {piezas_inyectadas})")
-
-            # 3. Lógica FIFO para cubetas (db_distribucion_op_pedidos)
-            op_actual = prod.orden_produccion
-            if op_actual and str(op_actual).strip() != 'SIN OP':
-                from backend.models.sql_models import DistribucionOpPedidos
-                
-                op_limpia = str(op_actual or '').strip()
-                from backend.utils.formatters import normalizar_codigo
-                codigo_limpio = normalizar_codigo(prod.id_codigo)
-                
-                # Buscamos todas las cubetas asociadas a esta OP y producto
-                cubetas = db.session.query(DistribucionOpPedidos).filter(
-                    DistribucionOpPedidos.op_world_office == op_limpia,
-                    DistribucionOpPedidos.codigo_producto == codigo_limpio
-                ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
-
-                piezas_por_repartir = piezas_inyectadas
-                
-                # Validación y creación de cubeta de contingencia
-                if not cubetas and piezas_por_repartir > 0:
-                    # Intentar buscar el id_pedido de otra cubeta asociada a la misma OP
-                    pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
-                        DistribucionOpPedidos.op_world_office == op_limpia
-                    ).first()
-                    id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
-                    
-                    logger.info(f" ⚠️ [INYECCION-CONTINGENCIA] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
-                    nueva_cubeta = DistribucionOpPedidos(
-                        op_world_office=op_limpia,
-                        id_pedido=id_pedido_final,
-                        codigo_producto=codigo_limpio,
-                        cant_requerida=piezas_por_repartir,
-                        cant_inyectada=piezas_por_repartir,
-                        cant_pulida=0,
-                        cant_ensamblada=0,
-                        cant_alistada=0
-                    )
-                    db.session.add(nueva_cubeta)
-                    db.session.flush() # Sincronizar temporalmente en sesión
-                    cubetas = [nueva_cubeta]
-                    piezas_por_repartir = 0.0 # Consumido por completo
-                
-                logger.info(f" 📦 [INYECCION-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
-
-                for cubeta in cubetas:
-                    if piezas_por_repartir <= 0:
-                        break
-                    
-                    falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_inyectada or 0))
-                    if falta > 0:
-                        if piezas_por_repartir >= falta:
-                            cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + falta
-                            piezas_por_repartir -= falta
-                        else:
-                            cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + piezas_por_repartir
-                            piezas_por_repartir = 0
-
-            # 4. Finalizar programación asociada en db_programacion
-            db.session.query(ProgramacionInyeccion).filter(
-                ProgramacionInyeccion.codigo_sistema == prod.id_codigo,
-                ProgramacionInyeccion.maquina == prod.maquina,
-                ProgramacionInyeccion.estado == 'EN_PROCESO'
-            ).update({"estado": 'FINALIZADO'}, synchronize_session=False)
-
-        # 5. Confirmar transacción de forma atómica
-        db.session.commit()
-
-        # Limpiar caché del MES
-        try:
-            from backend.app import clear_mes_cache
-            clear_mes_cache()
-        except:
-            pass
-
-        logger.info(f"✅ Lote {id_iny} reportado y finalizado exitosamente. Total piezas: {total_teorica}")
+    except OwnershipMismatchException as e:
         return jsonify({
-            "success": True,
-            "count": len(prods_en_lote),
-            "teorica": total_teorica,
-            "message": "Turno finalizado con éxito. Cubetas de prioridad actualizadas por FIFO."
-        }), 200
+            "success": False,
+            "error": e.message,
+            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            "responsable_db": e.responsable_db,
+            "responsable_in": e.responsable_in
+        }), 409
 
     except TurnoInvalidoException as e:
-        db.session.rollback()
         return jsonify({
             "success": False,
             "error": e.message,
             "code": "TURNO_DURACION_INVALIDA"
         }), 400
 
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"❌ Error al reportar turno en el MES: {e}\n{traceback.format_exc()}")
+        logger.error(f"❌ Error al reportar turno en el MES: {e}")
         return jsonify({"success": False, "error": "Error interno al finalizar el turno"}), 500
 
 
 @inyeccion_bp.route('/api/pnc/registrar_inyeccion', methods=['POST'])
 def registrar_pnc_inyeccion():
     """
-    Registra el reporte de PNC para un lote de inyección, mapeando los defectos
-    a columnas numéricas específicas de la tabla db_pnc_inyeccion.
+    Controller delgado: parsea el request, delega a InyeccionService.registrar_pnc
+    y traduce el resultado (o las excepciones de negocio) a JSON.
     """
+    data = request.get_json() or {}
+
     try:
-        data = request.get_json() or {}
-        id_iny = data.get('id_inyeccion')
-        id_codigo = data.get('id_codigo') or data.get('codigo')
-        defectos = data.get('defectos') or {}
-        
-        if not id_iny:
-            return jsonify({"success": False, "error": "El campo id_inyeccion es obligatorio"}), 400
+        resultado = InyeccionService.registrar_pnc(data)
+        return jsonify(resultado), 200
 
-        # Normalizar el código de producto
-        from backend.utils.formatters import normalizar_codigo
-        id_cod = normalizar_codigo(id_codigo) if id_codigo else None
-
-        # Fallback de producto si no se recibe (misma normalizar_codigo() de la línea de arriba,
-        # para no mezclar dos convenciones distintas de id_cod dentro de la misma función)
-        if not id_cod:
-            first_prod = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_iny).first()
-            if first_prod:
-                id_cod = normalizar_codigo(first_prod.id_codigo)
-
-        if not id_cod:
-            return jsonify({"success": False, "error": "El campo id_codigo es obligatorio"}), 400
-
-        # Limpiar registros previos de PNC de este código en esta inyección
-        db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).delete()
-
-        # Acumular cantidades por defecto
-        quemado_manchado = 0
-        incompleto_falta_llenado = 0
-        rebaba_excesiva = 0
-        burbuja_porosidad = 0
-        deformacion_rechupado = 0
-
-        # Si viene en formato de lista
-        if isinstance(defectos, list):
-            defectos_dict = {}
-            for item in defectos:
-                crit = item.get('criterio') or item.get('motivo')
-                cant = float(item.get('cantidad') or 0)
-                if crit and cant > 0:
-                    defectos_dict[crit] = defectos_dict.get(crit, 0) + cant
-            defectos = defectos_dict
-
-        for key, val in defectos.items():
-            cant = float(val or 0)
-            if cant <= 0:
-                continue
-            
-            key_lower = str(key).lower().strip()
-            # Mapeo:
-            if any(x in key_lower for x in ["quemado", "mancha", "contaminado"]):
-                quemado_manchado += cant
-            elif any(x in key_lower for x in ["incompleto", "escaso", "falta", "llenado"]):
-                incompleto_falta_llenado += cant
-            elif "rebaba" in key_lower:
-                rebaba_excesiva += cant
-            elif any(x in key_lower for x in ["burbuja", "porosidad"]):
-                burbuja_porosidad += cant
-            elif any(x in key_lower for x in ["deform", "rechupe", "chupado", "hundido", "flujo"]):
-                deformacion_rechupado += cant
-            else:
-                deformacion_rechupado += cant
-
-        total_cantidad = quemado_manchado + incompleto_falta_llenado + rebaba_excesiva + burbuja_porosidad + deformacion_rechupado
-
-        # Guardar en base de datos si el total es mayor a cero
-        prod_iny = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod).first()
-        
-        if total_cantidad > 0:
-            codigo_ensamble = prod_iny.codigo_ensamble if prod_iny else None
-
-            nuevo_pnc = PncInyeccion(
-                id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                id_inyeccion=id_iny,
-                id_codigo=id_cod,
-                cantidad=total_cantidad,
-                criterio=f"Quemado: {int(quemado_manchado)}, Falta Llenado: {int(incompleto_falta_llenado)}, Rebaba: {int(rebaba_excesiva)}, Burbujas: {int(burbuja_porosidad)}, Deformacion: {int(deformacion_rechupado)}",
-                codigo_ensamble=codigo_ensamble,
-                quemado_manchado=quemado_manchado,
-                incompleto_falta_llenado=incompleto_falta_llenado,
-                rebaba_excesiva=rebaba_excesiva,
-                burbuja_porosidad=burbuja_porosidad,
-                deformacion_rechupado=deformacion_rechupado
-            )
-            db.session.add(nuevo_pnc)
-
-            # Sincronizar pnc_total, pnc_detalle y cantidad_real en el registro de ProduccionInyeccion correspondiente
-            if prod_iny:
-                prod_iny.pnc_total = int(round(total_cantidad))
-                prod_iny.pnc_detalle = nuevo_pnc.criterio
-                cant_bruta = prod_iny.cant_contador or prod_iny.cantidad_real or 0
-                prod_iny.cantidad_real = max(0, int(round(cant_bruta - total_cantidad)))
-
-            db.session.commit()
-            logger.info(f"✅ PNC registrado para {id_cod} en {id_iny}: Total: {total_cantidad}")
-            return jsonify({
-                "success": True,
-                "message": "PNC registrado correctamente en db_pnc_inyeccion",
-                "total_pnc": total_cantidad
-            }), 200
-        else:
-            if prod_iny:
-                prod_iny.pnc_total = 0
-                prod_iny.pnc_detalle = ""
-                cant_bruta = prod_iny.cant_contador or prod_iny.cantidad_real or 0
-                prod_iny.cantidad_real = int(round(cant_bruta))
-            db.session.commit()
-            return jsonify({
-                "success": True,
-                "message": "No se reportaron defectos de PNC",
-                "total_pnc": 0
-            }), 200
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
-        db.session.rollback()
-        import traceback
-        logger.error(f"❌ Error en registrar_pnc_inyeccion: {e}\n{traceback.format_exc()}")
+        logger.error(f"❌ Error en registrar_pnc_inyeccion: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

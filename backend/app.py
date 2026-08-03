@@ -1973,13 +1973,13 @@ def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_
 
         if tipo == 'inyeccion':
             from backend.models.sql_models import PncInyeccion
-            from backend.routes.inyeccion_routes import _clasificar_pnc_tipado, _criterio_texto_tipado
+            from backend.services.inyeccion_service import InyeccionService
 
-            tipado, total_tipado = _clasificar_pnc_tipado([{'cantidad': cantidad_pnc, 'criterio': criterio_pnc}])
+            tipado, total_tipado = InyeccionService._clasificar_pnc_tipado([{'cantidad': cantidad_pnc, 'criterio': criterio_pnc}])
             if total_tipado <= 0:
                 logger.warning(f"⚠️ [PNC Inyeccion] '{criterio_pnc}' (cantidad={cantidad_pnc}) no clasificó en ninguna columna tipada para {codigo_producto}")
 
-            criterio_final = _criterio_texto_tipado(tipado)
+            criterio_final = InyeccionService._criterio_texto_tipado(tipado)
             if observaciones:
                 criterio_final += f" | Obs: {observaciones}"
 
