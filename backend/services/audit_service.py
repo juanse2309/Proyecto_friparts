@@ -35,6 +35,31 @@ class ValidadorRequeridoException(Exception):
         super().__init__(self.message)
 
 
+class TurnoInvalidoException(Exception):
+    """
+    Excepción lanzada cuando hora_inicio/hora_fin produce una duración de turno
+    imposible (negativa o superior al máximo lógico del área). Síntoma clásico
+    de escribir la hora en el campo de 24h sin sumar 12 (ej. 3:20 en vez de
+    13:20) — ver auditoría de 2026-08-03 sobre Pulido/Inyección.
+    """
+    def __init__(self, horas_calculadas, horas_maximas, message=None):
+        self.horas_calculadas = horas_calculadas
+        self.horas_maximas = horas_maximas
+        if message:
+            self.message = message
+        elif horas_calculadas < 0:
+            self.message = (
+                f"La hora de fin es anterior a la hora de inicio ({horas_calculadas:.2f}h). "
+                f"Verifique si confundió la hora (ej. escribir 3:20 en vez de 13:20)."
+            )
+        else:
+            self.message = (
+                f"La duración del turno parece incorrecta ({horas_calculadas:.2f}h, excede el máximo de "
+                f"{horas_maximas}h). Verifique si confundió la hora (ej. escribir 3:20 en vez de 13:20)."
+            )
+        super().__init__(self.message)
+
+
 class AuditService:
     """
     Clase de servicio encargada de la validación y normalización de identidades de

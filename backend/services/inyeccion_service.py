@@ -1,8 +1,13 @@
 import logging
 from sqlalchemy import text
 from backend.models.sql_models import db
+from backend.services.audit_service import TurnoInvalidoException
 
 logger = logging.getLogger(__name__)
+
+# Inyección: jornada normal 06:00-18:00 (12h de span, incluye horas extra habituales).
+# Confirmado por el usuario el 2026-08-03 tras auditoría de horas mal digitadas.
+DURACION_MAXIMA_TURNO_HORAS = 12
 
 _MESES_ES = (
     'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
@@ -11,6 +16,23 @@ _MESES_ES = (
 
 
 class InyeccionService:
+
+    @staticmethod
+    def validar_duracion_turno(segundos_delta) -> None:
+        """
+        Rechaza duraciones de turno imposibles para Inyección (jornada 06:00-18:00
+        con horas extra, sin turno nocturno estándar). Debe llamarse con el delta
+        CRUDO hora_fin-hora_inicio (segundos), antes de aplicar clamp/wraparound —
+        una duración negativa también se considera inválida, no se debe silenciar
+        a 0 como hacía el código anterior.
+        """
+        limite_seg = DURACION_MAXIMA_TURNO_HORAS * 3600
+        if segundos_delta < 0 or segundos_delta > limite_seg:
+            horas = segundos_delta / 3600.0
+            raise TurnoInvalidoException(
+                horas_calculadas=horas,
+                horas_maximas=DURACION_MAXIMA_TURNO_HORAS,
+            )
 
     @staticmethod
     def _formatear_fecha_es(fecha_dt):

@@ -1,5 +1,6 @@
 import os
 import uuid
+import json
 import logging
 import traceback
 import pytz
@@ -8,8 +9,9 @@ from flask import Blueprint, jsonify, request
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, _obtener_usuario_activo
 from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion, DistribucionOpPedidos, Pedido, TrazabilidadLote
 from backend.config.settings import Settings
-from backend.services.audit_service import AuditService, OwnershipMismatchException, ValidadorRequeridoException
+from backend.services.audit_service import AuditService, OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException
 from backend.services.inyeccion_service import InyeccionService
+from backend.services.pausas_service import PausasService
 from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -340,12 +342,38 @@ def registrar_inyeccion_lote():
                     diff = dt_fin - dt_inicio
                     segundos = int(diff.total_seconds())
                     if segundos < 0: segundos += 86400 # Cruce medianoche
-                    
-                    registro.duracion_segundos = segundos
-                    registro.tiempo_total_minutos, registro.segundos_por_unidad = calcular_metricas_inyeccion(segundos, cant_real)
-                        
+
+                    # Barrera arquitectónica: rechaza duraciones imposibles (típico
+                    # error de digitar 6:50 en vez de 18:50) antes de persistir nada.
+                    InyeccionService.validar_duracion_turno(segundos)
+
+                    # Descuento de pausas programadas (Desayuno/Almuerzo), igual que
+                    # Pulido: el operario reporta hora real, el backend descuenta.
+                    descuento_info = PausasService.calcular_descuento_pausas_programadas(dt_inicio, dt_fin)
+                    segundos_descuento = descuento_info['segundos_descuento']
+                    segundos_netos = max(0, segundos - segundos_descuento)
+
+                    registro.duracion_segundos = segundos_netos
+                    registro.tiempo_total_minutos, registro.segundos_por_unidad = calcular_metricas_inyeccion(segundos_netos, cant_real)
+
+                    if descuento_info['detalle']:
+                        payload = {
+                            "descuento_programado_min": round(segundos_descuento / 60.0, 2),
+                            "detalle": descuento_info['detalle']
+                        }
+                        tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
+                        obs = (registro.observaciones or "")
+                        if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
+                            pre = obs.split("[AUTO_BREAK]")[0]
+                            post = obs.split("[/AUTO_BREAK]")[-1]
+                            registro.observaciones = (pre + tag + post).strip()
+                        else:
+                            registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
+
                     registro.fecha_inicia = dt_inicio
                     registro.fecha_fin = dt_fin
+                except TurnoInvalidoException:
+                    raise
                 except Exception as e_time:
                     logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
 
@@ -523,6 +551,14 @@ def registrar_inyeccion_lote():
             'pdf_status': "success" if pdf_ok else "failed",
             'movimientos_inventario': movimientos_inventario
         }), 200
+
+    except TurnoInvalidoException as e:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": e.message,
+            "code": "TURNO_DURACION_INVALIDA"
+        }), 400
 
     except Exception as e:
         db.session.rollback()
@@ -1208,11 +1244,34 @@ def mes_reportar():
                 h_f, m_f = map(int, hora_fin_resuelta.split(':'))
                 prod.fecha_fin = fecha_base.replace(hour=h_f, minute=m_f, second=0, microsecond=0)
 
+                # Calcular duración y métricas. Barrera arquitectónica: rechaza
+                # duraciones imposibles (negativas o >12h) antes de persistir —
+                # antes este delta negativo se clampeaba a 0 en silencio.
+                delta_seg = int((prod.fecha_fin - fecha_base).total_seconds())
+                InyeccionService.validar_duracion_turno(delta_seg)
 
-                # Calcular duración y métricas
-                delta = prod.fecha_fin - fecha_base
-                prod.duracion_segundos = max(0, to_int(delta.total_seconds()))
+                # Descuento de pausas programadas (Desayuno/Almuerzo), igual que
+                # Pulido: el operario reporta hora real, el backend descuenta.
+                descuento_info = PausasService.calcular_descuento_pausas_programadas(fecha_base, prod.fecha_fin)
+                segundos_descuento = descuento_info['segundos_descuento']
+                prod.duracion_segundos = max(0, delta_seg - segundos_descuento)
                 prod.tiempo_total_minutos, prod.segundos_por_unidad = calcular_metricas_inyeccion(prod.duracion_segundos, piezas_inyectadas)
+
+                if descuento_info['detalle']:
+                    payload = {
+                        "descuento_programado_min": round(segundos_descuento / 60.0, 2),
+                        "detalle": descuento_info['detalle']
+                    }
+                    tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
+                    obs = (prod.observaciones or "")
+                    if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
+                        pre = obs.split("[AUTO_BREAK]")[0]
+                        post = obs.split("[/AUTO_BREAK]")[-1]
+                        prod.observaciones = (pre + tag + post).strip()
+                    else:
+                        prod.observaciones = (obs + "\n" + tag).strip() if obs else tag
+            except TurnoInvalidoException:
+                raise
             except Exception as ex:
                 logger.warning(f"⚠️ Error al calcular tiempos en reportar: {ex}")
                 prod.fecha_fin = ahora_rep
@@ -1322,6 +1381,14 @@ def mes_reportar():
             "teorica": total_teorica,
             "message": "Turno finalizado con éxito. Cubetas de prioridad actualizadas por FIFO."
         }), 200
+
+    except TurnoInvalidoException as e:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": e.message,
+            "code": "TURNO_DURACION_INVALIDA"
+        }), 400
 
     except Exception as e:
         db.session.rollback()

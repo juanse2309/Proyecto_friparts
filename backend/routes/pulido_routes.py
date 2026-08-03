@@ -4,8 +4,9 @@ from io import BytesIO
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usuario_activo
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
-from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.services.audit_service import AuditService, OwnershipMismatchException, TurnoInvalidoException
 from backend.services.pulido_service import PulidoService
+from backend.services.pausas_service import PausasService
 import uuid
 from datetime import datetime
 import pytz
@@ -74,14 +75,18 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
         diff = t_fin - t_ini
         segundos_segmento = int(diff.total_seconds())
         if segundos_segmento < 0: segundos_segmento += 86400
-        
+
+        # Barrera arquitectónica: rechaza duraciones imposibles (típico error de
+        # digitar 3:20 en vez de 13:20) antes de persistir nada.
+        PulidoService.validar_duracion_turno(segundos_segmento)
+
         tiempo_acumulado_ms = float(data.get('tiempo_acumulado_ms') or 0)
         segundos_totales = segundos_segmento + int(tiempo_acumulado_ms / 1000)
 
-        # Autoridad matemática del descuento por pausas programadas: PulidoService.
+        # Autoridad matemática del descuento por pausas programadas: PausasService.
         # El frontend solo aporta hora_inicio/hora_fin crudas (Zero Trust) — el
         # cálculo de intersección de intervalos vive exclusivamente en la capa de servicio.
-        descuento_info = PulidoService.calcular_descuento_pausas_programadas(t_ini, t_fin)
+        descuento_info = PausasService.calcular_descuento_pausas_programadas(t_ini, t_fin)
         segundos_descuento = descuento_info['segundos_descuento']
         if segundos_descuento > 0:
             segundos_totales = max(0, segundos_totales - segundos_descuento)
@@ -324,6 +329,14 @@ def registrar_pulido():
         # Delegar la persistencia compleja a la función privada
         res = _ejecutar_persistencia_pulido(registro, data, responsable, ahora)
         return jsonify(res), 201
+
+    except TurnoInvalidoException as e:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": e.message,
+            "code": "TURNO_DURACION_INVALIDA"
+        }), 400
 
     except Exception as e:
         db.session.rollback()

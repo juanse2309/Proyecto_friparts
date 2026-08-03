@@ -8,9 +8,14 @@ reside aquí. Las rutas solo invocan métodos y retornan JSON.
 import logging
 from backend.core.sql_database import db
 from backend.utils.formatters import sql_normalizar_codigo_fr
+from backend.services.audit_service import TurnoInvalidoException
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+# Pulido no tiene turno nocturno: jornada única 07:00-17:00 (10h de span).
+# Confirmado por el usuario el 2026-08-03 tras auditoría de horas mal digitadas.
+DURACION_MAXIMA_TURNO_HORAS = 10
 
 
 def _num(v, cast=float):
@@ -40,58 +45,20 @@ class PulidoService:
         """Normaliza a UPPER + TRIM para unificar variantes de escritura."""
         return (nombre or '').upper().strip()
 
-    # ---------------------------------------------------------------
-    # PAUSAS PROGRAMADAS: ventanas fijas de descanso no remunerado
-    # (Desayuno / Almuerzo). Única fuente de verdad para el descuento
-    # de tiempo trabajado — el frontend solo envía hora_inicio/hora_fin
-    # crudas (Zero Trust); esta clase asume la autoridad matemática.
-    # ---------------------------------------------------------------
-    _VENTANAS_PAUSAS_PROGRAMADAS = (
-        ("DESAYUNO", "09:00", "09:20"),
-        ("ALMUERZO", "13:00", "13:40"),
-    )
-
     @staticmethod
-    def calcular_descuento_pausas_programadas(hora_inicio, hora_fin) -> dict:
+    def validar_duracion_turno(segundos_segmento: int) -> None:
         """
-        Calcula el descuento por intersección entre el intervalo trabajado
-        [hora_inicio, hora_fin] y las ventanas fijas de Desayuno/Almuerzo.
-
-        Retorna:
-        {
-            "segundos_descuento": int,
-            "detalle": [ {"tipo", "inicio", "fin", "minutos"}, ... ]
-        }
+        Rechaza duraciones de turno imposibles para Pulido (jornada única 07:00-17:00,
+        sin turno nocturno). Debe llamarse con el delta CRUDO hora_fin-hora_inicio
+        (ya con el wraparound de medianoche aplicado si corresponde), antes de sumar
+        tiempo_acumulado_ms o descontar pausas.
         """
-        if not hora_inicio or not hora_fin or hora_fin <= hora_inicio:
-            return {"segundos_descuento": 0, "detalle": []}
-
-        # Cruce de medianoche: fuera de alcance para las ventanas fijas del turno.
-        if hora_inicio.date() != hora_fin.date():
-            return {"segundos_descuento": 0, "detalle": []}
-
-        total_segundos = 0
-        detalle = []
-        for nombre, ini_str, fin_str in PulidoService._VENTANAS_PAUSAS_PROGRAMADAS:
-            h_i, m_i = (int(x) for x in ini_str.split(':'))
-            h_f, m_f = (int(x) for x in fin_str.split(':'))
-            ventana_ini = hora_inicio.replace(hour=h_i, minute=m_i, second=0, microsecond=0)
-            ventana_fin = hora_inicio.replace(hour=h_f, minute=m_f, second=0, microsecond=0)
-
-            solape_ini = max(hora_inicio, ventana_ini)
-            solape_fin = min(hora_fin, ventana_fin)
-            solape_seg = int((solape_fin - solape_ini).total_seconds())
-
-            if solape_seg > 0:
-                total_segundos += solape_seg
-                detalle.append({
-                    "tipo": nombre,
-                    "inicio": ini_str,
-                    "fin": fin_str,
-                    "minutos": round(solape_seg / 60.0, 2)
-                })
-
-        return {"segundos_descuento": total_segundos, "detalle": detalle}
+        limite_seg = DURACION_MAXIMA_TURNO_HORAS * 3600
+        if segundos_segmento > limite_seg:
+            raise TurnoInvalidoException(
+                horas_calculadas=segundos_segmento / 3600.0,
+                horas_maximas=DURACION_MAXIMA_TURNO_HORAS,
+            )
 
     @staticmethod
     def _es_responsable_ignorado(nombre: str) -> bool:
