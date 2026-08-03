@@ -542,13 +542,16 @@ class RepositoryService:
             filt_iny = " WHERE fecha_inicia BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
             filt_gen = " WHERE fecha BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
 
-            # Helper para SQL de casting robusto solicitado por el usuario
+            # Las columnas de db_mezcla/db_ventas ya son NUMERIC nativo en Postgres:
+            # el cast previo pasaba por texto+regex y arrastraba dos bugs con
+            # devoluciones/NC negativas — [^0-9.] borraba el signo '-', y
+            # '[$. ]' borraba también el punto decimal (corriendo la escala x100).
+            # COALESCE directo evita ambos por construcción.
             def _user_cast(col):
-                return f"COALESCE(NULLIF(regexp_replace({col}::text, '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+                return f"COALESCE({col}, 0)"
 
-            # Helper para moneda (trata $ y comas/puntos)
             def _sql_cast_num(col):
-                return f"COALESCE(NULLIF(regexp_replace(regexp_replace({col}::text, '[$. ]', '', 'g'), ',', '.', 'g'), '')::NUMERIC, 0)"
+                return f"COALESCE({col}, 0)"
 
             # Filtros específicos con prefijos
             filt_iny_pnc = " WHERE i.fecha_inicia BETWEEN :desde AND :hasta" if desde and hasta else " WHERE 1=1"
@@ -888,7 +891,9 @@ class RepositoryService:
             filt_pul_cte = " AND fecha BETWEEN :desde AND :hasta" if desde and hasta else ""
 
             def _user_cast(col):
-                return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+                # costo_total ya es NUMERIC nativo: COALESCE directo, sin el
+                # bug de perder el signo '-' del cast via texto+regex.
+                return f"COALESCE({col}, 0)"
 
             union_iny_tipado = " UNION ALL ".join(
                 f"""SELECT 'inyeccion' as area, TRIM(REPLACE(p.id_codigo::TEXT, 'FR-', '')) as ref,
@@ -1034,7 +1039,9 @@ class RepositoryService:
             meses_map = {1:'ene',2:'feb',3:'mar',4:'abr',5:'may',6:'jun',7:'jul',8:'ago',9:'sep',10:'oct',11:'nov',12:'dic'}
             
             def _sql_cast_num(col):
-                return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+                # Columna ya NUMERIC nativo: COALESCE directo evita el bug de perder
+                # el signo '-' de devoluciones/NC que tenia el cast via texto+regex.
+                return f"COALESCE({col}, 0)"
 
             params = {}
             year_actual = 2026
@@ -1157,7 +1164,9 @@ class RepositoryService:
         filt = " WHERE fecha BETWEEN :start AND :end" if start_date and end_date else " WHERE 1=1"
         
         def _sql_cast_num(col):
-            return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+            # Columna ya NUMERIC nativo: COALESCE directo evita el bug de perder
+            # el signo '-' de devoluciones/NC que tenia el cast via texto+regex.
+            return f"COALESCE({col}, 0)"
 
         # 1. Top Productos más vendidos
         top_d = []
@@ -1407,7 +1416,9 @@ class RepositoryService:
         from backend.core.sql_database import db
         
         def _sql_cast_num(col):
-            return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+            # Columna ya NUMERIC nativo: COALESCE directo evita el bug de perder
+            # el signo '-' de devoluciones/NC que tenia el cast via texto+regex.
+            return f"COALESCE({col}, 0)"
         
         filt = ""
         params = {"cliente": f"%{cliente_nombre}%"}
@@ -1556,7 +1567,9 @@ class RepositoryService:
             params = {'mes': mes, 'anio': anio}
             
             def _sql_cast_num(col):
-                return f"COALESCE(NULLIF(regexp_replace(REPLACE({col}::text, ',', '.'), '[^0-9.]', '', 'g'), ''), '0')::NUMERIC"
+                # Columna ya NUMERIC nativo: COALESCE directo evita el bug de perder
+                # el signo '-' de devoluciones/NC que tenia el cast via texto+regex.
+                return f"COALESCE({col}, 0)"
 
             # Optimización de fechas para uso de índices
             import calendar
