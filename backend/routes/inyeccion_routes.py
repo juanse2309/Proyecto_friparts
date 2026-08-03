@@ -9,6 +9,7 @@ from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, _
 from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, ProgramacionInyeccion, DistribucionOpPedidos, Pedido, TrazabilidadLote
 from backend.config.settings import Settings
 from backend.services.audit_service import AuditService, OwnershipMismatchException, ValidadorRequeridoException
+from backend.services.inyeccion_service import InyeccionService
 from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -989,6 +990,14 @@ def verificar_demanda_b2b(codigo):
         logger.error(f"❌ Error en verificar_demanda para {codigo}: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": "Error interno al verificar la demanda"}), 500
 
+
+
+@inyeccion_bp.route('/api/mes/pendientes_validacion', methods=['GET'])
+def mes_pendientes_validacion():
+    """Obtiene todos los lotes en estado PENDIENTE/FINALIZADO para validación."""
+    resultado = InyeccionService.obtener_pendientes_validacion()
+    status_code = 200 if resultado.get('success') else 500
+    return jsonify(resultado), status_code
 
 
 @inyeccion_bp.route('/api/mes/iniciar_trabajo', methods=['POST'])

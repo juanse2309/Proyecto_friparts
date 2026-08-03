@@ -145,6 +145,8 @@ const ModuloInyeccion = {
                         grupos[id] = {
                             id: id,
                             maquina: lote.maquina || 'S/M',
+                            ordenProduccion: lote.orden_produccion || 'SIN OP',
+                            fechaDisplay: lote.fecha_display || '',
                             codigos: [],
                             cantidadTotal: 0
                         };
@@ -157,7 +159,8 @@ const ModuloInyeccion = {
                     const opt = document.createElement('option');
                     opt.value = g.id;
                     const codigosTexto = [...new Set(g.codigos)].join(', ');
-                    opt.textContent = `Lote: ${g.id} - ${g.maquina} - Códigos: ${codigosTexto}`;
+                    const fechaTexto = g.fechaDisplay ? ` - ${g.fechaDisplay}` : '';
+                    opt.textContent = `Lote: ${g.id} - OP: ${g.ordenProduccion} - Maq: ${g.maquina}${fechaTexto} - Códigos: ${codigosTexto}`;
                     select.appendChild(opt);
                 });
             }
