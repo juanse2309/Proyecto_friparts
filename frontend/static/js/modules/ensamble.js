@@ -549,35 +549,23 @@ const ModuloEnsamble = {
         }
 
         try {
-            console.log(`📤 [Ensamble] Enviando ${registrosPayload.length} registros`, registrosPayload);
-
             // ── BLOQUEO OBLIGATORIO DE PNC para PAUSADO y FINALIZADO ──
+            // El desglose se adjunta al payload principal (ver más abajo) para
+            // que viaje en la misma transacción atómica del backend, en vez de
+            // dispararse como un request HTTP independiente.
+            let defectosGenerales = null;
             if (estado === 'PAUSADO' || estado === 'FINALIZADO') {
                 const pncData = await this._mostrarModalPncEnsamble(estado);
                 if (pncData === null) return; // Usuario canceló — bloquea el cambio de estado
-
-                // Persistir PNC en db_pnc_ensamble ANTES del cambio de estado
-                try {
-                    const pncRes = await fetch('/api/pnc/registrar_ensamble', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            id_ensamble: this.sessionId,
-                            id_codigo: idCodigo,
-                            defectos: pncData
-                        })
-                    });
-                    const pncResult = await pncRes.json();
-                    if (!pncResult.success) {
-                        mostrarNotificacion(pncResult.error || 'Error al registrar PNC de Ensamble', 'error');
-                        return; // Bloquear cambio de estado
-                    }
-                } catch (errPnc) {
-                    console.error('[Ensamble] Error PNC:', errPnc);
-                    mostrarNotificacion('Error de conexión al registrar PNC. Operación cancelada.', 'error');
-                    return;
-                }
+                defectosGenerales = pncData;
             }
+
+            const registroFinalPayload = registrosPayload.find(r => r.es_final);
+            if (registroFinalPayload) {
+                registroFinalPayload.defectos_generales = defectosGenerales;
+            }
+
+            console.log(`📤 [Ensamble] Enviando ${registrosPayload.length} registros`, registrosPayload);
 
             mostrarLoading(true, estado === 'FINALIZADO' ? 'Procesando multi-registro e inventario...' : 'Guardando avance...');
             const res = await fetch('/api/ensamble/reportar', {
