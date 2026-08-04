@@ -121,8 +121,14 @@ class AuditService:
         # 2. Validar propiedad si existe registro previo con responsable ya persistido
         if registro_db and hasattr(registro_db, 'responsable') and registro_db.responsable:
             owner_db = str(registro_db.responsable).strip()
-            
-            if owner_db and incoming_responsable and owner_db.upper() != incoming_responsable.upper():
+
+            # Comparación tolerante a tildes/espacios (mismo criterio que require_role
+            # en auth_middleware.py) — evita falsos positivos de OwnershipMismatch por
+            # variantes de escritura del mismo nombre (ej. "Nimisicá" vs "Nimisica").
+            if owner_db and incoming_responsable and (
+                AuditService._normalizar_para_comparacion(owner_db)
+                != AuditService._normalizar_para_comparacion(incoming_responsable)
+            ):
                 if AuditService._usuario_autenticado_puede_override():
                     logger.info(
                         f"🛡️ [Ownership Override] Rol autorizado detectado en la sesión activa. "
@@ -142,6 +148,20 @@ class AuditService:
                 )
 
         return incoming_responsable
+
+    @staticmethod
+    def _normalizar_para_comparacion(nombre):
+        """
+        Normaliza un nombre de responsable para comparación de propiedad:
+        mayúsculas, sin tildes/diacríticos y espacios colapsados. Solo se usa
+        para comparar — el valor persistido/mostrado conserva su forma original.
+        """
+        import unicodedata
+        if not nombre:
+            return ""
+        val = str(nombre).strip().upper()
+        val = ''.join(c for c in unicodedata.normalize('NFD', val) if unicodedata.category(c) != 'Mn')
+        return ' '.join(val.split())
 
     @staticmethod
     def _usuario_autenticado_puede_override():
