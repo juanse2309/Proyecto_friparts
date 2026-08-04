@@ -3,9 +3,10 @@ Repositorio de productos 100% SQL-First.
 Centraliza el acceso a la tabla db_productos en PostgreSQL.
 """
 from typing import Optional, List, Dict
-from sqlalchemy import func
-from backend.core.sql_database import db
+from sqlalchemy import func, text
+from backend.core.sql_database import db, rollback_seguro
 from backend.models.sql_models import Producto, MetalsProducto
+from backend.utils.numeric_helpers import _safe_float
 import logging
 
 logger = logging.getLogger(__name__)
@@ -78,9 +79,19 @@ class ProductoRepository:
         except:
             return 0
     
-    def actualizar_stock(self, codigo: str, nuevo_stock: float, almacen: str) -> bool:
+    def actualizar_saldo(self, codigo: str, nuevo_stock: float, almacen: str) -> bool:
         """
-        Actualiza una columna de stock en SQL.
+        Setter de capa de datos: fija el valor ABSOLUTO final de una columna
+        de stock y hace commit() de inmediato (no componible con otras
+        operaciones de la misma transacción).
+
+        Distinto de `StockService.actualizar_stock` (backend/services/stock_service.py),
+        que ajusta por DELTA (suma/resta) y usa flush() para poder encadenarse
+        dentro de una transacción más grande — ese es el motor real usado por
+        el resto del backend. Este método solo lo usa `InventarioRepository`
+        (que calcula el delta él mismo antes de llamar aquí con el valor final).
+        No se unificaron por tener contratos incompatibles (absoluto vs. delta,
+        commit vs. flush) — ver docstring de módulo de stock_service.py.
         """
         try:
             from backend.utils.formatters import normalizar_codigo
@@ -129,6 +140,72 @@ class ProductoRepository:
             return [self._to_dict(p) for p in res]
         except Exception as e:
             logger.error(f"Error en buscar_por_termino ({self.tenant}): {e}")
+            return []
+
+    def get_productos_all(self) -> List[Dict]:
+        """Retorna todos los productos con nombres legacy para el frontend.
+        Blindaje total: usa getattr + _safe_float para tolerar discrepancias
+        entre el modelo ORM y el schema real de db_productos post-migracion WO.
+
+        Nota: distinto de `listar_todos()`/`_to_dict()` (usados por metals_routes.py
+        y la búsqueda por código) — este método devuelve un shape legacy más amplio
+        (STOCK MAXIMO, PUNTO REORDEN, MEDIDA, UBICACION, DOLARES, CATEGORIA) que
+        algunos callers de FriParts siguen esperando tal cual. No se unificaron
+        para no arriesgar romper esos contratos existentes.
+        """
+        try:
+            rows = Producto.query.all()
+            result = []
+            skipped = 0
+            for p in rows:
+                try:
+                    result.append({
+                        'CODIGO SISTEMA':      getattr(p, 'codigo_sistema', '') or '',
+                        'ID CODIGO':           getattr(p, 'id_codigo', '') or '',
+                        'DESCRIPCION':         getattr(p, 'descripcion', '') or 'Sin descripción',
+                        'PRECIO':              _safe_float(getattr(p, 'precio', 0)),
+                        'POR PULIR':           _safe_float(getattr(p, 'por_pulir', 0)),
+                        'P. TERMINADO':        _safe_float(getattr(p, 'p_terminado', 0)),
+                        'COMPROMETIDO':        _safe_float(getattr(p, 'comprometido', 0)),
+                        'PRODUCTO ENSAMBLADO': _safe_float(getattr(p, 'producto_ensamblado', 0)),
+                        'STOCK MINIMO':        _safe_float(getattr(p, 'stock_minimo', 0)),
+                        'STOCK MAXIMO':        _safe_float(getattr(p, 'stock_maximo', 0)),
+                        'PUNTO REORDEN':       _safe_float(getattr(p, 'punto_reorden', 0)),
+                        'IMAGEN':              getattr(p, 'imagen', '') or '',
+                        'OEM':                 getattr(p, 'oem', '') or '',
+                        'MEDIDA':              getattr(p, 'medida', '') or '',
+                        'UBICACION':           getattr(p, 'ubicacion', '') or '',
+                        'DOLARES':             _safe_float(getattr(p, 'dolares', 0)),
+                        'CATEGORIA':           getattr(p, 'categoria', '') or '',
+                    })
+                except Exception as e_row:
+                    skipped += 1
+                    codigo = getattr(p, 'codigo_sistema', None) or getattr(p, 'id_codigo', '?')
+                    logger.error(f"[get_productos_all] Fila corrupta ignorada ({codigo}): {e_row}")
+                    continue
+            logger.info(f"[get_productos_all] {len(result)} productos retornados. {skipped} filas ignoradas.")
+            return result
+        except Exception as e:
+            rollback_seguro()
+            import traceback
+            logger.error(f"[get_productos_all] Error crítico: {e}\n{traceback.format_exc()}")
+            return []
+
+    def get_stock_critico_sql(self) -> List[Dict]:
+        """Retorna productos cuyo stock está por debajo del mínimo definido."""
+        try:
+            sql = """
+                SELECT codigo_sistema, descripcion, stock_minimo,
+                       (COALESCE(p_terminado::NUMERIC, 0) + COALESCE(stock_bodega::NUMERIC, 0)) as stock_actual
+                FROM db_productos
+                WHERE (COALESCE(p_terminado::NUMERIC, 0) + COALESCE(stock_bodega::NUMERIC, 0)) < COALESCE(stock_minimo::NUMERIC, 0)
+                ORDER BY stock_minimo::NUMERIC DESC
+            """
+            rows = db.session.execute(text(sql)).mappings().all()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[get_stock_critico_sql] {e}")
             return []
 
     def _to_dict(self, p) -> Dict:

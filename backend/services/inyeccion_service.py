@@ -2,12 +2,12 @@ import os
 import uuid
 import json
 import logging
-import pytz
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from backend.models.sql_models import db, ProduccionInyeccion, PncInyeccion, PncPulido, ProgramacionInyeccion, DistribucionOpPedidos, Producto, TrazabilidadLote, Pedido
 from backend.services.audit_service import AuditService, OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException
+from backend.utils.time_utils import get_colombia_time
 
 logger = logging.getLogger(__name__)
 
@@ -286,15 +286,14 @@ class InyeccionService:
         )
         from backend.services.pnc_service import pnc_service
         from backend.services.pausas_service import PausasService
-        from backend.app import registrar_entrada, registrar_salida
+        from backend.services.stock_service import StockService
 
         turno = data.get('turno', {})
         items = data.get('items', [])
         if not items:
             raise ValueError('No hay items para registrar')
 
-        bogota_tz = pytz.timezone('America/Bogota')
-        ahora_col = datetime.now(bogota_tz)
+        ahora_col = get_colombia_time()
         fecha_str = turno.get('fecha_inicio', '')
         try:
             fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d').date() if fecha_str else ahora_col.date()
@@ -486,12 +485,12 @@ class InyeccionService:
                         bom_res = calcular_descuentos_ensamble(id_cod, cant_real)
                         if bom_res.get('success'):
                             for comp in bom_res.get('componentes', []):
-                                mov = registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
+                                mov = StockService.registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
                                 if mov and "error" not in mov:
                                     movimientos_inventario.append(mov)
 
                         if cant_real > 0:
-                            mov_ent = registrar_entrada(id_cod, cant_real, "POR PULIR")
+                            mov_ent = StockService.registrar_entrada(id_cod, cant_real, "POR PULIR")
                             if mov_ent and "error" not in mov_ent:
                                 movimientos_inventario.append(mov_ent)
 
@@ -624,7 +623,7 @@ class InyeccionService:
         """
         from backend.utils.formatters import normalizar_codigo_sin_prefijo, to_float
         from backend.services.bom_service import calcular_descuentos_ensamble
-        from backend.app import registrar_salida
+        from backend.services.stock_service import StockService
 
         items_payload = data.get('items', [])
         # Clave normalizada sin prefijo 'FR-': reg.id_codigo puede traerlo (lote
@@ -719,7 +718,7 @@ class InyeccionService:
                         bom_res = calcular_descuentos_ensamble(codigo, cantidad_inyectada)
                         if bom_res.get('success'):
                             for comp in bom_res.get('componentes', []):
-                                registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
+                                StockService.registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
 
                     # Actualizar inventario final (Validation is single point of entry para Inyeccion)
                     if buenas_por_pulir > 0:
@@ -747,8 +746,8 @@ class InyeccionService:
 
         # Invalidar caché del MES (best-effort, no debe tumbar una validación ya confirmada)
         try:
-            from backend.app import clear_mes_cache
-            clear_mes_cache()
+            from backend.services.programacion_service import ProgramacionService
+            ProgramacionService.clear_mes_cache()
         except Exception:
             pass
 
@@ -792,8 +791,7 @@ class InyeccionService:
             programaciones_bloque.append(prog_inicial)
 
         id_inyeccion_bloque = f"INY-{uuid.uuid4().hex[:8].upper()}"
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz).replace(tzinfo=None)
+        ahora = get_colombia_time()
 
         logger.info(f"⚡ Iniciando trabajo para la máquina {prog_inicial.maquina}, Referencias: {len(programaciones_bloque)}")
 
@@ -867,8 +865,8 @@ class InyeccionService:
             raise
 
         try:
-            from backend.app import clear_mes_cache
-            clear_mes_cache()
+            from backend.services.programacion_service import ProgramacionService
+            ProgramacionService.clear_mes_cache()
         except Exception:
             pass
 
@@ -919,8 +917,7 @@ class InyeccionService:
             data.get('responsable') or data.get('operario')
         )
 
-        colombia_tz_rep = pytz.timezone('America/Bogota')
-        ahora_rep = datetime.now(colombia_tz_rep).replace(tzinfo=None)
+        ahora_rep = get_colombia_time()
         total_teorica = 0
 
         try:
@@ -1068,8 +1065,8 @@ class InyeccionService:
             raise
 
         try:
-            from backend.app import clear_mes_cache
-            clear_mes_cache()
+            from backend.services.programacion_service import ProgramacionService
+            ProgramacionService.clear_mes_cache()
         except Exception:
             pass
 
@@ -1460,6 +1457,117 @@ class InyeccionService:
             "stock_actual_disponible": int(round(stock_actual_disponible)),
             "stock_terminado": int(round(stock_terminado)),
             "stock_bodega": int(round(stock_bodega))
+        }
+
+    # ---------------------------------------------------------------
+    # RESIDUAL LEGACY (registro directo fuera del flujo de lote MES,
+    # config de cavidades, cálculo de producción) — movido desde app.py
+    # ---------------------------------------------------------------
+    @staticmethod
+    def registrar_directa(data):
+        """
+        Registro legacy de inyección (POST /api/inyeccion), distinto del
+        flujo de lote (registrar_lote/validar_lote/iniciar_trabajo): crea un
+        único ProduccionInyeccion suelto, descuenta la BOM y suma a POR PULIR.
+        No pasa por Programación/MES.
+        """
+        if not data:
+            raise ValueError('No se recibieron datos')
+
+        codigo_raw = str(data.get('codigo_producto', '')).strip()
+        responsable = str(data.get('responsable', '')).strip()
+        if not codigo_raw or not responsable:
+            raise ValueError('Producto y Responsable son obligatorios')
+
+        try:
+            from backend.utils.formatters import normalizar_codigo
+            from backend.services.bom_service import calcular_descuentos_ensamble
+            from backend.services.stock_service import StockService
+
+            codigo_norm = normalizar_codigo(codigo_raw)
+
+            disparos = int(float(data.get('disparos', 0) or 0))
+            cavidades = int(float(data.get('no_cavidades', 1) or 1))
+            pnc = float(data.get('pnc', 0) or 0)
+            cantidad_final = float(data.get('cantidad_real', disparos * cavidades))
+
+            id_inyeccion = f"INY-{uuid.uuid4().hex[:8].upper()}"
+
+            nuevo_registro = ProduccionInyeccion(
+                id_inyeccion=id_inyeccion,
+                fecha_inicia=date.today(),
+                id_codigo=codigo_norm,
+                responsable=responsable,
+                maquina=data.get('maquina'),
+                cavidades=cavidades,
+                cant_contador=disparos,
+                cantidad_real=cantidad_final,
+                pnc_total=pnc,
+                estado='PENDIENTE',
+                observaciones=data.get('observaciones', '')
+            )
+            db.session.add(nuevo_registro)
+
+            bom_res = calcular_descuentos_ensamble(codigo_norm, int(cantidad_final))
+            if bom_res.get('success'):
+                for comp in bom_res.get('componentes', []):
+                    StockService.registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
+
+            StockService.registrar_entrada(codigo_norm, cantidad_final - pnc, "POR PULIR")
+
+            db.session.commit()
+
+            from backend.services.programacion_service import ProgramacionService
+            ProgramacionService.clear_mes_cache()
+
+            return {'id': id_inyeccion}
+        except Exception as e:
+            db.session.rollback()
+            if not isinstance(e, ValueError):
+                logger.error(f"❌ Error en InyeccionService.registrar_directa: {e}")
+            raise
+
+    @staticmethod
+    def obtener_config_cavidades():
+        """Configuración estática de cavidades disponibles por máquina (sin DB)."""
+        return {
+            "cavidades_disponibles": [1, 2, 3, 4, 5, 6],
+            "cavidades_por_defecto": 1,
+            "maquinas_config": {
+                "INYECTORA 1": {"cavidades": [1, 2, 3, 4, 5, 6], "default": 1},
+                "INYECTORA 2": {"cavidades": [1, 2, 3, 4, 5, 6], "default": 2},
+                "INYECTORA 3": {"cavidades": [2, 3, 4, 5, 6], "default": 3},
+                "INYECTORA 4": {"cavidades": [4, 6, 8, 12, 16], "default": 8},
+                "INYECTORA 5": {"cavidades": [8, 12, 16, 24, 32], "default": 12},
+                "INYECTORA 6": {"cavidades": [16, 24, 32, 48], "default": 24}
+            }
+        }
+
+    @staticmethod
+    def calcular_produccion(cantidad, cavidades, pnc=0):
+        """Calcula la producción total (disparos x cavidades) y la eficiencia dado un PNC opcional (sin DB)."""
+        if not cantidad or not cavidades:
+            raise ValueError('Se requieren cantidad y cavidades')
+        try:
+            cantidad_i = int(cantidad)
+            cavidades_i = int(cavidades)
+        except (TypeError, ValueError):
+            raise ValueError('Cantidad y cavidades deben ser numeros validos')
+
+        if cantidad_i <= 0 or cavidades_i <= 0:
+            raise ValueError('La cantidad y cavidades deben ser mayores a 0')
+
+        total_piezas = cantidad_i * cavidades_i
+        pnc_i = int(pnc or 0)
+        piezas_ok = total_piezas - pnc_i
+
+        return {
+            "disparos": cantidad_i,
+            "cavidades": cavidades_i,
+            "total_piezas": total_piezas,
+            "pnc": pnc_i,
+            "piezas_ok": piezas_ok,
+            "eficiencia": round((piezas_ok / total_piezas * 100), 2) if total_piezas > 0 else 0
         }
 
 

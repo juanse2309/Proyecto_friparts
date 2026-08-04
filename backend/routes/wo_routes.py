@@ -824,8 +824,8 @@ def sincronizar_cartera():
         if not isinstance(datos, list):
             datos = [datos] if datos else []
             
-        from backend.core.repository_service import repository_service
-        
+        from backend.repositories.ventas_repository import VentasRepository
+
         # Validar y limpiar datos
         datos_limpios = []
         for item in datos:
@@ -854,7 +854,7 @@ def sincronizar_cartera():
         
         for i in range(0, len(datos_limpios), BATCH_SIZE):
             chunk = datos_limpios[i:i+BATCH_SIZE]
-            procesados = repository_service.upsert_cartera_wo(chunk)
+            procesados = VentasRepository.upsert_cartera_wo(chunk)
             procesados_totales += procesados
             logger.info(f"Procesado chunk {i//BATCH_SIZE + 1} de Cartera: {procesados} registros")
         

@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, send_file
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.services.facturacion_service import FacturacionService, FacturacionDatosInvalidosException
 import pandas as pd
 import io
 import re
@@ -267,3 +268,22 @@ def preview_world_office():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ====================================================================
+# REGISTRO LEGACY DIRECTO (distinto del flujo de exportación World Office
+# de arriba) — movido desde backend/app.py
+# ====================================================================
+
+@facturacion_bp.route('/api/facturacion', methods=['POST'])
+def handle_facturacion():
+    """Endpoint para registrar operaciones de facturacion."""
+    data = request.get_json()
+    try:
+        resultado = FacturacionService.registrar(data)
+        return jsonify({"status": "success", "message": resultado['mensaje']}), 200
+    except FacturacionDatosInvalidosException as e:
+        return jsonify({"status": "error", "message": e.message}), 400
+    except Exception as e:
+        logger.error(f"ERROR en facturacion: {type(e).__name__}: {str(e)}")
+        return jsonify({"status": "error", "message": f"Error interno: {str(e)}"}), 500

@@ -36,7 +36,7 @@ class InventarioRepository:
             nuevo_stock = stock_actual + cantidad
             
             # Actualizar
-            exito = producto_repo.actualizar_stock(codigo, nuevo_stock, almacen)
+            exito = producto_repo.actualizar_saldo(codigo, nuevo_stock, almacen)
             
             if exito:
                 mensaje = f"Entrada registrada: +{cantidad} en {almacen}. Nuevo stock: {nuevo_stock}"
@@ -79,7 +79,7 @@ class InventarioRepository:
             nuevo_stock = stock_actual - cantidad
             
             # Actualizar
-            exito = producto_repo.actualizar_stock(codigo, nuevo_stock, almacen)
+            exito = producto_repo.actualizar_saldo(codigo, nuevo_stock, almacen)
             
             if exito:
                 mensaje = f"Salida registrada: -{cantidad} de {almacen}. Nuevo stock: {nuevo_stock}"

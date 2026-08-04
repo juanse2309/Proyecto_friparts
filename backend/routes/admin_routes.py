@@ -41,14 +41,14 @@ def clean_number(val):
 @cached_route(namespace='admin', ttl=600)
 def get_admin_dashboard_data():
     from flask import request
-    from backend.core.repository_service import repository_service
-    
+    from backend.repositories.dashboard_repository import DashboardRepository
+
     start_date_str = request.args.get('start')
     end_date_str = request.args.get('end')
-    
+
     # --- SQL NATIVE DATA FETCHING ---
     try:
-        metrics = repository_service.get_admin_dashboard_metrics_sql(start_date_str, end_date_str)
+        metrics = DashboardRepository.get_admin_dashboard_metrics_sql(start_date_str, end_date_str)
         
         # Consolidación final por cliente para panel gerencial (calculado en backend sobre resultados SQL)
         from collections import defaultdict
@@ -105,8 +105,8 @@ def get_backorder_detalle():
         from backend.services.dashboard_service import DashboardService
         cliente = DashboardService.normalizar_cliente_alias(cliente_raw)
         
-        from backend.core.repository_service import repository_service
-        detalle = repository_service.get_backorder_detalle_por_cliente_sql(cliente, start, end)
+        from backend.repositories.ventas_repository import VentasRepository
+        detalle = VentasRepository.get_backorder_detalle_por_cliente(cliente, start, end)
         
         return jsonify({
             "success": True,

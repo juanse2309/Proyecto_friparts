@@ -5,10 +5,10 @@ from backend.services.audit_service import AuditService, OwnershipMismatchExcept
 from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy import text
 from backend.core.tenant import get_tenant_from_request
+from backend.utils.time_utils import get_colombia_time
 from datetime import datetime
 import logging
 import json
-import pytz
 
 
 pedidos_bp = Blueprint('pedidos', __name__)
@@ -154,8 +154,7 @@ def registrar_pedido():
 
         # Capturar hora actual
         try:
-            tz_colombia = pytz.timezone('America/Bogota')
-            hora_actual = datetime.now(tz_colombia).strftime('%I:%M %p')
+            hora_actual = get_colombia_time().strftime('%I:%M %p')
         except:
             hora_actual = datetime.now().strftime('%I:%M %p')
 
@@ -397,11 +396,11 @@ def obtener_pedidos_pendientes():
     Ahora utiliza SQL-First con JOIN de clientes para evitar valores null.
     """
     try:
-        from backend.core.repository_service import repository_service
+        from backend.repositories.ventas_repository import VentasRepository
         from backend.models.sql_models import Usuario
 
         # 1. Obtener datos desde SQL (JOIN incluido)
-        pedidos = repository_service.get_pedidos_pendientes_sql()
+        pedidos = VentasRepository.get_pedidos_pendientes()
         
         # 2. Determinar tenant para filtrado
         tenant = get_tenant_from_request()
@@ -490,8 +489,16 @@ def eliminar_producto_pedido():
         if not item: return jsonify({"error": "No hallado"}), 404
         
         # Restaurar stock
-        from backend.app import actualizar_stock
-        actualizar_stock(cod, float(item.cantidad or 0), "STOCK_BODEGA", "ENTRADA", f"ELIMINACION {id_p}")
+        from backend.services.stock_service import StockService
+        # FIX (ticket task_10a6a645): la llamada original pasaba 5 argumentos
+        # posicionales contra una firma de 4 (codigo, cantidad, almacen,
+        # operacion) y además mandaba "ENTRADA" donde se esperaba 'sumar'/
+        # 'restar' — lanzaba TypeError siempre, capturado por el except con
+        # rollback, así que la eliminación del producto nunca se confirmaba.
+        # `registrar_entrada` es el helper de 3 args que ya encapsula
+        # operacion='sumar' para este caso (restaurar stock eliminado).
+        logger.info(f"Restaurando stock por eliminación de producto {cod} del pedido {id_p}")
+        StockService.registrar_entrada(cod, float(item.cantidad or 0), "STOCK_BODEGA")
         
         db.session.delete(item)
         db.session.commit()
@@ -921,7 +928,7 @@ def actualizar_progreso_pedido():
 def registrar_despacho():
     """Registra un envío/despacho parcial o total de un pedido y descuenta stock."""
     from backend.models.sql_models import db, Pedido, DespachoPedido
-    from backend.app import registrar_salida
+    from backend.services.stock_service import StockService
     try:
         data = request.json
         if not data:
@@ -957,8 +964,7 @@ def registrar_despacho():
             return jsonify({"success": False, "error": "ID de pedido e items son requeridos"}), 400
 
         despachos_creados = 0
-        tz_colombia = pytz.timezone('America/Bogota')
-        fecha_actual = datetime.now(tz_colombia)
+        fecha_actual = get_colombia_time()
 
         for item in items:
             codigo = item.get('id_codigo')
@@ -986,7 +992,7 @@ def registrar_despacho():
                 db.session.add(nuevo_despacho)
 
                 # 2. Descontar stock de p_terminado (único punto de entrada/salida)
-                res_salida = registrar_salida(codigo, cant_enviada, 'P. TERMINADO')
+                res_salida = StockService.registrar_salida(codigo, cant_enviada, 'P. TERMINADO')
                 if isinstance(res_salida, dict) and "error" in res_salida:
                     raise Exception(f"No se pudo actualizar stock de p_terminado para {codigo}: {res_salida['error']}")
 

@@ -5,11 +5,11 @@ from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usu
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
 from backend.services.audit_service import AuditService, OwnershipMismatchException, TurnoInvalidoException
-from backend.services.pulido_service import PulidoService
+from backend.services.pulido_service import PulidoService, TrabajoPulidoNoEncontradoException
 from backend.services.pausas_service import PausasService
+from backend.utils.time_utils import get_colombia_time
 import uuid
 from datetime import datetime
-import pytz
 import logging
 import json
 
@@ -27,8 +27,11 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
         # Si no existe (o fue borrado de la DB), crear uno nuevo para evitar Error 500
         if id_pulido:
             logger.warning(f" [RECOVERY] id_pulido {id_pulido} no encontrado en DB. Creando nuevo registro.")
-        registro = ProduccionPulido(id_pulido=id_pulido or f"PUL-{ahora.strftime('%Y%m%d%H%M%S')}")
+        registro = ProduccionPulido(id_pulido=id_pulido or f"PUL-{ahora.strftime('%Y%m%d%H%M%S')}", fecha_registro=ahora)
         db.session.add(registro)
+
+    if not getattr(registro, 'fecha_registro', None):
+        registro.fecha_registro = ahora
 
     # Mapeo y Estandarización
     registro.fecha = datetime.strptime(data.get('fecha_inicio', ahora.strftime('%Y-%m-%d')), '%Y-%m-%d').date()
@@ -296,8 +299,7 @@ def registrar_pulido():
         if not data:
             return jsonify({"success": False, "error": "No data provided"}), 400
 
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz)
+        ahora = get_colombia_time()
 
         # Lógica de Upsert (Evitar duplicados por id_pulido)
         id_pulido = data.get('id_pulido')
@@ -480,8 +482,7 @@ def pausar_pulido():
         if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
         
         # Blindaje: Forzar timestamp de Colombia (Bogotá)
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz)
+        ahora = get_colombia_time()
 
         # Si el frontend envía una hora específica, intentar usarla para la parte de tiempo
         hora_front = data.get('hora_pausa')
@@ -512,8 +513,7 @@ def reanudar_pulido():
         if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
         
         if registro.hora_pausa:
-            colombia_tz = pytz.timezone('America/Bogota')
-            ahora = datetime.now(colombia_tz)
+            ahora = get_colombia_time()
 
             # Si el frontend envía una hora específica de reanudación
             hora_front = data.get('hora_reanudar')
@@ -562,8 +562,7 @@ def swap_pulido_task():
 
         # 1. Pausar TODO lo que esté TRABAJANDO para este operario
         # Usamos la hora de Colombia para asegurar consistencia en el registro de pausa
-        colombia_tz = pytz.timezone('America/Bogota')
-        now = datetime.now(colombia_tz).replace(tzinfo=None)
+        now = get_colombia_time()
         trabajos_activos = ProduccionPulido.query.filter(
             ProduccionPulido.responsable == responsable,
             ProduccionPulido.estado == 'TRABAJANDO'
@@ -995,8 +994,7 @@ def reporte_masivo():
         if not items:
             return jsonify({"success": False, "error": "No hay items para registrar"}), 400
 
-        colombia_tz = pytz.timezone('America/Bogota')
-        ahora = datetime.now(colombia_tz)
+        ahora = get_colombia_time()
         fecha_actual = ahora.date()
 
         for item in items:
@@ -1023,6 +1021,7 @@ def reporte_masivo():
             registro = ProduccionPulido(
                 id_pulido=id_pulido,
                 fecha=fecha_actual,
+                fecha_registro=ahora,
                 codigo=referencia,
                 responsable=responsable,
                 cantidad_real=int(buenos),
@@ -1229,3 +1228,143 @@ def registrar_pnc_pulido():
         return jsonify({"success": False, "error": str(e)}), 500
 
 # Eliminado endpoint duplicado /api/pulido/liquidar_lote
+
+
+# ====================================================================
+# FLUJO MES (multitarea con auto-pausa/reanudación y pausas fijas
+# programadas) — movido desde backend/app.py
+# ====================================================================
+
+@pulido_bp.route('/api/mes/pulido/estado', methods=['GET'])
+def mes_get_pulido_estado():
+    """Retorna TODOS los trabajos abiertos o pausados de un operario (Multitasking)."""
+    try:
+        responsable = request.args.get('responsable')
+        return jsonify(PulidoService.obtener_estado_multitarea(responsable))
+    except Exception as e:
+        logger.error(f"Error en mes_get_pulido_estado: {e}")
+        return jsonify({'en_curso': False, 'error': str(e)}), 500
+
+
+@pulido_bp.route('/api/mes/pulido/iniciar', methods=['POST'])
+def mes_iniciar_pulido():
+    """Inicia un nuevo registro de trabajo en Pulido."""
+    data = request.json or {}
+    try:
+        resultado = PulidoService.iniciar_trabajo(data.get('responsable'), data.get('producto'))
+        return jsonify({'success': True, 'mensaje': 'Trabajo iniciado correctamente', **resultado}), 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"❌ Error en mes_iniciar_pulido: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pulido_bp.route('/api/mes/pulido/finalizar', methods=['POST'])
+def mes_finalizar_pulido():
+    """Cierra el registro de pulido, calcula mermas y actualiza inventario SQL."""
+    data = request.json or {}
+    try:
+        resultado = PulidoService.finalizar_trabajo(data)
+        return jsonify({'success': True, 'mensaje': 'Reporte finalizado y stock actualizado', **resultado}), 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except TrabajoPulidoNoEncontradoException as e:
+        return jsonify({'success': False, 'error': e.message}), 404
+    except Exception as e:
+        logger.error(f"❌ Error en mes_finalizar_pulido: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pulido_bp.route('/api/mes/pulido/pausar', methods=['POST'])
+def mes_pausar_pulido():
+    """Registra una pausa manual en el flujo MES de pulido."""
+    data = request.json or {}
+    try:
+        PulidoService.pausar_trabajo(data.get('responsable'), data.get('motivo', 'Otras'))
+        return jsonify({'success': True, 'mensaje': 'Trabajo pausado correctamente'}), 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except TrabajoPulidoNoEncontradoException as e:
+        return jsonify({'success': False, 'error': e.message}), 404
+    except Exception as e:
+        logger.error(f"❌ Error en mes_pausar_pulido: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pulido_bp.route('/api/mes/pulido/reanudar', methods=['POST'])
+def mes_reanudar_pulido():
+    """Finaliza una pausa y vuelve a poner el trabajo en proceso con soporte multitarea."""
+    data = request.json or {}
+    try:
+        resultado = PulidoService.reanudar_trabajo(data.get('responsable'), data.get('id') or data.get('id_trabajo'))
+        return jsonify({'success': True, 'mensaje': 'Trabajo reanudado con éxito', **resultado}), 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except TrabajoPulidoNoEncontradoException as e:
+        return jsonify({'success': False, 'error': e.message}), 404
+    except Exception as e:
+        logger.error(f"❌ Error en mes_reanudar_pulido: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pulido_bp.route('/api/mes/pulido/resumen_pausas', methods=['GET'])
+def mes_get_resumen_pausas():
+    """Retorna el detalle de las pausas para un trabajo específico."""
+    try:
+        resultado = PulidoService.obtener_resumen_pausas(
+            request.args.get('responsable'),
+            request.args.get('id'),
+        )
+        return jsonify({'success': True, **resultado}), 200
+    except TrabajoPulidoNoEncontradoException as e:
+        return jsonify({'success': False, 'error': e.message}), 404
+    except Exception as e:
+        logger.error(f"❌ Error en mes_get_resumen_pausas: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pulido_bp.route('/api/pulido/ultimo_registro/<responsable>', methods=['GET'])
+def get_ultimo_registro_pulido_legacy(responsable):
+    """
+    Variante legacy (path param en vez de query string) de
+    /api/pulido/ultimo_registro. Movida desde app.py con el bug corregido:
+    la rama en que SÍ se encuentra un registro no retornaba nada, lo que
+    causaba un 500 de Flask ('view function did not return a valid
+    response'). Se replica el shape de respuesta de la variante hermana
+    (get_ultimo_registro_pulido, arriba) para que ambas sean consistentes.
+    """
+    try:
+        registro = (
+            ProduccionPulido.query
+            .filter(ProduccionPulido.responsable == responsable)
+            .order_by(ProduccionPulido.id.desc())
+            .first()
+        )
+
+        if not registro:
+            return jsonify({'success': True, 'registro': None})
+
+        hora_ref = registro.hora_fin or registro.hora_inicio
+        if registro.fecha and hora_ref:
+            try:
+                fecha_hora_str = f"{registro.fecha.strftime('%d/%m/%Y')} {hora_ref.strftime('%H:%M')}"
+            except Exception:
+                fecha_hora_str = str(registro.fecha)
+        else:
+            fecha_hora_str = registro.fecha.strftime('%d/%m/%Y') if registro.fecha else '—'
+
+        return jsonify({
+            'success': True,
+            'registro': {
+                'fecha_hora': fecha_hora_str,
+                'codigo_producto': registro.codigo or '—',
+                'cantidad': float(registro.cantidad_real or 0),
+                'cantidad_aprobada': float(registro.cantidad_real or 0),
+                'piezas': float(registro.cantidad_real or 0)
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en get_ultimo_registro_pulido_legacy: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

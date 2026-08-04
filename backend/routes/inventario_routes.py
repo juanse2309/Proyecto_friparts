@@ -3,8 +3,9 @@ Rutas de inventario.
 Endpoints REST para operaciones de inventario.
 """
 from flask import Blueprint, jsonify, request
-from backend.services.inventario_service import inventario_service
-from backend.core.repository_service import repository_service
+from backend.services.inventario_service import inventario_service, InventarioService
+from backend.core.base_repository import base_repository
+from backend.core.exceptions import AppException
 from datetime import datetime
 import logging
 
@@ -80,7 +81,7 @@ def registrar_conteo():
         
         # Buscar si ya hay un proceso abierto hoy para este producto en SQL
         # IMPORTANTE: to_legacy=False para usar llaves SQL reales (fecha, id_codigo, etc)
-        registros = repository_service.get_all('conteos', to_legacy=False)
+        registros = base_repository.get_all('conteos', to_legacy=False)
         
         fila_proceso_sql = None
         conteo_existente = None
@@ -107,7 +108,7 @@ def registrar_conteo():
                 "observaciones": observaciones_user,
                 "tipo_stock": tipo_stock
             }
-            if not repository_service.insert_one('conteos', nueva_fila):
+            if not base_repository.insert_one('conteos', nueva_fila):
                 return jsonify({"success": False, "error": "Error al insertar el primer conteo en la base de datos."}), 500
                 
             return jsonify({
@@ -136,7 +137,7 @@ def registrar_conteo():
             c1_val = int(c1)
             if c1_val == cantidad:
                 # COINCIDEN -> FINALIZAR
-                if not repository_service.update_one('conteos', filtros_update, {
+                if not base_repository.update_one('conteos', filtros_update, {
                     "conteo_2": cantidad,
                     "estado": "FINALIZADO",
                     "observaciones": f"Coincidencia en 2do conteo. {nueva_obs}".strip()
@@ -150,7 +151,7 @@ def registrar_conteo():
                                 ("p_terminado" if codigo.startswith(('FR-', 'MT-')) else "stock_bodega")
                     
                     # CORRECCIÓN: Usar db_productos según modelo SQLAlchemy
-                    repository_service.update_one('db_productos', {"codigo_sistema": codigo}, {col_target: cantidad})
+                    base_repository.update_one('db_productos', {"codigo_sistema": codigo}, {col_target: cantidad})
                     logger.info(f"Stock físico de {codigo} actualizado en {col_target} a {cantidad} (SQL).")
                 except Exception as e_stock:
                     logger.error(f"Error actualizando stock SQL: {e_stock}")
@@ -164,7 +165,7 @@ def registrar_conteo():
                 })
             else:
                 # NO COINCIDEN -> PEDIR TERCERO
-                if not repository_service.update_one('conteos', filtros_update, {
+                if not base_repository.update_one('conteos', filtros_update, {
                     "conteo_2": cantidad,
                     "estado": "DISCREPANCIA",
                     "observaciones": f"Dif: {c1_val} vs {cantidad}. {nueva_obs}".strip()
@@ -181,7 +182,7 @@ def registrar_conteo():
                 })
         
         # ES EL TERCER CONTEO (DEFINITIVO)
-        if not repository_service.update_one('conteos', filtros_update, {
+        if not base_repository.update_one('conteos', filtros_update, {
             "conteo_3": cantidad,
             "estado": "FINALIZADO",
             "observaciones": f"Finalizado con 3er conteo por {responsable}. {nueva_obs}".strip()
@@ -192,7 +193,7 @@ def registrar_conteo():
         try:
             col_target = "por_pulir" if tipo_stock == "por_pulir" else \
                         ("p_terminado" if codigo.startswith(('FR-', 'MT-')) else "stock_bodega")
-            repository_service.update_one('db_productos', {"codigo_sistema": codigo}, {col_target: cantidad})
+            base_repository.update_one('db_productos', {"codigo_sistema": codigo}, {col_target: cantidad})
             logger.info(f"Stock físico de {codigo} actualizado tras 3er conteo (SQL).")
         except Exception as e_stock:
             logger.error(f"Error actualizando stock SQL (3er conteo): {e_stock}")
@@ -207,3 +208,136 @@ def registrar_conteo():
     except Exception as e:
         logger.error(f"Error en conteo: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ====================================================================
+# CATÁLOGO DE PRODUCTOS / FICHAS / MOLDES / CACHE
+# (migrado desde backend/app.py)
+# ====================================================================
+
+@inventario_bp.route('/api/producto/<codigo>', methods=['GET'])
+def obtener_producto(codigo):
+    """Obtiene información resumida del producto (código sistema + código ensamble)."""
+    try:
+        return jsonify(InventarioService.obtener_producto_resumen(codigo)), 200
+    except AppException as e:
+        return jsonify({'error': e.mensaje}), e.codigo
+    except Exception as e:
+        logger.error(f"Error en obtener_producto: {str(e)}")
+        return jsonify({'error': f'Error del servidor: {str(e)}'}), 500
+
+
+@inventario_bp.route('/api/obtener_ficha/<id_codigo>', methods=['GET'])
+def obtener_ficha(id_codigo):
+    """Obtiene la ficha técnica (buje de origen y cantidad unitaria) de un producto."""
+    return jsonify(InventarioService.obtener_ficha_tecnica(id_codigo)), 200
+
+
+@inventario_bp.route('/api/moldes', methods=['GET'])
+def obtener_moldes():
+    """Obtiene la lista de moldes activos."""
+    try:
+        return jsonify(InventarioService.obtener_moldes_activos()), 200
+    except Exception as e:
+        logger.error(f"Error en obtener_moldes: {e}")
+        return jsonify([]), 200
+
+
+@inventario_bp.route('/api/moldes/validar', methods=['POST'])
+def validar_molde():
+    """Valida si las cavidades solicitadas no superan el máximo del molde."""
+    data = request.json or {}
+    try:
+        InventarioService.validar_molde(data.get('molde'), int(data.get('cavidades', 0)))
+        return jsonify({'success': True, 'message': 'Validación exitosa'}), 200
+    except AppException as e:
+        return jsonify({'success': False, 'error': e.mensaje}), e.codigo
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@inventario_bp.route('/api/obtener_fichas', methods=['GET'])
+def obtener_fichas():
+    """Obtiene todas las fichas técnicas (nueva_ficha_maestra)."""
+    try:
+        return jsonify(InventarioService.obtener_fichas_tecnicas()), 200
+    except Exception as e:
+        logger.error(f"Error obteniendo fichas SQL: {e}")
+        return jsonify([]), 500
+
+
+@inventario_bp.route('/api/productos/listar_v2', methods=['GET'])
+def listar_productos_v2():
+    """Endpoint optimizado para la tabla de inventario con semáforos."""
+    try:
+        return jsonify(InventarioService.listar_productos_v2()), 200
+    except Exception as e:
+        logger.error(f"❌ Error en listar_productos_v2 SQL: {e}")
+        return jsonify({"success": False, "error": str(e), "detail": "Error en el servidor al listar productos (V2)"}), 500
+
+
+@inventario_bp.route('/api/productos/crear_dual', methods=['POST'])
+@inventario_bp.route('/api/productos/dual', methods=['POST'])
+def crear_producto_dual():
+    """Registra un nuevo producto en db_productos."""
+    data = request.json or {}
+    try:
+        InventarioService.crear_producto(
+            id_codigo=data.get('id_codigo', ''),
+            codigo_sistema_raw=str(data.get('codigo_sistema', '')).strip(),
+            descripcion=data.get('descripcion', ''),
+            precio=data.get('precio', 0),
+            stock_inicial=data.get('stock_inicial', 0),
+        )
+        return jsonify({"success": True, "message": "Producto creado en PostgreSQL"}), 200
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@inventario_bp.route('/api/cache/invalidar', methods=['POST'])
+def invalidar_cache_endpoint():
+    """Endpoint para forzar la invalidación del cache de productos."""
+    try:
+        InventarioService.invalidar_cache_productos()
+        return jsonify({'status': 'success', 'message': 'Cache de productos invalidado'}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@inventario_bp.route('/api/cache/estado', methods=['GET'])
+def estado_cache():
+    """Obtiene el estado actual del cache de productos."""
+    return jsonify({'status': 'success', 'cache': InventarioService.obtener_estado_cache()}), 200
+
+
+@inventario_bp.route('/api/productos/limpiar_cache', methods=['POST'])
+def limpiar_cache_manual():
+    """Fuerza la limpieza manual del cache de productos."""
+    try:
+        InventarioService.limpiar_cache_productos()
+        return jsonify({"status": "success", "message": "Inventario actualizado"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@inventario_bp.route('/api/producto/historial/<codigo>', methods=['GET'])
+def obtener_historial_producto(codigo):
+    """Obtiene el historial de movimientos (Inyección + Pulido + Ventas) de un producto."""
+    try:
+        resultado = InventarioService.obtener_historial_producto(codigo)
+        return jsonify({'status': 'success', **resultado}), 200
+    except Exception as e:
+        logger.error(f"❌ Error en obtener_historial_producto SQL: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@inventario_bp.route('/api/productos/buscar_alternativas/<interno>', methods=['GET'])
+def buscar_alternativas(interno):
+    """Busca productos que comparten el mismo ID CODIGO (INTERNO)."""
+    try:
+        return jsonify(InventarioService.buscar_alternativas(interno)), 200
+    except Exception as e:
+        logger.error(f"Error en buscar_alternativas SQL: {e}")
+        return jsonify([]), 500

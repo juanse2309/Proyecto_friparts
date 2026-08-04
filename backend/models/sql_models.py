@@ -10,6 +10,7 @@ import random
 from sqlalchemy.orm import validates
 from backend.core.sql_database import db
 from backend.utils.formatters import normalizar_codigo_sin_prefijo, preservar_o_normalizar_prefijo
+from backend.utils.time_utils import get_colombia_time
 
 
 class Producto(db.Model):
@@ -155,6 +156,11 @@ class ProduccionPulido(db.Model):
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
     id_pulido       = db.Column(db.String(100), index=True, nullable=True) # VARCHAR
     fecha           = db.Column(db.DateTime, index=True, nullable=True)
+    # default=get_colombia_time: fallback Python-side por si algún insert no pasa por
+    # PulidoService (que ya fija fecha_registro explícitamente con la misma fuente de
+    # verdad). server_default=func.now() queda solo como red de seguridad a nivel DB
+    # (nunca se dispara mientras SQLAlchemy siga enviando el default de Python).
+    fecha_registro  = db.Column(db.DateTime, index=True, default=get_colombia_time, server_default=db.func.now())
     codigo          = db.Column(db.String(100), index=True, nullable=True) # VARCHAR
     responsable     = db.Column(db.String(200), nullable=True) # VARCHAR
     cantidad_real   = db.Column(db.Integer,     default=0) # int4 en DB

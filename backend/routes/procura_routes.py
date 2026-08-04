@@ -125,8 +125,16 @@ def registrar_oc():
             # 2. Actualizar Stock en SQL
             cant_rec = float(item.get("cantidad_recibida", 0))
             if cant_rec > 0:
-                from backend.app import actualizar_stock
-                actualizar_stock(item.get("producto"), cant_rec, "STOCK_BODEGA", "ENTRADA", f"OC {n_oc_ref}")
+                from backend.services.stock_service import StockService
+                # FIX (ticket task_10a6a645): la llamada original pasaba 5
+                # argumentos posicionales contra una firma de 4 (codigo,
+                # cantidad, almacen, operacion), y además "ENTRADA" donde se
+                # esperaba 'sumar'/'restar' — con cant_rec > 0 lanzaba
+                # TypeError siempre, capturado abajo con rollback de TODA la
+                # orden de compra. `registrar_entrada` es el helper de 3 args
+                # que ya encapsula operacion='sumar' para este caso.
+                logger.info(f"Entrada de stock por OC {n_oc_ref}: {item.get('producto')} x{cant_rec}")
+                StockService.registrar_entrada(item.get("producto"), cant_rec, "STOCK_BODEGA")
 
         db.session.commit()
         invalidate_cache('procura')

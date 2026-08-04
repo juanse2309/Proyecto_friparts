@@ -272,3 +272,44 @@ def registrar_pnc_inyeccion():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# ====================================================================
+# RESIDUAL LEGACY (registro directo, config de cavidades, cálculo de
+# producción) — movido desde backend/app.py
+# ====================================================================
+
+@inyeccion_bp.route('/api/inyeccion', methods=['POST'])
+def registrar_inyeccion():
+    """Registra una operación de inyección en SQL-Native con descuento de BOM (flujo legacy)."""
+    data = request.get_json()
+    try:
+        resultado = InyeccionService.registrar_directa(data)
+        return jsonify({'success': True, 'id': resultado['id'], 'message': 'Inyección registrada en SQL con BOM'}), 201
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"❌ Error en registrar_inyeccion SQL: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@inyeccion_bp.route('/api/cavidades/config', methods=['GET'])
+def obtener_config_cavidades():
+    """Obtiene la configuración de cavidades disponibles."""
+    try:
+        return jsonify({"status": "success", "config": InyeccionService.obtener_config_cavidades()}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@inyeccion_bp.route('/api/inyeccion/calcular', methods=['POST'])
+def calcular_inyeccion():
+    """Calcula la producción total basada en cantidad y cavidades."""
+    data = request.get_json() or {}
+    try:
+        resultado = InyeccionService.calcular_produccion(data.get('cantidad'), data.get('cavidades'), data.get('pnc', 0))
+        return jsonify({"status": "success", "calculos": resultado}), 200
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+

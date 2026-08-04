@@ -40,8 +40,16 @@ class TestWOSyncRoute(unittest.TestCase):
         data = json.loads(response.data.decode('utf-8'))
         self.assertFalse(data["success"])
 
-    def test_recibir_datos_key_correcta(self):
-        """Debe retornar 200 y la cantidad de registros si la key es correcta y viene envuelta"""
+    def test_recibir_datos_key_correcta_todos_stock_cero(self):
+        """
+        Debe retornar 400 cuando la key es valida pero TODOS los registros llegan
+        sin stock (o en 0): es la pre-auditoria de seguridad de recibir_datos()
+        (backend/routes/wo_routes.py) que aborta la sincronizacion a proposito,
+        para no sobreescribir inventario_wo real con un reporte vacio/mal
+        exportado. Los codigos FR-9304/FR-9305 son productos reales en
+        inventario_wo (verificado en BD), por eso este test NO manda un campo
+        de stock: no debe llegar nunca al DELETE+INSERT real.
+        """
         headers = {
             'X-API-Key': 'clave_de_prueba_secreta_123'
         }
@@ -58,11 +66,10 @@ class TestWOSyncRoute(unittest.TestCase):
             content_type='application/json',
             headers=headers
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         data = json.loads(response.data.decode('utf-8'))
-        self.assertTrue(data["success"])
-        self.assertEqual(data["recibidos"], 2)
-        self.assertEqual(data["nombre_vista"], "Vista_Tabla_Inventarios")
+        self.assertFalse(data["success"])
+        self.assertIn("saldos son 0", data["error"])
 
     def test_recibir_datos_fallback_lista(self):
         """Debe retornar 200 y soportar una lista directa por retrocompatibilidad"""

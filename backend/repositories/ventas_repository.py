@@ -1,0 +1,303 @@
+"""
+Repositorio de Pedidos/Ventas 100% SQL-First.
+Centraliza el acceso a db_pedidos, db_ventas, db_costos (costeo) y cartera_wo.
+"""
+import logging
+import calendar
+from sqlalchemy import text
+from backend.core.sql_database import db, rollback_seguro
+from backend.utils.numeric_helpers import _num
+
+logger = logging.getLogger(__name__)
+
+
+class VentasRepository:
+    """Repositorio para operaciones de Pedidos/Ventas vía SQL crudo."""
+
+    @staticmethod
+    def get_pedidos_pendientes():
+        """
+        Obtiene pedidos pendientes para Almacén con mapeo robusto.
+        """
+        try:
+            sql = """
+                SELECT
+                    id, id_pedido, fecha, hora, estado, delegado_a, vendedor,
+                    nit, cliente, direccion, ciudad, id_codigo, descripcion,
+                    cantidad, precio_unitario, total, observaciones, progreso,
+                    progreso_despacho, cant_alistada
+                FROM db_pedidos
+                WHERE estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
+                  AND estado IS NOT NULL
+                ORDER BY fecha ASC, id_pedido ASC
+            """
+            rows = db.session.execute(text(sql)).mappings().all()
+
+            agrupados = {}
+            for r in rows:
+                nro_pedido = str(r['id_pedido'] or '').strip()
+                if not nro_pedido: continue
+
+                if nro_pedido not in agrupados:
+                    # Formateo de dirección/ciudad para el frontend
+                    dir_raw = str(r['direccion'] or 'S/D').strip()
+                    ciu_raw = str(r['ciudad'] or 'S/C').strip()
+                    dir_final = f"{dir_raw} - {ciu_raw}" if ciu_raw and ciu_raw.upper() != 'S/C' else dir_raw
+
+                    agrupados[nro_pedido] = {
+                        "id": nro_pedido,
+                        "id_pedido": nro_pedido,
+                        "nro_pedido": nro_pedido,
+                        "fecha_creacion": f"{str(r['fecha'])[:10]} {str(r['hora']).strip()}" if r['fecha'] else '',
+                        "fecha": str(r['fecha'])[:10] if r['fecha'] else '',
+                        "hora": str(r['hora'] or '').strip(),
+                        "cliente": str(r['cliente'] or 'Cliente Desconocido').strip(),
+                        "nit": str(r['nit'] or 'S/N').strip(),
+                        "direccion": dir_final,
+                        "ciudad": ciu_raw,
+                        "vendedor": str(r['vendedor'] or '').strip(),
+                        "estado": str(r['estado'] or 'PENDIENTE').strip().upper(),
+                        "delegado_a": str(r['delegado_a'] or '').strip(),
+                        "observaciones": str(r['observaciones'] or '').strip(),
+                        "progreso": str(r['progreso'] or '0').replace('%', ''),
+                        "progreso_despacho": str(r['progreso_despacho'] or '0').replace('%', ''),
+                        "productos": []
+                    }
+
+                # Mapeo de producto individual (ID CODIGO)
+                codigo = str(r['id_codigo'] or '').strip().upper()
+
+                # Limpieza de cantidades (manejo de strings o nulls)
+                def _parse_num(v):
+                    if not v: return 0.0
+                    try: return float(str(v).replace('$', '').replace(',', '').strip())
+                    except: return 0.0
+
+                agrupados[nro_pedido]["productos"].append({
+                    "id_sql": r['id'],
+                    "codigo": codigo,
+                    "id_codigo": codigo,
+                    "descripcion": str(r['descripcion'] or '').strip(),
+                    "cantidad": _parse_num(r['cantidad']),
+                    "precio_unitario": _parse_num(r['precio_unitario']),
+                    "total": _parse_num(r['total']),
+                    "cant_alistada": str(r['cant_alistada'] or '0'),
+                    "cant_lista": str(r['cant_alistada'] or '0')
+                })
+
+            return list(agrupados.values())
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[VentasRepository.get_pedidos_pendientes] ERROR: {e}")
+            return []
+
+    @staticmethod
+    def get_desglose_mensual_ventas(mes, anio, tipo_vista='money'):
+        """Obtiene el desglose de ventas por producto para un mes y año, optimizado y agrupado."""
+        try:
+            params = {'mes': mes, 'anio': anio}
+
+            def _sql_cast_num(col):
+                # Columna ya NUMERIC nativo: COALESCE directo evita el bug de perder
+                # el signo '-' de devoluciones/NC que tenia el cast via texto+regex.
+                return f"COALESCE({col}, 0)"
+
+            # Optimización de fechas para uso de índices
+            last_day = calendar.monthrange(int(anio), int(mes))[1]
+            start_date = f"{anio}-{str(mes).zfill(2)}-01"
+            end_date = f"{anio}-{str(mes).zfill(2)}-{last_day}"
+            params['start_date'] = start_date
+            params['end_date'] = end_date
+
+            # Determinar columna de ordenamiento
+            order_col = 'total_ventas' if tipo_vista == 'money' else 'unidades'
+
+            sql = f"""
+                WITH VentasPeriodo AS (
+                    SELECT
+                        productos as raw_string,
+                        CASE
+                            WHEN productos LIKE '%|%' THEN TRIM(SPLIT_PART(productos, '|', 1))
+                            WHEN productos LIKE '% %' THEN TRIM(SPLIT_PART(productos, ' ', 1))
+                            ELSE TRIM(productos)
+                        END as raw_codigo,
+
+                        CASE
+                            WHEN productos LIKE '%|%' THEN TRIM(SPLIT_PART(productos, '|', 2))
+                            WHEN productos LIKE '% %' THEN TRIM(SUBSTRING(productos FROM POSITION(' ' IN productos) + 1))
+                            ELSE ''
+                        END as desc_raw,
+
+                        cantidad,
+                        total_ingresos
+                    FROM db_ventas
+                    WHERE fecha >= :start_date AND fecha <= :end_date
+                      AND (clasificacion ILIKE '%venta%' OR clasificacion IS NULL)
+                )
+                SELECT
+                    v.raw_codigo as id_codigo,
+                    COALESCE(
+                        p.descripcion,
+                        NULLIF(v.desc_raw, ''),
+                        v.raw_string
+                    ) as descripcion,
+                    SUM({_sql_cast_num('v.cantidad')}) as unidades,
+                    SUM({_sql_cast_num('v.total_ingresos')}) as total_ventas
+                FROM VentasPeriodo v
+                LEFT JOIN db_productos p ON v.raw_codigo = p.id_codigo
+                                         OR v.raw_codigo = p.codigo_sistema
+                GROUP BY v.raw_codigo, p.descripcion, v.desc_raw, v.raw_string
+                HAVING SUM({_sql_cast_num('v.cantidad')}) > 0
+                ORDER BY {order_col} DESC
+            """
+
+            rows = db.session.execute(text(sql), params).mappings().all()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[VentasRepository.get_desglose_mensual_ventas] {e}")
+            return []
+
+    @staticmethod
+    def get_backorder_detalle_por_cliente(cliente_nombre, start_date=None, end_date=None):
+        """Retorna el detalle de productos pendientes para un cliente específico con impacto financiero."""
+
+        def _sql_cast_num(col):
+            # Columna ya NUMERIC nativo: COALESCE directo evita el bug de perder
+            # el signo '-' de devoluciones/NC que tenia el cast via texto+regex.
+            return f"COALESCE({col}, 0)"
+
+        filt = ""
+        params = {"cliente": f"%{cliente_nombre}%"}
+        if start_date and end_date:
+            filt = "AND fecha BETWEEN :sd AND :ed"
+            params["sd"] = start_date
+            params["ed"] = end_date
+
+        sql = text(f"""
+            WITH totals AS (
+                SELECT
+                    b.productos as full_desc,
+                    TRIM(split_part(REPLACE(b.productos::TEXT, 'FR-', ''), ' ', 1)) as ref_final,
+                    SUM(CASE WHEN b.clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as p_qty,
+                    SUM(CASE WHEN b.clasificacion ILIKE '%venta%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as v_qty
+                FROM db_ventas b
+                LEFT JOIN db_cliente_equivalencias e
+                    ON UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))
+                    OR UPPER(TRIM(b.nombres)) ILIKE '%' || UPPER(TRIM(e.alias)) || '%'
+                WHERE (
+                    b.nombres ILIKE :cliente
+                    OR (CASE WHEN UPPER(TRIM(b.nombres)) ILIKE '%DISTRIBUJES%'
+                        THEN 'FELIPE DUARTE MORENO' ELSE COALESCE(e.nombre_canonical, b.nombres) END) ILIKE :cliente
+                ) {filt.replace('fecha', 'b.fecha')}
+                AND UPPER(TRIM(b.nombres)) NOT ILIKE '%FRIPARTS%'
+                GROUP BY b.productos
+            ),
+            unique_costs AS (
+                SELECT referencia, MAX({_sql_cast_num('costo_total')}) as cost
+                FROM db_costos
+                GROUP BY referencia
+            )
+            SELECT
+                t.full_desc,
+                t.ref_final,
+                t.p_qty,
+                t.v_qty,
+                (t.p_qty - t.v_qty) as diff_qty,
+                COALESCE(c.cost, 0) as unit_cost
+            FROM totals t
+            LEFT JOIN unique_costs c ON t.ref_final = c.referencia
+            WHERE (t.p_qty - t.v_qty) > 0
+            ORDER BY (t.p_qty - t.v_qty) DESC
+        """)
+
+        results = []
+        try:
+            results = db.session.execute(sql, params).fetchall()
+        except Exception as e_join:
+            logger.warning(f"[VentasRepository.get_backorder_detalle_por_cliente JOIN fallback]: {e_join}")
+            rollback_seguro()
+            sql_fallback = text(f"""
+                WITH totals AS (
+                    SELECT
+                        productos as full_desc,
+                        TRIM(split_part(REPLACE(productos::TEXT, 'FR-', ''), ' ', 1)) as ref_final,
+                        SUM(CASE WHEN clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as p_qty,
+                        SUM(CASE WHEN clasificacion ILIKE '%venta%' THEN {_sql_cast_num('cantidad')} ELSE 0 END) as v_qty
+                    FROM db_ventas
+                    WHERE (CASE WHEN UPPER(TRIM(nombres)) ILIKE '%DISTRIBUJES%'
+                        THEN 'FELIPE DUARTE MORENO' ELSE nombres END) ILIKE :cliente {filt}
+                        AND UPPER(TRIM(nombres)) NOT ILIKE '%FRIPARTS%'
+                    GROUP BY productos
+                ),
+                unique_costs AS (
+                    SELECT referencia, MAX({_sql_cast_num('costo_total')}) as cost
+                    FROM db_costos
+                    GROUP BY referencia
+                )
+                SELECT
+                    t.full_desc,
+                    t.ref_final,
+                    t.p_qty,
+                    t.v_qty,
+                    (t.p_qty - t.v_qty) as diff_qty,
+                    COALESCE(c.cost, 0) as unit_cost
+                FROM totals t
+                LEFT JOIN unique_costs c ON t.ref_final = c.referencia
+                WHERE (t.p_qty - t.v_qty) > 0
+                ORDER BY (t.p_qty - t.v_qty) DESC
+            """)
+            try:
+                results = db.session.execute(sql_fallback, params).fetchall()
+            except Exception as e_fb:
+                rollback_seguro()
+                logger.error(f"[VentasRepository.get_backorder_detalle_por_cliente fallback error]: {e_fb}")
+
+        try:
+            detalle = []
+            for r in results:
+                diff = _num(r[4])
+                cost = _num(r[5])
+                detalle.append({
+                    "descripcion": r[0],
+                    "referencia": r[1],
+                    "pedidos": _num(r[2]),
+                    "ventas": _num(r[3]),
+                    "pendiente": diff,
+                    "impacto": diff * cost
+                })
+            return detalle
+        except Exception as e:
+            logger.error(f"[VentasRepository.get_backorder_detalle_por_cliente] {e}")
+            return []
+
+    @staticmethod
+    def upsert_cartera_wo(datos_cartera):
+        """
+        Realiza un UPSERT masivo y eficiente en la tabla cartera_wo.
+        Procesa los datos usando Decimal para la precisión monetaria.
+        """
+        if not datos_cartera:
+            return 0
+
+        try:
+            sql = text("""
+                INSERT INTO cartera_wo (documento, identificacion, nombre, vendedor, moneda, empresa, fecha_vencimiento, saldo_documento, ultima_actualizacion)
+                VALUES (:documento, :identificacion, :nombre, :vendedor, :moneda, :empresa, :fecha_vencimiento, :saldo_documento, CURRENT_TIMESTAMP)
+                ON CONFLICT (documento) DO UPDATE SET
+                    identificacion = EXCLUDED.identificacion,
+                    nombre = EXCLUDED.nombre,
+                    vendedor = EXCLUDED.vendedor,
+                    moneda = EXCLUDED.moneda,
+                    empresa = EXCLUDED.empresa,
+                    fecha_vencimiento = EXCLUDED.fecha_vencimiento,
+                    saldo_documento = EXCLUDED.saldo_documento,
+                    ultima_actualizacion = CURRENT_TIMESTAMP
+            """)
+            db.session.execute(sql, datos_cartera)
+            db.session.commit()
+            return len(datos_cartera)
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[VentasRepository.upsert_cartera_wo] Error en el UPSERT: {e}")
+            raise e

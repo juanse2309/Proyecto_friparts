@@ -8,6 +8,7 @@ from backend.models.sql_models import ProgramacionEnsamble, Ensamble, Producto, 
 from backend.services.bom_service import calcular_descuentos_ensamble
 from sqlalchemy import text
 from backend.services.audit_service import AuditService, OwnershipMismatchException
+from backend.services.ensamble_service import EnsambleService, BomNoDisponibleException
 from backend.config.constants import FALLBACK_OPERARIO
 from backend.utils.auth_middleware import _obtener_usuario_activo
 from backend.utils.formatters import preservar_o_normalizar_prefijo
@@ -268,15 +269,15 @@ def reportar_ensamble_multi():
 
             # Lógica de Inventario (Basada en el DETALLE: buje_ensamble)
             if estado_final == 'FINALIZADO' or registro.estado == 'CONSUMO':
-                from backend.app import registrar_entrada, registrar_salida
+                from backend.services.stock_service import StockService
                 # Descontar si hay origen
                 if registro.almacen_para_descargar:
                     almacen = registro.almacen_para_descargar.upper()
                     bodega = "P. TERMINADO" if 'TERMINADO' in almacen else "PRODUCTO ENSAMBLADO"
-                    res_mov = registrar_salida(buje_detalle, cantidad, bodega)
+                    res_mov = StockService.registrar_salida(buje_detalle, cantidad, bodega)
                     if res_mov and "error" not in res_mov:
                         movimientos_inventario.append(res_mov)
-                    
+
                     db.session.add(OperacionLog(
                         modulo='ENSAMBLE', operario=responsable, accion='CONSUMO_MULTI',
                         detalles=f"Descontado {cantidad} de {buje_detalle} para ensamble {id_ensamble_global}"
@@ -286,7 +287,7 @@ def reportar_ensamble_multi():
                 if registro.almacen_destino:
                     almacen = registro.almacen_destino.upper()
                     bodega = "PRODUCTO ENSAMBLADO" if 'ENSAMBLADO' in almacen else "P. TERMINADO"
-                    res_mov = registrar_entrada(buje_detalle, cantidad, bodega)
+                    res_mov = StockService.registrar_entrada(buje_detalle, cantidad, bodega)
                     if res_mov and "error" not in res_mov:
                         movimientos_inventario.append(res_mov)
 
@@ -555,3 +556,68 @@ def registrar_pnc_ensamble():
         db.session.rollback()
         logger.error(f"❌ Error registrando PNC Ensamble: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ====================================================================
+# EJECUCIÓN DE ENSAMBLE (iniciar/finalizar sesión + BOM)
+# Movido desde backend/app.py
+# ====================================================================
+
+@ensamble_bp.route('/api/inyeccion/ensamble_desde_producto', methods=['GET'])
+def obtener_ensamble_desde_producto():
+    """Dado un código de producto, retorna su BOM completo desde NUEVA_FICHA_MAESTRA."""
+    codigo_entrada = request.args.get('codigo', '').strip()
+    try:
+        resultado = EnsambleService.obtener_bom_desde_producto(codigo_entrada)
+        return jsonify({'success': True, **resultado}), 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f" Error en obtener_ensamble_desde_producto: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ensamble_bp.route('/api/ensamble/iniciar', methods=['POST'])
+def iniciar_ensamble():
+    """
+    Persistencia inmediata al iniciar ensamble.
+    Crea un registro EN_PROCESO en db_ensambles para que sea visible en el PC de inmediato.
+    Sigue el patrón de Pulido: persistirInicioSQL.
+    """
+    data = request.get_json()
+    try:
+        resultado = EnsambleService.iniciar(data)
+        if resultado['ya_registrado']:
+            return jsonify({
+                "success": True,
+                "message": "Ensamble ya registrado",
+                "id_ensamble": resultado['id_ensamble']
+            }), 200
+        return jsonify({
+            "success": True,
+            "message": "Ensamble iniciado y persistido en SQL",
+            "id_ensamble": resultado['id_ensamble']
+        }), 201
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"❌ Error en iniciar_ensamble: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ensamble_bp.route('/api/ensamble/finalizar', methods=['POST'])
+def finalizar_ensamble():
+    """
+    Finaliza un ensamble con explosión de materiales (BOM) y descarga de inventario (Fases 1-5).
+    """
+    data = request.json
+    try:
+        resultado = EnsambleService.finalizar(data)
+        return jsonify({'success': True, 'id_ensamble': resultado['id_ensamble']}), 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except BomNoDisponibleException as e:
+        return jsonify({'success': False, 'error': e.message}), 400
+    except Exception as e:
+        logger.error(f"❌ Error en finalizar_ensamble: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

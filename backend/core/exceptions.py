@@ -38,3 +38,19 @@ class DatosInvalidos(AppException):
         mensaje = "Datos invalidos: " + ", ".join(errores)
         super().__init__(mensaje, 400)
         self.errores = errores
+
+
+class MoldeNoEncontrado(AppException):
+    """Se lanza cuando no se encuentra un molde por nombre."""
+    def __init__(self, nombre_molde: str):
+        super().__init__("Molde no encontrado", 404)
+        self.nombre_molde = nombre_molde
+
+
+class CavidadesExcedidas(AppException):
+    """Se lanza cuando las cavidades solicitadas superan el máximo del molde."""
+    def __init__(self, nombre_molde: str, cavidades_max: int):
+        mensaje = f"Exceso de cavidades. El molde {nombre_molde} soporta máximo {cavidades_max}."
+        super().__init__(mensaje, 400)
+        self.nombre_molde = nombre_molde
+        self.cavidades_max = cavidades_max

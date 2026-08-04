@@ -199,15 +199,15 @@ class DashboardService:
         Soporta filtrado reactivo por fechas desde/hasta.
         """
         try:
-            from backend.core.repository_service import repository_service
+            from backend.repositories.dashboard_repository import DashboardRepository
             import datetime
             now = datetime.datetime.now()
             current_month = now.month
             current_year = now.year
-            
+
             start = str(desde) if desde else None
             end = str(hasta) if hasta else None
-            mensual_data = repository_service.get_rendimiento_mensual_sql(start, end)
+            mensual_data = DashboardRepository.get_rendimiento_mensual_sql(start, end)
             
             rendimiento = []
             mes_actual_idx = 0
@@ -350,8 +350,8 @@ class DashboardService:
         try:
             max_ventas_val = max(0, min(50, int(max_ventas or 0)))
 
-            from backend.core.repository_service import CatalogExclusionConfig
-            excl_sin_rot = CatalogExclusionConfig.get_sql_exclusion_clause('p.codigo_sistema', mode='sin_rotacion')
+            from backend.config.business_rules import CatalogExclusionConfig
+            excl_sin_rot, excl_sin_rot_params = CatalogExclusionConfig.get_sql_exclusion_clause('p.codigo_sistema', mode='sin_rotacion')
 
             sql = f"""
                 SELECT 
@@ -390,7 +390,8 @@ class DashboardService:
             params = {
                 'max_ventas': max_ventas_val,
                 'q_raw': '%%',
-                'q_norm': '%%'
+                'q_norm': '%%',
+                **excl_sin_rot_params,
             }
 
             if q and str(q).strip():

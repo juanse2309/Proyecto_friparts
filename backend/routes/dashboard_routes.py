@@ -3,7 +3,9 @@ Rutas de dashboard.
 """
 from flask import Blueprint, jsonify, request, send_file, Response
 from backend.core.sql_database import rollback_seguro
-from backend.core.repository_service import repository_service
+from backend.repositories.ventas_repository import VentasRepository
+from backend.repositories.dashboard_repository import DashboardRepository
+from backend.repositories.producto_repository import producto_repo
 # Importados a nivel de módulo: si se resuelven dentro de un try/except propenso a
 # fallos, un error de DB deja el nombre sin definir y degenera en NameError en cascada.
 from backend.services.dashboard_service import DashboardService
@@ -26,7 +28,7 @@ def obtener_dashboard():
     """Obtiene estadísticas del dashboard."""
     try:
         # REFACTOR: 100% SQL-First
-        kpis = repository_service.get_dashboard_kpis()
+        kpis = DashboardRepository.get_dashboard_kpis()
         
         return jsonify({
             'status': 'success',
@@ -62,9 +64,9 @@ def obtener_metricas_bi():
 
         # --- RECOPILACIÓN DE DATOS (Separación de responsabilidades) ---
         try:
-            kpis = repository_service.get_dashboard_kpis(desde, hasta)
-            ranking_iny_ops = repository_service.get_ranking_operarios_inyeccion(desde, hasta)
-            ranking_maquinas_raw = repository_service.get_ranking_maquinas(desde, hasta)
+            kpis = DashboardRepository.get_dashboard_kpis(desde, hasta)
+            ranking_iny_ops = DashboardRepository.get_ranking_operarios_inyeccion(desde, hasta)
+            ranking_maquinas_raw = DashboardRepository.get_ranking_maquinas(desde, hasta)
 
             maquinas_con_pct = DashboardService.calcular_porcentajes_maquinas(ranking_maquinas_raw)
 
@@ -72,10 +74,10 @@ def obtener_metricas_bi():
             pulido_profundo  = PulidoService.get_ranking_leaderboard(desde, hasta)
             analytics_pulido = PulidoService.get_analytics_completo(desde, hasta)
             analytics_pulido["eficiencia_referencia"] = DashboardService.calcular_eficiencia_pulido_por_referencia(desde, hasta)
-            analytics_inyeccion = repository_service.get_analytics_inyeccion(desde, hasta)
+            analytics_inyeccion = DashboardRepository.get_analytics_inyeccion(desde, hasta)
 
-            stock_critico = repository_service.get_stock_critico_sql()
-            tendencia = repository_service.get_tendencia_produccion_sql(desde, hasta)
+            stock_critico = producto_repo.get_stock_critico_sql()
+            tendencia = DashboardRepository.get_tendencia_produccion_sql(desde, hasta)
         except Exception as db_err:
             rollback_seguro()
             logger.error(f"❌ Error en consultas SQL de Dashboard BI: {db_err}")
@@ -163,7 +165,7 @@ def get_desglose_mensual():
         if not mes or not anio:
             return jsonify({"success": False, "error": "Faltan parámetros mes y anio"}), 400
         
-        data = repository_service.get_desglose_mensual_ventas_sql(mes, anio, tipo_vista)
+        data = VentasRepository.get_desglose_mensual_ventas(mes, anio, tipo_vista)
         return jsonify({"success": True, "data": data})
     except Exception as e:
         rollback_seguro()
@@ -181,7 +183,7 @@ def exportar_desglose_mensual():
         if not mes or not anio:
             return jsonify({"success": False, "error": "Faltan parámetros mes y anio"}), 400
         
-        data = repository_service.get_desglose_mensual_ventas_sql(mes, anio, tipo_vista)
+        data = VentasRepository.get_desglose_mensual_ventas(mes, anio, tipo_vista)
         if not data:
             return jsonify({"success": False, "error": "No hay datos para este periodo"}), 404
 
@@ -218,7 +220,7 @@ def get_monthly_performance():
         start = str(desde) if desde else None
         end = str(hasta) if hasta else None
 
-        data = repository_service.get_monthly_performance_comparison(start, end)
+        data = DashboardRepository.get_monthly_performance_comparison(start, end)
         return jsonify({"success": True, "data": data}), 200
 
     except Exception as e:
@@ -389,4 +391,111 @@ def drilldown_inyeccion_operador():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en /api/dashboard/drilldown/inyeccion/operador: {e}")
-        return jsonify({"success": False, "error": "No fue posible obtener el detalle del operador."}), 500
+        return jsonify({"success": False, "error": "No fue posible obtener el detalle del operador."}), 500
+
+
+# ====================================================================
+# DASHBOARD AVANZADO (indicadores/rankings de Inyección y Pulido)
+# Movido desde backend/app.py
+# ====================================================================
+
+@dashboard_bp.route('/avanzado/indicador_inyeccion_sql', methods=['GET'])
+def indicador_inyeccion_sql():
+    """Calcula indicador de eficiencia de inyección usando SQL."""
+    try:
+        kpis = DashboardRepository.get_dashboard_kpis()
+        ok = kpis.get('inyeccion_ok', 0)
+        pnc = kpis.get('inyeccion_pnc', 0)
+        eficiencia = (ok / (ok + pnc) * 100) if (ok + pnc) > 0 else 100
+
+        return jsonify({
+            'status': 'success',
+            'ok': ok,
+            'pnc': pnc,
+            'total': ok + pnc,
+            'eficiencia': round(eficiencia, 2)
+        }), 200
+    except Exception as e:
+        rollback_seguro()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@dashboard_bp.route('/avanzado/indicador_pulido', methods=['GET'])
+def indicador_pulido():
+    """Calcula indicador de eficiencia de pulido usando SQL."""
+    try:
+        kpis = DashboardRepository.get_dashboard_kpis()
+        ok = kpis.get('pulido_ok', 0)
+        pnc = kpis.get('pulido_pnc', 0)
+        eficiencia = (ok / (ok + pnc) * 100) if (ok + pnc) > 0 else 100
+
+        return jsonify({
+            'status': 'success',
+            'ok': ok,
+            'pnc': pnc,
+            'total': ok + pnc,
+            'eficiencia': round(eficiencia, 2)
+        }), 200
+    except Exception as e:
+        rollback_seguro()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@dashboard_bp.route('/avanzado/produccion_maquina_avanzado', methods=['GET'])
+def produccion_maquina_avanzado():
+    """Analiza la producción por máquina usando SQL-Native."""
+    try:
+        return jsonify({'status': 'success', **DashboardRepository.get_produccion_por_maquina()}), 200
+    except Exception as e:
+        rollback_seguro()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@dashboard_bp.route('/avanzado/produccion_operario_ranking', methods=['GET'])
+def produccion_operario_ranking():
+    """Ranking consolidado de operarios (Inyección + Pulido) vía SQL."""
+    try:
+        ranking_iny = DashboardRepository.get_ranking_operarios_inyeccion()
+        ranking_pul = DashboardRepository.get_ranking_operarios_pulido()
+
+        consolidado = {}
+        for r in ranking_iny:
+            nom = r['nombre']
+            consolidado[nom] = consolidado.get(nom, 0) + r['valor']
+        for r in ranking_pul:
+            nom = r['nombre']
+            consolidado[nom] = consolidado.get(nom, 0) + r['valor']
+
+        ranking_final = sorted(consolidado.items(), key=lambda x: x[1], reverse=True)
+
+        return jsonify({
+            'status': 'success',
+            'ranking': dict(ranking_final),
+            'total_operarios': len(consolidado)
+        }), 200
+    except Exception as e:
+        rollback_seguro()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@dashboard_bp.route('/avanzado/ranking_inyeccion', methods=['GET'])
+def ranking_inyeccion():
+    """Ranking específico de inyectores vía SQL."""
+    try:
+        ranking = DashboardRepository.get_ranking_operarios_inyeccion()
+        resultado = {r['nombre']: r['valor'] for r in ranking}
+
+        return jsonify({
+            'status': 'success',
+            'ranking': resultado,
+            'total': len(ranking)
+        }), 200
+    except Exception as e:
+        rollback_seguro()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@dashboard_bp.route('/real', methods=['GET'])
+def dashboard_real_redirect():
+    from flask import redirect
+    return redirect('/api/dashboard/stats')

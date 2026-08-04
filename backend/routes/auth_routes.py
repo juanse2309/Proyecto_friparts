@@ -1,14 +1,53 @@
 from flask import Blueprint, jsonify, request, session
-from backend.core.sql_database import db
-from backend.models.sql_models import Usuario
-from werkzeug.security import generate_password_hash, check_password_hash
 import logging
-import uuid
-import datetime
-import time 
+from backend.services.auth_service import (
+    AuthService,
+    UsuarioNoEncontradoException,
+    CredencialesInvalidasException,
+    CuentaPendienteException,
+    CuentaInactivaException,
+    AccesoDenegadoException,
+    CorreoDuplicadoException,
+    NitDuplicadoException,
+)
 
 auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger(__name__)
+
+
+def restore_session_from_token():
+    """
+    Hook `before_request`: si la sesión Flask no tiene 'user'/'role' (típico
+    en PWA standalone que no comparte cookies con el navegador), intenta
+    restaurarla desde el JWT del header `Authorization: Bearer`. Movido desde
+    app.py — es lógica de autenticación, no de arranque de la aplicación.
+    """
+    import os
+    # Ignorar endpoints estáticos o de login
+    if request.path.startswith('/static/') or request.path.startswith('/api/auth/login') or request.path.startswith('/api/auth/metals/login'):
+        return
+
+    # Si la sesión ya existe, perfecto
+    if 'user' in session and 'role' in session:
+        return
+
+    # Fallback PWA Standalone: Buscar Header Authorization
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        try:
+            import jwt
+            secret = os.environ.get('JWT_PWA_SECRET')
+            if not secret:
+                raise RuntimeError("JWT_PWA_SECRET no configurada")
+            payload = jwt.decode(token, secret, algorithms=['HS256'])
+
+            session['user'] = payload['user']
+            session['role'] = payload['role']
+            logger.info(f"🔄 Sesión restaurada vía JWT para PWA (Usuario: {payload['user']})")
+        except Exception as e:
+            logger.warning(f"Error decodificando JWT PWA: {e}")
+
 
 # ====================================================================
 # FRIMETALS AUTH
@@ -16,90 +55,40 @@ logger = logging.getLogger(__name__)
 
 @auth_bp.route('/api/auth/metals/responsables', methods=['GET'])
 def get_metals_responsables():
-    """Obtiene lista de responsables de Metales desde SQL (db_usuarios)."""
+    """Obtiene lista de responsables de Metales."""
     try:
-        from backend.models.sql_models import Usuario
-        
-        # Filtro estricto para Frimetals y Administración
-        usuarios_db = Usuario.query.filter(
-            Usuario.activo == True,
-            Usuario.rol.in_(['staff frimetals', 'administracion', 'jefe de planta'])
-        ).order_by(Usuario.nombre_completo).all()
-        
-        resultado = [{
-            'username': u.username, 
-            'nombre_completo': u.nombre_completo if u.nombre_completo else u.username,
-            'nombre': u.nombre_completo if u.nombre_completo else u.username, # Compatibilidad frontend
-            'departamento': u.departamento or 'Planta'
-        } for u in usuarios_db]
-        
+        resultado = AuthService.obtener_responsables_metals()
         return jsonify({'status': 'success', 'data': resultado})
     except Exception as e:
         logger.error(f"Error fetching metals responsables SQL: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
 @auth_bp.route('/api/auth/metals/login', methods=['POST'])
 def metals_login():
-    """Login para Metales usando SQL centralizado"""
+    """Login para Metales."""
+    data = request.json or {}
     try:
-        data = request.json
-        usuario_nombre = data.get('responsable')
-        password = str(data.get('password', '')).strip() # ⚡ Limpiar espacios
+        resultado = AuthService.login_metals(data.get('responsable'), str(data.get('password', '')).strip())
 
-        if not usuario_nombre or not password:
-            return jsonify({"success": False, "message": "Faltan datos"}), 400
+        session['user'] = resultado['session']['user']
+        session['role'] = resultado['session']['role']
 
-        user = Usuario.query.filter_by(username=usuario_nombre, activo=True).first()
-
-        logger.info(f"Intento de login metals: usuario='{usuario_nombre}', encontrado={user is not None}")
-
-        if not user:
-             return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
-        
-        if check_password_hash(user.password_hash, password):
-            # Validar que sea un rol permitido para metales (o admin)
-            rol_upper = user.rol.upper()
-            
-            # Escribir sesión Flask
-            session['user'] = user.username
-            session['role'] = rol_upper
-
-            user.ultimo_acceso = datetime.datetime.utcnow()
-            db.session.commit()
-
-            # --- JWT para PWA Offline Auth ---
-            import jwt, os
-            secret = os.environ.get('JWT_PWA_SECRET')
-            if not secret:
-                raise RuntimeError("JWT_PWA_SECRET no está configurada")
-            pwa_token = jwt.encode({
-                'user': user.username,
-                'role': rol_upper,
-                'exp': datetime.datetime.utcnow() + datetime.timedelta(days=15)
-            }, secret, algorithm='HS256')
-
-            return jsonify({
-                "success": True,
-                "pwa_token": pwa_token,
-                "user": {
-                    "nombre": user.username,
-                    "rol": user.rol.capitalize(),
-                    "tipo": "METALS_STAFF"
-                }
-            })
-        else:
-            return jsonify({"success": False, "message": "Contraseña incorrecta"}), 401
+        return jsonify({
+            "success": True,
+            "pwa_token": resultado['pwa_token'],
+            "user": resultado['user']
+        })
+    except UsuarioNoEncontradoException as e:
+        return jsonify({"success": False, "message": e.message}), 404
+    except CredencialesInvalidasException as e:
+        return jsonify({"success": False, "message": e.message}), 401
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in metals SQL login: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
-
-# ====================================================================
-# HELPER: Sheets Interaction
-# ====================================================================
-def get_client_users_sheet():
-    """DEPRECATED: Usar Usuario.query en su lugar."""
-    return None
 
 # ====================================================================
 # STAFF AUTH (Responsables)
@@ -107,135 +96,72 @@ def get_client_users_sheet():
 
 @auth_bp.route('/api/auth/responsables', methods=['GET'])
 def get_responsables():
-    """Obtiene lista de operarios y staff administrativo desde SQL"""
+    """Obtiene lista de operarios y staff administrativo."""
     try:
-        # Consultar usuarios que no sean clientes
-        users = Usuario.query.filter(Usuario.rol != 'cliente', Usuario.activo == True).all()
-        
-        responsables = []
-        for u in users:
-            nombre_final = u.nombre_completo if u.nombre_completo else u.username
-            responsables.append({
-                "nombre": nombre_final,
-                "departamento": u.departamento or u.rol.capitalize(),
-                "rol": u.rol,
-                "username": u.username
-            })
-            
-        return jsonify(responsables)
-
+        return jsonify(AuthService.obtener_responsables_staff())
     except Exception as e:
         logger.error(f"Error fetching responsables from SQL: {e}")
         return jsonify({"error": str(e)}), 500
 
-# ====================================================================
-# HELPER: Credential Normalization
-# ====================================================================
-def normalize_credential(value):
-    """
-    Normaliza una credencial (documento o password) para comparacion robusta.
-    Maneja el caso comun de Excel/Sheets donde '12345' viene como 12345.0
-    """
-    if value is None:
-        return ""
-    
-    s_val = str(value).strip()
-    
-    # Si termina en .0, quitarlo (ej: "1003456789.0" -> "1003456789")
-    if s_val.endswith(".0"):
-        s_val = s_val[:-2]
 
-    # Quitar puntos y comas para comparacion agnostica de formato (1.234.567 == 1234567)
-    s_val = s_val.replace(".", "").replace(",", "")
-        
-    return s_val
+@auth_bp.route('/api/obtener_responsables', methods=['GET'])
+def obtener_responsables():
+    """
+    Retorna lista de responsables activos para dropdowns generales.
+    Prioriza db_usuarios, fallback a db_asistencia. Movido desde app.py:
+    no es un endpoint de sesión/credenciales, pero sí de gestión de usuarios.
+    """
+    try:
+        return jsonify(AuthService.obtener_responsables_generales()), 200
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo responsables SQL: {e}")
+        return jsonify([]), 200
+
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
-    """Login para Staff (Operarios/Admin) usando SQL"""
+    """Login para Staff (Operarios/Admin)."""
+    data = request.json or {}
     try:
-        data = request.json
-        usuario_nombre = data.get('responsable')
-        password = str(data.get('password', '')).strip()
+        resultado = AuthService.login_staff(data.get('responsable'), str(data.get('password', '')).strip())
 
-        if not usuario_nombre or not password:
-            return jsonify({"success": False, "message": "Faltan datos"}), 400
+        session['user'] = resultado['session']['user']
+        session['role'] = resultado['session']['role']
 
-        from sqlalchemy import or_
-        user = Usuario.query.filter(or_(Usuario.username == usuario_nombre, Usuario.cedula == usuario_nombre)).first()
-        
-        # --- DEBUG LOGIN ---
-        logger.info("--- DEBUG LOGIN (STAFF) ---")
-        logger.info(f"1. Identificador buscado (email/cedula): '{usuario_nombre}'")
-        logger.info(f"2. ¿Usuario encontrado en BD?: {user is not None}")
-        if user:
-            logger.info(f"3. Rol del usuario: {user.rol}")
-            logger.info(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'") # Sin exponer hash completo
-        logger.info("-------------------")
-
-        if not user:
-             return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
-
-        if user.rol == 'CLIENTE_PENDIENTE':
-            return jsonify({"success": False, "message": "Tu cuenta está en proceso de revisión por un administrador"}), 401
-
-        if getattr(user, 'activo', None) is False:
-             return jsonify({"success": False, "message": "Usuario inactivo"}), 401
-
-        if check_password_hash(user.password_hash, password):
-             # Guardar rol en sesión en MAYÚSCULAS para matching estricto
-             session['user'] = user.username
-             session['role'] = user.rol.upper()
-             
-             # Espejo/Log opcional en Sheets (Si se desea implementar luego)
-             user.ultimo_acceso = datetime.datetime.utcnow()
-             db.session.commit()
-             
-             # Determinar rol a retornar (Estandarizado a ADMIN para administradores)
-             rol_display = "ADMIN" if user.rol.lower() in ['admin', 'administrador', 'administracion'] else user.rol.capitalize()
-             
-             # --- JWT para PWA Offline Auth ---
-             import jwt, os
-             secret = os.environ.get('JWT_PWA_SECRET')
-             if not secret:
-                 raise RuntimeError("JWT_PWA_SECRET no está configurada")
-             pwa_token = jwt.encode({
-                 'user': user.username,
-                 'role': rol_display,
-                 'exp': datetime.datetime.utcnow() + datetime.timedelta(days=15)
-             }, secret, algorithm='HS256')
-
-             return jsonify({
-                 "success": True, 
-                 "pwa_token": pwa_token,
-                 "user": {
-                     "nombre": user.nombre_completo if user.nombre_completo else user.username,
-                     "username": user.username,
-                     "rol": rol_display,
-                     "tipo": "STAFF",
-                     "departamento": user.departamento
-                 }
-             })
-        else:
-             return jsonify({"success": False, "message": "Contraseña incorrecta."}), 401
-
+        return jsonify({
+            "success": True,
+            "pwa_token": resultado['pwa_token'],
+            "user": resultado['user']
+        })
+    except UsuarioNoEncontradoException as e:
+        return jsonify({"success": False, "message": e.message}), 404
+    except CuentaPendienteException as e:
+        return jsonify({"success": False, "message": e.message}), 401
+    except CuentaInactivaException as e:
+        return jsonify({"success": False, "message": e.message}), 401
+    except CredencialesInvalidasException as e:
+        return jsonify({"success": False, "message": e.message}), 401
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in SQL login: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
-# ====================================================================
 
 @auth_bp.route('/api/auth/logout', methods=['POST'])
 def logout_staff():
-    """Logout general"""
+    """Logout general (solo limpia la sesión Flask, no toca la base de datos)."""
     session.clear()
     return jsonify({"success": True, "message": "Sesión cerrada correctamente"}), 200
 
+
 @auth_bp.route('/api/auth/session/status', methods=['GET'])
 def get_session_status():
+    """Consulta el estado de la sesión Flask activa (no toca la base de datos)."""
     if 'role' in session:
         return jsonify({'success': True, 'role': session['role'], 'user': session.get('user')}), 200
     return jsonify({'success': False}), 401
+
 
 # ====================================================================
 # CLIENT AUTH (Portal B2B)
@@ -243,282 +169,145 @@ def get_session_status():
 
 @auth_bp.route('/api/admin/clientes/crear', methods=['POST'])
 def crear_cuenta_cliente():
-    """CUENTA CLIENTE: Crea entrada en tabla Usuarios SQL"""
+    """ADMIN: Crea una cuenta de cliente."""
+    data = request.json or {}
     try:
-        data = request.json
-        nit = str(data.get('nit', '')).strip()
-        nombre_empresa = str(data.get('nombre_empresa', '')).strip()
-        email = str(data.get('email', '')).strip().lower()
-        
-        if not nit or not email:
-            return jsonify({"success": False, "message": "NIT y Email son obligatorios"}), 400
-        
-        # Verificar si existe
-        if Usuario.query.filter_by(username=email).first():
-            return jsonify({"success": False, "message": "El correo ya está registrado"}), 400
-
-        # Password temporal: NIT
-        hashed_pw = generate_password_hash(nit, method='scrypt')
-        
-        new_user = Usuario(
-            username=email,
-            password_hash=hashed_pw,
-            nombre_completo=nombre_empresa,
-            rol='cliente',
-            nit_empresa=nit
+        resultado = AuthService.crear_cuenta_cliente(
+            nit=str(data.get('nit', '')).strip(),
+            nombre_empresa=str(data.get('nombre_empresa', '')).strip(),
+            email=str(data.get('email', '')).strip().lower(),
         )
-        db.session.add(new_user)
-        db.session.commit()
-        
         return jsonify({
             "success": True,
             "message": "Cuenta de cliente creada en SQL",
-            "password_temporal": nit
+            "password_temporal": resultado['password_temporal']
         })
-        
+    except CorreoDuplicadoException as e:
+        return jsonify({"success": False, "message": e.message}), 400
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
-        db.session.rollback()
         logger.error(f"Error creando cliente SQL: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
-# ====================================================================
-# HELPER: Data Enrichment
-# ====================================================================
-def enrich_client_data(user_data):
-    """
-    Intenta completar dirección y ciudad desde db_clientes en SQL.
-    """
-    nit = user_data.get('nit', '')
-    if not nit:
-        return user_data
-
-    try:
-        from backend.models.sql_models import DbClientes
-        # Buscar por identificación
-        match = DbClientes.query.filter(DbClientes.identificacion.ilike(f"%{nit}%")).first()
-        
-        if match:
-            if not user_data.get('direccion'):
-                user_data['direccion'] = match.direccion
-            if not user_data.get('ciudad'):
-                user_data['ciudad'] = match.ciudad
-            logger.info(f"✅ Datos enriquecidos para {nit} desde SQL (db_clientes)")
-    except Exception as e:
-        logger.error(f"⚠️ Error enriqueciendo datos desde SQL: {e}")
-            
-    return user_data
 
 @auth_bp.route('/api/auth/client/login', methods=['POST'])
 def login_client():
-    """Login para Clientes B2B usando SQL"""
+    """Login para Clientes B2B."""
+    data = request.json or {}
     try:
-        data = request.json
-        email = str(data.get('email', '')).strip().lower()
-        password = str(data.get('password', '')).strip()
+        resultado = AuthService.login_cliente(
+            str(data.get('email', '')).strip().lower(),
+            str(data.get('password', '')).strip(),
+        )
 
-        from sqlalchemy import or_
-        user = Usuario.query.filter(or_(Usuario.username == email, Usuario.cedula == email)).first()
-        
-        # --- DEBUG LOGIN CLIENTE ---
-        logger.info("--- DEBUG LOGIN (CLIENTE) ---")
-        logger.info(f"1. Identificador buscado (email/cedula): '{email}'")
-        logger.info(f"2. ¿Usuario encontrado en BD?: {user is not None}")
-        if user:
-            logger.info(f"3. Rol del usuario: {user.rol}")
-            logger.info(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'")
-        logger.info("-------------------")
-
-        if not user:
-             return jsonify({"success": False, "message": "Usuario o contraseña incorrectos"}), 401
-
-        # Control del Sandboxing
-        if user.rol == 'CLIENTE_PENDIENTE':
-            return jsonify({"success": False, "message": "Tu cuenta está en proceso de revisión por un administrador"}), 401
-            
-        if user.rol.lower() != 'cliente':
-            # Solo permitir login si el rol final es cliente
-            return jsonify({"success": False, "message": "Acceso denegado al portal B2B"}), 403
-
-        if getattr(user, 'activo', None) is False:
-             return jsonify({"success": False, "message": "Usuario inactivo"}), 401
-
-        if not check_password_hash(user.password_hash, password):
-            return jsonify({"success": False, "message": "Usuario o contraseña incorrectos"}), 401
-
-        session['user'] = user.username
-        session['role'] = 'CLIENTE'
-        
-        # --- JWT para PWA Offline Auth ---
-        import jwt, os
-        secret = os.environ.get('JWT_PWA_SECRET')
-        if not secret:
-            raise RuntimeError("JWT_PWA_SECRET no está configurada")
-        pwa_token = jwt.encode({
-            'user': user.username,
-            'role': 'CLIENTE',
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=15)
-        }, secret, algorithm='HS256')
+        session['user'] = resultado['session']['user']
+        session['role'] = resultado['session']['role']
 
         return jsonify({
             "success": True,
-            "pwa_token": pwa_token,
-            "requires_password_change": False, # Simplificado para SQL
-            "user": {
-                "nombre": user.nombre_completo,
-                "email": user.username,
-                "nit": user.nit_empresa,
-                "rol": "Cliente",
-                "tipo": "CLIENTE"
-            }
+            "pwa_token": resultado['pwa_token'],
+            "requires_password_change": resultado['requires_password_change'],
+            "user": resultado['user']
         })
-
+    except (UsuarioNoEncontradoException, CredencialesInvalidasException) as e:
+        return jsonify({"success": False, "message": e.message}), 401
+    except CuentaPendienteException as e:
+        return jsonify({"success": False, "message": e.message}), 401
+    except AccesoDenegadoException as e:
+        return jsonify({"success": False, "message": e.message}), 403
+    except CuentaInactivaException as e:
+        return jsonify({"success": False, "message": e.message}), 401
     except Exception as e:
         logger.error(f"Error in client SQL login: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+
 @auth_bp.route('/api/auth/client/register', methods=['POST'])
 def register_client():
-    """Registro público para Clientes B2B con patrón Sandboxing"""
+    """Registro público para Clientes B2B con patrón Sandboxing."""
+    data = request.json or {}
     try:
-        data = request.json
-        email = str(data.get('email', '')).strip().lower()
-        password = str(data.get('password', '')).strip()
-        nit = str(data.get('nit', '')).strip()
-        nombre_empresa = str(data.get('nombre_empresa', '')).strip()
-
-        if not all([email, password, nit, nombre_empresa]):
-            return jsonify({"success": False, "message": "Faltan datos obligatorios"}), 400
-
-        # Validar duplicados de Email o NIT
-        if Usuario.query.filter_by(username=email).first():
-            return jsonify({"success": False, "message": "El correo ya está registrado"}), 400
-            
-        if Usuario.query.filter_by(nit_empresa=nit).first():
-            return jsonify({"success": False, "message": "El NIT ya está registrado"}), 400
-
-        # Hashear la contraseña obligatoriamente con scrypt
-        hashed_pw = generate_password_hash(password, method='scrypt')
-
-        # Crear Usuario en Sala de Espera (Sandboxing)
-        nuevo_cliente = Usuario(
-            username=email,
-            password_hash=hashed_pw,
-            nombre_completo=nombre_empresa,
-            rol='CLIENTE_PENDIENTE',
-            nit_empresa=nit
+        AuthService.registrar_cliente(
+            email=str(data.get('email', '')).strip().lower(),
+            password=str(data.get('password', '')).strip(),
+            nit=str(data.get('nit', '')).strip(),
+            nombre_empresa=str(data.get('nombre_empresa', '')).strip(),
         )
-
-        db.session.add(nuevo_cliente)
-        db.session.commit()
-
         return jsonify({"success": True})
-
+    except CorreoDuplicadoException as e:
+        return jsonify({"success": False, "message": e.message}), 400
+    except NitDuplicadoException as e:
+        return jsonify({"success": False, "message": e.message}), 400
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
-        db.session.rollback()
         logger.error(f"Error en el registro público de cliente: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+
 @auth_bp.route('/api/auth/client/change-password', methods=['POST'])
 def change_password_client():
-    """Cambio de contraseña CLIENTE en SQL"""
+    """Cambio de contraseña de un CLIENTE autenticado."""
+    data = request.json or {}
     try:
-        data = request.json
-        email = str(data.get('email', '')).strip().lower()
-        old_password = str(data.get('old_password', '')).strip()
-        new_password = str(data.get('new_password', '')).strip()
-
-        if not new_password:
-             return jsonify({"success": False, "message": "La nueva contraseña es obligatoria"}), 400
-
-        user = Usuario.query.filter_by(username=email, rol='cliente').first()
-        
-        if not user:
-             return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
-
-        if not check_password_hash(user.password_hash, old_password):
-             return jsonify({"success": False, "message": "La contraseña actual es incorrecta"}), 401
-
-        # Actualizar contraseña
-        user.password_hash = generate_password_hash(new_password, method='scrypt')
-        db.session.commit()
-        
-        return jsonify({
-            "success": True, 
-            "message": "Contraseña actualizada correctamente en SQL."
-        })
-
+        AuthService.cambiar_password_cliente(
+            email=str(data.get('email', '')).strip().lower(),
+            old_password=str(data.get('old_password', '')).strip(),
+            new_password=str(data.get('new_password', '')).strip(),
+        )
+        return jsonify({"success": True, "message": "Contraseña actualizada correctamente en SQL."})
+    except UsuarioNoEncontradoException as e:
+        return jsonify({"success": False, "message": e.message}), 404
+    except CredencialesInvalidasException as e:
+        return jsonify({"success": False, "message": e.message}), 401
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
-        db.session.rollback()
         logger.error(f"Error updating SQL password: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+
 @auth_bp.route('/api/admin/clientes/listar', methods=['GET'])
 def listar_clientes():
-    """ADMIN: Lista todos los clientes registrados en SQL"""
+    """ADMIN: Lista todos los clientes registrados."""
     try:
-        users = Usuario.query.filter_by(rol='cliente').all()
-        
-        clientes = []
-        for u in users:
-            clientes.append({
-                "nit": u.nit_empresa,
-                "nombre_empresa": u.nombre_completo,
-                "email": u.username,
-                "estado": "ACTIVO" if u.activo else "INACTIVO",
-                "ultimo_acceso": u.ultimo_acceso.strftime("%Y-%m-%d %H:%M:%S") if u.ultimo_acceso else ""
-            })
-        
-        return jsonify({"success": True, "clientes": clientes})
-        
+        return jsonify({"success": True, "clientes": AuthService.listar_clientes()})
     except Exception as e:
         logger.error(f"Error listing clients SQL: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+
 @auth_bp.route('/api/admin/clientes/reset-password', methods=['POST'])
 def reset_password_admin():
-    """ADMIN: Resetea la contraseña de un cliente en SQL"""
+    """ADMIN: Resetea la contraseña de un cliente (vuelve a su NIT)."""
+    data = request.json or {}
     try:
-        data = request.json
-        email = str(data.get('email', '')).strip().lower()
-        
-        user = Usuario.query.filter_by(username=email, rol='cliente').first()
-        if not user:
-            return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
-        
-        # Reset a NIT
-        hashed_pw = generate_password_hash(user.nit_empresa, method='scrypt')
-        user.password_hash = hashed_pw
-        db.session.commit()
-        
+        resultado = AuthService.resetear_password_cliente(str(data.get('email', '')).strip().lower())
         return jsonify({
             "success": True,
             "message": "Contraseña reseteada en SQL",
-            "password_temporal": user.nit_empresa
+            "password_temporal": resultado['password_temporal']
         })
-        
+    except UsuarioNoEncontradoException as e:
+        return jsonify({"success": False, "message": e.message}), 404
     except Exception as e:
-        db.session.rollback()
         logger.error(f"Error resetting password SQL: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
+
 @auth_bp.route('/api/admin/clientes/toggle-estado', methods=['POST'])
 def toggle_estado_cliente():
-    """ADMIN: Activa/Desactiva una cuenta de cliente en SQL"""
+    """ADMIN: Activa/Desactiva una cuenta de cliente."""
+    data = request.json or {}
     try:
-        data = request.json
-        email = str(data.get('email', '')).strip().lower()
-        nuevo_estado = str(data.get('estado', 'ACTIVO')).strip().upper()
-        
-        user = Usuario.query.filter_by(username=email, rol='cliente').first()
-        if not user:
-            return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
-        
-        user.activo = (nuevo_estado == 'ACTIVO')
-        db.session.commit()
-        
-        return jsonify({"success": True, "message": f"Cuenta {'activada' if user.activo else 'desactivada'} en SQL"})
-        
+        resultado = AuthService.toggle_estado_cliente(
+            str(data.get('email', '')).strip().lower(),
+            str(data.get('estado', 'ACTIVO')).strip().upper(),
+        )
+        return jsonify({"success": True, "message": f"Cuenta {'activada' if resultado['activo'] else 'desactivada'} en SQL"})
+    except UsuarioNoEncontradoException as e:
+        return jsonify({"success": False, "message": e.message}), 404
     except Exception as e:
-        db.session.rollback()
         logger.error(f"Error toggling state SQL: {e}")
         return jsonify({"success": False, "message": str(e)}), 500

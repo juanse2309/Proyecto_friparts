@@ -10,16 +10,34 @@ Reemplaza dos fuentes de fragmentación que existían antes:
      la fila mezclara varios (bug de atribución). Ahora se leen directamente
      las 5 columnas tipadas de esa tabla, que son la fuente de verdad real.
 
-repository_service.py (capa SQL pura) sigue sin conocer negocio: expone datos
+DashboardRepository (capa SQL pura) sigue sin conocer negocio: expone datos
 crudos costeados; este servicio es quien normaliza, agrupa y arma el DTO.
 """
 import logging
+import uuid
 from datetime import datetime
 from backend.core.sql_database import db, rollback_seguro
-from backend.core.repository_service import repository_service
+from backend.repositories.dashboard_repository import DashboardRepository
+from backend.utils.time_utils import get_colombia_time
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+
+class PncDatosInvalidosException(Exception):
+    """
+    Validación de negocio de PncService.registrar (código/cantidad faltantes
+    o inválidos). Deliberadamente NO es un ValueError plano: antes del fix
+    del ticket task_651f2d99 el bug de unpacking en registrar() también
+    lanzaba `ValueError` de forma nativa, y un controlador que atrapara
+    ValueError genérico lo habría convertido en 400 ocultando ese 500. Se
+    mantiene el tipo separado tras el fix por si algún otro `ValueError`
+    inesperado aparece más adelante en el mismo método.
+    """
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
 
 # ─────────────────────────────────────────────────────────────
 # Catálogo ÚNICO de criterios normalizados (antes había dos, uno por archivo)
@@ -137,7 +155,7 @@ class PncService:
         Dashboard PNC consolidado (Inyección + Pulido + Ensamble), con fecha
         opcional. Cantidades: Inyección por columnas tipadas (sin bug de
         atribución); Pulido/Ensamble por criterio de texto normalizado.
-        Dinero: delegado a repository_service, agrupado por criterio.
+        Dinero: delegado a DashboardRepository, agrupado por criterio.
         """
         try:
             start_date, end_date = cls._parse_fechas(fecha_inicio, fecha_fin)
@@ -197,7 +215,7 @@ class PncService:
             )
             pnc_global_percentage = round(100 - fpy_global, 2)
 
-            # 6. Dinero por criterio (Inyección + Pulido), vía repository_service
+            # 6. Dinero por criterio (Inyección + Pulido), vía DashboardRepository
             modos_falla_dinero_area = cls._costear_por_criterio(
                 fecha_inicio=start_date.strftime('%Y-%m-%d') if start_date else None,
                 fecha_fin=end_date.strftime('%Y-%m-%d') if end_date else None,
@@ -221,6 +239,191 @@ class PncService:
                 "totales_area": {}, "modos_falla_area": {}, "modos_falla_dinero_area": {},
                 "pareto_referencias": [], "pnc_global_percentage": 0, "fpy_global": 100,
             }
+
+    # ── Registro de detalle PNC por operación (escritura) ─────
+    # Movido desde app.py: es lógica de Calidad (escribe en las 3 tablas
+    # db_pnc_inyeccion/db_pnc_pulido/db_pnc_ensamble), no de Pulido — aunque
+    # hoy su único caller sea PulidoService.finalizar_trabajo.
+    @staticmethod
+    def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_pnc, criterio_pnc, observaciones=""):
+        """
+        Helper para registrar PNC en las tablas específicas de producción.
+        Diferencia entre pnc_inyeccion (usa id_codigo) y pnc_pulido (usa codigo).
+
+        Para Inyección puebla las 5 columnas tipadas de db_pnc_inyeccion con el
+        mismo clasificador (_clasificar_pnc_tipado) que usan registrar_inyeccion_lote
+        y validar_lote_inyeccion en inyeccion_routes.py — antes esta función era una
+        cuarta implementación independiente que solo concatenaba texto libre
+        ("{motivo} - {observaciones}") sin tocar ninguna columna tipada, y era una
+        de las fuentes confirmadas del ~95% "Sin Clasificar" medido en producción.
+
+        Pulido y Ensamble no tienen columnas tipadas (decisión de Fase 1: no se
+        migra el esquema todavía), así que ahí solo se normaliza el texto del
+        motivo contra el catálogo único de PncService en vez de guardarlo crudo.
+        """
+        try:
+            tipo = str(tipo_proceso).lower()
+            pk_id = uuid.uuid4().hex[:8]  # Hexadecimal de 8 caracteres (DBeaver)
+
+            if tipo == 'inyeccion':
+                from backend.models.sql_models import PncInyeccion
+                from backend.services.inyeccion_service import InyeccionService
+
+                tipado, total_tipado = InyeccionService._clasificar_pnc_tipado([{'cantidad': cantidad_pnc, 'criterio': criterio_pnc}])
+                if total_tipado <= 0:
+                    logger.warning(f"⚠️ [PNC Inyeccion] '{criterio_pnc}' (cantidad={cantidad_pnc}) no clasificó en ninguna columna tipada para {codigo_producto}")
+
+                criterio_final = InyeccionService._criterio_texto_tipado(tipado)
+                if observaciones:
+                    criterio_final += f" | Obs: {observaciones}"
+
+                nueva_pnc = PncInyeccion(
+                    id_pnc_inyeccion=pk_id,
+                    id_inyeccion=str(id_operacion),
+                    id_codigo=codigo_producto,
+                    cantidad=cantidad_pnc,
+                    criterio=criterio_final,
+                    codigo_ensamble="AUDITORIA PULIDO",
+                    **tipado
+                )
+            elif tipo == 'pulido':
+                from backend.models.sql_models import PncPulido
+                motivo_normalizado = PncService.normalizar_criterio(criterio_pnc, "pulido")
+                nueva_pnc = PncPulido(
+                    id_pnc_pulido=pk_id,
+                    id_pulido=str(id_operacion),
+                    codigo=codigo_producto,
+                    cantidad=cantidad_pnc,
+                    criterio=f"{motivo_normalizado} - {observaciones}".strip(' -'),
+                    codigo_ensamble="AUDITORIA PULIDO"
+                )
+            elif tipo == 'ensamble':
+                from backend.models.sql_models import PncEnsamble
+                motivo_normalizado = PncService.normalizar_criterio(criterio_pnc, "ensamble")
+                nueva_pnc = PncEnsamble(
+                    id_pnc_ensamble=pk_id,
+                    id_ensamble=str(id_operacion),
+                    id_codigo=codigo_producto,
+                    cantidad=cantidad_pnc,
+                    criterio=f"{motivo_normalizado} - {observaciones}".strip(' -'),
+                    codigo_ensamble="AUDITORIA PULIDO"
+                )
+            else:
+                logger.warning(f"⚠️ Proceso desconocido para PNC: {tipo}")
+                return False
+
+            db.session.add(nueva_pnc)
+            logger.info(f"✅ [PNC {tipo.upper()}] Preparado registro {pk_id} para {codigo_producto}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error en registrar_pnc_detalle ({tipo_proceso}): {e}")
+            return False
+
+    # ── Registro/consulta de PNC directo (db_pnc) — movido desde app.py ────
+    @staticmethod
+    def registrar(data):
+        """
+        Registra un evento PNC en db_pnc (distinto de registrar_pnc_detalle,
+        que escribe en las tablas tipadas por proceso) y descuenta inventario
+        de STOCK_BODEGA.
+
+        FIX (ticket task_651f2d99): `StockService.registrar_salida` devuelve
+        un único dict, nunca una tupla `(bool, str)`. El código original (y
+        su migración tal cual desde backend/app.py) lo desempaquetaba en 2
+        variables, lo que lanzaba `ValueError: too many values to unpack`
+        siempre que la operación llegaba hasta aquí — todo POST /api/pnc
+        crasheaba con 500. Se corrige comprobando la clave "error" del dict,
+        igual que ya hace StockService.mover_inventario_entre_etapas.
+        """
+        if not data:
+            raise PncDatosInvalidosException('No se recibieron datos')
+
+        from backend.models.sql_models import Pnc
+
+        codigo_entrada = str(data.get('codigo_producto', '')).strip()
+        if not codigo_entrada:
+            raise PncDatosInvalidosException('Cód. de producto requerido')
+
+        id_codigo = codigo_entrada.split(' ')[0].upper()
+        cantidad = float(data.get("cantidad", 0))
+
+        if cantidad <= 0:
+            raise PncDatosInvalidosException('Cantidad debe ser mayor a 0')
+
+        try:
+            ahora = get_colombia_time()
+            fecha_str = data.get("fecha", ahora.strftime("%Y-%m-%d"))
+            fecha_dt = datetime.strptime(fecha_str, "%Y-%m-%d")
+
+            nuevo_pnc = Pnc(
+                id_pnc=data.get("id_pnc") or f"PNC-{ahora.strftime('%Y%m%d%H%M%S')}",
+                fecha=fecha_dt,
+                id_codigo=id_codigo,
+                cantidad=cantidad,
+                criterio=data.get("criterio", "No especificado"),
+                codigo_ensamble=data.get("notas", "")  # Mapeo solicitado: Notas -> codigo_ensamble
+            )
+            db.session.add(nuevo_pnc)
+
+            from backend.services.stock_service import StockService
+            resultado_salida = StockService.registrar_salida(id_codigo, cantidad, "STOCK_BODEGA")
+            if "error" in resultado_salida:
+                logger.warning(f" ⚠️ [PNC SQL] Advertencia en inventario: {resultado_salida['error']}")
+                # Mantenemos la política de "By-pass" si el usuario lo prefiere,
+                # pero aquí el registro de calidad es la prioridad.
+
+            db.session.commit()
+            logger.info(f" ✅ PNC Guardado en SQL: {id_codigo} ({cantidad} piezas)")
+
+            return {
+                'mensaje': f"PNC registrado en SQL y descontado de BODEGA: {cantidad} piezas de {id_codigo}",
+                'id_pnc': nuevo_pnc.id_pnc
+            }
+        except Exception as e:
+            db.session.rollback()
+            if not isinstance(e, PncDatosInvalidosException):
+                logger.error(f" ❌ ERROR PncService.registrar: {str(e)}")
+            raise
+
+    @staticmethod
+    def obtener_consolidado():
+        """Registros de PNC consolidados (Inyección + Pulido) para el panel de calidad."""
+        from backend.models.sql_models import PncInyeccion, PncPulido
+
+        consolidado = []
+
+        for p in PncInyeccion.query.order_by(PncInyeccion.id_row.desc()).limit(100).all():
+            consolidado.append({
+                'id': p.id_pnc_inyeccion,
+                'fecha': p.id_inyeccion.split('-')[1] if '-' in p.id_inyeccion else 'S/F',
+                'proceso': 'inyeccion',
+                'codigo_producto': p.id_codigo,
+                'responsable': 'Inyección',
+                'cantidad': p.cantidad,
+                'criterio_pnc': p.criterio,
+                'estado': 'pendiente',
+                'observaciones': p.codigo_ensamble or ''
+            })
+
+        for p in PncPulido.query.order_by(PncPulido.id_row.desc()).limit(100).all():
+            consolidado.append({
+                'id': p.id_pnc_pulido,
+                'fecha': 'S/F',
+                'proceso': 'pulido',
+                'codigo_producto': p.codigo,
+                'responsable': 'Pulido',
+                'cantidad': p.cantidad,
+                'criterio_pnc': p.criterio,
+                'estado': 'pendiente',
+                'observaciones': ''
+            })
+
+        return consolidado
+
+    @staticmethod
+    def resolver(id_pnc):
+        """Marca un PNC como resuelto. Stub: no existe todavía una columna 'estado' oficial en db_pnc."""
+        return f"PNC {id_pnc} marcado como resuelto"
 
     # ── Helpers privados ──────────────────────────────────────
 
@@ -330,13 +533,13 @@ class PncService:
     @classmethod
     def _costear_por_criterio(cls, fecha_inicio=None, fecha_fin=None):
         """
-        Trae las filas crudas costeadas de repository_service (Inyección ya
+        Trae las filas crudas costeadas de DashboardRepository (Inyección ya
         pivotada por columna tipada, Pulido con criterio de texto libre) y
         las agrupa por criterio normalizado. La normalización vive aquí
-        (capa de negocio); repository_service solo hizo el JOIN contra
+        (capa de negocio); DashboardRepository solo hizo el JOIN contra
         db_costos y la multiplicación cantidad × costo_unitario.
         """
-        filas = repository_service.get_pnc_detalle_costeado(
+        filas = DashboardRepository.get_pnc_detalle_costeado(
             desde=fecha_inicio,
             hasta=fecha_fin,
             columnas_tipadas_inyeccion=COLUMNAS_TIPADAS_INYECCION,
