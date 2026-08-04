@@ -14,7 +14,6 @@ DashboardRepository (capa SQL pura) sigue sin conocer negocio: expone datos
 crudos costeados; este servicio es quien normaliza, agrupa y arma el DTO.
 """
 import logging
-import uuid
 from datetime import datetime
 from backend.core.sql_database import db, rollback_seguro
 from backend.repositories.dashboard_repository import DashboardRepository
@@ -239,85 +238,6 @@ class PncService:
                 "totales_area": {}, "modos_falla_area": {}, "modos_falla_dinero_area": {},
                 "pareto_referencias": [], "pnc_global_percentage": 0, "fpy_global": 100,
             }
-
-    # ── Registro de detalle PNC por operación (escritura) ─────
-    # Movido desde app.py: es lógica de Calidad (escribe en las 3 tablas
-    # db_pnc_inyeccion/db_pnc_pulido/db_pnc_ensamble), no de Pulido — aunque
-    # hoy su único caller sea PulidoService.finalizar_trabajo.
-    @staticmethod
-    def registrar_pnc_detalle(tipo_proceso, id_operacion, codigo_producto, cantidad_pnc, criterio_pnc, observaciones=""):
-        """
-        Helper para registrar PNC en las tablas específicas de producción.
-        Diferencia entre pnc_inyeccion (usa id_codigo) y pnc_pulido (usa codigo).
-
-        Para Inyección puebla las 5 columnas tipadas de db_pnc_inyeccion con el
-        mismo clasificador (_clasificar_pnc_tipado) que usan registrar_inyeccion_lote
-        y validar_lote_inyeccion en inyeccion_routes.py — antes esta función era una
-        cuarta implementación independiente que solo concatenaba texto libre
-        ("{motivo} - {observaciones}") sin tocar ninguna columna tipada, y era una
-        de las fuentes confirmadas del ~95% "Sin Clasificar" medido en producción.
-
-        Pulido y Ensamble no tienen columnas tipadas (decisión de Fase 1: no se
-        migra el esquema todavía), así que ahí solo se normaliza el texto del
-        motivo contra el catálogo único de PncService en vez de guardarlo crudo.
-        """
-        try:
-            tipo = str(tipo_proceso).lower()
-            pk_id = uuid.uuid4().hex[:8]  # Hexadecimal de 8 caracteres (DBeaver)
-
-            if tipo == 'inyeccion':
-                from backend.models.sql_models import PncInyeccion
-                from backend.services.inyeccion_service import InyeccionService
-
-                tipado, total_tipado = InyeccionService._clasificar_pnc_tipado([{'cantidad': cantidad_pnc, 'criterio': criterio_pnc}])
-                if total_tipado <= 0:
-                    logger.warning(f"⚠️ [PNC Inyeccion] '{criterio_pnc}' (cantidad={cantidad_pnc}) no clasificó en ninguna columna tipada para {codigo_producto}")
-
-                criterio_final = InyeccionService._criterio_texto_tipado(tipado)
-                if observaciones:
-                    criterio_final += f" | Obs: {observaciones}"
-
-                nueva_pnc = PncInyeccion(
-                    id_pnc_inyeccion=pk_id,
-                    id_inyeccion=str(id_operacion),
-                    id_codigo=codigo_producto,
-                    cantidad=cantidad_pnc,
-                    criterio=criterio_final,
-                    codigo_ensamble="AUDITORIA PULIDO",
-                    **tipado
-                )
-            elif tipo == 'pulido':
-                from backend.models.sql_models import PncPulido
-                motivo_normalizado = PncService.normalizar_criterio(criterio_pnc, "pulido")
-                nueva_pnc = PncPulido(
-                    id_pnc_pulido=pk_id,
-                    id_pulido=str(id_operacion),
-                    codigo=codigo_producto,
-                    cantidad=cantidad_pnc,
-                    criterio=f"{motivo_normalizado} - {observaciones}".strip(' -'),
-                    codigo_ensamble="AUDITORIA PULIDO"
-                )
-            elif tipo == 'ensamble':
-                from backend.models.sql_models import PncEnsamble
-                motivo_normalizado = PncService.normalizar_criterio(criterio_pnc, "ensamble")
-                nueva_pnc = PncEnsamble(
-                    id_pnc_ensamble=pk_id,
-                    id_ensamble=str(id_operacion),
-                    id_codigo=codigo_producto,
-                    cantidad=cantidad_pnc,
-                    criterio=f"{motivo_normalizado} - {observaciones}".strip(' -'),
-                    codigo_ensamble="AUDITORIA PULIDO"
-                )
-            else:
-                logger.warning(f"⚠️ Proceso desconocido para PNC: {tipo}")
-                return False
-
-            db.session.add(nueva_pnc)
-            logger.info(f"✅ [PNC {tipo.upper()}] Preparado registro {pk_id} para {codigo_producto}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Error en registrar_pnc_detalle ({tipo_proceso}): {e}")
-            return False
 
     # ── Registro/consulta de PNC directo (db_pnc) — movido desde app.py ────
     @staticmethod
