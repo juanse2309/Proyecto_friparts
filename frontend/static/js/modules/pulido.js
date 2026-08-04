@@ -902,8 +902,10 @@ const ModuloPulido = {
         document.getElementById('buscador-productos').value = '';
         document.getElementById('orden-produccion-pulido').value = '';
         
-        // Desbloquear campos
-        ['responsable-pulido-input', 'buscador-productos', 'orden-produccion-pulido', 'lote-pulido'].forEach(id => {
+        // Desbloquear campos (incluye fecha-pulido, omitida antes — quedaba
+        // deshabilitada permanentemente tras enviarACola() o al descartar un
+        // reporte fallido, ya que iniciarCiclo()/continuarUIActiva() sí la bloquean)
+        ['fecha-pulido', 'responsable-pulido-input', 'buscador-productos', 'orden-produccion-pulido', 'lote-pulido'].forEach(id => {
             const el = document.getElementById(id);
             if(el) el.disabled = false;
         });
