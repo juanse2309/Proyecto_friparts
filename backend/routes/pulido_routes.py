@@ -5,7 +5,7 @@ from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usu
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
 from backend.services.audit_service import AuditService, OwnershipMismatchException, TurnoInvalidoException
-from backend.services.pulido_service import PulidoService, TrabajoPulidoNoEncontradoException
+from backend.services.pulido_service import PulidoService
 from backend.services.pausas_service import PausasService
 from backend.utils.time_utils import get_colombia_time
 import uuid
@@ -414,7 +414,12 @@ def get_active_pulido_session():
         responsable = request.args.get('responsable')
         if not responsable:
             return jsonify({"success": False, "error": "Falta responsable"}), 400
-        
+
+        # TTL Garbage Collector: autocierra sesiones zombi (>14h en TRABAJANDO/
+        # EN_PROCESO/PAUSADO) antes de evaluar si hay una sesión activa, para
+        # que un turno olvidado no bloquee indefinidamente el formulario.
+        PulidoService.limpiar_sesiones_zombis(responsable)
+
         # FIX Efecto Daniela: Filtrar por estado EN_PROCESO/PAUSADO,
         # NO por hora_fin=None (registros migrados no tienen hora_fin)
         query = ProduccionPulido.query.filter(ProduccionPulido.responsable == responsable)
@@ -1229,99 +1234,11 @@ def registrar_pnc_pulido():
 
 # Eliminado endpoint duplicado /api/pulido/liquidar_lote
 
-
-# ====================================================================
-# FLUJO MES (multitarea con auto-pausa/reanudación y pausas fijas
-# programadas) — movido desde backend/app.py
-# ====================================================================
-
-@pulido_bp.route('/api/mes/pulido/estado', methods=['GET'])
-def mes_get_pulido_estado():
-    """Retorna TODOS los trabajos abiertos o pausados de un operario (Multitasking)."""
-    try:
-        responsable = request.args.get('responsable')
-        return jsonify(PulidoService.obtener_estado_multitarea(responsable))
-    except Exception as e:
-        logger.error(f"Error en mes_get_pulido_estado: {e}")
-        return jsonify({'en_curso': False, 'error': str(e)}), 500
-
-
-@pulido_bp.route('/api/mes/pulido/iniciar', methods=['POST'])
-def mes_iniciar_pulido():
-    """Inicia un nuevo registro de trabajo en Pulido."""
-    data = request.json or {}
-    try:
-        resultado = PulidoService.iniciar_trabajo(data.get('responsable'), data.get('producto'))
-        return jsonify({'success': True, 'mensaje': 'Trabajo iniciado correctamente', **resultado}), 200
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
-    except Exception as e:
-        logger.error(f"❌ Error en mes_iniciar_pulido: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@pulido_bp.route('/api/mes/pulido/finalizar', methods=['POST'])
-def mes_finalizar_pulido():
-    """Cierra el registro de pulido, calcula mermas y actualiza inventario SQL."""
-    data = request.json or {}
-    try:
-        resultado = PulidoService.finalizar_trabajo(data)
-        return jsonify({'success': True, 'mensaje': 'Reporte finalizado y stock actualizado', **resultado}), 200
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
-    except TrabajoPulidoNoEncontradoException as e:
-        return jsonify({'success': False, 'error': e.message}), 404
-    except Exception as e:
-        logger.error(f"❌ Error en mes_finalizar_pulido: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@pulido_bp.route('/api/mes/pulido/pausar', methods=['POST'])
-def mes_pausar_pulido():
-    """Registra una pausa manual en el flujo MES de pulido."""
-    data = request.json or {}
-    try:
-        PulidoService.pausar_trabajo(data.get('responsable'), data.get('motivo', 'Otras'))
-        return jsonify({'success': True, 'mensaje': 'Trabajo pausado correctamente'}), 200
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
-    except TrabajoPulidoNoEncontradoException as e:
-        return jsonify({'success': False, 'error': e.message}), 404
-    except Exception as e:
-        logger.error(f"❌ Error en mes_pausar_pulido: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@pulido_bp.route('/api/mes/pulido/reanudar', methods=['POST'])
-def mes_reanudar_pulido():
-    """Finaliza una pausa y vuelve a poner el trabajo en proceso con soporte multitarea."""
-    data = request.json or {}
-    try:
-        resultado = PulidoService.reanudar_trabajo(data.get('responsable'), data.get('id') or data.get('id_trabajo'))
-        return jsonify({'success': True, 'mensaje': 'Trabajo reanudado con éxito', **resultado}), 200
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
-    except TrabajoPulidoNoEncontradoException as e:
-        return jsonify({'success': False, 'error': e.message}), 404
-    except Exception as e:
-        logger.error(f"❌ Error en mes_reanudar_pulido: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@pulido_bp.route('/api/mes/pulido/resumen_pausas', methods=['GET'])
-def mes_get_resumen_pausas():
-    """Retorna el detalle de las pausas para un trabajo específico."""
-    try:
-        resultado = PulidoService.obtener_resumen_pausas(
-            request.args.get('responsable'),
-            request.args.get('id'),
-        )
-        return jsonify({'success': True, **resultado}), 200
-    except TrabajoPulidoNoEncontradoException as e:
-        return jsonify({'success': False, 'error': e.message}), 404
-    except Exception as e:
-        logger.error(f"❌ Error en mes_get_resumen_pausas: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+# Eliminado 2026-08-04: flujo MES /api/mes/pulido/* (estado/iniciar/finalizar/
+# pausar/reanudar/resumen_pausas) — código huérfano, sin ningún caller en
+# frontend/ (verificado por grep). Reemplazado por el flujo real que usa
+# pulido.js: /api/pulido (POST), /api/pulido/session_active, /api/pulido/pausar,
+# /api/pulido/reanudar, /api/pulido/swap_task.
 
 
 @pulido_bp.route('/api/pulido/ultimo_registro/<responsable>', methods=['GET'])
