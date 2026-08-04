@@ -10,6 +10,40 @@ wo_bp = Blueprint('wo', __name__)
 logger = logging.getLogger(__name__)
 
 
+def _refrescar_mv_dashboard_ventas():
+    """
+    Refresca en cascada las vistas materializadas derivadas de db_ventas que
+    alimentan el panel de Jefatura tras una sincronización exitosa de World Office:
+      - mv_dashboard_ventas_analitica (Backorder/Top/Peores Productos)
+      - mv_rendimiento_mensual (comparativo mensual Ventas vs Pedidos)
+    Ver backend/sql/create_mv_dashboard_ventas_analitica.sql y
+    backend/sql/create_mv_rendimiento_mensual.sql.
+
+    REFRESH ... CONCURRENTLY no puede correr dentro de una transacción, así que se
+    abre una conexión aparte en autocommit. Cada vista se refresca de forma
+    independiente: si una falla, la otra igual se intenta. Un fallo aquí se loggea
+    pero no debe tumbar la respuesta de sync: los datos de db_ventas ya se
+    confirmaron con éxito, y el dashboard simplemente seguirá sirviendo el
+    snapshot anterior de la vista que falló hasta el próximo refresh exitoso.
+    """
+    from backend.core.sql_database import db
+
+    vistas = ["mv_dashboard_ventas_analitica", "mv_rendimiento_mensual"]
+    try:
+        conn = db.engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+        try:
+            for vista in vistas:
+                try:
+                    conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {vista}"))
+                    logger.info(f"✅ {vista} refrescada tras sincronización de WO.")
+                except Exception as e_vista:
+                    logger.error(f"⚠️ Fallo al refrescar {vista} tras sync de WO: {e_vista}")
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f"⚠️ Fallo al abrir conexión para refrescar vistas materializadas tras sync de WO: {e}")
+
+
 # ====================================================================
 # UTILIDADES DE NORMALIZACIÓN
 # ====================================================================
@@ -441,6 +475,7 @@ def recibir_comercial():
                 """))
                 db.session.commit()
                 logger.info("✅ Sincronización comercial completada con volcado atómico desde Staging Table.")
+                _refrescar_mv_dashboard_ventas()
             except Exception as db_err:
                 db.session.rollback()
                 logger.error(f"❌ Error en volcado de staging a producción: {db_err}")
@@ -617,6 +652,7 @@ def sincronizar_automatica():
         )
         db.session.add(log_exito)
         db.session.commit()
+        _refrescar_mv_dashboard_ventas()
 
         return jsonify({
             "status": "success",

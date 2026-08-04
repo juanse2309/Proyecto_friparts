@@ -1113,6 +1113,7 @@ window.ModuloDashboard = (function () {
                             }
 
                             // Render dynamic SweetAlert Modal with sub-bar-chart
+                            let modalChartInstance = null;
                             Swal.fire({
                                 title: `Modos de Falla — ${areaLabel}`,
                                 html: `
@@ -1145,7 +1146,7 @@ window.ModuloDashboard = (function () {
                                         return val >= 1000000 ? `$${(val / 1000000).toFixed(1)}M` : formatCOP_Modal.format(val);
                                     };
 
-                                    new Chart(modalCtx, {
+                                    modalChartInstance = new Chart(modalCtx, {
                                         type: 'bar',
                                         data: {
                                             labels: Object.keys(modos),
@@ -1186,6 +1187,17 @@ window.ModuloDashboard = (function () {
                                             }
                                         }
                                     });
+                                },
+                                willClose: () => {
+                                    // willClose corre ANTES de que Swal desmonte el <canvas> del DOM
+                                    // (didClose corre después: para entonces Chart.getChart('chartModalPNC')
+                                    // ya no encuentra el nodo y el destroy() nunca se ejecuta — verificado
+                                    // empíricamente con una fuga de +1 instancia por apertura). Se usa la
+                                    // referencia directa de la instancia en vez de una búsqueda por DOM.
+                                    if (modalChartInstance) {
+                                        modalChartInstance.destroy();
+                                        modalChartInstance = null;
+                                    }
                                 }
                             });
                         }
@@ -1885,27 +1897,47 @@ window.ModuloDashboard = (function () {
 
         const f_desde = document.getElementById('db-fecha-desde');
         const f_hasta = document.getElementById('db-fecha-hasta');
+        const btnAplicarFiltro = document.getElementById('btn-actualizar-dashboard');
 
         // Restaurar desde localStorage o usar valores por defecto (últimos 30 días)
         const hoy = new Date();
         const hace30 = new Date();
         hace30.setDate(hoy.getDate() - 30);
 
-        const onDateFilterChange = () => {
-            if (f_desde) localStorage.setItem(LS_DESDE, f_desde.value);
-            if (f_hasta) localStorage.setItem(LS_HASTA, f_hasta.value);
-            console.log("📅 Filtro de fechas modificado. Disparando recarga reactiva...");
-            cargarDatos(true);
-            fetchAndRenderMonthlyPerformance('chartMensual', f_desde?.value || '', f_hasta?.value || '');
-        };
-
+        // Los inputs de fecha ya NO disparan recarga por sí solos (anti-patrón: recargaba
+        // el dashboard completo en cada 'change', bloqueando al usuario a mitad de elegir
+        // el rango). Solo restauran/persisten su valor; la recarga se dispara
+        // explícitamente con el botón #btn-actualizar-dashboard.
         if (f_desde) {
             f_desde.value = localStorage.getItem(LS_DESDE) || hoy.toISOString().split('T')[0]; // Default a HOY
-            f_desde.addEventListener('change', onDateFilterChange);
         }
         if (f_hasta) {
             f_hasta.value = localStorage.getItem(LS_HASTA) || hoy.toISOString().split('T')[0]; // Default a HOY
-            f_hasta.addEventListener('change', onDateFilterChange);
+        }
+
+        const aplicarFiltroFechas = async () => {
+            if (f_desde) localStorage.setItem(LS_DESDE, f_desde.value);
+            if (f_hasta) localStorage.setItem(LS_HASTA, f_hasta.value);
+            console.log("📅 Filtro de fechas aplicado por el usuario. Disparando recarga...");
+
+            const btnHtmlOriginal = btnAplicarFiltro ? btnAplicarFiltro.innerHTML : null;
+            try {
+                if (btnAplicarFiltro) {
+                    btnAplicarFiltro.disabled = true;
+                    btnAplicarFiltro.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> <span>Analizando...</span>';
+                }
+                await cargarDatos(true);
+                await fetchAndRenderMonthlyPerformance('chartMensual', f_desde?.value || '', f_hasta?.value || '');
+            } finally {
+                if (btnAplicarFiltro) {
+                    btnAplicarFiltro.disabled = false;
+                    btnAplicarFiltro.innerHTML = btnHtmlOriginal;
+                }
+            }
+        };
+
+        if (btnAplicarFiltro) {
+            btnAplicarFiltro.addEventListener('click', aplicarFiltroFechas);
         }
 
         const savedToggle = localStorage.getItem(LS_TOGGLE) || 'money';
