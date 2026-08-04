@@ -11,27 +11,60 @@ window.addEventListener('unhandledrejection', event => {
 
 // --- REGISTRO DEL SERVICE WORKER (PWA) ---
 if ('serviceWorker' in navigator) {
+
+    // Banner de actualización disponible: el operario decide cuándo recargar
+    // (evita perder datos de un formulario a medio llenar en planta por un reload forzado).
+    function mostrarBannerActualizacionPWA() {
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                toast: true,
+                position: 'bottom',
+                icon: 'info',
+                title: 'Actualización de FRITECH disponible',
+                text: 'Hay una nueva versión lista para instalar.',
+                confirmButtonText: 'Actualizar ahora',
+                showCloseButton: true,
+                allowOutsideClick: true,
+                allowEscapeKey: true
+            }).then(result => {
+                if (result.isConfirmed) {
+                    window.location.reload(true);
+                }
+            });
+        } else if (window.AuthModule && typeof window.AuthModule.mostrarNotificacion === 'function') {
+            window.AuthModule.mostrarNotificacion('Actualización de FRITECH disponible. Recarga la página para aplicarla.', 'info');
+        } else {
+            console.log('🆕 Actualización de FRITECH disponible. Recarga la página para aplicarla.');
+        }
+    }
+
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
             .then(registration => {
                 console.log('SW Registro OK. Scope:', registration.scope);
+
+                // Caso 1: ya había un Service Worker nuevo instalado antes de este registro
+                if (registration.waiting) {
+                    mostrarBannerActualizacionPWA();
+                }
+
+                // Caso 2: se detecta una actualización mientras la app sigue abierta
+                registration.addEventListener('updatefound', () => {
+                    const nuevoWorker = registration.installing;
+                    if (!nuevoWorker) return;
+
+                    nuevoWorker.addEventListener('statechange', () => {
+                        // 'installed' + ya existe un controller = es una actualización real (no la primera instalación)
+                        if (nuevoWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            console.log('🆕 Nueva versión de FRITECH instalada, esperando confirmación del usuario.');
+                            mostrarBannerActualizacionPWA();
+                        }
+                    });
+                });
             })
             .catch(err => {
                 console.error('❌ Error al registrar el ServiceWorker:', err);
             });
-    });
-
-    // Recargar automáticamente cuando un nuevo Service Worker tome el control
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!refreshing) {
-            console.log('🔄 Nueva versión de la app detectada. Recargando para aplicar actualización...');
-            if (window.AuthModule && typeof window.AuthModule.mostrarNotificacion === 'function') {
-                window.AuthModule.mostrarNotificacion('Actualizando la aplicación a la última versión...', 'info');
-            }
-            refreshing = true;
-            setTimeout(() => window.location.reload(), 1500); // Dar un momento para mostrar el mensaje
-        }
     });
 }
 
