@@ -153,7 +153,10 @@ class AuthService:
         db_usuarios; si no hay resultados, cae a colaboradores distintos
         registrados en db_asistencia.
         """
-        usuarios = Usuario.query.filter_by(activo=True).order_by(Usuario.nombre_completo).all()
+        usuarios = Usuario.query.filter(
+            Usuario.activo == True,
+            ~Usuario.rol.ilike('%cliente%')
+        ).order_by(Usuario.nombre_completo).all()
         datos = [{
             "nombre": u.nombre_completo if u.nombre_completo else u.username,
             "departamento": u.departamento or "",
