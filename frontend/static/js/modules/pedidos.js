@@ -2051,6 +2051,11 @@ if (!window.initPedidos) {
 }
 
 // --- INYECCIÓN IMPERATIVA: BOTÓN DE HISTORIAL DE ENVIADOS (GESTIÓN DE PEDIDOS) ---
+// DESHABILITADO (Política Cero Tolerancia a Código Zombi): la fuente de "fecha_despacho"
+// que consume esta vista (GET /api/pedidos/listar) cae a fecha_creacion cuando no existe
+// despacho real en db_despachos_pedido, mostrando "Mismo día" para pedidos nunca despachados.
+// Feature incompleta retirada del frontend hasta que se corrija esa fuente de datos.
+/*
 (function() {
     // 1. ESTADO DE VISTA: Inicializar la propiedad global en el módulo de Pedidos
     ModuloPedidos.vistaActual = "activos";
@@ -2247,3 +2252,4 @@ if (!window.initPedidos) {
         setTimeout(inyectarBotonHistorial, 500);
     }
 })();
+*/
