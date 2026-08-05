@@ -118,6 +118,23 @@ class DashboardService:
         return insights
 
     @staticmethod
+    def mapear_fechas_despacho_backorder(backorder):
+        """
+        Normaliza `ultima_fecha_despacho` del DTO de Backorder al contrato del cliente:
+        timestamp válido -> 'YYYY-MM-DD'; sin despachos registrados -> None (null JSON).
+        El rótulo visible de la ausencia lo decide la vista, no esta capa.
+        """
+        for item in backorder or []:
+            valor = item.get("ultima_fecha_despacho")
+            if hasattr(valor, 'strftime'):
+                item["ultima_fecha_despacho"] = valor.strftime('%Y-%m-%d')
+            elif valor:
+                item["ultima_fecha_despacho"] = str(valor)[:10]
+            else:
+                item["ultima_fecha_despacho"] = None
+        return backorder
+
+    @staticmethod
     def get_cartera_wo_stats():
         """
         Obtiene los indicadores principales de la tabla cartera_wo (World Office)

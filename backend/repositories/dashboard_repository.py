@@ -12,6 +12,34 @@ from backend.utils.numeric_helpers import _num
 logger = logging.getLogger(__name__)
 
 
+# Último despacho por referencia. Se agrupa por el código YA normalizado y no por
+# id_codigo crudo: en crudo 'FR-9843' y '9843' quedarían como dos filas distintas y
+# el LEFT JOIN normalizado devolvería dos matches para el mismo producto, duplicando
+# la fila de Backorder. Con el GROUP BY sobre la expresión normalizada la CTE es 1:1
+# por referencia, así que el JOIN no puede multiplicar filas por más despachos
+# parciales históricos que tenga el ítem.
+_SQL_CTE_ULTIMOS_DESPACHOS = """
+    ultimos_despachos AS (
+        SELECT
+            TRIM(UPPER(REPLACE(id_codigo::TEXT, 'FR-', ''))) AS ref_despacho,
+            MAX(fecha) AS ultima_fecha_despacho
+        FROM db_despachos_pedido
+        WHERE id_codigo IS NOT NULL
+        GROUP BY 1
+    )
+"""
+
+
+def _sql_ref_desde_producto(col):
+    """
+    db_ventas.productos y mv_dashboard_ventas_analitica.producto son texto libre de
+    World Office ('FR-9843 BUJE ...'): se toma el primer token sin prefijo 'FR-',
+    mismo criterio que VentasRepository.get_backorder_detalle_por_cliente, para que
+    ambos lados del JOIN contra db_despachos_pedido.id_codigo queden comparables.
+    """
+    return f"TRIM(UPPER(split_part(REPLACE({col}::TEXT, 'FR-', ''), ' ', 1)))"
+
+
 class DashboardRepository:
     """Repositorio para KPIs, rankings y analítica de Dashboard/Jefatura vía SQL crudo."""
 
@@ -751,13 +779,17 @@ class DashboardRepository:
         back_rows = []
         if not con_filtro_fecha:
             try:
-                sql_inc_mv = """
-                    SELECT nombres, producto, '' as ref_final,
-                           pedidos_qty as p_qty, ventas_qty as v_qty,
-                           (pedidos_qty - ventas_qty) as diff_qty,
-                           (pedidos_qty - ventas_qty) * avg_price as diff_money
-                    FROM mv_dashboard_ventas_analitica
-                    WHERE (pedidos_qty - ventas_qty) > 0
+                sql_inc_mv = f"""
+                    WITH {_SQL_CTE_ULTIMOS_DESPACHOS}
+                    SELECT v.nombres, v.producto, '' as ref_final,
+                           v.pedidos_qty as p_qty, v.ventas_qty as v_qty,
+                           (v.pedidos_qty - v.ventas_qty) as diff_qty,
+                           (v.pedidos_qty - v.ventas_qty) * v.avg_price as diff_money,
+                           ud.ultima_fecha_despacho
+                    FROM mv_dashboard_ventas_analitica v
+                    LEFT JOIN ultimos_despachos ud
+                        ON ud.ref_despacho = {_sql_ref_desde_producto('v.producto')}
+                    WHERE (v.pedidos_qty - v.ventas_qty) > 0
                     ORDER BY diff_money DESC
                     LIMIT 50
                 """
@@ -779,7 +811,8 @@ class DashboardRepository:
             )
             try:
                 sql_inc = f"""
-                    WITH totals AS (
+                    WITH {_SQL_CTE_ULTIMOS_DESPACHOS},
+                    totals AS (
                         SELECT
                             {_case_alias_hardcoded} as nombres,
                             b.productos as producto,
@@ -800,8 +833,11 @@ class DashboardRepository:
                         COALESCE(t.p_qty, 0) as p_qty,
                         COALESCE(t.v_qty, 0) as v_qty,
                         (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) as diff_qty,
-                        COALESCE((COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) * COALESCE(t.avg_price, 0), 0) as diff_money
+                        COALESCE((COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) * COALESCE(t.avg_price, 0), 0) as diff_money,
+                        ud.ultima_fecha_despacho
                     FROM totals t
+                    LEFT JOIN ultimos_despachos ud
+                        ON ud.ref_despacho = {_sql_ref_desde_producto('t.producto')}
                     WHERE (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) > 0
                     ORDER BY diff_money DESC
                     LIMIT 50
@@ -812,7 +848,8 @@ class DashboardRepository:
                 rollback_seguro()
                 try:
                     sql_inc_fallback = f"""
-                        WITH totals AS (
+                        WITH {_SQL_CTE_ULTIMOS_DESPACHOS},
+                        totals AS (
                             SELECT
                                 CASE WHEN UPPER(TRIM(nombres)) ILIKE '%DISTRIBUJES%'
                                      THEN 'FELIPE DUARTE MORENO' ELSE nombres END as nombres,
@@ -832,8 +869,11 @@ class DashboardRepository:
                             COALESCE(t.p_qty, 0) as p_qty,
                             COALESCE(t.v_qty, 0) as v_qty,
                             (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) as diff_qty,
-                            COALESCE((COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) * COALESCE(t.avg_price, 0), 0) as diff_money
+                            COALESCE((COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) * COALESCE(t.avg_price, 0), 0) as diff_money,
+                            ud.ultima_fecha_despacho
                         FROM totals t
+                        LEFT JOIN ultimos_despachos ud
+                            ON ud.ref_despacho = {_sql_ref_desde_producto('t.producto')}
                         WHERE (COALESCE(t.p_qty, 0) - COALESCE(t.v_qty, 0)) > 0
                         ORDER BY diff_money DESC
                         LIMIT 50
@@ -866,7 +906,9 @@ class DashboardRepository:
                 "pedidos_qty": p_qty,
                 "ventas_qty": v_qty,
                 "pendiente_qty": diff_q,
-                "pendiente_money": diff_m
+                "pendiente_money": diff_m,
+                # Crudo desde la CTE; el formateo a string lo hace DashboardService.
+                "ultima_fecha_despacho": r[7]
             })
 
         # 4. Scrap para el resumen

@@ -42,6 +42,7 @@ def clean_number(val):
 def get_admin_dashboard_data():
     from flask import request
     from backend.repositories.dashboard_repository import DashboardRepository
+    from backend.services.dashboard_service import DashboardService
 
     start_date_str = request.args.get('start')
     end_date_str = request.args.get('end')
@@ -74,7 +75,7 @@ def get_admin_dashboard_data():
                 "mensual": metrics["mensual"],
                 "top_productos": metrics["top_productos"],
                 "peores_productos": metrics["peores_productos"],
-                "backorder": metrics["backorder"],
+                "backorder": DashboardService.mapear_fechas_despacho_backorder(metrics["backorder"]),
                 "incumplimiento_unidades": metrics["incumplimiento_unidades"],
                 "incumplimiento_dinero": metrics["incumplimiento_dinero"],
                 "resumen_unidades": metrics.get("resumen_unidades", 0),
