@@ -6,6 +6,7 @@ from backend.config.constants import FALLBACK_OPERARIO
 from sqlalchemy import text
 from backend.core.tenant import get_tenant_from_request
 from backend.utils.time_utils import get_colombia_time
+from backend.utils.formatters import normalizar_codigo_sin_prefijo, sql_expr_codigo_sin_prefijo_fr
 from datetime import datetime
 import logging
 import json
@@ -177,9 +178,10 @@ def registrar_pedido():
         items_procesados = 0
         for prod in productos:
             id_sql = prod.get('id_sql')
+            # Se persiste la referencia tal como la envió el comercial. Antes se
+            # anteponía 'FR-' a todo código que empezara por '9', reetiquetando
+            # como FriParts referencias de otras divisiones.
             codigo = str(prod.get('codigo', '')).strip().upper()
-            if codigo.startswith('9') and not codigo.startswith('FR-'):
-                codigo = f"FR-{codigo}"
             cantidad = float(prod.get('cantidad', 0))
             precio = float(prod.get('precio_unitario', 0))
             descripcion = prod.get('descripcion', '')
@@ -200,8 +202,14 @@ def registrar_pedido():
             if id_sql:
                 registro_existente = Pedido.query.get(id_sql)
             else:
-                # Fallback: Buscar por id_pedido + id_codigo
-                registro_existente = Pedido.query.filter_by(id_pedido=id_pedido_final, id_codigo=codigo).first()
+                # Fallback: Buscar por id_pedido + id_codigo, tolerante al prefijo.
+                # Las líneas guardadas antes de retirar la inyección automática
+                # viven como 'FR-9304' y el payload nuevo trae '9304': comparar en
+                # crudo insertaría una línea duplicada en vez de actualizarla.
+                registro_existente = Pedido.query.filter(
+                    Pedido.id_pedido == id_pedido_final,
+                    sql_expr_codigo_sin_prefijo_fr(Pedido.id_codigo) == normalizar_codigo_sin_prefijo(codigo)
+                ).first()
 
             if registro_existente:
                 # LÓGICA DE SUMA ATÓMICA (Juan Sebastian Request)

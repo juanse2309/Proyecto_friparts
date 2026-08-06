@@ -1,6 +1,7 @@
 import uuid
 import logging
 from flask import Blueprint, jsonify, request
+from backend.core.sql_database import db
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, _obtener_usuario_activo
 from backend.services.audit_service import OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException
 from backend.services.inyeccion_service import InyeccionService, LoteInyeccionNoEncontradoException, ProgramacionNoEncontradaException
@@ -10,12 +11,20 @@ inyeccion_bp = Blueprint('inyeccion_bp', __name__)
 
 
 @inyeccion_bp.route('/api/inyeccion/lote', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION', 'ENSAMBLE', 'PULIDO', 'AUXILIAR INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION'])
 def registrar_inyeccion_lote():
     """
-    PASO 1-4: SQL-First Validation Workflow (controller delgado).
+    Registro de un lote de PRODUCCIÓN de Inyección (controller delgado).
     Parsea el request, delega toda la orquestación a InyeccionService.registrar_lote
     y traduce el resultado (o las excepciones de negocio) a JSON.
+
+    No valida lotes: ese flujo es exclusivo de /api/inyeccion/validar/<id>, por lo
+    que aquí no puede lanzarse ValidadorRequeridoException.
+
+    RBAC: solo quien inyecta puede crear lotes de inyección. Los roles de
+    calidad/inventario (CALIDAD, AUXILIAR INVENTARIO, STAFF FRIMETALS) estaban
+    aquí para el camino de validación que ya se eliminó de esta ruta; conservan
+    su acceso en /api/inyeccion/validar/<id>, que es donde auditan.
     """
     data = request.json or {}
     usuario_activo = _obtener_usuario_activo()
@@ -33,13 +42,6 @@ def registrar_inyeccion_lote():
             "responsable_in": e.responsable_in
         }), 409
 
-    except ValidadorRequeridoException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "VALIDADOR_REQUERIDO"
-        }), 400
-
     except TurnoInvalidoException as e:
         return jsonify({
             "success": False,
@@ -51,6 +53,11 @@ def registrar_inyeccion_lote():
         return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
+        # Red de seguridad: InyeccionService.registrar_lote ya hace rollback
+        # antes de propagar, pero si una ruta futura llega a tocar db.session
+        # sin pasar por un service, esta línea evita dejar la sesión colgada
+        # en el pool de Postgres.
+        db.session.rollback()
         logger.error(f" ❌ Error en registrar_inyeccion_lote: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -100,6 +107,7 @@ def validar_lote_inyeccion(id_inyeccion):
         return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error validando lote {id_inyeccion}: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -128,6 +136,7 @@ def guardar_programacion_diaria():
         return jsonify({"success": False, "error": str(val_err)}), 400
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}")
         return jsonify({"success": False, "error": "Error interno del servidor al guardar la programación"}), 500
 
@@ -146,6 +155,7 @@ def obtener_pedidos_pendientes(codigo):
         return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error en obtener_pedidos_pendientes para el código {codigo}: {e}")
         return jsonify({"success": False, "error": "Error interno del servidor al consultar pedidos"}), 500
 
@@ -164,6 +174,7 @@ def verificar_demanda_b2b(codigo):
         return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error en verificar_demanda para {codigo}: {e}")
         return jsonify({"success": False, "error": "Error interno al verificar la demanda"}), 500
 
@@ -207,6 +218,7 @@ def mes_iniciar_trabajo():
         return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error al iniciar trabajo en el MES: {e}")
         return jsonify({"success": False, "error": "Error interno al iniciar el trabajo"}), 500
 
@@ -248,6 +260,7 @@ def mes_reportar():
         return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error al reportar turno en el MES: {e}")
         return jsonify({"success": False, "error": "Error interno al finalizar el turno"}), 500
 
@@ -268,6 +281,7 @@ def registrar_pnc_inyeccion():
         return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error en registrar_pnc_inyeccion: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -287,6 +301,7 @@ def registrar_inyeccion():
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
+        db.session.rollback()
         logger.error(f"❌ Error en registrar_inyeccion SQL: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 

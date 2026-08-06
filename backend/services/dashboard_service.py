@@ -19,31 +19,50 @@ class DashboardService:
     @staticmethod
     def generar_excel_desglose(data, mes, anio):
         """
-        Genera el reporte Excel del desglose mensual de ventas.
+        Genera el reporte Excel del desglose mensual de ventas, con una hoja por dimensión:
+        'Productos' y 'Clientes'. `data` es el DTO de VentasRepository.get_desglose_mensual_ventas:
+        {"productos": [...], "clientes": [...]}.
         Retorna un BytesIO listo para send_file(); no toca el objeto Response ni Flask.
         """
-        df = pd.DataFrame(data)
+        def _hoja_productos(writer):
+            df = pd.DataFrame(data.get('productos') or [])
+            columnas_esperadas = ['id_codigo', 'descripcion', 'unidades', 'total_ventas']
+            for col in columnas_esperadas:
+                if col not in df.columns:
+                    df[col] = 0 if ('total' in col or 'unidades' in col) else ''
+            df = df[columnas_esperadas]
+            df.columns = ['Referencia', 'Descripción', 'Cantidad', 'Total (COP)']
+            df['Cantidad'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0)
+            df['Total (COP)'] = pd.to_numeric(df['Total (COP)'], errors='coerce').fillna(0)
+            df.to_excel(writer, index=False, sheet_name='Productos')
+            return df
 
-        columnas_esperadas = ['id_codigo', 'descripcion', 'unidades', 'total_ventas']
-        for col in columnas_esperadas:
-            if col not in df.columns:
-                df[col] = 0 if ('total' in col or 'unidades' in col) else ''
+        def _hoja_clientes(writer):
+            df = pd.DataFrame(data.get('clientes') or [])
+            columnas_esperadas = ['nombre_cliente', 'unidades', 'total_ventas']
+            for col in columnas_esperadas:
+                if col not in df.columns:
+                    df[col] = 0 if ('total' in col or 'unidades' in col) else ''
+            df = df[columnas_esperadas]
+            df.columns = ['Cliente', 'Cantidad', 'Total (COP)']
+            df['Cantidad'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0)
+            df['Total (COP)'] = pd.to_numeric(df['Total (COP)'], errors='coerce').fillna(0)
+            df.to_excel(writer, index=False, sheet_name='Clientes')
+            return df
 
-        df = df[columnas_esperadas]
-        df.columns = ['Referencia', 'Descripción', 'Cantidad', 'Total (COP)']
-
-        df['Cantidad'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0)
-        df['Total (COP)'] = pd.to_numeric(df['Total (COP)'], errors='coerce').fillna(0)
-
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Reporte Ventas')
-
-            worksheet = writer.sheets['Reporte Ventas']
+        def _autoajustar_columnas(worksheet, df):
             for idx, col in enumerate(df.columns):
                 val_max_len = df[col].astype(str).map(len).max() if not df.empty else 0
                 max_len = max(val_max_len, len(col)) + 2
                 worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 60)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_productos = _hoja_productos(writer)
+            _autoajustar_columnas(writer.sheets['Productos'], df_productos)
+
+            df_clientes = _hoja_clientes(writer)
+            _autoajustar_columnas(writer.sheets['Clientes'], df_clientes)
 
         output.seek(0)
         return output
@@ -300,37 +319,50 @@ class DashboardService:
         return resultado
 
     @staticmethod
-    def get_scrap_detalle(item_id):
+    def get_scrap_detalle(item_id, desde=None, hasta=None):
         """
         Obtiene el desglose detallado del scrap/mermas para una referencia específica:
         Fecha, Máquina de origen y Cantidad.
+        Respeta el Filtro Global de Fechas del dashboard cuando se provee desde/hasta;
+        sin él, mostraba el histórico completo de la referencia sin importar el período
+        que el usuario tenía seleccionado en el resto del panel.
         """
         if not item_id:
             return []
-            
+
         try:
             from backend.utils.formatters import normalizar_codigo
             cod_norm = normalizar_codigo(str(item_id).strip())
 
-            sql = text("""
-                SELECT 
+            params = {"cod_norm": cod_norm}
+            filt_iny = ""
+            filt_pul = ""
+            if desde and hasta:
+                filt_iny = " AND i.fecha_inicia BETWEEN :desde AND :hasta"
+                filt_pul = " AND d.fecha BETWEEN :desde AND :hasta"
+                params["desde"] = desde
+                params["hasta"] = hasta
+
+            sql = text(f"""
+                SELECT
                     COALESCE(to_char(i.fecha_inicia, 'YYYY-MM-DD HH24:MI'), 'Sin fecha') as fecha,
                     COALESCE(NULLIF(TRIM(i.maquina::text), ''), 'Inyección') as maquina,
                     SUM(COALESCE(p.cantidad, 0))::numeric as cantidad
                 FROM db_pnc_inyeccion p
                 LEFT JOIN (
-                    SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia, maquina 
-                    FROM db_inyeccion 
+                    SELECT DISTINCT ON (id_inyeccion) id_inyeccion, fecha_inicia, maquina
+                    FROM db_inyeccion
                     WHERE fecha_inicia IS NOT NULL
                     ORDER BY id_inyeccion, fecha_inicia DESC
                 ) i ON p.id_inyeccion = i.id_inyeccion
                 WHERE TRIM(UPPER(REPLACE(p.id_codigo::text, 'FR-', ''))) = :cod_norm
                   AND COALESCE(p.cantidad, 0) > 0
+                  {filt_iny}
                 GROUP BY COALESCE(to_char(i.fecha_inicia, 'YYYY-MM-DD HH24:MI'), 'Sin fecha'), COALESCE(NULLIF(TRIM(i.maquina::text), ''), 'Inyección')
 
                 UNION ALL
 
-                SELECT 
+                SELECT
                     COALESCE(to_char(d.fecha, 'YYYY-MM-DD'), 'Sin fecha') as fecha,
                     'Pulido' as maquina,
                     SUM(COALESCE(p.cantidad, 0))::numeric as cantidad
@@ -338,14 +370,15 @@ class DashboardService:
                 LEFT JOIN db_pulido d ON p.id_pulido = d.id_pulido
                 WHERE TRIM(UPPER(REPLACE(p.codigo::text, 'FR-', ''))) = :cod_norm
                   AND COALESCE(p.cantidad, 0) > 0
+                  {filt_pul}
                 GROUP BY COALESCE(to_char(d.fecha, 'YYYY-MM-DD'), 'Sin fecha')
 
                 ORDER BY fecha DESC
                 LIMIT 50
             """)
 
-            rows = db.session.execute(sql, {"cod_norm": cod_norm}).mappings().all()
-            
+            rows = db.session.execute(sql, params).mappings().all()
+
             return [{
                 "fecha": r['fecha'],
                 "maquina": r['maquina'],

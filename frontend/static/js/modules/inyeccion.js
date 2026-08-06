@@ -5,6 +5,9 @@
 const ModuloInyeccion = {
     productosData: [],
     responsablesData: [],
+    responsablesPulido: [], // Personal de PULIDO (filtrado server-side vía ?rol=PULIDO), para el selector de Operaria Pulido
+    _responsablesPulidoPromise: null, // Memoiza el fetch para que cualquier caller pueda hacer 'await' sin duplicar la petición
+    criteriosPnc: null,      // Catálogo canónico servido por el backend (/api/pnc/criterios)
     items: [],
     isInitialized: false,
     isFetching: false,
@@ -15,6 +18,130 @@ const ModuloInyeccion = {
     normalizarCodigo: function(c) {
         if (!c) return "";
         return String(c).toUpperCase().replace(/FR-/gi, "").trim();
+    },
+
+    // =========================================================
+    // PERSISTENCIA DE LA LISTA EN VIVO (localStorage)
+    // ---------------------------------------------------------
+    // this.items (la "Lista de Producción Agregada") no es estado de
+    // formulario: se pinta a mano en <tbody> y se muta vía onchange
+    // handlers, por lo que FormAutoSave (que solo serializa
+    // input/select/textarea) nunca la ve. Una recarga accidental del
+    // navegador en planta perdía en silencio todo lo tecleado. Se
+    // persiste solo el sub-módulo de Reporte de Máquina (operario
+    // llenando a mano): en modo Validación this.items se reconstruye
+    // siempre desde pendientesData (servidor) al elegir el lote, así
+    // que "recordar" un borrador ahí arriesgaría mezclar una auditoría
+    // vieja con datos ya cerrados en la base.
+    // =========================================================
+    _ITEMS_DRAFT_TTL_MS: 12 * 60 * 60 * 1000, // 12h, igual que FormAutoSave
+    _draftSaveTimer: null,
+
+    _getCurrentUsernameSafe: function () {
+        const user = window.AppState?.user || (typeof AuthModule !== 'undefined' ? AuthModule.currentUser : null);
+        return user?.name || user?.nombre || '';
+    },
+
+    _getItemsDraftKey: function () {
+        const username = (this._getCurrentUsernameSafe() || 'anonymous').toLowerCase().trim().replace(/\s+/g, '_');
+        return `inyeccion_items_draft_${encodeURIComponent(username)}`;
+    },
+
+    _guardarItemsDraft: function () {
+        if (this.esValidacionMode) return;
+
+        clearTimeout(this._draftSaveTimer);
+        this._draftSaveTimer = setTimeout(() => {
+            try {
+                const key = this._getItemsDraftKey();
+                if (!this.items || this.items.length === 0) {
+                    localStorage.removeItem(key);
+                    return;
+                }
+                localStorage.setItem(key, JSON.stringify({
+                    timestamp: Date.now(),
+                    items: this.items
+                }));
+            } catch (e) {
+                console.error('[Inyeccion] Error guardando borrador de lista:', e);
+            }
+        }, 400);
+    },
+
+    _limpiarItemsDraft: function () {
+        try {
+            localStorage.removeItem(this._getItemsDraftKey());
+        } catch (e) {
+            console.error('[Inyeccion] Error limpiando borrador de lista:', e);
+        }
+    },
+
+    _restaurarItemsDraft: function () {
+        if (this.esValidacionMode || (this.items && this.items.length > 0)) return;
+
+        try {
+            const key = this._getItemsDraftKey();
+            const raw = localStorage.getItem(key);
+            if (!raw) return;
+
+            const payload = JSON.parse(raw);
+            if (!payload || !Array.isArray(payload.items) || payload.items.length === 0) return;
+
+            if (Date.now() - (payload.timestamp || 0) > this._ITEMS_DRAFT_TTL_MS) {
+                localStorage.removeItem(key);
+                return;
+            }
+
+            this.items = payload.items;
+            this.renderTablaItems();
+
+            Swal.fire({
+                title: 'Lista recuperada',
+                text: `Se restauraron ${this.items.length} producto(s) que no se habían guardado antes de la recarga.`,
+                icon: 'info',
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 4500
+            });
+        } catch (e) {
+            console.error('[Inyeccion] Error restaurando borrador de lista:', e);
+        }
+    },
+
+    // Espera a que la identidad del usuario esté resuelta antes de restaurar:
+    // sin esto, en el instante en que carga la página la clave caería en
+    // "anonymous" y podría mostrarle a un operario el borrador de otro.
+    _restaurarItemsDraftCuandoListo: function () {
+        if (this._getCurrentUsernameSafe()) {
+            this._restaurarItemsDraft();
+            return;
+        }
+
+        let resuelto = false;
+        const intentarResolver = () => {
+            if (resuelto || !this._getCurrentUsernameSafe()) return;
+            resuelto = true;
+            this._restaurarItemsDraft();
+            window.removeEventListener('user-ready', handler);
+            document.removeEventListener('user-ready', handler);
+            clearInterval(interval);
+        };
+        const handler = () => intentarResolver();
+        window.addEventListener('user-ready', handler);
+        document.addEventListener('user-ready', handler);
+
+        // Respaldo por sondeo: si el evento 'user-ready' ya se disparó antes de
+        // que este listener quedara registrado (init() tarda varios fetches en
+        // llegar hasta aquí), el listener por sí solo nunca vería el evento y el
+        // borrador quedaría sin restaurar. Mismo patrón que
+        // intentarAutoSeleccionarResponsable.
+        let attempts = 0;
+        const interval = setInterval(() => {
+            attempts++;
+            intentarResolver();
+            if (resuelto || attempts > 10) clearInterval(interval);
+        }, 500);
     },
 
     init: async function () {
@@ -54,6 +181,12 @@ const ModuloInyeccion = {
             window.FormHelpers.registrarPersistencia('form-inyeccion');
         }
 
+        // Persistencia de la Lista de Producción Agregada (this.items): a
+        // diferencia de los campos del <form>, que FormAutoSave ya cubre,
+        // estas filas viven solo en memoria y una recarga accidental en
+        // planta las borraba sin aviso. Ver _restaurarItemsDraftCuandoListo.
+        this._restaurarItemsDraftCuandoListo();
+
         this.isInitialized = true;
     },
 
@@ -74,6 +207,15 @@ const ModuloInyeccion = {
                 // Mapear de objetos a strings para mantener compatibilidad con el buscador
                 this.responsablesData = responsables.map(r => typeof r === 'object' ? r.nombre : r);
             }
+
+            // 1.1 Operarias de Pulido: filtrado SERVER-SIDE (?rol=PULIDO) para el
+            // selector de Operaria Pulido. El endpoint ya excluye admin/sistema.
+            // El catálogo general (this.responsablesData) no debe usarse ahí:
+            // mostraba comerciales y administradores porque no estaba acotado.
+            await this._cargarResponsablesPulido();
+
+            // 1.2 Catálogo canónico de criterios PNC (fuente única en el backend)
+            await this.cargarCriteriosPnc();
 
             // 1.5 Cargar pendientes de validacion
             await this.cargarPendientesValidacion();
@@ -98,6 +240,51 @@ const ModuloInyeccion = {
             if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
         } finally {
             this.isFetching = false;
+        }
+    },
+
+    // Carga this.responsablesPulido y memoiza la promesa: `seleccionarLoteValidacion`
+    // se dispara desde un onchange inline en el HTML (index.html), interactivo
+    // desde que el DOM parsea — independiente de si ModuloInyeccion.init()/
+    // cargarDatos() ya terminó. Sin este guard, seleccionar un lote a validar
+    // muy rápido tras cargar la página podía ganarle la carrera al fetch y
+    // renderTablaItems() construía el <select> de Operaria Pulido sin opciones.
+    // Cualquier caller que necesite el catálogo antes de renderizar debe hacer
+    // `await this._cargarResponsablesPulido()` primero.
+    _cargarResponsablesPulido: function () {
+        if (this._responsablesPulidoPromise) return this._responsablesPulidoPromise;
+
+        this._responsablesPulidoPromise = (async () => {
+            try {
+                const datos = await fetchData('/api/obtener_responsables?rol=PULIDO');
+                this.responsablesPulido = (datos || []).map(r => typeof r === 'object' ? r.nombre : r);
+            } catch (err) {
+                console.error('Error [Inyeccion] cargando responsablesPulido:', err);
+                this.responsablesPulido = [];
+                this._responsablesPulidoPromise = null; // permitir reintentar en la próxima llamada
+            }
+            return this.responsablesPulido;
+        })();
+
+        return this._responsablesPulidoPromise;
+    },
+
+    cargarCriteriosPnc: async function () {
+        // Deliberadamente SIN fallback a una lista local: los catálogos locales
+        // divergían de los del backend y ese era justamente el defecto. Si el
+        // endpoint falla, los modales avisan en vez de ofrecer criterios que el
+        // normalizador no reconoce y terminarían agregados como "Otros".
+        try {
+            const res = await fetchData('/api/pnc/criterios');
+            if (res && res.success && res.criterios) {
+                this.criteriosPnc = res.criterios;
+                console.log('✅ [Inyeccion] Catálogo canónico de criterios PNC cargado:', this.criteriosPnc);
+            } else {
+                this.criteriosPnc = null;
+            }
+        } catch (err) {
+            console.error('Error [Inyeccion] cargando criterios PNC:', err);
+            this.criteriosPnc = null;
         }
     },
 
@@ -181,6 +368,12 @@ const ModuloInyeccion = {
             this.limpiarFormularioValidacion();
             return;
         }
+
+        // Este handler cuelga de un onchange inline en el HTML: puede dispararse
+        // antes de que ModuloInyeccion.init()/cargarDatos() termine. Esperar aquí
+        // garantiza que this.responsablesPulido ya esté poblado antes de que
+        // renderTablaItems() construya los <select> de Operaria Pulido más abajo.
+        await this._cargarResponsablesPulido();
 
         const registrosDelLote = this.pendientesData.filter(l => l.id_inyeccion === idValidacion);
         if (registrosDelLote.length === 0) {
@@ -273,7 +466,11 @@ const ModuloInyeccion = {
         btn.className = 'btn btn-success btn-lg mb-2';
         btn.style.width = '100%';
         btn.innerHTML = `<i class="fas fa-check-double me-2"></i> Validar y Registrar Lote`;
-        btn.onclick = () => this.confirmarRegistroFinal();
+        // Único camino de validación. Antes apuntaba a confirmarRegistroFinal()
+        // (POST /api/inyeccion/lote), que era una segunda ruta de cierre con
+        // reglas distintas: escribía la merma de pulido en db_pnc_inyeccion y
+        // firmaba validado_por con el operario del formulario.
+        btn.onclick = () => this.validarRegistro(idInyeccion);
 
         actions.prepend(btn);
 
@@ -284,6 +481,17 @@ const ModuloInyeccion = {
 
     validarRegistro: async function (idInyeccion) {
         if (!idInyeccion) return;
+
+        // Guard: toda merma de pulido debe quedar atribuida a una persona.
+        const sinOperaria = this.items.find(i => (i.pnc_pulido || 0) > 0 && !i.operaria_pulido);
+        if (sinOperaria) {
+            Swal.fire(
+                'Falta la operaria de pulido',
+                `Selecciona la operaria responsable de la merma de pulido de ${sinOperaria.codigo_producto}.`,
+                'warning'
+            );
+            return;
+        }
 
         const result = await Swal.fire({
             title: '¿Validar Lote?',
@@ -297,12 +505,15 @@ const ModuloInyeccion = {
         if (result.isConfirmed) {
             try {
                 mostrarLoading(true, 'Validando lote...');
-                
+
+                // Payload unificado de validación. No lleva identidad del
+                // validador: la firma la resuelve el backend desde el JWT.
                 const payload = {
                     items: this.items.map(i => ({
                         codigo: i.codigo_producto,
                         pnc_inyeccion: i.pnc || 0,
                         pnc_pulido: i.pnc_pulido || 0,
+                        operaria_pulido: i.operaria_pulido || '',
                         pnc_list: i.pnc_list || [],
                         pnc_pulido_list: i.pnc_pulido_list || []
                     }))
@@ -780,17 +991,34 @@ const ModuloInyeccion = {
         this.renderTablaItems();
     },
 
-    editarPNCLista: async function (index) {
+    // Modal único de captura de criterios. Antes existían dos copias del mismo
+    // formulario, cada una con su catálogo hardcodeado; ahora ambas áreas leen
+    // el catálogo canónico del backend y comparten esta implementación.
+    _abrirModalCriteriosPnc: async function (index, area) {
         const item = this.items[index];
         if (!item) return;
 
-        const criterios = ["Rechupe", "Quemado", "Retención", "Incompleto/Escaso", "Contaminado", "Mancha", "Deformado", "Otros"];
-        const defectosActuales = item.defectos_pnc || {};
+        const criterios = this.criteriosPnc ? this.criteriosPnc[area] : null;
+        if (!criterios || criterios.length === 0) {
+            Swal.fire(
+                'Catálogo no disponible',
+                'No se pudo cargar el catálogo de criterios PNC desde el servidor. Recarga la página antes de reportar mermas.',
+                'error'
+            );
+            return;
+        }
+
+        const esPulido = area === 'pulido';
+        const campoMapa = esPulido ? 'defectos_pnc_pulido' : 'defectos_pnc';
+        const campoLista = esPulido ? 'pnc_pulido_list' : 'pnc_list';
+        const campoTotal = esPulido ? 'pnc_pulido' : 'pnc';
+        const claseInput = esPulido ? 'swal-pnc-pulido-input' : 'swal-pnc-input';
+        const defectosActuales = item[campoMapa] || {};
 
         let htmlContent = `
             <div style="text-align: left; margin-bottom: 15px;">
                 <span class="badge bg-secondary mb-1">Producto: ${item.codigo_producto}</span>
-                <p class="text-muted small mb-0">Ingresa la cantidad de piezas defectuosas por cada criterio aplicable:</p>
+                <p class="text-muted small mb-0">Ingresa la cantidad de piezas defectuosas por cada criterio aplicable${esPulido ? ' (Pulido)' : ''}:</p>
             </div>
             <div class="pnc-list-modal-body" style="max-height: 320px; overflow-y: auto; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc;">
         `;
@@ -799,11 +1027,9 @@ const ModuloInyeccion = {
             const val = defectosActuales[crit] || 0;
             htmlContent += `
                 <div class="row align-items-center mb-2 pb-2 border-bottom" style="border-color: #f1f5f9 !important;">
-                    <div class="col-7 text-start fw-bold text-dark small" style="text-transform: capitalize;">
-                        ${crit.toLowerCase().replace(/_/g, ' ')}
-                    </div>
+                    <div class="col-7 text-start fw-bold text-dark small">${crit}</div>
                     <div class="col-5">
-                        <input type="number" min="0" class="form-control form-control-sm text-center swal-pnc-input fw-bold" data-criterio="${crit}" value="${val}" style="border-radius: 6px;">
+                        <input type="number" min="0" class="form-control form-control-sm text-center ${claseInput} fw-bold" data-criterio="${crit}" value="${val}" style="border-radius: 6px;">
                     </div>
                 </div>
             `;
@@ -811,7 +1037,7 @@ const ModuloInyeccion = {
         htmlContent += `</div>`;
 
         const { value: formValues } = await Swal.fire({
-            title: 'Reportar Criterios PNC',
+            title: esPulido ? 'Reportar Criterios PNC Pulido' : 'Reportar Criterios PNC',
             html: htmlContent,
             focusConfirm: false,
             showCancelButton: true,
@@ -819,103 +1045,47 @@ const ModuloInyeccion = {
             cancelButtonText: 'Cancelar',
             confirmButtonColor: '#e11d48',
             preConfirm: () => {
-                const inputs = document.querySelectorAll('.swal-pnc-input');
                 const resultados = {};
-                inputs.forEach(input => {
+                document.querySelectorAll(`.${claseInput}`).forEach(input => {
                     const crit = input.getAttribute('data-criterio');
                     const qty = parseInt(input.value) || 0;
-                    if (qty > 0) {
-                        resultados[crit] = qty;
-                    }
+                    if (qty > 0) resultados[crit] = qty;
                 });
                 return resultados;
             }
         });
 
         if (formValues) {
-            item.defectos_pnc = formValues; // Guardar mapa para reapertura
-            
-            // Construir el array detailed para enviar al backend
-            item.pnc_list = Object.entries(formValues).map(([criterio, cantidad]) => ({
+            item[campoMapa] = formValues; // Guardar mapa para reapertura
+
+            // Array detallado que consume el backend
+            item[campoLista] = Object.entries(formValues).map(([criterio, cantidad]) => ({
                 criterio,
                 cantidad
             }));
 
-            // Calcular suma total de PNC
             const totalPNC = Object.values(formValues).reduce((sum, val) => sum + val, 0);
 
             // Actualizar la celda principal y recalcular buenas/bruto
-            this.editarItem(index, 'pnc', totalPNC);
+            this.editarItem(index, campoTotal, totalPNC);
         }
     },
 
-    editarPNCPulidoLista: async function (index) {
+    editarPNCLista: function (index) {
+        return this._abrirModalCriteriosPnc(index, 'inyeccion');
+    },
+
+    editarPNCPulidoLista: function (index) {
+        return this._abrirModalCriteriosPnc(index, 'pulido');
+    },
+
+    setOperariaPulido: function (index, valor) {
+        // Setter dedicado: `editarItem` hace parseFloat sobre el valor y
+        // convertiría el nombre de la operaria en 0.
         const item = this.items[index];
         if (!item) return;
-
-        const criterios = ["Rayado", "Porosidad", "Exceso de Rebaba", "Medida Incorrecta", "Mal Acabado", "Otros"];
-        const defectosActuales = item.defectos_pnc_pulido || {};
-
-        let htmlContent = `
-            <div style="text-align: left; margin-bottom: 15px;">
-                <span class="badge bg-secondary mb-1">Producto: ${item.codigo_producto}</span>
-                <p class="text-muted small mb-0">Ingresa la cantidad de piezas defectuosas por cada criterio aplicable (Pulido):</p>
-            </div>
-            <div class="pnc-list-modal-body" style="max-height: 320px; overflow-y: auto; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc;">
-        `;
-
-        criterios.forEach(crit => {
-            const val = defectosActuales[crit] || 0;
-            htmlContent += `
-                <div class="row align-items-center mb-2 pb-2 border-bottom" style="border-color: #f1f5f9 !important;">
-                    <div class="col-7 text-start fw-bold text-dark small" style="text-transform: capitalize;">
-                        ${crit}
-                    </div>
-                    <div class="col-5">
-                        <input type="number" min="0" class="form-control form-control-sm text-center swal-pnc-pulido-input fw-bold" data-criterio="${crit}" value="${val}" style="border-radius: 6px;">
-                    </div>
-                </div>
-            `;
-        });
-        htmlContent += `</div>`;
-
-        const { value: formValues } = await Swal.fire({
-            title: 'Reportar Criterios PNC Pulido',
-            html: htmlContent,
-            focusConfirm: false,
-            showCancelButton: true,
-            confirmButtonText: '<i class="fas fa-save me-1"></i> Guardar PNC',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#e11d48',
-            preConfirm: () => {
-                const inputs = document.querySelectorAll('.swal-pnc-pulido-input');
-                const resultados = {};
-                inputs.forEach(input => {
-                    const crit = input.getAttribute('data-criterio');
-                    const qty = parseInt(input.value) || 0;
-                    if (qty > 0) {
-                        resultados[crit] = qty;
-                    }
-                });
-                return resultados;
-            }
-        });
-
-        if (formValues) {
-            item.defectos_pnc_pulido = formValues; // Guardar mapa para reapertura
-            
-            // Construir el array detailed para enviar al backend
-            item.pnc_pulido_list = Object.entries(formValues).map(([criterio, cantidad]) => ({
-                criterio,
-                cantidad
-            }));
-
-            // Calcular suma total de PNC
-            const totalPNC = Object.values(formValues).reduce((sum, val) => sum + val, 0);
-
-            // Actualizar la celda principal y recalcular buenas/bruto
-            this.editarItem(index, 'pnc_pulido', totalPNC);
-        }
+        item.operaria_pulido = valor || '';
+        this.renderTablaItems(); // Refresca el resaltado de campo obligatorio
     },
 
     limpiarFormularioProducto: function () {
@@ -932,16 +1102,106 @@ const ModuloInyeccion = {
         document.getElementById('codigo-producto-inyeccion').focus();
     },
 
+    renderSelectOperariaPulido: function (item, index) {
+        // Siempre un <select> interactivo y habilitado, poblado con
+        // this.responsablesPulido (catálogo filtrado server-side vía
+        // ?rol=PULIDO en /api/obtener_responsables, cargado con
+        // _cargarResponsablesPulido para evitar la condición de carrera con
+        // seleccionarLoteValidacion). Antes esta celda caía a un guion
+        // estático ('—') fuera del submódulo de Validación; y antes de eso,
+        // usar el catálogo general (this.responsablesData) exponía
+        // comerciales y administradores en un selector que debe ser solo de
+        // personal de pulido. Un <select> (en vez de texto libre) evita además
+        // variaciones tipográficas del mismo nombre, protegiendo la integridad
+        // del Leaderboard de pulido.
+        const seleccionada = item.operaria_pulido || '';
+        const requiere = (item.pnc_pulido || 0) > 0;
+
+        const opciones = (this.responsablesPulido || []).map(nombre =>
+            `<option value="${nombre}" ${nombre === seleccionada ? 'selected' : ''}>${nombre}</option>`
+        ).join('');
+
+        return `
+            <select id="iny-operaria-${index}" class="form-select form-select-sm select-operaria-pulido ${requiere && !seleccionada ? 'border-danger' : ''}"
+                    style="width: 150px;" onchange="ModuloInyeccion.setOperariaPulido(${index}, this.value)">
+                <option value="">-- Seleccionar --</option>
+                ${opciones}
+            </select>`;
+    },
+
+    _sincronizarItemsConRespuestaServidor: function (items_resultado) {
+        // Fusiona la respuesta enriquecida del servidor (que trae id_sql real
+        // y otros valores definitivos post-persistencia) con this.items para
+        // evitar desincronizaciones. El servidor devuelve en MISMO ORDEN en que
+        // se enviaron, así que se empareja por índice.
+        if (!items_resultado || !Array.isArray(items_resultado)) return;
+
+        // Emparejar por código normalizado para ser robusto ante reordenes
+        // de lista o cambios de cursor.
+        const mapServerPorCodigo = {};
+        items_resultado.forEach(item => {
+            const clave = this.normalizarCodigo(item.codigo_producto);
+            if (!mapServerPorCodigo[clave]) {
+                mapServerPorCodigo[clave] = [];
+            }
+            mapServerPorCodigo[clave].push(item);
+        });
+
+        const contadores = {};
+        this.items.forEach(item => {
+            const clave = this.normalizarCodigo(item.codigo_producto);
+            const idx = contadores[clave] || 0;
+
+            if (mapServerPorCodigo[clave] && mapServerPorCodigo[clave][idx]) {
+                const serverItem = mapServerPorCodigo[clave][idx];
+                // Copiar campos definitivos devueltos por el servidor
+                item.id_sql = serverItem.id_sql;
+                item.id_inyeccion = serverItem.id_inyeccion;
+                item.responsable = serverItem.responsable;
+                item.cant_contador = serverItem.cant_contador;
+                item.pnc_total = serverItem.pnc_total;
+                item.pnc_detalle = serverItem.pnc_detalle;
+                item._guardado_en_bd = true; // Bandera visual para renderTablaItems
+                contadores[clave] = idx + 1;
+            }
+        });
+
+        console.log('[Inyeccion] Items sincronizados con respuesta del servidor:', this.items);
+    },
+
     renderTablaItems: function () {
         const tbody = document.getElementById('lista-inyeccion-body');
         const tfoot = document.getElementById('inyeccion-tfoot');
 
         if (!tbody) return;
 
+        // renderTablaItems reconstruye <tbody> completo en cada edición
+        // (onchange de cualquier celda), lo que recrea todos los <input>/<select>
+        // de la tabla. Sin esto, un operario que va tabulando por la fila pierde
+        // el foco y la posición del cursor cada vez que confirma un campo.
+        const activeEl = document.activeElement;
+        let focoAGuardar = null;
+        if (activeEl && activeEl.id && tbody.contains(activeEl)) {
+            focoAGuardar = {
+                id: activeEl.id,
+                selStart: typeof activeEl.selectionStart === 'number' ? activeEl.selectionStart : null,
+                selEnd: typeof activeEl.selectionEnd === 'number' ? activeEl.selectionEnd : null
+            };
+        }
+        const restaurarFoco = () => {
+            if (!focoAGuardar) return;
+            const el = document.getElementById(focoAGuardar.id);
+            if (!el) return;
+            el.focus();
+            if (focoAGuardar.selStart !== null && typeof el.setSelectionRange === 'function') {
+                try { el.setSelectionRange(focoAGuardar.selStart, focoAGuardar.selEnd); } catch (e) { /* input type sin soporte de selección */ }
+            }
+        };
+
         if (this.items.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="text-center text-muted py-5">
+                    <td colspan="11" class="text-center text-muted py-5">
                         <i class="fas fa-box-open mb-3" style="font-size: 2rem; color: #cbd5e1;"></i>
                         <p class="mb-0">No hay productos en la lista.</p>
                         <small>Llena la sección de Agregar Producto y presiona "+ Agregar Producto".</small>
@@ -949,6 +1209,7 @@ const ModuloInyeccion = {
                 </tr>
             `;
             if (tfoot) tfoot.style.display = 'none';
+            this._guardarItemsDraft();
             return;
         }
 
@@ -966,26 +1227,31 @@ const ModuloInyeccion = {
             totalBruto += item.cantidad_real;
             totalPeso += (parseFloat(item.peso_bujes) || 0);
 
+            const iconoGuardado = item._guardado_en_bd ?
+                '<i class="fas fa-check-circle" style="color: #28a745; font-size: 1.2rem;" title="Guardado en BD"></i>' :
+                '';
+
             return `
-            <tr>
+            <tr style="${item._guardado_en_bd ? 'background-color: #f0fff4;' : ''}">
+                <td class="text-center align-middle" style="min-width: 40px;">${iconoGuardado}</td>
                 <td class="fw-bold align-middle">${item.codigo_producto}</td>
                 <td class="text-center align-middle">
-                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 60px;" value="${item.no_cavidades}" onchange="ModuloInyeccion.editarItem(${index}, 'no_cavidades', this.value)">
+                    <input id="iny-cav-${index}" type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 60px;" value="${item.no_cavidades}" onchange="ModuloInyeccion.editarItem(${index}, 'no_cavidades', this.value)">
                 </td>
                 <td class="text-center align-middle">
-                    <input type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 70px;" value="${item.disparos}" onchange="ModuloInyeccion.editarItem(${index}, 'disparos', this.value)">
+                    <input id="iny-disparos-${index}" type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 70px;" value="${item.disparos}" onchange="ModuloInyeccion.editarItem(${index}, 'disparos', this.value)">
                 </td>
                 <td class="text-center align-middle">
                     <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">Cant. Real</small>
-                        <input type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 85px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
+                        <input id="iny-buenas-${index}" type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 85px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
                     </div>
                 </td>
                 <td class="text-center align-middle">
                     <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">PNC Iny</small>
                         <div class="d-flex justify-content-center align-items-center gap-1">
-                            <input type="number" min="0" class="form-control form-control-sm text-center" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.pnc}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc', this.value)">
+                            <input id="iny-pnc-${index}" type="number" min="0" class="form-control form-control-sm text-center" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.pnc}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc', this.value)">
                             <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
                         </div>
                     </div>
@@ -994,15 +1260,21 @@ const ModuloInyeccion = {
                     <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">PNC Pul</small>
                         <div class="d-flex justify-content-center align-items-center gap-1">
-                            <input type="number" min="0" class="form-control form-control-sm text-center border-warning" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important;" value="${item.pnc_pulido || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc_pulido', this.value)">
+                            <input id="iny-pncpul-${index}" type="number" min="0" class="form-control form-control-sm text-center border-warning" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important;" value="${item.pnc_pulido || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc_pulido', this.value)">
                             <button type="button" class="btn btn-sm btn-outline-warning px-2 py-1" onclick="ModuloInyeccion.editarPNCPulidoLista(${index})"><i class="fas fa-list-ul"></i></button>
                         </div>
                     </div>
                 </td>
                 <td class="text-center align-middle">
                     <div class="d-flex flex-column align-items-center">
+                        <small class="text-muted" style="font-size: 0.65rem;">Operaria Pul.</small>
+                        ${this.renderSelectOperariaPulido(item, index)}
+                    </div>
+                </td>
+                <td class="text-center align-middle">
+                    <div class="d-flex flex-column align-items-center">
                         <small class="text-muted" style="font-size: 0.65rem;">Peso (kg)</small>
-                        <input type="number" step="0.01" min="0" class="form-control form-control-sm text-center mx-auto border-primary" style="width: 80px;" value="${item.peso_bujes || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'peso_bujes', this.value)">
+                        <input id="iny-peso-${index}" type="number" step="0.01" min="0" class="form-control form-control-sm text-center mx-auto border-primary" style="width: 80px;" value="${item.peso_bujes || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'peso_bujes', this.value)">
                     </div>
                 </td>
                 <td class="text-center align-middle">
@@ -1021,8 +1293,10 @@ const ModuloInyeccion = {
             tfoot.style.display = 'table-footer-group';
             document.getElementById('inyeccion-total-buenas').textContent = totalBuenas.toLocaleString();
             document.getElementById('inyeccion-total-pnc').textContent = totalPNC.toLocaleString();
-            if (document.getElementById('inyeccion-total-pnc-pulido')) {
-                document.getElementById('inyeccion-total-pnc-pulido').textContent = totalPNCPulido.toLocaleString();
+            // El id real del tfoot es 'inyeccion-total-pnc-pul' (index.html); el JS
+            // buscaba 'inyeccion-total-pnc-pulido' y el total nunca se pintaba.
+            if (document.getElementById('inyeccion-total-pnc-pul')) {
+                document.getElementById('inyeccion-total-pnc-pul').textContent = totalPNCPulido.toLocaleString();
             }
             
             const pesoFooter = document.getElementById('inyeccion-total-peso');
@@ -1033,8 +1307,11 @@ const ModuloInyeccion = {
         }
         } catch (error) {
             console.error("Error en renderTablaItems:", error);
-            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-3">Error al renderizar los datos. Verifica la consola.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger py-3">Error al renderizar los datos. Verifica la consola.</td></tr>`;
         }
+
+        restaurarFoco();
+        this._guardarItemsDraft();
     },
 
     registrar: async function () {
@@ -1046,28 +1323,20 @@ const ModuloInyeccion = {
         // --- SUB-MÓDULO 3: VALIDACIÓN (Paola) ---
         if (this.currentModule === 'validation' || this.esValidacionMode) {
             const idIny = document.getElementById('select-validar-lote')?.value;
-            
-            // Si es un lote existente seleccionado del dropdown
+
             if (idIny) {
                 this.validarRegistro(idIny);
                 return;
             }
 
-            // Si es "ENTRADA MANUAL" en el panel de Validación
-            // REQUERIMIENTO: Guardado directo sin modal de PNC
-            const confirm = await Swal.fire({
-                title: '¿Registrar Entrada Manual?',
-                text: "Se guardará el registro directamente como VALIDADO.",
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonText: 'Sí, Registrar',
-                cancelButtonText: 'Volver'
-            });
-
-            if (confirm.isConfirmed) {
-                this.esValidacionMode = true; // Forzar para el backend
-                this.confirmarRegistroFinal();
-            }
+            // Sin lote seleccionado no hay nada que auditar. La antigua "entrada
+            // manual" guardaba un lote directamente como VALIDADO por /lote,
+            // saltándose la firma de auditoría y la atribución de la merma.
+            Swal.fire(
+                'Selecciona un lote',
+                'La validación se hace siempre sobre un lote pendiente. Elige uno en el listado; si necesitas registrar producción nueva, usa el módulo de Reporte de Máquina.',
+                'warning'
+            );
             return;
         }
 
@@ -1265,23 +1534,21 @@ const ModuloInyeccion = {
             if (btn) btn.disabled = true;
             mostrarLoading(true, 'Guardando reporte e inyectando PNC...');
 
-            // Captura robusta de responsable y validador
-            const responsableVal = document.getElementById('responsable-inyeccion')?.value || 
-                                   window.AppState?.user?.nombre || 
-                                   window.AppState?.user?.user || 
-                                   localStorage.getItem('user_name') || 
+            // Captura robusta del operario que reporta la producción. Ya no se
+            // deriva de aquí ninguna identidad de validador: /api/inyeccion/lote
+            // no valida, y la firma de auditoría sale del JWT en el endpoint de
+            // validación.
+            const responsableVal = document.getElementById('responsable-inyeccion')?.value ||
+                                   window.AppState?.user?.nombre ||
+                                   window.AppState?.user?.user ||
+                                   localStorage.getItem('user_name') ||
                                    localStorage.getItem('user') || '';
-
-            const validadorVal = responsableVal || 
-                                 window.AppState?.user?.nombre || 
-                                 localStorage.getItem('user_name') || '';
 
             // Datos comunes de turno
             const datosTurno = {
                 fecha_inicio: document.getElementById('fecha-inyeccion')?.value || '',
                 maquina: document.getElementById('maquina-inyeccion')?.value || '',
                 responsable: responsableVal,
-                validador: validadorVal,
                 hora_llegada: document.getElementById('hora-llegada-inyeccion')?.value || '',
                 hora_inicio: document.getElementById('hora-inicio-inyeccion')?.value || '',
                 hora_termina: document.getElementById('hora-termina-inyeccion')?.value || '',
@@ -1291,12 +1558,16 @@ const ModuloInyeccion = {
                 peso_vela_maquina: parseFloat(String(document.getElementById('peso-vela-inyeccion')?.value || '0').replace(/[^0-9.]/g, '')) || 0,
                 id_programacion: document.getElementById('legacy-id-programacion')?.value || '',
                 almacen_destino: 'POR PULIR',
-                es_validacion: (this.currentModule === 'validation' || this.esValidacionMode),
                 id_inyeccion: this._idTurnoActivo || undefined,
                 id_sql: this._idSqlActivo || undefined
             };
 
-            // Consolidar todos los criterios detallados de PNC reportados en cada item
+            // Consolidar los criterios detallados de PNC de INYECCIÓN de cada item.
+            // La merma de pulido no se envía por esta ruta: el backend la
+            // clasificaba contra las columnas tipadas de inyección (criterios
+            // como "Rayado" caían en deformacion_rechupado) y la contabilizaba
+            // como defecto de máquina. Se reporta solo en la validación, que la
+            // escribe en db_pnc_pulido con su operaria responsable.
             const pncListConsolidada = [];
             this.items.forEach(item => {
                 if (item.pnc_list && item.pnc_list.length > 0) {
@@ -1305,16 +1576,6 @@ const ModuloInyeccion = {
                             codigo: item.codigo_producto,
                             criterio: p.criterio,
                             cantidad: p.cantidad
-                        });
-                    });
-                }
-                if (item.pnc_pulido_list && item.pnc_pulido_list.length > 0) {
-                    item.pnc_pulido_list.forEach(p => {
-                        pncListConsolidada.push({
-                            codigo: item.codigo_producto,
-                            criterio: p.criterio,
-                            cantidad: p.cantidad,
-                            es_pulido: true
                         });
                     });
                 }
@@ -1335,11 +1596,10 @@ const ModuloInyeccion = {
                 turno: datosTurno,
                 items: this.items,
                 pnc_list: pncListConsolidada,
-                responsable: responsableVal,
-                validador: validadorVal
+                responsable: responsableVal
             };
 
-            console.log('📤 [Inyeccion] ENVIANDO REPORTE FINAL CON PNC:', payload);
+            console.log('📤 [Inyeccion] ENVIANDO REPORTE DE PRODUCCIÓN CON PNC:', payload);
 
             // Inyección de token JWT en cabeceras de autorización
             const token = localStorage.getItem('pwa_token') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
@@ -1359,13 +1619,35 @@ const ModuloInyeccion = {
             const resultado = await response.json();
 
             if (response.ok && resultado.success) {
-                Swal.fire('¡Registrado!', 'El reporte de producción se ha guardado correctamente.', 'success');
-                
-                // Cerrar modal si estaba abierto
+                // 1-2. El DTO enriquecido de InyeccionService.registrar_lote trae,
+                // por item y en el MISMO ORDEN en que se enviaron (el backend itera
+                // data['items'] tal cual), el id_sql definitivo que Postgres le
+                // asignó. Se sincroniza sobre this.items ANTES de tocar nada más:
+                // si el operario reabre esta fila en vez de resetear, cualquier
+                // edición posterior debe apuntar (UPDATE) al registro real ya
+                // creado, no crear uno nuevo por no conocer su id_sql.
+                this._sincronizarItemsConRespuestaServidor(resultado.items);
+
+                // Ocultar el loading YA (la confirmación visual que sigue no debe
+                // quedar detrás del overlay de carga).
+                mostrarLoading(false);
+
+                // Cerrar modal de cierre si estaba abierto
                 const modal = document.getElementById('modal-cierre-inyeccion');
                 if (modal) modal.style.display = 'none';
 
-                // Reiniciar todo
+                // 3. Confirmación visual por fila: se pinta el check de "Guardado"
+                // (usando los id_sql recién sincronizados) ANTES del diálogo de
+                // éxito, para que el operario vea qué filas quedaron confirmadas
+                // en el DOM y no solo un mensaje genérico.
+                this.renderTablaItems();
+
+                await Swal.fire('¡Registrado!', 'El reporte de producción se ha guardado correctamente.', 'success');
+
+                // Reiniciar todo. renderTablaItems() con items=[] también borra
+                // el borrador de localStorage (_guardarItemsDraft trata la lista
+                // vacía como "sin nada que recuperar"), así que el lote recién
+                // confirmado no reaparece si el operario recarga después.
                 this.items = [];
                 this.pncRows = [];
                 this.renderTablaItems();

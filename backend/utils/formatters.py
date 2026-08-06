@@ -87,25 +87,61 @@ def normalizar_codigo_sin_prefijo(codigo) -> str:
     return cod
 
 
-def preservar_o_normalizar_prefijo(codigo: str, prefijo_defecto: str = "FR-") -> str:
+def preservar_o_normalizar_prefijo(codigo: str, prefijo_defecto: str = None) -> str:
     """
-    Garantiza que el código tenga un prefijo válido para db_productos.
-    Regla estricta:
-    - Si el código YA contiene CUALQUIER prefijo (ej. MT-, CB-, CAR-), se retorna intacto.
-    - SOLO si el código es un número puro y huérfano (ej. '7008'), se le inyecta el prefijo_defecto.
+    Sanea un código de referencia SIN inventarle división.
+
+    Regla 1 — Si el código ya trae un prefijo con guion (FR-, MT-, CAR-, CB-...)
+    se retorna INTACTO, respetando sus mayúsculas tal como llegó.
+    Regla 2 — Un número puro ('7011') NO recibe prefijo alguno: se retorna
+    '7011'. Esta función antes convertía todo número huérfano en 'FR-7011',
+    reetiquetando como FriParts referencias de otras divisiones (motos,
+    carrocería) que solo se distinguen por el contexto de la orden de
+    producción. Esa inyección automática queda ELIMINADA: la división es un
+    dato del negocio, no algo que un formateador pueda deducir de que la
+    cadena sea numérica.
+
+    `prefijo_defecto` sobrevive únicamente como OPT-IN explícito, para el caso
+    en que el contexto operativo SÍ conoce la división —p.ej. una búsqueda
+    de solo lectura contra db_productos, donde la referencia FriParts vive con
+    'FR-'—. Sin ese argumento la función jamás antepone nada.
+
+    El cruce histórico entre '9843' y 'FR-9843' se resuelve en las CONSULTAS
+    (sql_normalizar_codigo_fr / sql_expr_codigo_sin_prefijo_fr), no mutando la
+    referencia al persistirla.
     """
     if codigo is None:
         return ""
-    cod = str(codigo).strip().upper()
+    cod = str(codigo).strip()
     if not cod:
         return ""
-    
-    # Si el código es un número puro (ej. "7008")
-    if cod.isdigit():
+
+    # Único camino que antepone prefijo: el llamador lo pidió explícitamente
+    # y el código es un número puro y huérfano (ej. "7008" -> "FR-7008").
+    if prefijo_defecto and cod.isdigit():
         return f"{prefijo_defecto}{cod}"
-        
-    # Si ya tiene letras, guiones, o cualquier otro prefijo, lo retornamos exactamente igual
+
+    # Cualquier otro caso —prefijo propio, alfanumérico o número puro— intacto.
     return cod
+
+
+def sql_expr_codigo_sin_prefijo_fr(columna):
+    """
+    Expresión SQLAlchemy (no texto crudo) que normaliza una columna de código a
+    UPPER + TRIM y sin el prefijo 'FR-', para comparaciones de igualdad en
+    filtros ORM. Complementa a sql_normalizar_codigo_fr(), que hace lo inverso
+    (unificar hacia 'FR-XXXX') para las queries en texto plano.
+
+    Necesaria porque desde que preservar_o_normalizar_prefijo() dejó de inyectar
+    'FR-', conviven en la misma tabla filas históricas 'FR-9843' y filas nuevas
+    '9843'; un filter_by(id_codigo=...) crudo las trataría como SKUs distintos
+    y duplicaría el registro en vez de actualizarlo.
+
+    Uso: filter(sql_expr_codigo_sin_prefijo_fr(Modelo.id_codigo) ==
+                normalizar_codigo_sin_prefijo(codigo))
+    """
+    from sqlalchemy import func
+    return func.replace(func.upper(func.trim(columna)), 'FR-', '')
 
 
 def limpiar_cadena(texto: str) -> str:

@@ -150,29 +150,6 @@ class InyeccionService:
             return {'success': False, 'error': str(e)}
 
     @staticmethod
-    def _asignar_autoridad_y_estado(registro, es_validacion, payload_responsable, usuario_activo):
-        """
-        Auxiliar privada para asignar autoría y estado según sea proceso de validación o producción regular.
-        """
-        if es_validacion:
-            validador = AuditService.resolver_y_validar_validador(payload_responsable, usuario_activo)
-            responsable = registro.responsable if (registro and registro.responsable) else AuditService.resolver_y_validar_propietario(None, payload_responsable)
-            estado = 'VALIDADO'
-            if registro:
-                registro.validado_por = validador
-        else:
-            responsable = AuditService.resolver_y_validar_propietario(registro, payload_responsable)
-            estado = 'PENDIENTE'
-            if registro:
-                registro.finalizado_por = usuario_activo or 'SISTEMA'
-
-        if registro:
-            registro.responsable = responsable
-            registro.estado = estado
-
-        return responsable, estado
-
-    @staticmethod
     def _clasificar_pnc_tipado(pnc_items):
         """
         Clasifica una lista de {cantidad, criterio} en las 5 columnas tipadas de
@@ -269,24 +246,30 @@ class InyeccionService:
     @staticmethod
     def registrar_lote(data, usuario_activo):
         """
-        Orquesta el registro/validación de un lote de Inyección completo (Paso 1-4
-        del flujo SQL-First): por cada item sincroniza o crea su fila en
-        ProduccionInyeccion, calcula tiempos/PNC, descuenta stock y propaga a las
-        cubetas FIFO cuando es_validacion=True, confirma la transacción y por
-        último intenta el PDF (best-effort, nunca aborta el lote ya confirmado).
+        Orquesta el registro de un lote de PRODUCCIÓN de Inyección: por cada item
+        sincroniza o crea su fila en ProduccionInyeccion, calcula tiempos/PNC,
+        confirma la transacción y por último intenta el PDF (best-effort, nunca
+        aborta el lote ya confirmado). El lote queda en 'PENDIENTE'.
 
-        Puede lanzar ValueError, OwnershipMismatchException,
-        ValidadorRequeridoException o TurnoInvalidoException — el controlador
-        las traduce a códigos HTTP. Cualquier excepción hace rollback antes de
-        propagar, para no dejar la sesión de SQLAlchemy colgada (pool Postgres).
+        Esta ruta NO valida. El cierre de lote —firma de auditoría, descuento de
+        BOM, acreditación de `por_pulir` y propagación FIFO a cubetas— vive
+        exclusivamente en `validar_lote` (POST /api/inyeccion/validar/<id>).
+        Antes existía aquí un camino paralelo activado por `turno.es_validacion`
+        que escribía la merma de pulido dentro de db_pnc_inyeccion y firmaba
+        `validado_por` con el operario del formulario; se eliminó por completo.
+
+        Puede lanzar ValueError, OwnershipMismatchException o
+        TurnoInvalidoException — el controlador las traduce a códigos HTTP.
+        Cualquier excepción hace rollback antes de propagar, para no dejar la
+        sesión de SQLAlchemy colgada (pool Postgres).
         """
         from backend.utils.formatters import (
             normalizar_codigo, preservar_o_normalizar_prefijo, to_float, to_int,
             resolver_operario, calcular_metricas_inyeccion,
+            normalizar_codigo_sin_prefijo, sql_expr_codigo_sin_prefijo_fr,
         )
         from backend.services.pnc_service import pnc_service
         from backend.services.pausas_service import PausasService
-        from backend.services.stock_service import StockService
 
         turno = data.get('turno', {})
         items = data.get('items', [])
@@ -301,22 +284,29 @@ class InyeccionService:
             fecha_dt = ahora_col.date()
 
         maquina = str(turno.get('maquina', '')).strip()
-        es_validacion = turno.get('es_validacion', False)
-        nuevo_estado = 'VALIDADO' if es_validacion else 'PENDIENTE'
         id_iny_lote = turno.get('id_inyeccion') or f"INY-{uuid.uuid4().hex[:8].upper()}"
 
-        movimientos_inventario = []
+        # Filas ORM tocadas en este lote, para armar el DTO de respuesta DESPUÉS
+        # del commit (con id_sql y valores ya definitivos). Se guardan las
+        # referencias a los objetos, no una copia — sus atributos siguen
+        # mutando durante el resto del loop hasta el cierre de cada item.
+        registros_procesados = []
 
         try:
             for item in items:
                 id_sql = item.get('id_sql') or item.get('id')
                 id_iny = item.get('id_inyeccion') or id_iny_lote
                 codigo_raw = item.get('codigo_producto') or item.get('id_codigo')
-                # db_inyeccion persiste SIEMPRE con prefijo 'FR-' (igual que
-                # mes_iniciar_trabajo). Usar normalizar_codigo() aquí (que lo
-                # quita) desincroniza el lookup por id_codigo contra filas ya
-                # creadas por el flujo MES y genera duplicados FR-9843 / 9843.
+                # db_inyeccion persiste la referencia tal como la reportó la planta:
+                # ni normalizar_codigo() (que arranca cualquier prefijo, pisando
+                # 'MT-'/'CAR-') ni la vieja inyección automática de 'FR-'.
                 id_cod = preservar_o_normalizar_prefijo(codigo_raw)
+                # Clave de BÚSQUEDA tolerante al prefijo: las filas abiertas por
+                # mes_iniciar_trabajo antes de retirar la inyección de 'FR-' viven
+                # como 'FR-9843' y las nuevas como '9843'. Comparar en crudo crearía
+                # una fila duplicada en vez de cerrar el lote ya abierto.
+                cod_lookup = normalizar_codigo_sin_prefijo(id_cod)
+                expr_cod = sql_expr_codigo_sin_prefijo_fr(ProduccionInyeccion.id_codigo)
 
                 # 1. Búsqueda robusta del registro existente (evitar duplicados)
                 registro = None
@@ -324,9 +314,9 @@ class InyeccionService:
                     registro = db.session.get(ProduccionInyeccion, id_sql)
 
                 if not registro and id_iny:
-                    registro = db.session.query(ProduccionInyeccion).filter_by(
-                        id_inyeccion=id_iny,
-                        id_codigo=id_cod
+                    registro = db.session.query(ProduccionInyeccion).filter(
+                        ProduccionInyeccion.id_inyeccion == id_iny,
+                        expr_cod == cod_lookup
                     ).first()
 
                 if not registro and not id_sql:
@@ -334,7 +324,7 @@ class InyeccionService:
                     registro = db.session.query(ProduccionInyeccion).filter(
                         ProduccionInyeccion.maquina == maquina,
                         ProduccionInyeccion.responsable == responsable_busqueda,
-                        ProduccionInyeccion.id_codigo == id_cod,
+                        expr_cod == cod_lookup,
                         db.func.date(ProduccionInyeccion.fecha_inicia) == fecha_dt,
                         ProduccionInyeccion.estado == 'EN_PROCESO'
                     ).order_by(ProduccionInyeccion.id.desc()).first()
@@ -343,23 +333,28 @@ class InyeccionService:
                 # exclusivamente de la identidad autenticada (JWT/sesión) — nunca se
                 # rellena con datos autorreportados del payload, para que
                 # finalizado_por no pueda ser falsificado.
-                responsable_input = turno.get('responsable') or data.get('responsable') or data.get('validador')
-                responsable, nuevo_estado = InyeccionService._asignar_autoridad_y_estado(
-                    registro, es_validacion, responsable_input, usuario_activo
-                )
+                responsable_input = turno.get('responsable') or data.get('responsable')
+                responsable = AuditService.resolver_y_validar_propietario(registro, responsable_input)
 
                 if not registro:
                     logger.info(f"🆕 [Inyeccion] Creando nuevo registro: {id_iny} - {id_cod}")
-                    registro = ProduccionInyeccion(id_inyeccion=id_iny, estado=nuevo_estado, id_codigo=id_cod)
+                    registro = ProduccionInyeccion(id_inyeccion=id_iny, id_codigo=id_cod)
                     db.session.add(registro)
                 else:
                     logger.info(f"🔄 [Inyeccion] Actualizando registro existente (ID SQL: {registro.id})")
 
                 # --- Sincronización de campos ---
-                registro.id_codigo    = id_cod
-                registro.maquina      = maquina
-                registro.fecha_inicia = datetime.combine(fecha_dt, datetime.min.time())
-                registro.departamento = 'Inyeccion'
+                # El lote de producción siempre nace 'PENDIENTE' de auditoría.
+                # `responsable` se asigna también al crear (antes solo se
+                # asignaba al actualizar, y los lotes nuevos quedaban con
+                # responsable NULL — sin dueño al que atribuir después la merma).
+                registro.responsable    = responsable
+                registro.finalizado_por = usuario_activo or 'SISTEMA'
+                registro.estado         = 'PENDIENTE'
+                registro.id_codigo      = id_cod
+                registro.maquina        = maquina
+                registro.fecha_inicia   = datetime.combine(fecha_dt, datetime.min.time())
+                registro.departamento   = 'Inyeccion'
 
                 num_cavidades = to_int(item.get('no_cavidades') or item.get('cavidades') or 1)
                 cant_real     = to_int(item.get('cantidad_real') or 0)
@@ -453,6 +448,8 @@ class InyeccionService:
 
                 tipado, total_pnc_detallado = InyeccionService._clasificar_pnc_tipado(pnc_items_para_este_codigo)
 
+                # `responsable` es el operario que produjo la merma; `validado_por`
+                # queda NULL a propósito: este lote todavía no ha sido auditado.
                 if total_pnc_detallado > 0:
                     nuevo_pnc = PncInyeccion(
                         id_pnc_inyeccion=uuid.uuid4().hex[:8],
@@ -461,6 +458,7 @@ class InyeccionService:
                         cantidad=total_pnc_detallado,
                         criterio=InyeccionService._criterio_texto_tipado(tipado),
                         codigo_ensamble=registro.codigo_ensamble,
+                        responsable=responsable,
                         **tipado
                     )
                     db.session.add(nuevo_pnc)
@@ -474,81 +472,12 @@ class InyeccionService:
                         cantidad=float(pnc_val),
                         criterio=registro.pnc_detalle or 'Otro',
                         codigo_ensamble=registro.codigo_ensamble,
+                        responsable=responsable,
                         deformacion_rechupado=float(pnc_val)
                     )
                     db.session.add(nuevo_pnc)
 
-                # --- Actualizar stock (sólo si es validación) ---
-                if es_validacion:
-                    try:
-                        from backend.services.bom_service import calcular_descuentos_ensamble
-                        bom_res = calcular_descuentos_ensamble(id_cod, cant_real)
-                        if bom_res.get('success'):
-                            for comp in bom_res.get('componentes', []):
-                                mov = StockService.registrar_salida(comp['codigo_inventario'], comp['cantidad_total_descontar'], "STOCK_BODEGA")
-                                if mov and "error" not in mov:
-                                    movimientos_inventario.append(mov)
-
-                        if cant_real > 0:
-                            mov_ent = StockService.registrar_entrada(id_cod, cant_real, "POR PULIR")
-                            if mov_ent and "error" not in mov_ent:
-                                movimientos_inventario.append(mov_ent)
-
-                    except Exception as e_stock:
-                        logger.error(f"Error stock en validación form {id_cod}: {e_stock}")
-
-                    # --- Cubetas de contingencia express para validación manual ---
-                    op_actual = registro.orden_produccion
-                    if op_actual and str(op_actual).strip() != 'SIN OP':
-                        try:
-                            op_limpia = str(op_actual or '').strip()
-                            codigo_limpio = normalizar_codigo(id_cod)
-
-                            cubetas = db.session.query(DistribucionOpPedidos).filter(
-                                DistribucionOpPedidos.op_world_office == op_limpia,
-                                DistribucionOpPedidos.codigo_producto == codigo_limpio
-                            ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
-
-                            piezas_por_repartir = float(registro.cantidad_real or 0)
-
-                            if not cubetas and piezas_por_repartir > 0:
-                                pedido_asoc = db.session.query(DistribucionOpPedidos.id_pedido).filter(
-                                    DistribucionOpPedidos.op_world_office == op_limpia
-                                ).first()
-                                id_pedido_final = pedido_asoc[0] if (pedido_asoc and pedido_asoc[0]) else f"PED-IMPREVISTO-{op_limpia}"
-
-                                logger.info(f" ⚠️ [INYECCION-CONTINGENCIA-MANUAL] Creando cubeta temporal para OP: {op_limpia}, Producto: {codigo_limpio}, Pedido: {id_pedido_final}")
-                                nueva_cubeta = DistribucionOpPedidos(
-                                    op_world_office=op_limpia,
-                                    id_pedido=id_pedido_final,
-                                    codigo_producto=codigo_limpio,
-                                    cant_requerida=piezas_por_repartir,
-                                    cant_inyectada=piezas_por_repartir,
-                                    cant_pulida=0,
-                                    cant_ensamblada=0,
-                                    cant_alistada=0
-                                )
-                                db.session.add(nueva_cubeta)
-                                db.session.flush()
-                                cubetas = [nueva_cubeta]
-                                piezas_por_repartir = 0.0
-
-                            logger.info(f" 📦 [INYECCION-FIFO-MANUAL] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
-
-                            for cubeta in cubetas:
-                                if piezas_por_repartir <= 0:
-                                    break
-
-                                falta = max(0, (cubeta.cant_requerida or 0) - (cubeta.cant_inyectada or 0))
-                                if falta > 0:
-                                    if piezas_por_repartir >= falta:
-                                        cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + falta
-                                        piezas_por_repartir -= falta
-                                    else:
-                                        cubeta.cant_inyectada = (cubeta.cant_inyectada or 0) + piezas_por_repartir
-                                        piezas_por_repartir = 0
-                        except Exception as e_dist:
-                            logger.error(f"Error en distribucion FIFO manual {id_cod}: {e_dist}")
+                registros_procesados.append(registro)
 
             # --- Confirmar transacción SQL ---
             id_prog = turno.get('id_programacion')
@@ -589,23 +518,40 @@ class InyeccionService:
                         ))
 
             db.session.commit()
-            logger.info(f" ✅ Lote {id_iny_lote} ({nuevo_estado}) procesado con {len(items)} items.")
+            logger.info(f" ✅ Lote {id_iny_lote} (PENDIENTE) procesado con {len(items)} items.")
 
         except Exception as e:
             db.session.rollback()
-            if not isinstance(e, (OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException)):
+            if not isinstance(e, (OwnershipMismatchException, TurnoInvalidoException)):
                 logger.error(f" ❌ Error en InyeccionService.registrar_lote: {e}")
             raise
 
         # --- PDF (opcional y resiliente, fuera de la transacción ya confirmada) ---
         pdf_ok, _ = InyeccionService._generar_pdf_lote(turno, items)
 
+        # DTO por item, construido DESPUÉS del commit para reflejar valores
+        # definitivos (id_sql autoincremental incluido). Contrato explícito:
+        # el frontend ya no debe adivinar qué se persistió a partir del payload
+        # que él mismo envió — el server es la fuente de verdad de operario,
+        # responsable, contador y desglose de PNC de cada fila del lote.
+        items_resultado = [{
+            'id_sql':          r.id,
+            'id_inyeccion':    r.id_inyeccion,
+            'codigo_producto': r.id_codigo,
+            'responsable':     r.responsable,
+            'cantidad_real':   r.cantidad_real,
+            'cant_contador':   r.cant_contador,
+            'pnc_total':       r.pnc_total,
+            'pnc_detalle':     r.pnc_detalle,
+        } for r in registros_procesados]
+
         return {
             'success': True,
-            'mensaje': f'Lote {nuevo_estado} exitosamente',
+            'mensaje': 'Lote registrado exitosamente. Queda PENDIENTE de validación.',
             'pdf_generated': pdf_ok,
             'pdf_status': "success" if pdf_ok else "failed",
-            'movimientos_inventario': movimientos_inventario
+            'id_inyeccion': id_iny_lote,
+            'items': items_resultado
         }
 
     @staticmethod
@@ -613,13 +559,23 @@ class InyeccionService:
         """
         Valida (cierra) un lote completo de Inyección: cruza PNC estructurado por
         item, descuenta materia prima según BOM, acredita `por_pulir` en Producto
-        y marca cada registro como CERRADO. Transaccional de punta a punta:
-        cualquier fallo hace rollback completo antes de propagar, para no dejar
-        registros a medio cerrar ni la sesión de SQLAlchemy colgada.
+        y marca cada registro como CERRADO. Único punto de entrada de validación
+        del módulo — /api/inyeccion/lote ya no procesa cierres.
 
-        Puede lanzar LoteInyeccionNoEncontradoException o
-        ValidadorRequeridoException/OwnershipMismatchException — el controlador
-        las traduce a HTTP.
+        Trazabilidad de las mermas que genera:
+          - `validado_por` (cabecera y ambas tablas de PNC) = `usuario_activo`,
+            la identidad autenticada; el payload no participa.
+          - `PncInyeccion.responsable` = operario de inyección del lote.
+          - `PncPulido.responsable`    = `items[].operaria_pulido` del DTO,
+            obligatoria cuando el item reporta merma de pulido.
+
+        Transaccional de punta a punta: cualquier fallo hace rollback completo
+        antes de propagar, para no dejar registros a medio cerrar ni la sesión
+        de SQLAlchemy colgada.
+
+        Puede lanzar LoteInyeccionNoEncontradoException, ValueError,
+        ValidadorRequeridoException u OwnershipMismatchException — el
+        controlador las traduce a HTTP.
         """
         from backend.utils.formatters import normalizar_codigo_sin_prefijo, to_float
         from backend.services.bom_service import calcular_descuentos_ensamble
@@ -634,7 +590,13 @@ class InyeccionService:
             for item in items_payload
         }
 
-        validador_actual = AuditService.resolver_y_validar_validador(data.get('validador'), usuario_activo)
+        # Firma de auditoría: EXCLUSIVAMENTE la identidad autenticada (JWT). No
+        # se pasa `data.get('validador')` a propósito — AuditService le da
+        # precedencia al payload, y el frontend enviaba ahí el responsable del
+        # formulario (el operario de inyección del lote), con lo que
+        # `validado_por` terminaba firmando con quien produjo, no con quien
+        # auditó. La firma no puede depender de un dato autorreportado.
+        validador_actual = AuditService.resolver_y_validar_validador(None, usuario_activo)
 
         registros_iny = db.session.query(ProduccionInyeccion).filter_by(id_inyeccion=id_inyeccion).all()
         if not registros_iny:
@@ -645,6 +607,11 @@ class InyeccionService:
 
         if not registros_iny:
             raise LoteInyeccionNoEncontradoException(id_inyeccion)
+
+        # DTO por código, expuesto en la respuesta para que el frontend pueda
+        # confirmar sin ambigüedad qué operario/operaria y qué desglose de PNC
+        # quedó realmente auditado en cada referencia del lote.
+        items_resultado = []
 
         try:
             for reg in registros_iny:
@@ -657,9 +624,27 @@ class InyeccionService:
 
                 # Sobreescritura oficial desde el Payload de Validación
                 pnc_inyeccion = float(item_payload.get('pnc_inyeccion', 0) or 0)
+                pnc_pulido = to_float(item_payload.get('pnc_pulido') or 0)
                 # Desglose estructurado que el frontend YA envía por item.
                 pnc_list_item = item_payload.get('pnc_list', [])
                 pnc_pulido_list_item = item_payload.get('pnc_pulido_list', [])
+
+                # Atribución de personas. El operario de inyección es dato del
+                # lote (no del payload, que es autorreportado); la operaria de
+                # pulido sí llega en el DTO porque no existe en db_inyeccion —
+                # el lote no sabe quién pulió.
+                operario_inyeccion = reg.responsable
+                operaria_pulido = str(item_payload.get('operaria_pulido') or '').strip()
+
+                total_pulido_item = sum(to_float(p.get('cantidad') or 0) for p in pnc_pulido_list_item)
+                hay_pnc_pulido = total_pulido_item > 0 or pnc_pulido > 0
+                if hay_pnc_pulido and not operaria_pulido:
+                    # Guard de servidor: sin esto la merma de pulido volvería a
+                    # quedar sin dueño, que es justo el defecto que se corrige.
+                    # El front ya lo exige, pero la regla vive aquí.
+                    raise ValueError(
+                        f"Debe indicar la operaria de pulido responsable de la merma de {codigo}"
+                    )
 
                 # Eliminar registros PNC anteriores creados en validaciones previas para este lote/código
                 db.session.query(PncInyeccion).filter_by(id_inyeccion=reg.id_inyeccion, id_codigo=codigo).delete()
@@ -676,6 +661,8 @@ class InyeccionService:
                         cantidad=total_tipado,
                         criterio=InyeccionService._criterio_texto_tipado(tipado),
                         codigo_ensamble='AUDITORIA INYECCION',
+                        responsable=operario_inyeccion,
+                        validado_por=validador_actual,
                         **tipado
                     ))
                 elif pnc_inyeccion > 0:
@@ -687,25 +674,39 @@ class InyeccionService:
                         id_codigo=codigo,
                         cantidad=int(pnc_inyeccion),
                         criterio='PNC Reportado en Validación',
-                        codigo_ensamble='AUDITORIA INYECCION'
+                        codigo_ensamble='AUDITORIA INYECCION',
+                        responsable=operario_inyeccion,
+                        validado_por=validador_actual
                     ))
 
                 # PNC de Pulido detectado durante esta validación de Inyección
                 # (el desglose vive en db_pnc_pulido, no en db_pnc_inyeccion).
-                if pnc_pulido_list_item:
-                    total_pulido_item = sum(to_float(p.get('cantidad') or 0) for p in pnc_pulido_list_item)
-                    if total_pulido_item > 0:
-                        criterio_pulido_str = ", ".join(
-                            f"{p.get('criterio') or p.get('motivo') or 'Otro'}: {int(to_float(p.get('cantidad') or 0))}"
-                            for p in pnc_pulido_list_item if to_float(p.get('cantidad') or 0) > 0
-                        )
-                        db.session.add(PncPulido(
-                            id_pnc_pulido=uuid.uuid4().hex[:8],
-                            id_pulido=reg.id_inyeccion,
-                            codigo=codigo,
-                            cantidad=total_pulido_item,
-                            criterio=criterio_pulido_str or 'PNC Pulido Reportado en Validación de Inyección'
-                        ))
+                if total_pulido_item > 0:
+                    criterio_pulido_str = ", ".join(
+                        f"{p.get('criterio') or p.get('motivo') or 'Otro'}: {int(to_float(p.get('cantidad') or 0))}"
+                        for p in pnc_pulido_list_item if to_float(p.get('cantidad') or 0) > 0
+                    )
+                    db.session.add(PncPulido(
+                        id_pnc_pulido=uuid.uuid4().hex[:8],
+                        id_pulido=reg.id_inyeccion,
+                        codigo=codigo,
+                        cantidad=total_pulido_item,
+                        criterio=criterio_pulido_str or 'PNC Pulido Reportado en Validación de Inyección',
+                        responsable=operaria_pulido,
+                        validado_por=validador_actual
+                    ))
+                elif pnc_pulido > 0:
+                    # Simétrico al fallback de inyección: la validadora tecleó la
+                    # cantidad en la celda sin abrir el modal de criterios.
+                    db.session.add(PncPulido(
+                        id_pnc_pulido=uuid.uuid4().hex[:8],
+                        id_pulido=reg.id_inyeccion,
+                        codigo=codigo,
+                        cantidad=pnc_pulido,
+                        criterio='PNC Pulido Reportado en Validación de Inyección',
+                        responsable=operaria_pulido,
+                        validado_por=validador_actual
+                    ))
 
                 # Flujo Directo de Inventario: Sumamos a por_pulir lo que se inyectó (menos defectuosas PNC)
                 buenas_por_pulir = max(0, cantidad_inyectada - pnc_inyeccion)
@@ -736,6 +737,16 @@ class InyeccionService:
                 reg.fecha_fin = datetime.now()
                 reg.pnc_total = pnc_inyeccion
 
+                items_resultado.append({
+                    'codigo':             codigo,
+                    'id_inyeccion':       reg.id_inyeccion,
+                    'operario_inyeccion': operario_inyeccion,
+                    'operaria_pulido':    operaria_pulido or None,
+                    'pnc_inyeccion':      pnc_inyeccion,
+                    'pnc_pulido':         total_pulido_item if total_pulido_item > 0 else pnc_pulido,
+                    'validado_por':       validador_actual,
+                })
+
             db.session.commit()
 
         except Exception as e:
@@ -752,7 +763,12 @@ class InyeccionService:
             pass
 
         logger.info(f"✅ [Validación] Lote {id_inyeccion} cerrado y validado correctamente por {validador_actual}.")
-        return {"success": True, "message": f"Lote {id_inyeccion} validado e inventario actualizado"}
+        return {
+            "success": True,
+            "message": f"Lote {id_inyeccion} validado e inventario actualizado",
+            "validado_por": validador_actual,
+            "items": items_resultado
+        }
 
     @staticmethod
     def iniciar_trabajo(data, usuario_activo=None):
@@ -813,9 +829,10 @@ class InyeccionService:
                 ).update({DistribucionOpPedidos.op_world_office: op_world_office}, synchronize_session=False)
 
                 # Crear lote en ProduccionInyeccion (db_inyeccion). NOTA:
-                # db_programacion guarda el código SIN prefijo ('9304'); se
-                # normaliza a 'FR-9304' al persistir en db_inyeccion para
-                # evitar fragmentación de SKU.
+                # db_programacion guarda el código tal como lo emitió la orden de
+                # producción ('9304', 'MT-500'); se propaga INTACTO a db_inyeccion.
+                # No se le antepone 'FR-': la división es un dato de la OP, no una
+                # deducción del formateador.
                 hora_inicio_str = ahora.strftime('%H:%M')
                 id_codigo_norm = preservar_o_normalizar_prefijo(prog.codigo_sistema)
                 nueva_prod = ProduccionInyeccion(

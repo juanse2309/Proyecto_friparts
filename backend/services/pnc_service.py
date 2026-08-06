@@ -63,6 +63,22 @@ CRITERIO_INYECCION_SIN_CLASIFICAR = "Sin Clasificar"
 
 class PncService:
 
+    # ── Catálogo canónico expuesto al frontend ────────────────
+    @staticmethod
+    def obtener_catalogos_criterios():
+        """
+        Fuente única de los criterios que puede elegir el usuario. El frontend
+        los consume vía GET /api/pnc/criterios en vez de hardcodear su propia
+        lista: los catálogos del front divergían de estos, así que un defecto
+        elegido en pantalla ('Retención', 'Contaminado') no correspondía a
+        ningún bucket canónico y terminaba cayendo en 'Otros' al agregar.
+        """
+        return {
+            "inyeccion": list(CRITERIOS_INYECCION),
+            "pulido": list(CRITERIOS_PULIDO),
+            "ensamble": list(CRITERIOS_ENSAMBLE),
+        }
+
     # ── Normalización de texto libre ──────────────────────────
     @staticmethod
     def normalizar_criterio(criterio, area):
@@ -270,6 +286,10 @@ class PncService:
         if cantidad <= 0:
             raise PncDatosInvalidosException('Cantidad debe ser mayor a 0')
 
+        responsable = str(data.get('responsable', '')).strip()
+        if not responsable:
+            raise PncDatosInvalidosException('Responsable requerido: toda merma debe quedar atribuida a una persona')
+
         try:
             ahora = get_colombia_time()
             fecha_str = data.get("fecha", ahora.strftime("%Y-%m-%d"))
@@ -281,7 +301,8 @@ class PncService:
                 id_codigo=id_codigo,
                 cantidad=cantidad,
                 criterio=data.get("criterio", "No especificado"),
-                codigo_ensamble=data.get("notas", "")  # Mapeo solicitado: Notas -> codigo_ensamble
+                codigo_ensamble=data.get("notas", ""),  # Mapeo solicitado: Notas -> codigo_ensamble
+                responsable=responsable
             )
             db.session.add(nuevo_pnc)
 
@@ -307,7 +328,15 @@ class PncService:
 
     @staticmethod
     def obtener_consolidado():
-        """Registros de PNC consolidados (Inyección + Pulido) para el panel de calidad."""
+        """
+        Registros de PNC consolidados (Inyección + Pulido) para el panel de calidad.
+
+        `responsable` sale de la columna homónima de cada tabla: es la persona
+        real (operario de inyección / operaria de pulido) que produjo la merma.
+        Antes se emitía el literal del área ('Inyección' / 'Pulido'), que no
+        identificaba a nadie. Las filas anteriores a la migración no tienen
+        persona atribuible y se marcan como tal en vez de inventar una.
+        """
         from backend.models.sql_models import PncInyeccion, PncPulido
 
         consolidado = []
@@ -318,7 +347,8 @@ class PncService:
                 'fecha': p.id_inyeccion.split('-')[1] if '-' in p.id_inyeccion else 'S/F',
                 'proceso': 'inyeccion',
                 'codigo_producto': p.id_codigo,
-                'responsable': 'Inyección',
+                'responsable': p.responsable or 'Sin registrar',
+                'validado_por': p.validado_por or '',
                 'cantidad': p.cantidad,
                 'criterio_pnc': p.criterio,
                 'estado': 'pendiente',
@@ -331,7 +361,8 @@ class PncService:
                 'fecha': 'S/F',
                 'proceso': 'pulido',
                 'codigo_producto': p.codigo,
-                'responsable': 'Pulido',
+                'responsable': p.responsable or 'Sin registrar',
+                'validado_por': p.validado_por or '',
                 'cantidad': p.cantidad,
                 'criterio_pnc': p.criterio,
                 'estado': 'pendiente',

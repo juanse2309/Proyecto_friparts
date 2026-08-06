@@ -125,10 +125,11 @@ def reiniciar_pedido_wo(id_pedido_numero, db_session):
             prod_id = str(item.get('productos', '')).strip()
             mapped_prod = str(mapping.get(prod_id, prod_id)).strip()
             
-            # Formatear el codigo a FR- si es necesario
-            if mapped_prod.startswith('9') and not mapped_prod.startswith('FR-'):
-                mapped_prod = f"FR-{mapped_prod}"
-                
+            # El código de World Office se persiste TAL CUAL. Antes se anteponía
+            # 'FR-' a todo código que empezara por '9', lo que reetiquetaba como
+            # FriParts referencias numéricas de otras divisiones. La unificación
+            # '9304'/'FR-9304' se resuelve en las consultas, no en la escritura.
+
             cantidad = float(item.get('cantidad', 0))
             precio = float(item.get('precio_unitario', 0))
             fecha_str = item.get('fecha')

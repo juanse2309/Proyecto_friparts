@@ -1,69 +1,40 @@
 """
-Script de normalización para db_inyeccion: agrega el prefijo 'FR-' a las filas
-cuyo id_codigo quedó guardado como número puro (ej. '9843') por el bug ya
-corregido en InyeccionService.registrar_lote (ver backend/models/sql_models.py,
-ProduccionInyeccion._sanitizar_id_codigo).
+⛔ SCRIPT RETIRADO — no debe ejecutarse.
 
-Auditoría previa confirmó que estas filas NO son duplicados de otra fila —
-son reportes de producción reales y distintos (id_inyeccion, orden_produccion
-y horas propios) que solo tienen el id_codigo mal formateado. Por eso este
-script SOLO actualiza id_codigo in situ, nunca borra ni fusiona filas.
+Agregaba el prefijo 'FR-' a las filas de db_inyeccion cuyo id_codigo era un
+número puro (ej. '9843'). Esa premisa quedó invalidada: un código numérico NO
+implica división FriParts, y reetiquetarlo pisa referencias de motos y otras
+divisiones que solo se distinguen por el contexto de la orden de producción.
 
-Códigos con otro formato (CB-, CM-, CAR-, PL-, sufijos como '9881B', etc.) se
-dejan intactos: preservar_o_normalizar_prefijo() solo agrega 'FR-' cuando el
-código es 100% numérico, igual que en el resto del código base.
+preservar_o_normalizar_prefijo() ya no antepone 'FR-' salvo opt-in explícito
+del llamador, así que este script hoy sería un no-op silencioso. Se conserva el
+archivo como lápida para que nadie lo "arregle" reintroduciendo la inyección
+automática de prefijos.
 
-Por defecto corre en modo DRY-RUN (solo reporta, no modifica nada).
-Para aplicar los cambios: python -m backend.scripts.normalizar_id_codigo_inyeccion --apply
+El cruce histórico entre '9843' y 'FR-9843' se resuelve en las CONSULTAS
+(sql_normalizar_codigo_fr / sql_expr_codigo_sin_prefijo_fr en
+backend/utils/formatters.py), no mutando el dato persistido.
+
+Si alguna vez hace falta re-etiquetar referencias por división, debe hacerse
+contra la lista maestra de SKUs —nunca con una heurística sobre el formato del
+código.
 """
-import os
 import sys
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
-from backend.app import app
-from backend.core.sql_database import db
-from backend.models.sql_models import ProduccionInyeccion
-from backend.utils.formatters import preservar_o_normalizar_prefijo
+_MOTIVO = (
+    "Script retirado: anteponer 'FR-' a un id_codigo numérico reetiqueta "
+    "referencias de otras divisiones (MT-, CAR-...). Ver el docstring del módulo."
+)
 
 
 def normalizar_prefijo_inyeccion(aplicar=False):
-    with app.app_context():
-        modo = "APLICANDO CAMBIOS" if aplicar else "DRY-RUN (solo reporte)"
-        logger.info(f"🚀 Buscando id_codigo numéricos sin prefijo 'FR-' en db_inyeccion... [{modo}]")
-
-        candidatos = ProduccionInyeccion.query.filter(
-            ProduccionInyeccion.id_codigo.op('~')(r'^[0-9]+$')
-        ).all()
-
-        if not candidatos:
-            logger.info("✅ No se encontraron filas con id_codigo numérico sin prefijo.")
-            return
-
-        logger.info(f"🔍 Encontradas {len(candidatos)} filas a normalizar.")
-
-        for fila in candidatos:
-            codigo_original = fila.id_codigo
-            codigo_nuevo = preservar_o_normalizar_prefijo(codigo_original)
-
-            logger.info(
-                f"id {fila.id} | id_inyeccion={fila.id_inyeccion} | responsable={fila.responsable} | "
-                f"estado={fila.estado} | id_codigo: {codigo_original!r} -> {codigo_nuevo!r}"
-            )
-
-            if aplicar:
-                fila.id_codigo = codigo_nuevo
-
-        if aplicar:
-            db.session.commit()
-            logger.info(f"✨ {len(candidatos)} filas normalizadas y confirmadas en la base de datos.")
-        else:
-            logger.info(f"Ningún cambio fue escrito (DRY-RUN). {len(candidatos)} filas se actualizarían con --apply.")
+    raise RuntimeError(_MOTIVO)
 
 
 if __name__ == "__main__":
-    normalizar_prefijo_inyeccion(aplicar='--apply' in sys.argv)
+    logger.error(f"⛔ {_MOTIVO}")
+    sys.exit(1)

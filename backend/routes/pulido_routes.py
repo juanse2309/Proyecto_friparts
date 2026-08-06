@@ -35,7 +35,8 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
 
     # Mapeo y Estandarización
     registro.fecha = datetime.strptime(data.get('fecha_inicio', ahora.strftime('%Y-%m-%d')), '%Y-%m-%d').date()
-    # ── Blindaje Dual: preservar prefijo MT-/CAR- o agregar FR- por defecto ──
+    # ── Blindaje: se preserva el prefijo que traiga (MT-, CAR-, FR-) y los
+    #    números puros quedan intactos; nunca se les antepone una división ──
     registro.codigo = preservar_o_normalizar_prefijo(data.get('codigo_producto'))
     registro.responsable = responsable
     registro.cantidad_real = float(data.get('cantidad_real') or 0)
@@ -126,10 +127,20 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
     db.session.flush()
  
     # Sincronización de PNC Detallado
-    # registro.codigo lleva el prefijo 'FR-' (preservar_o_normalizar_prefijo), pero las
-    # tablas de PNC se indexan sin prefijo para no fragmentar 'FR-1005' / '1005' en filas
-    # distintas — se sanitiza aquí explícitamente antes de tocar el ORM.
+    # registro.codigo puede llegar con o sin prefijo 'FR-' (según lo reportó la
+    # planta), pero las tablas de PNC se indexan sin prefijo para no fragmentar
+    # 'FR-1005' / '1005' en filas distintas — se sanitiza aquí explícitamente
+    # antes de tocar el ORM. Los prefijos de otras divisiones (MT-, CAR-) se
+    # conservan: normalizar_codigo_sin_prefijo() solo quita 'FR-'.
     codigo_pnc = normalizar_codigo_sin_prefijo(registro.codigo)
+    # Operaria a la que se atribuye toda merma de pulido de este turno. Se
+    # resuelve una sola vez: si no hay persona identificable, el reporte no
+    # debe persistirse con la merma huérfana.
+    operaria_responsable = PulidoService.resolver_operaria_responsable(registro)
+    # Dueño de la merma de INYECCIÓN detectada en pulido: el operario que fabricó
+    # las piezas, rastreado por el lote/OP de origen. Puede ser None si el lote
+    # padre no es rastreable — en ese caso la fila queda sin atribuir a propósito.
+    operario_inyeccion_origen = PulidoService.resolver_operario_inyeccion_origen(registro)
     pnc_detail = data.get('pnc_detail', [])
     db.session.query(PncInyeccion).filter_by(id_inyeccion=registro.id_pulido).delete()
     db.session.query(PncPulido).filter_by(id_pulido=registro.id_pulido).delete()
@@ -148,7 +159,8 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                     id_inyeccion=registro.id_pulido,
                     id_codigo=codigo_pnc,
                     cantidad=cant,
-                    criterio=crit
+                    criterio=crit,
+                    responsable=operario_inyeccion_origen
                 ))
             elif proc == 'PULIDO':
                 db.session.add(PncPulido(
@@ -156,7 +168,8 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                     id_pulido=registro.id_pulido,
                     codigo=codigo_pnc,
                     cantidad=cant,
-                    criterio=crit
+                    criterio=crit,
+                    responsable=operaria_responsable
                 ))
             elif proc == 'ENSAMBLE':
                 db.session.add(PncEnsamble(
@@ -179,7 +192,8 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                 id_pulido=registro.id_pulido,
                 codigo=codigo_pnc,
                 cantidad=registro.pnc_pulido,
-                criterio=registro.criterio_pnc_pulido or 'Diferencia/Sobrante (Sin Desglose)'
+                criterio=registro.criterio_pnc_pulido or 'Diferencia/Sobrante (Sin Desglose)',
+                responsable=operaria_responsable
             ))
         if registro.pnc_inyeccion and registro.pnc_inyeccion > 0:
             db.session.add(PncInyeccion(
@@ -187,7 +201,8 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                 id_inyeccion=registro.id_pulido,
                 id_codigo=codigo_pnc,
                 cantidad=registro.pnc_inyeccion,
-                criterio=registro.criterio_pnc_inyeccion or 'Diferencia/Sobrante (Sin Desglose)'
+                criterio=registro.criterio_pnc_inyeccion or 'Diferencia/Sobrante (Sin Desglose)',
+                responsable=operario_inyeccion_origen
             ))
 
     db.session.flush()
@@ -338,6 +353,17 @@ def registrar_pulido():
             "success": False,
             "error": e.message,
             "code": "TURNO_DURACION_INVALIDA"
+        }), 400
+
+    except ValueError as e:
+        # Incluye la falta de operaria responsable para atribuir la merma
+        # (PulidoService.resolver_operaria_responsable): es un error del
+        # cliente, no un fallo interno.
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "code": "RESPONSABLE_REQUERIDO"
         }), 400
 
     except Exception as e:
@@ -1015,7 +1041,8 @@ def reporte_masivo():
                 logger.info(f"Omitiendo registro de {referencia_raw} porque la cantidad total es cero.")
                 continue
 
-            # ── Blindaje Dual: guardar con prefijo correcto en db_pulido ──
+            # ── Blindaje: se guarda la referencia tal cual la dictó la operaria,
+            #    con su prefijo original o sin ninguno; no se infiere división ──
             referencia = preservar_o_normalizar_prefijo(referencia_raw)
             # referencia_sin_prefijo sólo se usa para los cruces con db_distribucion_op_pedidos
             referencia_sin_prefijo = normalizar_codigo(referencia_raw)
@@ -1188,6 +1215,18 @@ def registrar_pnc_pulido():
         prod_pul = db.session.query(ProduccionPulido).filter_by(id_pulido=id_pulido).first()
 
         if total_pnc > 0:
+            # La merma se atribuye a la operaria del turno de pulido. Si el
+            # turno no existe o no tiene responsable identificable, se rechaza:
+            # persistir la merma sin dueño reabre el vacío de trazabilidad.
+            try:
+                operaria_responsable = PulidoService.resolver_operaria_responsable(prod_pul)
+            except ValueError as ve:
+                return jsonify({
+                    "success": False,
+                    "error": str(ve),
+                    "code": "RESPONSABLE_REQUERIDO"
+                }), 400
+
             criterio_str = (
                 f"Porosidad/Burbujas: {int(porosidad)}, "
                 f"Rayones: {int(rayones)}, "
@@ -1199,7 +1238,8 @@ def registrar_pnc_pulido():
                 id_pulido=id_pulido,
                 codigo=id_cod,
                 cantidad=total_pnc,
-                criterio=criterio_str
+                criterio=criterio_str,
+                responsable=operaria_responsable
             )
             db.session.add(nuevo_pnc)
 

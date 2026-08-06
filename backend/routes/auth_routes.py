@@ -110,9 +110,15 @@ def obtener_responsables():
     Retorna lista de responsables activos para dropdowns generales.
     Prioriza db_usuarios, fallback a db_asistencia. Movido desde app.py:
     no es un endpoint de sesión/credenciales, pero sí de gestión de usuarios.
+
+    Acepta ?rol=<texto> opcional para acotar el catálogo a un área operativa
+    (ILIKE sobre db_usuarios.rol, ej. ?rol=PULIDO). Sin ese parámetro devuelve
+    el catálogo general; en ambos casos excluye cuentas administrativas/de
+    sistema (ver AuthService.obtener_responsables_generales).
     """
     try:
-        return jsonify(AuthService.obtener_responsables_generales()), 200
+        rol_filtro = request.args.get('rol', '').strip() or None
+        return jsonify(AuthService.obtener_responsables_generales(rol_filtro)), 200
     except Exception as e:
         logger.error(f"❌ Error obteniendo responsables SQL: {e}")
         return jsonify([]), 200

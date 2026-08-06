@@ -16,11 +16,38 @@ const ModuloPNC = {
             const fechaInput = document.getElementById('pnc-manual-fecha');
             if (fechaInput) fechaInput.value = hoy;
 
+            await this.cargarResponsables();
+
             console.log('✅ [PNC] Datos cargados');
             mostrarLoading(false);
         } catch (error) {
             console.error('Error [PNC] cargarDatos:', error);
             mostrarLoading(false);
+        }
+    },
+
+    /**
+     * Catálogo de responsables para el selector obligatorio del registro
+     * manual de PNC. Sin esto la merma quedaba anónima (sin persona
+     * atribuible), rompiendo la trazabilidad que exige el área de calidad.
+     */
+    cargarResponsables: async function () {
+        try {
+            const responsables = await fetchData('/api/obtener_responsables');
+            const select = document.getElementById('pnc-manual-responsable');
+            if (!select || !responsables) return;
+
+            const nombres = responsables.map(r => typeof r === 'object' ? r.nombre : r);
+
+            select.innerHTML = '<option value="">Selecciona...</option>';
+            nombres.forEach(nombre => {
+                const opt = document.createElement('option');
+                opt.value = nombre;
+                opt.textContent = nombre;
+                select.appendChild(opt);
+            });
+        } catch (error) {
+            console.error('Error [PNC] cargarResponsables:', error);
         }
     },
 
@@ -102,13 +129,20 @@ const ModuloPNC = {
                 codigo_producto: document.getElementById('pnc-manual-producto')?.value || '',
                 cantidad: document.getElementById('pnc-manual-cantidad')?.value || '0',
                 criterio: document.getElementById('pnc-manual-criterio')?.value || '',
-                notas: document.getElementById('pnc-manual-ensamble')?.value || ''
+                notas: document.getElementById('pnc-manual-ensamble')?.value || '',
+                responsable: document.getElementById('pnc-manual-responsable')?.value || ''
             };
 
             console.log('📤 [PNC] ENVIANDO:', datos);
 
             if (!datos.codigo_producto?.trim()) {
                 mostrarNotificacion('⚠️ Ingresa código del producto', 'error');
+                mostrarLoading(false);
+                return;
+            }
+
+            if (!datos.responsable?.trim()) {
+                mostrarNotificacion('⚠️ Selecciona la persona responsable', 'error');
                 mostrarLoading(false);
                 return;
             }

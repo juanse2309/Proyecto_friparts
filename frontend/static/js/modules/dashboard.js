@@ -1379,26 +1379,34 @@ window.ModuloDashboard = (function () {
         if (!itemId) return;
         const modalEl = document.getElementById('modalScrapDetalle');
         if (!modalEl) return;
-        
+
         const titleEl = document.getElementById('modal-scrap-ref-title');
         const loadingEl = document.getElementById('modal-scrap-loading');
         const contentEl = document.getElementById('modal-scrap-content');
         const tbodyEl = document.getElementById('modal-scrap-tbody');
-        
+
         if (titleEl) titleEl.textContent = itemId;
         if (loadingEl) loadingEl.style.display = 'block';
         if (contentEl) contentEl.style.display = 'none';
-        if (tbodyEl) tbodyEl.innerHTML = '';
-        
+        if (tbodyEl) tbodyEl.innerHTML = ''; // Limpia filas de una referencia/periodo anterior antes de pedir las nuevas
+
         const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
-        
+
         try {
             const pwaToken = localStorage.getItem('pwa_token');
             const headers = {};
             if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
-            
-            const res = await fetch(`/api/dashboard/scrap-detalle?item_id=${encodeURIComponent(itemId)}`, {
+
+            // Propaga el Filtro Global de Fechas del dashboard: sin esto, el modal mostraba
+            // el scrap histórico completo de la referencia sin importar el período seleccionado.
+            const params = new URLSearchParams({ item_id: itemId });
+            const desde = document.getElementById('db-fecha-desde')?.value || '';
+            const hasta = document.getElementById('db-fecha-hasta')?.value || '';
+            if (desde) params.append('desde', desde);
+            if (hasta) params.append('hasta', hasta);
+
+            const res = await fetch(`/api/dashboard/scrap-detalle?${params.toString()}`, {
                 headers,
                 credentials: 'include'
             });
@@ -2364,6 +2372,10 @@ window.ModuloDashboard = (function () {
             }
 
             const labels = datosFiltrados.map(d => d.mes);
+            // Número real de calendario (1-12) tal como lo calculó el backend
+            // (DashboardRepository.get_rendimiento_mensual_sql: campo "mes_num"). Se guarda
+            // posicionalmente junto a "labels" — NUNCA se reconstruye parseando el label.
+            const mesesReales = datosFiltrados.map(d => Number(d.mes_num));
             const isMoney = mode === 'money';
 
             // Año desde los inputs reales del filtro
@@ -2412,7 +2424,9 @@ window.ModuloDashboard = (function () {
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
-                            order: 3
+                            order: 3,
+                            anio: yearActual, // Metadata nativa del dataset: fuente de verdad para el drill-down (no depende de parsear el label)
+                            mesesReales
                         },
                         {
                             label: isMoney ? `Ventas ${yearPrev}` : `Ventas ${yearPrev} (Unds)`,
@@ -2421,7 +2435,9 @@ window.ModuloDashboard = (function () {
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
-                            order: 4
+                            order: 4,
+                            anio: yearPrev,
+                            mesesReales
                         },
 
                         // ── Líneas de Pedidos ───────────────────────────
@@ -2442,7 +2458,9 @@ window.ModuloDashboard = (function () {
                             pointBorderWidth: 1.5,
                             tension: 0,
                             hidden: !isMoney && !hayPedidosUnidades,
-                            order: 1
+                            order: 1,
+                            anio: yearActual,
+                            mesesReales
                         },
                         {
                             label: isMoney ? `Pedidos ${yearPrev}` : `Pedidos ${yearPrev} (Unds)`,
@@ -2461,7 +2479,9 @@ window.ModuloDashboard = (function () {
                             pointBorderWidth: 1,
                             tension: 0,
                             hidden: !isMoney && !hayPedidosUnidades,
-                            order: 2
+                            order: 2,
+                            anio: yearPrev,
+                            mesesReales
                         }
                     ]
                 },
@@ -2501,22 +2521,24 @@ window.ModuloDashboard = (function () {
                         },
                         x: { grid: { display: false } }
                     },
-                    onClick: (event, elements) => {
-                        if (elements.length > 0) {
-                            const index = elements[0].index;
-                            const label = chartMensualInst.data.labels[index];
-                            const datasetIndex = elements[0].datasetIndex;
-                            const dataset = chartMensualInst.data.datasets[datasetIndex];
-                            
-                            // Determinar el año basado en el dataset (Actual vs YoYs)
-                            let anioSeleccionado = yearActual;
-                            if (dataset.label.includes(yearPrev.toString())) {
-                                anioSeleccionado = yearPrev;
-                            }
-                            
-                            const mesNum = index + 1; // Enero=1, etc.
-                            mostrarDrillDownVentas(mesNum, anioSeleccionado, label);
-                        }
+                    onClick: (event, _elements, chart) => {
+                        // Resolución explícita del elemento clickeado (independiente del modo de
+                        // interacción usado para el hover/tooltip): un solo punto exacto, nunca
+                        // "todos los datasets en ese índice".
+                        const [hit] = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, false);
+                        if (!hit) return;
+
+                        const { index, datasetIndex } = hit;
+                        const dataset = chart.data.datasets[datasetIndex];
+                        const label = chart.data.labels[index];
+                        const valor = dataset.data[index];
+                        const anioSeleccionado = dataset.anio; // Metadata nativa fijada al construir el dataset
+
+                        // Número real de mes (1-12) provisto por el backend (campo "mes_num" de
+                        // /api/dashboard/rendimiento), NUNCA reconstruido parseando el label del eje X.
+                        const mesNum = dataset.mesesReales[index];
+                        console.log('Mes enviado al backend:', mesNum);
+                        mostrarDrillDownVentas(mesNum, anioSeleccionado, label, valor);
                     },
                     onHover: (event, chartElement) => {
                         event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
@@ -2901,17 +2923,41 @@ window.ModuloDashboard = (function () {
      * DRILL-DOWN: Carga y muestra el desglose de ventas de un mes específico en un modal.
      * Refactorizado según requerimiento de Juan Sebastian (ventasCache y UI instantánea).
      */
-    async function mostrarDrillDownVentas(mes, anio, mesNombre) {
+    async function mostrarDrillDownVentas(mes, anio, mesNombre, valorClickeado) {
         const modalEl = document.getElementById('modalDesgloseVentas');
         if (!modalEl) return;
-        
+
         const modal = new bootstrap.Modal(modalEl);
         const spinner = document.getElementById('modalDesgloseSpinner');
         const contenido = document.getElementById('modalDesgloseContenido');
-        
+        const titulo = document.getElementById('modalDesgloseTitulo');
+        const subtitulo = document.getElementById('modalDesgloseSubtitulo');
+
         // El modo actual ('money' o 'units') define el orden y la lógica del drill-down
         const modo = currentIncSortMode || 'money';
         const cacheKey = `${mes}-${anio}-${modo}`;
+
+        // Título/subtítulo instantáneos con el contexto exacto del elemento clickeado
+        // (índice, etiqueta y valor), antes de que llegue la respuesta del servidor.
+        if (titulo) titulo.innerText = `Análisis de Facturación: ${mesNombre} ${anio}`;
+        if (subtitulo && typeof valorClickeado === 'number') {
+            const valorFmt = modo === 'money' ? formatCOP(valorClickeado) : `${formatNumber(valorClickeado)} unds`;
+            subtitulo.innerText = `Valor seleccionado en el gráfico: ${valorFmt}. Cargando desglose por referencia...`;
+        }
+
+        // Limpieza explícita ANTES del fetch/caché: sin esto, un mes con menos filas que el
+        // anterior podía dejar residuos del render previo visibles un instante al reabrir
+        // el modal (estado fantasma), incluso con el contenedor oculto por d-none.
+        const tbodyProductos = document.getElementById('cuerpoTablaDesgloseVentas');
+        const tbodyClientes = document.getElementById('cuerpoTablaDesgloseClientes');
+        if (tbodyProductos) tbodyProductos.innerHTML = '';
+        if (tbodyClientes) tbodyClientes.innerHTML = '';
+
+        // Siempre reabrir en la pestaña "Productos", sin importar en cuál se quedó la última vez.
+        const tabBtnProductos = document.getElementById('tab-btn-productos');
+        if (tabBtnProductos && window.bootstrap?.Tab) {
+            bootstrap.Tab.getOrCreateInstance(tabBtnProductos).show();
+        }
 
         contenido.classList.add('d-none');
         spinner.classList.remove('d-none');
@@ -2958,34 +3004,48 @@ window.ModuloDashboard = (function () {
     }
 
     /**
-     * Helper para renderizar la tabla con diseño profesional (Juan Sebastian vFinal)
-     * Optimizada para alto contraste (#000000) y legibilidad en pantallas pequeñas.
+     * Helper para renderizar las dos pestañas del modal (Productos / Clientes) con diseño
+     * profesional (Juan Sebastian vFinal). Optimizado para alto contraste (#000000).
+     * `data` es el DTO de /ventas/desglose-mensual: {"productos": [...], "clientes": [...]}.
      */
     function renderizarTablaDesglose(data, mes, anio, mesNombre) {
         const titulo = document.getElementById('modalDesgloseTitulo');
         const subtitulo = document.getElementById('modalDesgloseSubtitulo');
-        const cuerpoTabla = document.getElementById('cuerpoTablaDesgloseVentas');
+        const cuerpoProductos = document.getElementById('cuerpoTablaDesgloseVentas');
+        const cuerpoClientes = document.getElementById('cuerpoTablaDesgloseClientes');
         const totalFooter = document.getElementById('modalDesgloseTotal');
         const btnExportar = document.getElementById('btnExportarExcelVentas');
+
+        const productos = Array.isArray(data?.productos) ? data.productos : [];
+        const clientes = Array.isArray(data?.clientes) ? data.clientes : [];
 
         if (titulo) titulo.innerText = `Análisis de Facturación: ${mesNombre} ${anio}`;
         if (subtitulo) subtitulo.innerText = `Datos consolidados desde el núcleo ERP (Carga Instantánea).`;
 
+        // --- Pestaña "Top Productos del Mes" ---
         let totalMes = 0;
-        let html = '';
-        
-        if (data.length === 0) {
-            html = `<tr><td colspan="4" class="text-center py-5 text-muted">No se encontraron registros de ventas para este periodo.</td></tr>`;
+        let htmlProductos = '';
+        if (productos.length === 0) {
+            htmlProductos = `<tr><td colspan="4" class="text-center py-5 text-muted">No se encontraron registros de ventas para este periodo.</td></tr>`;
         } else {
-            data.forEach(item => {
+            productos.forEach(item => {
                 const subtotal = parseFloat(item.total_ventas || 0);
                 totalMes += subtotal;
-                
+
                 // Diseño de Máximo Contraste (#000000)
                 const ref = item.id_codigo || 'N/A';
                 const desc = item.descripcion || 'Descripción extraída del registro de venta';
-                
-                html += `
+
+                // Confirmado con Facturación: cantidad positiva + monto negativo = nota
+                // crédito/devolución cargada desde el ERP. Se etiqueta para que no se lea
+                // como un error de cálculo.
+                const esDevolucion = subtotal < 0;
+                const montoColor = esDevolucion ? '#dc2626' : '#000000';
+                const badgeDevolucion = esDevolucion
+                    ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-2" style="font-size: 0.65rem; vertical-align: middle;">Devolución</span>'
+                    : '';
+
+                htmlProductos += `
                     <tr class="align-middle">
                         <td class="ps-4 py-3">
                             <span class="fw-bold text-dark font-monospace" style="font-size: 1rem; color: #000000 !important;">${ref}</span>
@@ -2997,21 +3057,56 @@ window.ModuloDashboard = (function () {
                             <span class="fw-bold text-dark" style="font-size: 1rem; color: #000000 !important;">${formatNumber(item.unidades)}</span>
                         </td>
                         <td class="text-end pe-4 py-3">
-                            <span class="fw-bold text-dark" style="font-size: 1.05rem; color: #000000 !important;">${formatCOP(subtotal)}</span>
+                            <span class="fw-bold" style="font-size: 1.05rem; color: ${montoColor} !important;">${formatCOP(subtotal)}</span>${badgeDevolucion}
                         </td>
                     </tr>
                 `;
             });
         }
+        if (cuerpoProductos) cuerpoProductos.innerHTML = htmlProductos;
 
-        if (cuerpoTabla) cuerpoTabla.innerHTML = html;
+        // --- Pestaña "Top Clientes del Mes" ---
+        let htmlClientes = '';
+        if (clientes.length === 0) {
+            htmlClientes = `<tr><td colspan="3" class="text-center py-5 text-muted">No se encontraron clientes con ventas en este periodo.</td></tr>`;
+        } else {
+            clientes.forEach(item => {
+                const subtotal = parseFloat(item.total_ventas || 0);
+                const nombre = item.nombre_cliente || 'Cliente Desconocido';
+
+                const esDevolucion = subtotal < 0;
+                const montoColor = esDevolucion ? '#dc2626' : '#000000';
+                const badgeDevolucion = esDevolucion
+                    ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-2" style="font-size: 0.65rem; vertical-align: middle;">Devolución</span>'
+                    : '';
+
+                htmlClientes += `
+                    <tr class="align-middle">
+                        <td class="ps-4 py-3">
+                            <span class="fw-bold text-dark" style="font-size: 0.95rem; color: #000000 !important;">${nombre}</span>
+                        </td>
+                        <td class="text-center py-3">
+                            <span class="fw-bold text-dark" style="font-size: 1rem; color: #000000 !important;">${formatNumber(item.unidades)}</span>
+                        </td>
+                        <td class="text-end pe-4 py-3">
+                            <span class="fw-bold" style="font-size: 1.05rem; color: ${montoColor} !important;">${formatCOP(subtotal)}</span>${badgeDevolucion}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+        if (cuerpoClientes) cuerpoClientes.innerHTML = htmlClientes;
+
+        // El total del footer viene de "productos": misma CTE/periodo que "clientes" en el
+        // backend, así que ambas dimensiones son matemáticamente equivalentes — no hay dos
+        // fuentes de verdad que puedan divergir.
         if (totalFooter) {
             totalFooter.innerText = formatCOP(totalMes);
             totalFooter.style.color = "#000000";
         }
 
         if (btnExportar) {
-            btnExportar.disabled = (data.length === 0);
+            btnExportar.disabled = (productos.length === 0 && clientes.length === 0);
             btnExportar.onclick = async (e) => {
                 e.preventDefault();
                 const modo = currentIncSortMode || 'money';
@@ -3048,7 +3143,7 @@ window.ModuloDashboard = (function () {
                     console.error('Error exportando desglose de ventas:', error);
                     Swal.fire('Error', error.message || 'No fue posible generar el reporte Excel.', 'error');
                 } finally {
-                    btnExportar.disabled = (data.length === 0);
+                    btnExportar.disabled = (productos.length === 0 && clientes.length === 0);
                     btnExportar.innerHTML = iconoOriginal;
                 }
             };
@@ -3595,6 +3690,10 @@ window.ModuloDashboard = (function () {
             const yearActual = data.year_actual || new Date().getFullYear();
             const yearPrev   = data.year_prev   || (yearActual - 1);
             const labels     = mensualFiltrado.map(d => d.mes);
+            // Número real de calendario (1-12) tal como lo calculó el backend
+            // (DashboardRepository.get_rendimiento_mensual_sql: campo "mes_num"). Se guarda
+            // posicionalmente junto a "labels" — NUNCA se reconstruye parseando el label.
+            const mesesReales = mensualFiltrado.map(d => Number(d.mes_num));
 
             // Datos — garantizado 0 en meses sin registro
             const ventasAct  = mensualFiltrado.map(d => d.actual_dinero  || 0);
@@ -3636,7 +3735,9 @@ window.ModuloDashboard = (function () {
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
-                            order: 4
+                            order: 4,
+                            anio: yearActual, // Metadata nativa del dataset: fuente de verdad para el drill-down (no depende de parsear el label)
+                            mesesReales
                         },
                         {
                             label: `Ventas ${yearPrev}`,
@@ -3645,7 +3746,9 @@ window.ModuloDashboard = (function () {
                             borderRadius: 4,
                             barPercentage: 0.8,
                             categoryPercentage: 0.7,
-                            order: 3
+                            order: 3,
+                            anio: yearPrev,
+                            mesesReales
                         },
                         {
                             label: `Pedidos ${yearActual}`,
@@ -3662,7 +3765,9 @@ window.ModuloDashboard = (function () {
                             pointBorderColor: '#fff',
                             pointBorderWidth: 1.5,
                             tension: 0,
-                            order: 1
+                            order: 1,
+                            anio: yearActual,
+                            mesesReales
                         },
                         {
                             label: `Pedidos ${yearPrev}`,
@@ -3679,7 +3784,9 @@ window.ModuloDashboard = (function () {
                             pointBorderColor: '#fff',
                             pointBorderWidth: 1,
                             tension: 0,
-                            order: 2
+                            order: 2,
+                            anio: yearPrev,
+                            mesesReales
                         }
                     ]
                 },
@@ -3713,19 +3820,27 @@ window.ModuloDashboard = (function () {
                         },
                         x: { grid: { display: false } }
                     },
-                    onClick: (event, elements) => {
-                        if (elements.length > 0) {
-                            const index = elements[0].index;
-                            const label = _monthlyChartInstances[containerId].data.labels[index];
-                            const dsIdx  = elements[0].datasetIndex;
-                            const ds     = _monthlyChartInstances[containerId].data.datasets[dsIdx];
-                            let anio = yearActual;
-                            if (ds.label.includes(String(yearPrev))) anio = yearPrev;
-                            const mesNum = index + 1;
-                            // Delegar al drill-down existente si está disponible
-                            if (typeof mostrarDrillDownVentas === 'function') {
-                                mostrarDrillDownVentas(mesNum, anio, label);
-                            }
+                    onClick: (event, _elements, chart) => {
+                        // Resolución explícita del elemento clickeado, desacoplada del
+                        // interaction.mode:'index' usado para el tooltip (ese modo devuelve
+                        // TODOS los datasets en el índice más cercano, no el que se clickeó,
+                        // lo que hacía que el modal siempre resolviera el mismo dataset/año
+                        // sin importar la barra o línea sobre la que se hizo clic).
+                        const [hit] = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, false);
+                        if (!hit) return;
+
+                        const { index, datasetIndex } = hit;
+                        const ds = chart.data.datasets[datasetIndex];
+                        const label = chart.data.labels[index];
+                        const valor = ds.data[index];
+                        const anio = ds.anio; // Metadata nativa fijada al construir el dataset
+                        // Número real de mes (1-12) provisto por el backend (campo "mes_num" de
+                        // /api/dashboard/performance/monthly), NUNCA reconstruido parseando el label.
+                        const mesNum = ds.mesesReales[index];
+                        console.log('Mes enviado al backend:', mesNum);
+                        // Delegar al drill-down existente si está disponible
+                        if (typeof mostrarDrillDownVentas === 'function') {
+                            mostrarDrillDownVentas(mesNum, anio, label, valor);
                         }
                     },
                     onHover: (event, chartElement) => {

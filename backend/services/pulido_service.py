@@ -49,10 +49,125 @@ class PulidoService:
         'JUAN SEBASTIAN', 'JUAN SEBASTIÁN', 'NOVOA'
     }
 
+    # ---------------------------------------------------------------
+    # Placeholders que NO identifican a una persona. Deliberadamente
+    # separado de _IGNORAR: esa lista excluye operarias REALES de los
+    # KPIs, y usarla aquí rechazaría registros legítimos suyos.
+    # ---------------------------------------------------------------
+    _RESPONSABLES_PLACEHOLDER = {'', 'SISTEMA', 'SIN RESPONSABLE', 'NONE', 'NULL', 'ADMIN'}
+
     @staticmethod
     def _normalizar_nombre(nombre: str) -> str:
         """Normaliza a UPPER + TRIM para unificar variantes de escritura."""
         return (nombre or '').upper().strip()
+
+    @staticmethod
+    def resolver_operaria_responsable(registro) -> str:
+        """
+        Resuelve la operaria a la que se atribuye una merma de db_pnc_pulido.
+
+        Única fuente válida: `db_pulido.responsable` del turno que produjo la
+        merma — la operaria que físicamente procesó las piezas. No se acepta
+        NULL ni un placeholder genérico: una merma sin dueño es justamente el
+        vacío de trazabilidad que la columna `responsable` vino a cerrar, y
+        rellenarla con 'SISTEMA' o el nombre del área lo reintroduce disfrazado.
+
+        :param registro: instancia de ProduccionPulido (o None).
+        :raises ValueError: si no hay una persona real que atribuir.
+        """
+        nombre = str(getattr(registro, 'responsable', '') or '').strip()
+        if not nombre or PulidoService._normalizar_nombre(nombre) in PulidoService._RESPONSABLES_PLACEHOLDER:
+            raise ValueError(
+                "No se puede registrar PNC de pulido sin una operaria responsable "
+                "identificada en el turno (db_pulido.responsable)"
+            )
+        return nombre
+
+    @staticmethod
+    def resolver_operario_inyeccion_origen(registro):
+        """
+        Rastrea el operario de INYECCIÓN que fabricó las piezas que este turno de
+        pulido está procesando, para atribuirle la merma de inyección detectada
+        durante el pulido (db_pnc_inyeccion.responsable).
+
+        NO se usa `db_trazabilidad_lotes.responsable`: esa columna guarda al
+        programador de planta (`ProgramacionInyeccion.responsable_planta`), no a
+        quien operó la máquina. Verificado contra datos reales — para el mismo
+        lote, trazabilidad dice 'Juan Sebastian Novoa Cepeda' (supervisor) e
+        inyección dice 'Oscar Prieto' (operario). La trazabilidad sirve solo como
+        puente hacia `id_inyeccion`; el operario real vive en db_inyeccion.
+
+        Estrategias, en orden:
+          1. db_pulido.lote -> db_trazabilidad_lotes.id_lote -> id_inyeccion
+             -> db_inyeccion.responsable   (flujo MES con lote en vivo)
+          2. orden_produccion + código normalizado -> db_inyeccion.responsable,
+             tomando el lote más reciente  (flujo directo, sin lote MES)
+
+        La estrategia 2 no es un adorno: hoy `db_pulido.lote` guarda una FECHA
+        ('9/4/2026'), no un id_lote, así que la vía 1 no resuelve ninguno de los
+        registros históricos y sin el fallback la columna seguiría en NULL.
+
+        :return: nombre del operario de inyección, o None si no es rastreable.
+                 Deliberadamente NO inventa un valor: atribuir la merma a la
+                 pulidora o a un genérico es peor que dejar el campo vacío.
+        """
+        from backend.models.sql_models import TrazabilidadLote, ProduccionInyeccion
+
+        codigo = str(getattr(registro, 'codigo', '') or '').strip()
+        if not codigo:
+            return None
+
+        def _responsable_valido(nombre):
+            nombre = str(nombre or '').strip()
+            if not nombre or PulidoService._normalizar_nombre(nombre) in PulidoService._RESPONSABLES_PLACEHOLDER:
+                return None
+            return nombre
+
+        # ── Estrategia 1: puente por lote de trazabilidad ──────────────
+        lote = str(getattr(registro, 'lote', '') or '').strip()
+        if lote and lote != 'SIN LOTE':
+            fila = db.session.execute(
+                text(f"""
+                    SELECT i.responsable
+                    FROM db_trazabilidad_lotes t
+                    JOIN db_inyeccion i
+                      ON i.id_inyeccion = t.id_inyeccion
+                     AND {sql_normalizar_codigo_fr('i.id_codigo')} = {sql_normalizar_codigo_fr('t.id_codigo')}
+                    WHERE t.id_lote = :lote
+                      AND {sql_normalizar_codigo_fr('t.id_codigo')} = UPPER(TRIM(:codigo))
+                      AND i.responsable IS NOT NULL
+                    ORDER BY i.fecha_inicia DESC NULLS LAST
+                    LIMIT 1
+                """),
+                {'lote': lote, 'codigo': codigo}
+            ).fetchone()
+            if fila and _responsable_valido(fila[0]):
+                return _responsable_valido(fila[0])
+
+        # ── Estrategia 2: cruce por OP + referencia ────────────────────
+        op = str(getattr(registro, 'orden_produccion', '') or '').strip()
+        if op and op != 'SIN OP':
+            fila = db.session.execute(
+                text(f"""
+                    SELECT i.responsable
+                    FROM db_inyeccion i
+                    WHERE i.orden_produccion = :op
+                      AND {sql_normalizar_codigo_fr('i.id_codigo')} = UPPER(TRIM(:codigo))
+                      AND i.responsable IS NOT NULL
+                    ORDER BY i.fecha_inicia DESC NULLS LAST
+                    LIMIT 1
+                """),
+                {'op': op, 'codigo': codigo}
+            ).fetchone()
+            if fila and _responsable_valido(fila[0]):
+                return _responsable_valido(fila[0])
+
+        logger.warning(
+            f"⚠️ [PNC-Inyeccion] No se pudo rastrear el operario de inyección del turno "
+            f"{getattr(registro, 'id_pulido', '?')} (lote={lote!r}, OP={op!r}, cod={codigo!r}). "
+            f"La merma queda sin atribuir en vez de asignarse a un dueño incorrecto."
+        )
+        return None
 
     @staticmethod
     def validar_duracion_turno(segundos_segmento: int) -> None:

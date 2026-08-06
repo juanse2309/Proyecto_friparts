@@ -598,6 +598,7 @@ class DashboardRepository:
             # Organizar por mes (1-12)
             data_map = {m: {
                 "mes": meses_map[m],
+                "mes_num": m,  # Número real de calendario (1-12): fuente de verdad para el frontend, no reconstruible por string
                 "actual_dinero": 0, "actual_pedidos": 0,
                 "prev_dinero": 0, "prev_pedidos": 0,
                 "actual_unidades": 0, "actual_pedidos_unidades": 0,

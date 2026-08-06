@@ -33,6 +33,10 @@ class Producto(db.Model):
     oem             = db.Column(db.String(200),  nullable=True)
     dolares         = db.Column(db.Numeric(18, 2), default=0)
     stock_bodega    = db.Column(db.Numeric(18, 2), default=0)
+    diametro_interno = db.Column(db.Numeric(10, 2), nullable=True)
+    diametro_externo = db.Column(db.Numeric(10, 2), nullable=True)
+    altura          = db.Column(db.Numeric(10, 2), nullable=True)
+    pared           = db.Column(db.Numeric(10, 2), nullable=True)
 
 
 class ProduccionInyeccion(db.Model):
@@ -82,9 +86,11 @@ class ProduccionInyeccion(db.Model):
 
     @validates('id_codigo')
     def _sanitizar_id_codigo(self, key, value):
-        """Blindaje obligatorio: db_inyeccion siempre persiste CON prefijo 'FR-'
-        (a diferencia de las tablas de PNC). Evita que un código sin normalizar
-        fragmente el mismo lote en dos filas ('FR-9843' / '9843')."""
+        """Blindaje obligatorio: db_inyeccion persiste la referencia TAL CUAL la
+        reportó la planta —preservando 'MT-', 'CAR-', 'CB-' o la ausencia de
+        prefijo— sin reetiquetar números puros como 'FR-'. La unificación entre
+        'FR-9843' y '9843' se resuelve en las consultas (sql_normalizar_codigo_fr /
+        sql_expr_codigo_sin_prefijo_fr), nunca alterando el dato al escribirlo."""
         return preservar_o_normalizar_prefijo(value) if value else value
 
 
@@ -99,7 +105,15 @@ class PncInyeccion(db.Model):
     cantidad         = db.Column(db.Numeric(18, 2), default=0)
     criterio         = db.Column(db.String(200), nullable=True)
     codigo_ensamble  = db.Column(db.String(50), nullable=True)
-    
+
+    # --- Trazabilidad de personas (migrate_pnc_responsable_validado_por.py) ---
+    # responsable: operario de INYECCIÓN dueño del lote (db_inyeccion.responsable).
+    # validado_por: quien audita la merma. Se llena EXCLUSIVAMENTE desde la
+    # identidad autenticada (JWT) en InyeccionService.validar_lote — nunca desde
+    # el payload, que es autorreportado y puede falsificar la firma.
+    responsable      = db.Column(db.String(150), nullable=True)
+    validado_por     = db.Column(db.String(150), nullable=True)
+
     # --- Desglose de Defectos ---
     quemado_manchado         = db.Column(db.Numeric(18, 2), default=0)
     incompleto_falta_llenado = db.Column(db.Numeric(18, 2), default=0)
@@ -124,6 +138,13 @@ class PncPulido(db.Model):
     cantidad         = db.Column(db.Numeric(18, 2), default=0)
     criterio         = db.Column(db.String(200), nullable=True)
     codigo_ensamble  = db.Column(db.String(50), nullable=True)
+
+    # --- Trazabilidad de personas (migrate_pnc_responsable_validado_por.py) ---
+    # responsable: operaria de PULIDO que produjo la merma. Llega en el DTO de
+    # validación (items[].operaria_pulido); es obligatoria si hay PNC de pulido.
+    # validado_por: quien audita, desde el JWT. Ver nota en PncInyeccion.
+    responsable      = db.Column(db.String(150), nullable=True)
+    validado_por     = db.Column(db.String(150), nullable=True)
 
     @validates('codigo')
     def _sanitizar_codigo(self, key, value):
@@ -332,6 +353,7 @@ class Pnc(db.Model):
     cantidad        = db.Column(db.Numeric(18, 2), default=0)
     criterio        = db.Column(db.String(255), nullable=True)
     codigo_ensamble = db.Column(db.String(50),  nullable=True)
+    responsable     = db.Column(db.String(150), nullable=True)
 
     @validates('id_codigo')
     def _sanitizar_id_codigo(self, key, value):
@@ -470,6 +492,94 @@ class Molde(db.Model):
     cavidades_max   = db.Column(db.Integer, default=1)
     activo          = db.Column(db.Boolean, default=True)
     descripcion     = db.Column(db.String(255), nullable=True)
+
+
+class RelProductoMolde(db.Model):
+    """Modelo para rel_producto_molde — qué molde produce cada referencia Friparts
+    y con cuántas cavidades. Un molde puede tener varias filas (combo/moneda
+    alternativa); tipo_vinculo distingue CAVIDAD_FIJA de MONEDA_ALTERNATIVA."""
+    __tablename__ = 'rel_producto_molde'
+    __table_args__ = {'extend_existing': True}
+
+    id                  = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    codigo_molde        = db.Column(db.String(50), index=True, nullable=False)
+    codigo_referencia   = db.Column(db.String(50), index=True, nullable=False)
+    cavidades           = db.Column(db.Integer, default=1)
+    tipo_vinculo        = db.Column(db.String(30), default='CAVIDAD_FIJA')
+    activo              = db.Column(db.Boolean, default=True)
+
+
+class Portamolde(db.Model):
+    """Modelo para db_portamoldes — catálogo de portamoldes físicos (A-P, Ñ).
+    Cada código es una sola pieza física: cantidad_fisica=1 salvo que planta
+    confirme copias."""
+    __tablename__ = 'db_portamoldes'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    codigo          = db.Column(db.String(10), unique=True, nullable=False, index=True)
+    cantidad_fisica = db.Column(db.Integer, default=1)
+    activo          = db.Column(db.Boolean, default=True)
+
+
+class RelMoldePortamolde(db.Model):
+    """Modelo para rel_molde_portamoldes — qué portamolde(s) necesita cada
+    molde para montarse en una máquina."""
+    __tablename__ = 'rel_molde_portamoldes'
+    __table_args__ = {'extend_existing': True}
+
+    id                  = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    codigo_molde        = db.Column(db.String(50), index=True, nullable=False)
+    codigo_portamolde   = db.Column(db.String(10), index=True, nullable=False)
+
+
+class RelMaquinaPortamolde(db.Model):
+    """Modelo para rel_maquina_portamolde — qué portamoldes acepta cada
+    máquina según su capacidad (grandes: M,N,Ñ,O,P / chicas: A-M)."""
+    __tablename__ = 'rel_maquina_portamolde'
+    __table_args__ = {'extend_existing': True}
+
+    id                  = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    maquina             = db.Column(db.String(80), index=True, nullable=False)
+    codigo_portamolde   = db.Column(db.String(10), index=True, nullable=False)
+
+
+class Macho(db.Model):
+    """Modelo para db_machos — inventario de machos independientes (no tienen
+    SKU Friparts propio). diametro_interno_mm se usa con tolerancia +/-1mm
+    para calzar contra el diámetro que pide una referencia; cantidad_fisica_disponible
+    limita cuántas cavidades de esa medida se pueden montar simultáneamente."""
+    __tablename__ = 'db_machos'
+    __table_args__ = {'extend_existing': True}
+
+    id                          = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    codigo_macho                = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    diametro_interno_mm         = db.Column(db.Numeric(10, 2), nullable=True)
+    cantidad_fisica_disponible  = db.Column(db.Integer, default=0)
+    activo                      = db.Column(db.Boolean, default=True)
+
+
+class SimuladorAsignacion(db.Model):
+    """Modelo para simulador_asignaciones — estado propio y aislado del
+    simulador de programación (2026-08-06). NO se relaciona con
+    db_programacion/db_inyeccion; es un sandbox separado del MES real.
+    codigo_macho es nullable (no todos los moldes usan macho); la
+    compatibilidad molde<->macho se calcula por diámetro, no se guarda aquí."""
+    __tablename__ = 'simulador_asignaciones'
+    __table_args__ = {'extend_existing': True}
+
+    id                  = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    maquina             = db.Column(db.String(80), index=True, nullable=False)
+    codigo_portamolde   = db.Column(db.String(10), nullable=False)
+    codigo_molde        = db.Column(db.String(50), nullable=False)
+    codigo_referencia   = db.Column(db.String(50), nullable=False)
+    codigo_macho        = db.Column(db.String(50), nullable=True)
+    cavidades           = db.Column(db.Integer, default=1)
+    origen              = db.Column(db.String(30), nullable=False)
+    estado              = db.Column(db.String(20), default='ACTIVA', index=True)
+    responsable         = db.Column(db.String(150), nullable=True)
+    creado_en           = db.Column(db.DateTime, default=datetime.utcnow)
+    liberado_en         = db.Column(db.DateTime, nullable=True)
 
 
 class OperacionLog(db.Model):

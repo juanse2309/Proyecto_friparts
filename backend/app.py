@@ -102,9 +102,11 @@ from backend.routes.programacion_routes import programacion_bp
 from backend.routes.materia_prima_routes import materia_prima_bp
 from backend.routes.cliente_routes import cliente_bp
 from backend.routes.pnc_routes import pnc_bp
+from backend.routes.simulador_routes import simulador_bp
 from backend.routes.asistente_routes import asistente_bp
 
 app.register_blueprint(auth_bp)
+app.register_blueprint(simulador_bp)
 app.register_blueprint(programacion_bp)
 app.register_blueprint(materia_prima_bp)
 app.register_blueprint(cliente_bp)

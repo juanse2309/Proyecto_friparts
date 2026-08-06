@@ -164,9 +164,13 @@ def get_desglose_mensual():
         tipo_vista = request.args.get('tipo_vista', 'money')
         if not mes or not anio:
             return jsonify({"success": False, "error": "Faltan parámetros mes y anio"}), 400
-        
+
         data = VentasRepository.get_desglose_mensual_ventas(mes, anio, tipo_vista)
         return jsonify({"success": True, "data": data})
+    except ValueError as e:
+        # Fail-closed: mes/anio inválidos nunca deben degradar a un barrido sin filtro de fecha.
+        logger.warning(f"[get_desglose_mensual] Parámetros inválidos: {e}")
+        return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en get_desglose_mensual: {e}")
@@ -184,7 +188,7 @@ def exportar_desglose_mensual():
             return jsonify({"success": False, "error": "Faltan parámetros mes y anio"}), 400
         
         data = VentasRepository.get_desglose_mensual_ventas(mes, anio, tipo_vista)
-        if not data:
+        if not data.get("productos") and not data.get("clientes"):
             return jsonify({"success": False, "error": "No hay datos para este periodo"}), 404
 
         output = DashboardService.generar_excel_desglose(data, mes, anio)
@@ -194,6 +198,9 @@ def exportar_desglose_mensual():
             as_attachment=True,
             download_name=f'Reporte_Ventas_{mes}_{anio}.xlsx'
         )
+    except ValueError as e:
+        logger.warning(f"[exportar_desglose_mensual] Parámetros inválidos: {e}")
+        return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
         rollback_seguro()
         logger.error(f"❌ Error Crítico en Exportación Excel: {e}")
@@ -306,7 +313,12 @@ def get_scrap_detalle():
         if not item_id:
             return jsonify({"success": False, "error": "Falta parámetro item_id o referencia"}), 400
 
-        data = DashboardService.get_scrap_detalle(item_id)
+        desde_str = request.args.get('desde')
+        hasta_str = request.args.get('hasta')
+        desde = parsear_fecha_dashboard(desde_str) if desde_str else None
+        hasta = parsear_fecha_dashboard(hasta_str) if hasta_str else None
+
+        data = DashboardService.get_scrap_detalle(item_id, desde, hasta)
         return jsonify({"success": True, "item_id": item_id, "data": data}), 200
     except Exception as e:
         rollback_seguro()

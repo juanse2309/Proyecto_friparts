@@ -1105,6 +1105,13 @@ const ModuloPulido = {
     // ==========================================
 
     guardarReportePro: async function () {
+        // Guard clause: sin sessionId activo no hay lote/sesión que reportar
+        if (!this.sessionId) {
+            console.warn('[Pulido] guardarReportePro llamado sin sessionId activo — abortando.');
+            Swal.fire({ title: 'Sin Sesión Activa', text: 'No hay un ciclo de pulido activo para reportar. Inicia una sesión primero.', icon: 'warning' });
+            return;
+        }
+
         // Agrupar PNC por proceso para compatibilidad con DB
         const pncData = this.pncRows.map(row => ({
             proceso: document.getElementById(`pnc-proc-${row.id}`)?.value,
@@ -1123,8 +1130,8 @@ const ModuloPulido = {
             fecha_inicio: document.getElementById('fecha-pulido')?.value || new Date().toISOString().split('T')[0],
             hora_inicio: this.startTime ? (this.startTime.getHours() + ':' + String(this.startTime.getMinutes()).padStart(2, '0')) : '00:00',
             hora_fin: new Date().getHours() + ':' + String(new Date().getMinutes()).padStart(2, '0'),
-            responsable: document.getElementById('responsable-pulido-input').value,
-            codigo_producto: this.normalizarCodigo(document.getElementById('buscador-productos').value),
+            responsable: document.getElementById('responsable-pulido-input')?.value || '',
+            codigo_producto: this.normalizarCodigo(document.getElementById('buscador-productos')?.value || ''),
             
             // NUEVA LÓGICA: cantidad_real son las buenas, cantidad_recibida es el total (bruto reportado)
             cantidad_real: parseFloat(document.getElementById('cantidad-recibida-pro')?.value || 0),
@@ -1762,6 +1769,10 @@ const ModuloPulido = {
 
             const grupos = [];
             data.lotes.forEach(l => {
+                if (!l || !l.id_lote) {
+                    console.warn('[Pulido] Entrada de lote nula/incompleta recibida del servidor — ignorada:', l);
+                    return;
+                }
                 const maq = l.maquina || 'Sin Máquina';
                 const op = l.orden_produccion || 'Sin OP';
                 let g = grupos.find(x => x.maquina === maq && x.orden_produccion === op);
@@ -1817,8 +1828,8 @@ const ModuloPulido = {
                     e.stopPropagation();
                     const idx = parseInt(btn.getAttribute('data-grupo-index'), 10);
                     const grupo = this.gruposLotesActivos[idx];
-                    if (!grupo) return;
-                    const idLotes = grupo.referencias.map(l => l.id_lote);
+                    if (!grupo || !Array.isArray(grupo.referencias)) return;
+                    const idLotes = grupo.referencias.map(l => l?.id_lote).filter(Boolean);
                     this.liquidarLote(idLotes, grupo.maquina);
                 });
             });
@@ -1832,10 +1843,24 @@ const ModuloPulido = {
 
     seleccionarGrupoLote: function(index) {
         const grupo = this.gruposLotesActivos[index];
-        if (!grupo) return;
+        if (!grupo || !Array.isArray(grupo.referencias) || grupo.referencias.length === 0) {
+            console.warn('[Pulido] Grupo de lote inválido o sin referencias — abortando selección:', grupo);
+            return;
+        }
+
+        // Sanitizar: descartar referencias nulas o sin id_lote antes de renderizar
+        const referenciasValidas = grupo.referencias.filter(l => l && l.id_lote);
+        if (referenciasValidas.length === 0) {
+            Swal.fire({
+                title: 'Lote Inválido',
+                text: 'La canastilla seleccionada no tiene referencias válidas. Actualiza la lista e inténtalo de nuevo.',
+                icon: 'error'
+            });
+            return;
+        }
 
         this.grupoLoteSeleccionado = grupo;
-        this.loteSeleccionado = grupo.referencias[0];
+        this.loteSeleccionado = referenciasValidas[0];
 
         document.querySelectorAll('.lote-card-activo').forEach(c => {
             c.style.background = '';
@@ -1858,7 +1883,7 @@ const ModuloPulido = {
         const container = document.getElementById('lote-modo-referencias-container');
         if (container) {
             let html = '';
-            grupo.referencias.forEach(lote => {
+            referenciasValidas.forEach(lote => {
                 html += `
                 <div class="card p-3 mb-3 border rounded-3 bg-white shadow-sm reference-row-block" 
                      data-lote-id="${lote.id_lote}" data-codigo="${lote.id_codigo}">
@@ -1912,7 +1937,11 @@ const ModuloPulido = {
 
     liquidarLote: async function(idLotes, maquinaNombre) {
         // idLotes es un array con todos los id_lote del grupo
-        if (!idLotes || idLotes.length === 0) return;
+        idLotes = Array.isArray(idLotes) ? idLotes.filter(Boolean) : [];
+        if (idLotes.length === 0) {
+            Swal.fire({ title: 'Sin Lotes Válidos', text: 'No se encontraron lotes válidos para liquidar.', icon: 'warning' });
+            return;
+        }
 
         const operario = this.getOperarioActual() || '';
         const codigosTexto = (this.gruposLotesActivos || []).find(g => g.maquina === maquinaNombre)?.referencias?.map(l => l.id_codigo).join(', ') || '';
@@ -1989,6 +2018,10 @@ const ModuloPulido = {
     },
 
     agregarRevueltoFilaMasiva: function(idLote) {
+        if (!idLote) {
+            console.warn('[Pulido] agregarRevueltoFilaMasiva llamado sin idLote — abortando.');
+            return;
+        }
         const containerId = `revueltos-container-${idLote.replace(/[^a-zA-Z0-9]/g, '_')}`;
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -2067,7 +2100,13 @@ const ModuloPulido = {
             try {
             const idLote = block.getAttribute('data-lote-id');
             const referencia = block.getAttribute('data-codigo');
-            const op = this.grupoLoteSeleccionado.orden_produccion;
+            const op = this.grupoLoteSeleccionado?.orden_produccion || '';
+
+            // Guard clause: sin id_lote no hay forma de identificar el registro en el backend
+            if (!idLote) {
+                console.warn('[Pulido] Bloque de lote sin data-lote-id — ignorado:', block);
+                return;
+            }
 
             const buenos = parseFloat(block.querySelector('.lote-buenos-input')?.value) || 0;
 
@@ -2084,8 +2123,8 @@ const ModuloPulido = {
             const revueltos = [];
             let totalRevueltos = 0;
             revueltoRows.forEach(row => {
-                const cod = row.querySelector('.rev-codigo').value;
-                const cant = parseFloat(row.querySelector('.rev-cantidad').value) || 0;
+                const cod = row.querySelector('.rev-codigo')?.value || '';
+                const cant = parseFloat(row.querySelector('.rev-cantidad')?.value) || 0;
                 if (cod && cant > 0) {
                     totalRevueltos += cant;
                     revueltos.push({
@@ -2143,29 +2182,42 @@ const ModuloPulido = {
                 headers: { 'Content-Type': 'application/json' },
                 body   : JSON.stringify(payload)
             });
-            const data = await res.json();
+
+            // Intentar parsear el cuerpo aunque la respuesta sea un error HTTP
+            // (400/409 del Ownership Guard) — el backend normalmente devuelve
+            // JSON incluso en fallos, pero no lo asumimos.
+            let data = null;
+            try {
+                data = await res.json();
+            } catch (parseErr) {
+                data = null;
+            }
+
             if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
 
-            if (data.success) {
-                const totalBuenos = items.reduce((sum, item) => sum + item.buenos, 0);
-                const totalMalos = items.reduce((sum, item) => sum + item.malos, 0);
-
-                Swal.fire({
-                    title: '¡Registrado!',
-                    html: `Reporte registrado con éxito:<br><b>${totalBuenos}</b> buenos y <b>${totalMalos}</b> malos para la máquina <code>${this.grupoLoteSeleccionado.maquina}</code>`,
-                    icon: 'success', confirmButtonColor: '#10b981'
-                });
-
-                this.grupoLoteSeleccionado = null;
-                this.loteSeleccionado = null;
-                const panelCant = document.getElementById('panel-lote-cantidades');
-                if (panelCant) panelCant.style.display = 'none';
-                await this.cargarLotesActivos();
-            } else {
-                Swal.fire({ title: 'Error', text: data.error || 'Error inesperado.', icon: 'error' });
+            if (!res.ok || !data || !data.success) {
+                const mensaje = data?.error || `Error del servidor (HTTP ${res.status}).`;
+                Swal.fire({ title: 'Error', text: mensaje, icon: 'error' });
+                return;
             }
+
+            const totalBuenos = items.reduce((sum, item) => sum + item.buenos, 0);
+            const totalMalos = items.reduce((sum, item) => sum + item.malos, 0);
+
+            Swal.fire({
+                title: '¡Registrado!',
+                html: `Reporte registrado con éxito:<br><b>${totalBuenos}</b> buenos y <b>${totalMalos}</b> malos para la máquina <code>${this.grupoLoteSeleccionado?.maquina || '-'}</code>`,
+                icon: 'success', confirmButtonColor: '#10b981'
+            });
+
+            this.grupoLoteSeleccionado = null;
+            this.loteSeleccionado = null;
+            const panelCant = document.getElementById('panel-lote-cantidades');
+            if (panelCant) panelCant.style.display = 'none';
+            await this.cargarLotesActivos();
         } catch (err) {
             if (typeof window.mostrarLoading === 'function') window.mostrarLoading(false);
+            console.error('[Pulido] Error de red en enviarReporteLote:', err);
             Swal.fire({ title: 'Fallo de Conexión', text: 'No se pudo conectar.', icon: 'error' });
         }
     },

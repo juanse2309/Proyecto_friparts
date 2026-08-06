@@ -668,9 +668,12 @@ def sincronizar_precios_wo():
                     detalles_sincronizacion["no_encontrados"].append(codigo_raw)
                     continue
 
-                # Normalizar códigos para búsqueda flexible
+                # Normalizar códigos para búsqueda flexible. El 'FR-' se pide
+                # EXPLÍCITAMENTE (opt-in) porque aquí solo se LEE db_productos,
+                # donde la referencia FriParts histórica sí vive con prefijo; es
+                # una variante más del WHERE, no una mutación de la referencia.
                 codigo_sin_prefijo = normalizar_codigo(codigo_raw)
-                codigo_con_prefijo = preservar_o_normalizar_prefijo(codigo_raw)
+                codigo_con_prefijo = preservar_o_normalizar_prefijo(codigo_raw, 'FR-')
 
                 # Query de alta precisión contra codigo_sistema
                 query = """

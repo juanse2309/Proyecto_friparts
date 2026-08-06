@@ -147,20 +147,43 @@ class AuthService:
         ).order_by(Usuario.nombre_completo).all()
 
     @staticmethod
-    def obtener_responsables_generales():
+    def obtener_responsables_generales(rol_filtro=None):
         """
         Lista de responsables activos para dropdowns generales. Prioriza
         db_usuarios; si no hay resultados, cae a colaboradores distintos
         registrados en db_asistencia.
+
+        Excluye siempre cuentas administrativas/de sistema (rol que contenga
+        'admin' o 'sistema', o username que contenga 'sistema'): estas no son
+        personal operativo y no deben aparecer en selectores de
+        responsable/operaria (ej. filtraban a comerciales y administradores
+        en el selector de Operaria Pulido de Inyección).
+
+        rol_filtro (opcional): sub-cadena de db_usuarios.rol (ILIKE,
+        case-insensitive, ej. 'PULIDO') para acotar el catálogo a un área
+        operativa específica. Valores reales de rol son minúsculas
+        ('pulido', 'jefe pulido', 'inyeccion', ...), pero ILIKE ya cubre eso.
         """
-        usuarios = Usuario.query.filter_by(activo=True).order_by(Usuario.nombre_completo).all()
+        query = Usuario.query.filter(
+            Usuario.activo == True,
+            ~Usuario.rol.ilike('%admin%'),
+            ~Usuario.rol.ilike('%sistema%'),
+            ~Usuario.username.ilike('%sistema%'),
+        )
+        if rol_filtro:
+            query = query.filter(Usuario.rol.ilike(f'%{rol_filtro}%'))
+
+        usuarios = query.order_by(Usuario.nombre_completo).all()
         datos = [{
             "nombre": u.nombre_completo if u.nombre_completo else u.username,
             "departamento": u.departamento or "",
             "username": u.username
         } for u in usuarios]
 
-        if not datos:
+        # El fallback de db_asistencia no tiene rol/departamento que filtrar:
+        # usarlo cuando se pidió un rol_filtro devolvería la lista general sin
+        # acotar, deshaciendo el filtro solicitado.
+        if not datos and not rol_filtro:
             from backend.core.sql_database import db
             from sqlalchemy import text
             rows = db.session.execute(text(

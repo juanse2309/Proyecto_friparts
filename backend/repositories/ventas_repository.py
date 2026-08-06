@@ -93,29 +93,57 @@ class VentasRepository:
 
     @staticmethod
     def get_desglose_mensual_ventas(mes, anio, tipo_vista='money'):
-        """Obtiene el desglose de ventas por producto para un mes y año, optimizado y agrupado."""
-        try:
-            params = {'mes': mes, 'anio': anio}
+        """
+        Obtiene el desglose de ventas de un mes y año exactos en dos dimensiones:
+        - "productos": agrupado por referencia (comportamiento histórico).
+        - "clientes": agrupado por nombre de cliente, para seguimiento comercial de metas.
+        Ambas comparten el mismo periodo (misma CTE VentasPeriodo, mismos params), así que
+        sus totales son consistentes entre sí — no son dos fuentes que puedan divergir.
 
+        Devuelve: {"productos": [...], "clientes": [...]}
+
+        Fail-closed: 'mes'/'anio' inválidos lanzan ValueError (el controlador lo traduce a
+        HTTP 400) ANTES de tocar la base de datos. El WHERE fecha >= :start_date AND
+        fecha <= :end_date de la consulta es literal en el SQL, nunca condicional — pero
+        un 'mes' corrupto/fuera de rango que pasara sin validar produciría igualmente un
+        rango de fechas válido (via calendar.monthrange) sobre un mes equivocado, sin que
+        la consulta fallara ni delatara el error.
+        """
+        try:
+            mes_int = int(mes)
+            anio_int = int(anio)
+        except (TypeError, ValueError):
+            raise ValueError(f"'mes'/'anio' deben ser enteros. Recibido: mes={mes!r}, anio={anio!r}")
+
+        if not (1 <= mes_int <= 12):
+            raise ValueError(f"'mes' fuera de rango (1-12): {mes_int}")
+        if not (2000 <= anio_int <= 2100):
+            raise ValueError(f"'anio' fuera de rango válido: {anio_int}")
+
+        try:
             def _sql_cast_num(col):
                 # Columna ya NUMERIC nativo: COALESCE directo evita el bug de perder
                 # el signo '-' de devoluciones/NC que tenia el cast via texto+regex.
                 return f"COALESCE({col}, 0)"
 
             # Optimización de fechas para uso de índices
-            last_day = calendar.monthrange(int(anio), int(mes))[1]
-            start_date = f"{anio}-{str(mes).zfill(2)}-01"
-            end_date = f"{anio}-{str(mes).zfill(2)}-{last_day}"
-            params['start_date'] = start_date
-            params['end_date'] = end_date
+            last_day = calendar.monthrange(anio_int, mes_int)[1]
+            start_date = f"{anio_int}-{mes_int:02d}-01"
+            end_date = f"{anio_int}-{mes_int:02d}-{last_day}"
+            params = {'start_date': start_date, 'end_date': end_date}
 
             # Determinar columna de ordenamiento
             order_col = 'total_ventas' if tipo_vista == 'money' else 'unidades'
 
-            sql = f"""
+            # CTE compartida por ambas dimensiones — mismo período, misma fuente. Se repite
+            # en cada consulta (SQLAlchemy `text()` no permite reutilizar una CTE ya
+            # preparada entre dos executes), pero el WHERE de fecha es idéntico en ambas,
+            # así que "productos" y "clientes" nunca pueden reportar totales inconsistentes.
+            cte_ventas_periodo = """
                 WITH VentasPeriodo AS (
                     SELECT
                         productos as raw_string,
+                        nombres,
                         CASE
                             WHEN productos LIKE '%|%' THEN TRIM(SPLIT_PART(productos, '|', 1))
                             WHEN productos LIKE '% %' THEN TRIM(SPLIT_PART(productos, ' ', 1))
@@ -134,6 +162,9 @@ class VentasRepository:
                     WHERE fecha >= :start_date AND fecha <= :end_date
                       AND (clasificacion ILIKE '%venta%' OR clasificacion IS NULL)
                 )
+            """
+
+            sql_productos = text(cte_ventas_periodo + f"""
                 SELECT
                     v.raw_codigo as id_codigo,
                     COALESCE(
@@ -149,14 +180,34 @@ class VentasRepository:
                 GROUP BY v.raw_codigo, p.descripcion, v.desc_raw, v.raw_string
                 HAVING SUM({_sql_cast_num('v.cantidad')}) > 0
                 ORDER BY {order_col} DESC
-            """
+            """)
+            rows_productos = db.session.execute(sql_productos, params).mappings().all()
 
-            rows = db.session.execute(text(sql), params).mappings().all()
-            return [dict(r) for r in rows]
+            # Mismo alias hardcoded que _get_admin_dashboard_metrics_sql_impl (Backorder):
+            # 'DISTRIBUJES Y CAUCHOS FC SAS' factura bajo variantes de nombre distintas al
+            # cliente real. Sin este CASE, "Top Clientes" partiría sus compras en dos filas.
+            sql_clientes = text(cte_ventas_periodo + f"""
+                SELECT
+                    CASE WHEN UPPER(TRIM(v.nombres)) ILIKE '%DISTRIBUJES%' THEN 'FELIPE DUARTE MORENO'
+                         ELSE COALESCE(NULLIF(TRIM(v.nombres), ''), 'Cliente Desconocido')
+                    END as nombre_cliente,
+                    SUM({_sql_cast_num('v.cantidad')}) as unidades,
+                    SUM({_sql_cast_num('v.total_ingresos')}) as total_ventas
+                FROM VentasPeriodo v
+                GROUP BY 1
+                HAVING SUM({_sql_cast_num('v.cantidad')}) > 0
+                ORDER BY {order_col} DESC
+            """)
+            rows_clientes = db.session.execute(sql_clientes, params).mappings().all()
+
+            return {
+                "productos": [dict(r) for r in rows_productos],
+                "clientes": [dict(r) for r in rows_clientes]
+            }
         except Exception as e:
             rollback_seguro()
             logger.error(f"[VentasRepository.get_desglose_mensual_ventas] {e}")
-            return []
+            return {"productos": [], "clientes": []}
 
     @staticmethod
     def get_backorder_detalle_por_cliente(cliente_nombre, start_date=None, end_date=None):

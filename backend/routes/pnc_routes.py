@@ -25,6 +25,16 @@ def registrar_pnc():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@pnc_bp.route('/api/pnc/criterios', methods=['GET'])
+def obtener_criterios_pnc():
+    """Catálogo canónico de criterios por área, para que el frontend no hardcodee el suyo."""
+    try:
+        return jsonify({"success": True, "criterios": PncService.obtener_catalogos_criterios()}), 200
+    except Exception as e:
+        logger.error(f" ❌ Error en /api/pnc/criterios: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @pnc_bp.route('/api/obtener_pnc', methods=['GET'])
 def obtener_pnc():
     """Obtiene todos los registros de PNC consolidados desde SQL."""
