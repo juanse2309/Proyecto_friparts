@@ -102,6 +102,7 @@ from backend.routes.programacion_routes import programacion_bp
 from backend.routes.materia_prima_routes import materia_prima_bp
 from backend.routes.cliente_routes import cliente_bp
 from backend.routes.pnc_routes import pnc_bp
+from backend.routes.asistente_routes import asistente_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(programacion_bp)
@@ -115,6 +116,7 @@ app.register_blueprint(inventario_bp)
 app.register_blueprint(metals_bp)
 app.register_blueprint(procura_bp)
 app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+app.register_blueprint(asistente_bp, url_prefix='/api/dashboard')
 app.register_blueprint(productos_bp, url_prefix='/api/productos')
 app.register_blueprint(historial_bp)
 app.register_blueprint(comercial_bp)

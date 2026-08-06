@@ -1829,6 +1829,12 @@ window.ModuloDashboard = (function () {
         isInitialized = true;
         console.log("🚀 Iniciando BI Dashboard...");
 
+        // Asistente NL -> datos: modulo independiente, no bloquea ni retrasa
+        // la carga del resto del dashboard si falla o no esta presente.
+        if (window.ModuloAsistente && typeof window.ModuloAsistente.inicializar === 'function') {
+            try { window.ModuloAsistente.inicializar(); } catch (e) { console.error('[ModuloAsistente] Error al inicializar:', e); }
+        }
+
         aplicarPermisosVisuales();
 
         // Filtros de Incumplimiento (Interactive)
