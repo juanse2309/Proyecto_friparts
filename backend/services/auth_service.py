@@ -168,6 +168,7 @@ class AuthService:
             Usuario.activo == True,
             ~Usuario.rol.ilike('%admin%'),
             ~Usuario.rol.ilike('%sistema%'),
+            ~Usuario.rol.ilike('%cliente%'),
             ~Usuario.username.ilike('%sistema%'),
         )
         if rol_filtro:
