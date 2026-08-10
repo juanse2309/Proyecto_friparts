@@ -549,6 +549,7 @@
             <li class="menu-item" data-page="dashboard"> <a href="#"><i class="fas fa-chart-line"></i><span>Dashboard
                         IA</span></a> </li>
             <li class="menu-item" data-page="comercial-historico"> <a href="#" onclick="cargarPagina('comercial-historico')"><i class="fas fa-chart-line text-success"></i><span>Analítica Comercial</span></a> </li>
+            <li class="menu-item" data-page="cartera"> <a href="#" onclick="cargarPagina('cartera')"><i class="fas fa-wallet text-danger"></i><span>Cartera</span></a> </li>
             <li class="menu-item" data-page="inventario"> <a href="#"><i class="fas fa-boxes"></i><span>Productos y
                         Existencias</span></a> </li>
             <li class="menu-item" data-page="inyeccion"> <a href="#"><i
@@ -3930,6 +3931,9 @@
                     <button class="btn btn-outline-secondary me-2" onclick="AlmacenModule.abrirConfigSonido()">
                         <i class="fas fa-volume-up"></i>
                     </button>
+                    <button class="btn btn-outline-danger me-2" id="btn-ver-cartera-almacen" onclick="AlmacenModule.abrirModalCartera()">
+                        <i class="fas fa-wallet"></i> Ver Cartera
+                    </button>
                     <button class="btn btn-primary" id="btn-refrescar-almacen" onclick="AlmacenModule.cargarPedidos()">
                         <i class="fas fa-sync"></i> Actualizar
                     </button>
@@ -4078,6 +4082,27 @@
                 </div>
             </div>
 
+            <!-- Modal Cartera de Clientes (informativo, pedidos activos) -->
+            <div id="modalCarteraPedidos" class="modal-overlay"
+                style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 11000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+                <div class="modal-content"
+                    style="background: white; border-radius: 16px; width: 95%; max-width: 960px; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);">
+                    <div class="d-flex justify-content-between align-items-center p-3 border-bottom" style="flex-shrink: 0;">
+                        <h5 class="m-0 fw-bold"><i class="fas fa-wallet me-2 text-danger"></i>Cartera de Clientes con Pedidos Activos</h5>
+                        <button class="btn-close" onclick="document.getElementById('modalCarteraPedidos').style.display='none'"></button>
+                    </div>
+                    <p class="text-muted small px-3 pt-3 mb-2">Solo informativo: no bloquea ni condiciona el despacho de ningún pedido.</p>
+                    <div id="cartera-modal-body" style="overflow-y: auto; flex-grow: 1; padding: 0 15px 15px;">
+                        <div class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin fa-2x"></i></div>
+                    </div>
+                    <div class="p-3 border-top text-center" style="flex-shrink: 0;">
+                        <button class="btn btn-sm btn-outline-primary" onclick="AlmacenModule.irACarteraCompleta()">
+                            <i class="fas fa-external-link-alt me-1"></i> Ver Cartera Completa
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Modal Checklist Almacén -->
             <div id="modalAlistamiento" class="custom-modal-overlay"
                 style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
@@ -4142,6 +4167,101 @@
                 </div>
             </div>
         </div>
+        </div>
+
+        <!-- MÓDULO CARTERA -->
+        <div id="cartera-page" class="page">
+            <style>
+                #cartera-page .table th,
+                #cartera-page .table td {
+                    padding: 14px 18px;
+                }
+                #cartera-page .table th.text-end,
+                #cartera-page .table td.text-end {
+                    border-left: 1px solid #edf2f7;
+                }
+                #cartera-page .table-striped > tbody > tr:nth-of-type(odd) > * {
+                    background-color: #f8fafc;
+                }
+                #cartera-page .table td {
+                    font-variant-numeric: tabular-nums;
+                }
+            </style>
+            <header class="top-bar">
+                <button class="btn-icon" id="toggle-sidebar-cartera">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="page-title">
+                    <h1><i class="fas fa-wallet"></i> Cartera</h1>
+                    <p class="subtitle">Cuentas por cobrar desde World Office, con análisis de edades 30-60-90</p>
+                </div>
+                <div class="top-controls">
+                    <button class="btn btn-primary" id="btn-refrescar-cartera" onclick="ModuloCartera.cargar()">
+                        <i class="fas fa-sync"></i> Actualizar
+                    </button>
+                </div>
+            </header>
+
+            <div class="row g-4 mb-4 mt-2">
+                <div class="col-md-4">
+                    <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted text-uppercase fw-bold small mb-2">Total Cartera</h6>
+                            <h3 class="fw-bold text-success" id="cartera-modulo-total-val">$0</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted text-uppercase fw-bold small mb-2">Cartera Vencida</h6>
+                            <h3 class="fw-bold text-danger" id="cartera-modulo-vencida-val">$0</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted text-uppercase fw-bold small mb-2">% Vencido</h6>
+                            <h3 class="fw-bold text-warning" id="cartera-modulo-pct-val">0%</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0" style="border-radius: 16px;">
+                <div class="card-header bg-white border-0 pt-4 pb-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="fas fa-list me-2 text-muted"></i>Cartera por Cliente</h5>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <input type="text" id="cartera-modulo-buscador" class="form-control form-control-sm" placeholder="Buscar cliente o NIT..." style="width: 240px;" oninput="ModuloCartera.filtrar()">
+                        <button class="btn btn-sm btn-outline-success shadow-sm" id="btn-descargar-edades-cartera" onclick="ModuloCartera.descargarExcel()">
+                            <i class="fas fa-file-excel me-1"></i> <span id="text-descargar-edades-cartera">Descargar Excel</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height: 65vh; overflow-y: auto;">
+                        <table class="table table-hover table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th style="cursor:pointer; position: sticky; top: 0; z-index: 2; background: #f1f5f9;" onclick="ModuloCartera.ordenarPor('nombre')">Cliente <i class="fas fa-sort text-muted"></i></th>
+                                    <th style="position: sticky; top: 0; z-index: 2; background: #f1f5f9;">NIT</th>
+                                    <th style="position: sticky; top: 0; z-index: 2; background: #f1f5f9;">Vendedor</th>
+                                    <th class="text-end" style="cursor:pointer; position: sticky; top: 0; z-index: 2; background: #f1f5f9;" onclick="ModuloCartera.ordenarPor('corriente')">Corriente</th>
+                                    <th class="text-end" style="cursor:pointer; position: sticky; top: 0; z-index: 2; background: #f1f5f9;" onclick="ModuloCartera.ordenarPor('d1_30')">1-30</th>
+                                    <th class="text-end" style="cursor:pointer; position: sticky; top: 0; z-index: 2; background: #f1f5f9;" onclick="ModuloCartera.ordenarPor('d31_60')">31-60</th>
+                                    <th class="text-end" style="cursor:pointer; position: sticky; top: 0; z-index: 2; background: #f1f5f9;" onclick="ModuloCartera.ordenarPor('d61_90')">61-90</th>
+                                    <th class="text-end" style="cursor:pointer; position: sticky; top: 0; z-index: 2; background: #f1f5f9;" onclick="ModuloCartera.ordenarPor('mas_90')">+90</th>
+                                    <th class="text-end" style="cursor:pointer; position: sticky; top: 0; z-index: 2; background: #f1f5f9;" onclick="ModuloCartera.ordenarPor('saldo_total')">Total <i class="fas fa-sort text-muted"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="cartera-modulo-tbody">
+                                <tr><td colspan="9" class="text-center py-5 text-muted"><i class="fas fa-spinner fa-spin fa-2x"></i></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- MÓDULO PROCURA -->
@@ -5068,7 +5188,7 @@
     <!-- Scripts de utilería y comunes -->
     <script src="/static/js/utils/form_autosave.js"></script>
     <script src="/static/js/modules/utils.js?v=1.6.4"></script>
-    <script src="/static/js/modules/auth.js?v=1.6.4"></script>
+    <script src="/static/js/modules/auth.js?v=1.6.5"></script>
 
     <script src="/static/js/modules/ui_ux.js?v=1.6.4"></script>
 
@@ -5098,7 +5218,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 
     <script src="/static/js/modules/pedidos.js?v=1.6.4"></script>
-    <script src="/static/js/modules/almacen.js?v=1.6.4"></script>
+    <script src="/static/js/modules/almacen.js?v=1.6.6"></script>
+    <script src="/static/js/modules/cartera.js?v=1.0.2"></script>
     <script src="/static/js/modules/metals.js?v=1.6.4"></script>
     <script src="/static/js/modules/portal_client.js?v=1.6.4"></script>
     <script src="/static/js/modules/procura.js?v=1.6.4"></script>
@@ -5107,7 +5228,7 @@
     <script src="/static/js/modules/nomina.js?v=1.6.4"></script>
 
     <!-- 2. APP PRINCIPAL (Cargada al final para asegurar que los módulos existan) -->
-    <script src="/static/js/app.js?v=1.6.4"></script>
+    <script src="/static/js/app.js?v=1.6.5"></script>
     <script>console.log("✅ app.js cargado");</script>
     <!-- Script de inicialización -->
     <script>

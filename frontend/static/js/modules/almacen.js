@@ -304,6 +304,12 @@ const AlmacenModule = {
 
         console.log(`📦 [Almacen] Pedidos tras filtrado: ${pendientesReales.length} de ${this.pedidosPendientes.length}`);
 
+        // Set exacto de pedidos que realmente se van a pintar como tarjetas (mismo
+        // criterio de validez que el forEach de abajo). El modal de cartera usa esta
+        // lista, no this.pedidosPendientes, para no mostrar clientes que no están
+        // visibles en pantalla en este momento.
+        this.pedidosVisibles = pendientesReales.filter(p => p && p.id_pedido && p.cliente && p.cliente !== 'undefined');
+
         if (pendientesReales.length === 0) {
             container.innerHTML = `
                 <div class="text-center py-5 text-muted empty-state-almacen">
@@ -1507,6 +1513,126 @@ const AlmacenModule = {
             // Actualizar UI del modal
             this.abrirConfigSonido();
         }
+    },
+
+    /**
+     * Modal informativo de cartera: solo clientes con pedidos activos visibles
+     * en este momento y saldo vencido. No bloquea ni condiciona el despacho.
+     */
+    abrirModalCartera: function () {
+        const modal = document.getElementById('modalCarteraPedidos');
+        const body = document.getElementById('cartera-modal-body');
+        if (!modal || !body) return;
+
+        const clientesMap = {};
+        (this.pedidosVisibles || []).forEach(p => {
+            const saldo = parseFloat(p.saldo_vencido_total) || 0;
+            if (saldo > 0 && p.nit && p.nit !== 'S/N') {
+                const existente = clientesMap[p.nit];
+                if (!existente || saldo > existente.saldo_vencido_total) {
+                    clientesMap[p.nit] = { nit: p.nit, cliente: p.cliente, saldo_vencido_total: saldo };
+                }
+            }
+        });
+        const clientes = Object.values(clientesMap).sort((a, b) => b.saldo_vencido_total - a.saldo_vencido_total);
+
+        if (clientes.length === 0) {
+            body.innerHTML = `
+                <div class="text-center py-4 text-muted">
+                    <i class="fas fa-check-circle fa-2x mb-2 text-success"></i>
+                    <p class="mb-0">Ningún cliente con pedidos activos tiene cartera vencida.</p>
+                </div>
+            `;
+        } else {
+            const fmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+            body.innerHTML = clientes.map((c, idx) => `
+                <div class="cartera-cliente-item border rounded-3 mb-2">
+                    <div class="d-flex justify-content-between align-items-center p-3" style="cursor:pointer;" onclick="AlmacenModule.toggleDetalleCartera('${c.nit}', ${idx})">
+                        <div>
+                            <div class="fw-bold" style="color:#1e293b;">${c.cliente}</div>
+                            <small class="text-muted">${c.nit}</small>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fw-bold text-danger">${fmt.format(c.saldo_vencido_total)}</span>
+                            <i class="fas fa-chevron-down" id="chevron-cartera-${idx}"></i>
+                        </div>
+                    </div>
+                    <div id="detalle-cartera-${idx}" class="px-3 pb-3" style="display:none;"></div>
+                </div>
+            `).join('');
+        }
+
+        modal.style.display = 'flex';
+    },
+
+    toggleDetalleCartera: async function (nit, idx) {
+        const detalleDiv = document.getElementById(`detalle-cartera-${idx}`);
+        const chevron = document.getElementById(`chevron-cartera-${idx}`);
+        if (!detalleDiv) return;
+
+        const abierto = detalleDiv.style.display !== 'none';
+        if (abierto) {
+            detalleDiv.style.display = 'none';
+            if (chevron) chevron.className = 'fas fa-chevron-down';
+            return;
+        }
+
+        detalleDiv.style.display = 'block';
+        if (chevron) chevron.className = 'fas fa-chevron-up';
+
+        if (detalleDiv.dataset.loaded === 'true') return;
+
+        detalleDiv.innerHTML = '<div class="text-center py-2 text-muted"><i class="fas fa-spinner fa-spin"></i> Cargando facturas...</div>';
+
+        try {
+            const res = await fetch(`/api/cartera/cliente/${encodeURIComponent(nit)}`);
+            const data = await res.json();
+
+            if (!data.success || !data.facturas || data.facturas.length === 0) {
+                detalleDiv.innerHTML = '<div class="text-muted small">No se encontraron facturas para este cliente.</div>';
+                return;
+            }
+
+            const fmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+            const celda = 'padding: 10px 14px; white-space: nowrap;';
+            const celdaNum = celda + ' border-left: 1px solid #edf2f7;';
+            const filas = data.facturas.map(f => `
+                <tr>
+                    <td style="${celda}">${f.documento}</td>
+                    <td style="${celda}">${f.fecha_emision || 'N/A'}</td>
+                    <td style="${celda}">${f.fecha_vencimiento || 'N/A'}</td>
+                    <td class="text-center" style="${celdaNum}">${f.dias_mora ?? 'N/A'}</td>
+                    <td class="text-end" style="${celdaNum}">${fmt.format(f.saldo)}</td>
+                </tr>
+            `).join('');
+
+            detalleDiv.innerHTML = `
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped mb-0" style="table-layout: auto; width: auto;">
+                        <thead>
+                            <tr>
+                                <th style="${celda}">Documento</th>
+                                <th style="${celda}">Emisión</th>
+                                <th style="${celda}">Vence</th>
+                                <th class="text-center" style="${celdaNum}">Días Mora</th>
+                                <th class="text-end" style="${celdaNum}">Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody>${filas}</tbody>
+                    </table>
+                </div>
+            `;
+            detalleDiv.dataset.loaded = 'true';
+        } catch (error) {
+            console.error('❌ Error cargando detalle de cartera:', error);
+            detalleDiv.innerHTML = '<div class="text-danger small">Error al cargar el detalle.</div>';
+        }
+    },
+
+    irACarteraCompleta: function () {
+        const modal = document.getElementById('modalCarteraPedidos');
+        if (modal) modal.style.display = 'none';
+        if (window.cargarPagina) window.cargarPagina('cartera');
     }
 };
 

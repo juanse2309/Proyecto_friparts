@@ -1,13 +1,110 @@
 import logging
 import csv
 import io
+import re
 from flask import current_app
 from backend.core.sql_database import db
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
+
+def _normalizar_identificacion(valor):
+    """
+    Normaliza un NIT/CC al formato base de cartera_wo.identificacion.
+    db_pedidos.nit viene con prefijo y digito de verificacion separado por
+    espacio (ej. "NIT 900400389 0", "CC 17631111"); cartera_wo.identificacion
+    solo guarda el numero base ("900400389"). Sin esta limpieza el cruce por
+    NIT nunca coincide.
+    """
+    if not valor:
+        return ''
+    texto = str(valor).strip().upper()
+    texto = re.sub(r'^(NIT|CC)\s+', '', texto)
+    texto = re.sub(r'\s+\d+$', '', texto)
+    return texto.strip()
+
+
 class CarteraService:
+    @staticmethod
+    def obtener_cartera_cliente(identificacion):
+        """
+        Facturas con saldo pendiente de un cliente puntual (por NIT), con dias de
+        mora calculados. Uso informativo: alimenta el modal de Gestion Pedidos y
+        el detalle expandible del modulo de Cartera.
+        """
+        from datetime import datetime
+        import pytz
+
+        identificacion_limpia = _normalizar_identificacion(identificacion)
+        if not identificacion_limpia:
+            return []
+
+        sql = text("""
+            SELECT documento, vendedor, fecha_emision, fecha_vencimiento, saldo_documento
+            FROM cartera_wo
+            WHERE identificacion = :identificacion AND saldo_documento > 0
+            ORDER BY fecha_vencimiento ASC
+        """)
+
+        tz_col = pytz.timezone('America/Bogota')
+        hoy = datetime.now(tz_col).date()
+
+        with db.engine.connect() as connection:
+            rows = connection.execute(sql, {"identificacion": identificacion_limpia}).fetchall()
+
+        facturas = []
+        for row in rows:
+            fecha_vencimiento = row[3]
+            dias_mora = (hoy - fecha_vencimiento).days if fecha_vencimiento else None
+            facturas.append({
+                "documento": row[0],
+                "vendedor": row[1],
+                "fecha_emision": row[2].strftime('%Y-%m-%d') if row[2] else None,
+                "fecha_vencimiento": fecha_vencimiento.strftime('%Y-%m-%d') if fecha_vencimiento else None,
+                "dias_mora": dias_mora,
+                "saldo": float(row[4] or 0)
+            })
+        return facturas
+
+    @staticmethod
+    def obtener_cartera_agrupada():
+        """
+        Cartera agrupada por cliente con edades 30-60-90, para la tabla principal
+        del modulo de Cartera.
+        """
+        sql = text("""
+            SELECT
+                nombre, identificacion, MAX(vendedor) AS vendedor,
+                COUNT(*) AS num_facturas,
+                COALESCE(SUM(saldo_documento), 0) AS saldo_total,
+                COALESCE(SUM(CASE WHEN fecha_vencimiento IS NULL OR fecha_vencimiento >= CURRENT_DATE THEN saldo_documento ELSE 0 END), 0) AS corriente,
+                COALESCE(SUM(CASE WHEN fecha_vencimiento < CURRENT_DATE AND (CURRENT_DATE - fecha_vencimiento) BETWEEN 1 AND 30 THEN saldo_documento ELSE 0 END), 0) AS d1_30,
+                COALESCE(SUM(CASE WHEN fecha_vencimiento < CURRENT_DATE AND (CURRENT_DATE - fecha_vencimiento) BETWEEN 31 AND 60 THEN saldo_documento ELSE 0 END), 0) AS d31_60,
+                COALESCE(SUM(CASE WHEN fecha_vencimiento < CURRENT_DATE AND (CURRENT_DATE - fecha_vencimiento) BETWEEN 61 AND 90 THEN saldo_documento ELSE 0 END), 0) AS d61_90,
+                COALESCE(SUM(CASE WHEN fecha_vencimiento < CURRENT_DATE AND (CURRENT_DATE - fecha_vencimiento) > 90 THEN saldo_documento ELSE 0 END), 0) AS mas_90
+            FROM cartera_wo
+            WHERE saldo_documento > 0
+            GROUP BY nombre, identificacion
+            ORDER BY saldo_total DESC
+        """)
+
+        with db.engine.connect() as connection:
+            rows = connection.execute(sql).fetchall()
+
+        return [{
+            "nombre": row[0],
+            "identificacion": row[1],
+            "vendedor": row[2],
+            "num_facturas": row[3],
+            "saldo_total": float(row[4] or 0),
+            "corriente": float(row[5] or 0),
+            "d1_30": float(row[6] or 0),
+            "d31_60": float(row[7] or 0),
+            "d61_90": float(row[8] or 0),
+            "mas_90": float(row[9] or 0)
+        } for row in rows]
+
     @staticmethod
     def generar_reporte_edades_excel():
         """

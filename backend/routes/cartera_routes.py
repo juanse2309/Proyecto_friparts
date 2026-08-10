@@ -8,6 +8,39 @@ logger = logging.getLogger(__name__)
 cartera_bp = Blueprint('cartera', __name__)
 
 
+@cartera_bp.route('/api/cartera/cliente/<identificacion>', methods=['GET'])
+def obtener_cartera_cliente(identificacion):
+    """
+    Detalle de facturas con saldo pendiente de un cliente puntual (por NIT).
+    Informativo, sin bloqueos ni restriccion de rol: alimenta el modal de
+    Gestion Pedidos, visible para cualquiera que ya vea esa vista (Sofia/Andres).
+    """
+    try:
+        from backend.services.cartera_service import CarteraService
+
+        facturas = CarteraService.obtener_cartera_cliente(identificacion)
+        return jsonify({"success": True, "facturas": facturas}), 200
+    except Exception as e:
+        rollback_seguro()
+        logger.error(f"Error obteniendo cartera del cliente {identificacion}: {e}")
+        return jsonify({"success": False, "error": "No fue posible obtener la cartera del cliente."}), 500
+
+
+@cartera_bp.route('/api/cartera/listar', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
+def listar_cartera_agrupada():
+    """Listado completo de cartera agrupado por cliente, con edades 30-60-90."""
+    try:
+        from backend.services.cartera_service import CarteraService
+
+        clientes = CarteraService.obtener_cartera_agrupada()
+        return jsonify({"success": True, "clientes": clientes}), 200
+    except Exception as e:
+        rollback_seguro()
+        logger.error(f"Error listando cartera agrupada: {e}")
+        return jsonify({"success": False, "error": "No fue posible obtener el listado de cartera."}), 500
+
+
 @cartera_bp.route('/api/cartera/exportar-edades', methods=['GET'])
 @require_role(ROL_ADMINS + ROL_COMERCIALES)
 def exportar_edades_cartera():

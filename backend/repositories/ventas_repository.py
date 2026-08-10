@@ -36,7 +36,10 @@ class VentasRepository:
                     FROM cartera_wo
                     WHERE fecha_vencimiento < CURRENT_DATE AND saldo_documento > 0
                     GROUP BY identificacion
-                ) cw ON cw.identificacion = p.nit
+                ) cw ON cw.identificacion = regexp_replace(
+                    regexp_replace(upper(trim(p.nit)), '^(NIT|CC)\\s+', ''),
+                    '\\s+\\d+$', ''
+                )
                 WHERE p.estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
                   AND p.estado IS NOT NULL
                 ORDER BY p.fecha ASC, p.id_pedido ASC
