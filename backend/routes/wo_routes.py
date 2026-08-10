@@ -904,3 +904,95 @@ def sincronizar_cartera():
     except Exception as e:
         logger.error(f"Error en sincronizar_cartera: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ====================================================================
+# ENDPOINT: SINCRONIZAR CLIENTES (TERCEROS) DESDE WO
+# ====================================================================
+
+# Umbral del circuit breaker: si el catalogo recibido cae por debajo de este
+# porcentaje del catalogo actual en db_clientes, se aborta para no perder
+# clientes existentes ante una extraccion parcial/rota en el agente local.
+UMBRAL_CAIDA_ANOMALA_CLIENTES = 0.5
+
+
+@wo_bp.route('/api/wo/sincronizar_clientes', methods=['POST'])
+def sincronizar_clientes():
+    """Recibe y procesa el catalogo de clientes/terceros desde el Agente WO.
+    Persiste vía ClienteRepository.upsert_clientes_wo (UPSERT por identificacion/NIT).
+    """
+    api_key_header = request.headers.get('X-API-Key') or request.headers.get('X-Sync-Token')
+    api_key_env = os.environ.get('SYNC_TOKEN') or os.environ.get('WO_SYNC_API_KEY')
+
+    if not api_key_env or api_key_header != api_key_env:
+        logger.warning(f"⚠️ Sincronización de clientes WO no autorizada. Token recibido: {api_key_header}")
+        return jsonify({"success": False, "error": "No autorizado. Token de sincronización inválido o ausente."}), 401
+
+    try:
+        payload = request.json or {}
+        datos = payload.get("datos", payload) if isinstance(payload, dict) else payload
+
+        if not isinstance(datos, list):
+            datos = [datos] if datos else []
+
+        logger.info(f"Datos de clientes WO recibidos: {len(datos)} registros")
+
+        # --- Circuit Breaker: catálogo vacío o caída anómala frente al actual ---
+        from backend.core.sql_database import db
+        from backend.repositories.cliente_repository import ClienteRepository
+
+        if len(datos) == 0:
+            logger.critical("❌ [CRÍTICO] El catálogo de clientes recibido de WO viene vacío. Se aborta la sincronización.")
+            return jsonify({
+                "success": False,
+                "error": "El catálogo de clientes recibido está vacío."
+            }), 422
+
+        count_actual = db.session.execute(text("SELECT COUNT(*) FROM db_clientes")).scalar() or 0
+        if count_actual > 0 and len(datos) < count_actual * UMBRAL_CAIDA_ANOMALA_CLIENTES:
+            logger.critical(
+                f"❌ [CRÍTICO] Caída anómala en la sincronización de clientes: "
+                f"recibidos={len(datos)} vs actuales={count_actual} (umbral {UMBRAL_CAIDA_ANOMALA_CLIENTES:.0%}). "
+                "Se aborta para no perder clientes existentes."
+            )
+            return jsonify({
+                "success": False,
+                "error": f"Caída anómala: se recibieron {len(datos)} clientes frente a {count_actual} existentes. "
+                         "Verifique la extracción en el agente local."
+            }), 422
+
+        # --- Normalización y limpieza ---
+        # Cada fila es una direccion/sucursal de un tercero (IdTerceroDireccion
+        # de WO), no un cliente unico: un mismo NIT puede repetirse en varias
+        # filas con id_direccion_wo distinto (ver Vista_Tabla_Direcciones).
+        datos_limpios = []
+        for item in datos:
+            identificacion = str(item.get('identificacion') or item.get('nit') or '').strip()
+            id_direccion_wo_raw = item.get('id_direccion_wo') or item.get('IdTerceroDireccion')
+            if not identificacion or id_direccion_wo_raw in (None, ''):
+                continue
+            try:
+                id_direccion_wo = int(id_direccion_wo_raw)
+            except (ValueError, TypeError):
+                continue
+
+            datos_limpios.append({
+                'id_direccion_wo': id_direccion_wo,
+                'identificacion':  identificacion[:50],
+                'nombre':          str(item.get('nombre') or item.get('razon_social') or '').strip()[:200],
+                'direccion':       str(item.get('direccion') or '').strip()[:300],
+                'telefonos':       str(item.get('telefonos') or item.get('telefono') or '').strip()[:100],
+                'ciudad':          str(item.get('ciudad') or '').strip()[:100],
+            })
+
+        procesados = ClienteRepository.upsert_clientes_wo(datos_limpios)
+
+        return jsonify({
+            "success": True,
+            "message": "Clientes sincronizados correctamente",
+            "procesados": procesados
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en sincronizar_clientes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

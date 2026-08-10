@@ -240,10 +240,18 @@ class DbClientes(db.Model):
 
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
     nombre          = db.Column(db.String(200), index=True, nullable=True)
+    # NO unique: un mismo NIT puede tener varias direcciones/sucursales
+    # (confirmado contra Vista_Tabla_Direcciones de World Office, ej. NIT
+    # 830008309 tiene sede en Bogota y en Funza). La llave real de UPSERT
+    # por fila es id_direccion_wo (IdTerceroDireccion de WO), no identificacion.
     identificacion  = db.Column(db.String(50),  index=True, nullable=True)
     direccion       = db.Column(db.String(300), nullable=True)
     telefonos       = db.Column(db.String(100), nullable=True)
     ciudad          = db.Column(db.String(100), nullable=True)
+    # id_direccion_wo: IdTerceroDireccion de Vista_Tabla_Direcciones (WO).
+    # Llave natural de UPSERT por sucursal/direccion. Nullable porque las filas
+    # capturadas manualmente antes de esta sincronizacion no tienen este id.
+    id_direccion_wo = db.Column(db.Integer, unique=True, nullable=True, index=True)
 
 
 
