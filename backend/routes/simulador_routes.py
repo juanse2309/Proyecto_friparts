@@ -61,6 +61,26 @@ def candidatos():
         return jsonify([]), 200
 
 
+@simulador_bp.route('/api/simulador/sugerir-combo', methods=['GET'])
+def sugerir_combo():
+    """Sugiere referencias urgentes+compatibles por pared para llenar un
+    molde combo. Query params: ancla (codigo_referencia opcional),
+    cavidades (default 8), tolerancia_pared (default 1.5mm)."""
+    ancla = request.args.get('ancla') or None
+    cavidades = request.args.get('cavidades', 8, type=int)
+    tolerancia = request.args.get('tolerancia_pared', type=float)
+    try:
+        resultado = SimuladorService.sugerir_combo(
+            anchor_codigo_referencia=ancla, max_referencias=cavidades, tolerancia_pared=tolerancia,
+        )
+        return jsonify({'success': True, **resultado}), 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error en sugerir_combo: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @simulador_bp.route('/api/simulador/aceptar', methods=['POST'])
 def aceptar():
     data = request.json or {}

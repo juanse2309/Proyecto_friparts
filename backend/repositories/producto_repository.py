@@ -4,12 +4,15 @@ Centraliza el acceso a la tabla db_productos en PostgreSQL.
 """
 from typing import Optional, List, Dict
 from sqlalchemy import func, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from backend.core.sql_database import db, rollback_seguro
 from backend.models.sql_models import Producto, MetalsProducto
 from backend.utils.numeric_helpers import _safe_float
 import logging
 
 logger = logging.getLogger(__name__)
+
+BATCH_SIZE_UPSERT_PRODUCTOS = 500
 
 
 class ProductoRepository:
@@ -207,6 +210,83 @@ class ProductoRepository:
             rollback_seguro()
             logger.error(f"[get_stock_critico_sql] {e}")
             return []
+
+    @staticmethod
+    def upsert_productos_wo(lote_productos) -> int:
+        """
+        UPSERT masivo de productos sincronizados desde World Office hacia
+        db_productos, vía INSERT ... ON CONFLICT(codigo_sistema) DO UPDATE.
+
+        Requiere la constraint uq_productos_codigo_sistema aplicada por
+        scratch/migrar_productos_unique.py -- sin ella Postgres rechaza el
+        ON CONFLICT con "there is no unique or exclusion constraint matching
+        the specified target".
+
+        Precondición (responsabilidad del llamador -- ver
+        InventarioService.unificar_inventario_wo): cada item.codigo_sistema
+        YA debe venir normalizado vía preservar_o_normalizar_prefijo(...).
+        Este método no toca prefijos de división, solo persiste.
+
+        lote_productos: lista de dicts {codigo_sistema, descripcion, precio,
+        p_terminado}. Se procesa en sub-lotes de BATCH_SIZE_UPSERT_PRODUCTOS
+        dentro de una única transacción atómica.
+
+        Sobre filas EXISTENTES solo se tocan p_terminado/precio/descripcion
+        (nunca id_codigo, imagen, stock_minimo, etc. -- son datos propios del
+        catálogo que WO no gestiona). p_terminado se actualiza siempre porque
+        representa el saldo real de WO; precio/descripcion vacíos en el
+        payload NO sobreescriben un valor ya existente (agente_wo.py en modo
+        fallback sincroniza productos sin esos datos -- ver
+        backend/integration/agente_wo.py).
+
+        Sobre filas NUEVAS se inserta codigo_sistema/id_codigo (igual al
+        código de WO, ya normalizado), descripcion, precio y p_terminado; el
+        resto de columnas toma los defaults del modelo (stock_minimo=10,
+        stock_maximo=100, punto_reorden=20, etc.).
+
+        Retorna la cantidad de filas procesadas (insertadas o actualizadas).
+        """
+        registros = [
+            r for r in lote_productos
+            if str(r.get('codigo_sistema') or '').strip()
+        ]
+        if not registros:
+            return 0
+
+        try:
+            procesados = 0
+            for i in range(0, len(registros), BATCH_SIZE_UPSERT_PRODUCTOS):
+                batch = registros[i:i + BATCH_SIZE_UPSERT_PRODUCTOS]
+                values = [{
+                    'codigo_sistema': r['codigo_sistema'],
+                    'id_codigo': r['codigo_sistema'],
+                    'descripcion': str(r.get('descripcion') or '').strip()[:500],
+                    'precio': r.get('precio') or 0,
+                    'p_terminado': r.get('p_terminado') or 0,
+                } for r in batch]
+
+                stmt = pg_insert(Producto).values(values)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['codigo_sistema'],
+                    set_={
+                        'p_terminado': stmt.excluded.p_terminado,
+                        'precio': func.coalesce(func.nullif(stmt.excluded.precio, 0), Producto.precio),
+                        'descripcion': func.coalesce(
+                            func.nullif(func.trim(stmt.excluded.descripcion), ''),
+                            Producto.descripcion,
+                        ),
+                    }
+                )
+                db.session.execute(stmt)
+                procesados += len(values)
+
+            db.session.commit()
+            logger.info(f"[ProductoRepository.upsert_productos_wo] UPSERT completado: {procesados} productos procesados.")
+            return procesados
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[ProductoRepository.upsert_productos_wo] Error en el UPSERT: {e}")
+            raise e
 
     def _to_dict(self, p) -> Dict:
         """Convierte modelo SQLAlchemy a diccionario amigable para el frontend."""

@@ -269,51 +269,22 @@ def recibir_datos():
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
 def unificar_inventario_wo():
     """
-    Cruza inventario_wo con db_productos usando SQL masivo para 
-    asegurar actualización real en la base de datos de p_terminado y precio.
+    Dispara el UPSERT masivo de inventario_wo -> db_productos. Toda la lógica
+    de negocio/SQL vive en la capa de servicio/repositorio (regla FRITECH V4.5:
+    cero SQL/lógica en rutas) -- ver InventarioService.unificar_inventario_wo
+    y ProductoRepository.upsert_productos_wo.
     """
     try:
         from backend.core.sql_database import db
-        from sqlalchemy import text
+        from backend.services.inventario_service import InventarioService
 
-        # Log de cuántos registros hay en inventario_wo ANTES del cruce
-        count_wo = db.session.execute(text("SELECT COUNT(*) FROM inventario_wo")).scalar()
-        logger.info(f"[DEBUG] Registros en inventario_wo antes del cruce: {count_wo}")
-
-        if count_wo == 0:
-            logger.warning("[DEBUG] inventario_wo está vacía. Ejecuta primero la sincronización del agente.")
-            return jsonify({
-                "success": False,
-                "message": "inventario_wo está vacía. Sincroniza primero con el agente WO.",
-                "actualizados": 0
-            }), 400
-
-        # NOTA: Este UPDATE sincroniza el stock validando nulos.
-        sql_update = text("""
-            UPDATE db_productos AS p
-            SET 
-                p_terminado = COALESCE(n.stock_wo, p.p_terminado)
-            FROM inventario_wo n
-            WHERE 
-                (p.codigo_sistema = n.codigo_producto OR p.id_codigo = n.codigo_producto)
-                AND n.stock_wo IS NOT NULL AND n.stock_wo >= 0;
-        """)
-        
-        result = db.session.execute(sql_update)
-        actualizados = result.rowcount
-        db.session.commit()
-
-        logger.info(f"📊 [Unificar WO] Actualización masiva completada. Filas afectadas: {actualizados}")
-
-        return jsonify({
-            "success": True,
-            "message": f"Sincronización masiva completada exitosamente. {actualizados} productos actualizados.",
-            "actualizados": actualizados
-        }), 200
+        resultado = InventarioService.unificar_inventario_wo()
+        status_code = 200 if resultado.get("success") else 400
+        return jsonify(resultado), status_code
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"❌ Error en unificar WO (SQL Masivo): {e}")
+        logger.error(f"❌ Error en unificar WO: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

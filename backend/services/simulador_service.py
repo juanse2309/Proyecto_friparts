@@ -32,6 +32,14 @@ Reglas de negocio confirmadas por el usuario:
     real en db_inyeccion cuando existe (match por id_codigo con o sin
     prefijo 'FR-'); si no hay historial, se usa 'pared' como agrupador de
     referencia (tolerancia +/-1.5mm) solo para visibilidad, no como número.
+  - IMPORTANTE (2026-08-10): codigos CB<N>/INT<N>/CAR<N> son piezas
+    intermedias (CB = pieza cruda de inyeccion, INT/CAR se le montan despues
+    para volverse el producto final FR con el mismo numero N) — nadie pide
+    un CB directamente. Su brecha real NO es su propio comprometido-p_terminado,
+    es el del producto final N (verificado: 117 de 118 codigos CB/INT/CAR
+    tienen un producto N correspondiente). rel_producto_molde no tiene esta
+    relacion formal (nueva_ficha_maestra tampoco, esta vacia para estos
+    casos) asi que se resuelve por convencion de nombre en _brechas_reales().
   - El estado "qué está ocupado ahora" tiene 3 fuentes, en este orden de
     preferencia: (1) AUTO_DETECTADO — se lee (solo SELECT, nunca se escribe)
     db_inyeccion WHERE estado='EN_PROCESO' para inferir que esta corriendo
@@ -310,27 +318,65 @@ class SimuladorService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def obtener_candidatos(limite=50):
-        """Referencias con brecha (comprometido > p_terminado) que además
-        tienen al menos un molde con máquina libre y portamolde libre ahora
-        mismo en el sandbox. Devuelve una opción por (referencia, molde,
-        máquina) factible, con el desglose del score visible — no se elige
-        una sola 'mejor' de forma oculta."""
-        brechas = db.session.execute(text("""
-            SELECT id_codigo, descripcion,
-                   COALESCE(comprometido, 0) - COALESCE(p_terminado, 0) AS faltante,
-                   pared, diametro_interno
-            FROM db_productos
-            WHERE COALESCE(comprometido, 0) - COALESCE(p_terminado, 0) > 0
+    def _brechas_reales(limite=200):
+        """Brecha por referencia, resolviendo CB<N>/INT<N>/CAR<N> contra la
+        brecha real del producto final <N> (ver docstring del modulo). El
+        candidato devuelto sigue siendo el codigo original (lo que hay que
+        moldear), pero 'faltante' refleja la demanda real, no el stock de la
+        pieza intermedia (que nadie pide directamente). Solo considera
+        referencias con molde de inyeccion mapeado (rel_producto_molde) —
+        sin eso no es algo que se pueda moldear (materia prima, kits,
+        transporte, etc. quedan fuera aunque tengan brecha)."""
+        rows = db.session.execute(text("""
+            WITH mapeo_demanda AS (
+                SELECT p.id_codigo,
+                       CASE
+                           WHEN p.id_codigo ~ '^(CB|INT|CAR)[0-9]+$'
+                                AND EXISTS (
+                                    SELECT 1 FROM db_productos p2
+                                    WHERE p2.id_codigo = REGEXP_REPLACE(p.id_codigo, '^(CB|INT|CAR)', '')
+                                )
+                           THEN REGEXP_REPLACE(p.id_codigo, '^(CB|INT|CAR)', '')
+                           ELSE p.id_codigo
+                       END AS codigo_demanda
+                FROM db_productos p
+            )
+            SELECT p.id_codigo, p.descripcion,
+                   COALESCE(pd.comprometido, 0) - COALESCE(pd.p_terminado, 0) AS faltante,
+                   p.pared, p.diametro_interno,
+                   (md.codigo_demanda != p.id_codigo) AS via_producto_final
+            FROM db_productos p
+            JOIN mapeo_demanda md ON md.id_codigo = p.id_codigo
+            JOIN db_productos pd ON pd.id_codigo = md.codigo_demanda
+            WHERE COALESCE(pd.comprometido, 0) - COALESCE(pd.p_terminado, 0) > 0
+              AND EXISTS (
+                  SELECT 1 FROM rel_producto_molde rpm
+                  WHERE rpm.codigo_referencia = p.id_codigo AND rpm.activo = TRUE
+              )
             ORDER BY faltante DESC
             LIMIT :lim
         """), {'lim': limite}).fetchall()
+        return [{
+            'codigo_referencia': r[0], 'descripcion': r[1], 'faltante': float(r[2]),
+            'pared': float(r[3]) if r[3] is not None else None, 'diametro_interno': r[4],
+            'via_producto_final': r[5],
+        } for r in rows]
+
+    @staticmethod
+    def obtener_candidatos(limite=50):
+        """Referencias con brecha (comprometido > p_terminado, resuelta vía
+        _brechas_reales) que además tienen al menos un molde con máquina
+        libre y portamolde libre ahora mismo en el sandbox. Devuelve una
+        opción por (referencia, molde, máquina) factible, con el desglose
+        del score visible — no se elige una sola 'mejor' de forma oculta."""
+        brechas = SimuladorService._brechas_reales(limite=limite)
 
         maquinas_ocupadas, portamoldes_ocupados, machos_en_uso = SimuladorService._recursos_ocupados()
 
         candidatos = []
         for b in brechas:
-            codigo_ref, descripcion, faltante, pared, diametro_interno = b
+            codigo_ref, descripcion, faltante = b['codigo_referencia'], b['descripcion'], b['faltante']
+            pared, diametro_interno = b['pared'], b['diametro_interno']
             moldes = db.session.execute(text(
                 "SELECT codigo_molde, cavidades, tipo_vinculo FROM rel_producto_molde WHERE codigo_referencia = :c AND activo = TRUE"
             ), {'c': codigo_ref}).fetchall()
@@ -374,6 +420,55 @@ class SimuladorService:
                         })
 
         return candidatos
+
+    @staticmethod
+    def sugerir_combo(anchor_codigo_referencia=None, max_referencias=8, tolerancia_pared=None):
+        """Sugiere un grupo de referencias para llenar un molde combo de
+        varias cavidades (confirmado por el usuario 2026-08-10): urgencia
+        real primero (vía _brechas_reales, ya resuelve CB/INT/CAR contra su
+        producto final), agrupadas solo si comparten 'pared' dentro de
+        tolerancia con la referencia ancla. No depende de qué molde/máquina
+        tenga hoy cada referencia por separado — es una sugerencia de QUÉ
+        combinar, no de dónde montarlo (eso lo decide planta).
+
+        Si no hay suficientes referencias urgentes y compatibles para llenar
+        max_referencias, NO se rellena en silencio con algo sin urgencia —
+        queda visible en 'cavidades_sin_candidato_urgente' para que el
+        usuario decida."""
+        tolerancia_pared = tolerancia_pared if tolerancia_pared is not None else TOLERANCIA_PARED_MM
+        urgentes = SimuladorService._brechas_reales(limite=500)
+        if not urgentes:
+            return {'grupo': [], 'anchor': None, 'motivo': 'sin referencias con brecha real ahora mismo'}
+
+        if anchor_codigo_referencia:
+            anchor = next((u for u in urgentes if u['codigo_referencia'] == anchor_codigo_referencia), None)
+            if not anchor:
+                raise ValueError(f"'{anchor_codigo_referencia}' no tiene brecha real ahora mismo (o no existe).")
+        else:
+            anchor = urgentes[0]  # ya viene ordenado por faltante DESC
+
+        if anchor['pared'] is None:
+            compatibles = []
+        else:
+            compatibles = [
+                u for u in urgentes
+                if u['codigo_referencia'] != anchor['codigo_referencia']
+                and u['pared'] is not None
+                and abs(u['pared'] - anchor['pared']) <= tolerancia_pared
+            ]
+        compatibles.sort(key=lambda u: u['faltante'], reverse=True)
+
+        grupo = [anchor] + compatibles[:max_referencias - 1]
+        faltan = max(0, max_referencias - len(grupo))
+
+        return {
+            'grupo': grupo,
+            'pared_referencia': anchor['pared'],
+            'tolerancia_pared_mm': tolerancia_pared,
+            'cavidades_llenas': len(grupo),
+            'cavidades_objetivo': max_referencias,
+            'cavidades_sin_candidato_urgente': faltan,
+        }
 
     @staticmethod
     def aceptar_sugerencia(candidato, responsable):

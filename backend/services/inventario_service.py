@@ -422,6 +422,86 @@ class InventarioService:
         return lista_final
 
     @staticmethod
+    def unificar_inventario_wo() -> Dict:
+        """
+        Cruza inventario_wo (staging de la sincronización de World Office) con
+        db_productos vía UPSERT masivo (ProductoRepository.upsert_productos_wo).
+
+        Reemplaza el UPDATE puro que antes vivía como SQL crudo en
+        wo_routes.py: aquel solo actualizaba filas ya existentes e ignoraba en
+        silencio cualquier codigo_producto sin match (ej. un producto nuevo
+        como '5012' creado en WO nunca llegaba a db_productos). Con el UPSERT
+        nativo (ON CONFLICT sobre codigo_sistema), los códigos nuevos SÍ se
+        insertan.
+
+        Normalización OBLIGATORIA: cada codigo_producto de WO pasa por
+        preservar_o_normalizar_prefijo(codigo, prefijo_defecto='FR-') antes de
+        tocar db_productos. Es un opt-in explícito y seguro en este contexto
+        puntual porque agente_wo.py sincroniza específicamente contra la base
+        FRIPARTS2021 de World Office -- la división es un dato conocido del
+        pipeline, no una inferencia por formato de cadena (ver docstring de
+        preservar_o_normalizar_prefijo en backend/utils/formatters.py y
+        [[feedback-prefijos-codigo-producto]]). Códigos que YA traen prefijo
+        propio (MT-, CAR-, CB-...) se preservan intactos por la función.
+        """
+        # NOTA: se usa SQL directo (no InventarioWO.query) porque
+        # backend/models/sql_models.py tiene una clase InventarioWO duplicada
+        # (hallazgo 2026-08-10, sin relacion con este cambio): con
+        # extend_existing=True, SQLAlchemy fusiona las columnas de ambas
+        # definiciones en un solo mapeo ORM que no coincide con la tabla real
+        # de Postgres (que solo tiene codigo_producto/descripcion/stock_wo/
+        # precio_wo/codigo_alterno/referencia), y el ORM termina pidiendo
+        # columnas (ej. 'id') que no existen -- mismo blindaje que ya usa
+        # ProductoRepository.get_productos_all() contra discrepancias de schema.
+        filas_wo = db.session.execute(text(
+            "SELECT codigo_producto, descripcion, stock_wo, precio_wo FROM inventario_wo"
+        )).mappings().all()
+        logger.info(f"[Unificar WO] Registros en inventario_wo antes del cruce: {len(filas_wo)}")
+
+        if not filas_wo:
+            logger.warning("[Unificar WO] inventario_wo está vacía. Ejecuta primero la sincronización del agente.")
+            return {
+                "success": False,
+                "message": "inventario_wo está vacía. Sincroniza primero con el agente WO.",
+                "actualizados": 0
+            }
+
+        # Mismo filtro de saldo que el UPDATE original: solo saldos validos
+        # (no NULL, no negativos) participan de la sincronizacion de stock.
+        lote = []
+        for fila in filas_wo:
+            stock_wo = fila['stock_wo']
+            if stock_wo is None or float(stock_wo) < 0:
+                continue
+
+            codigo_sistema = preservar_o_normalizar_prefijo(fila['codigo_producto'], prefijo_defecto='FR-')
+            if not codigo_sistema:
+                continue
+
+            lote.append({
+                'codigo_sistema': codigo_sistema,
+                'descripcion': fila['descripcion'],
+                'precio': float(fila['precio_wo'] or 0),
+                'p_terminado': float(stock_wo),
+            })
+
+        actualizados = producto_repo.upsert_productos_wo(lote)
+
+        # Invalida el cache real de listar_productos_v2() para que los
+        # productos nuevos/actualizados aparezcan de inmediato en vez de
+        # esperar el TTL de PRODUCTOS_CACHE_TTL segundos.
+        PRODUCTOS_V2_CACHE["data"] = None
+        PRODUCTOS_V2_CACHE["timestamp"] = 0
+
+        logger.info(f"📊 [Unificar WO] UPSERT completado. Filas procesadas: {actualizados}")
+
+        return {
+            "success": True,
+            "message": f"Sincronización masiva completada exitosamente. {actualizados} productos procesados.",
+            "actualizados": actualizados
+        }
+
+    @staticmethod
     def crear_producto(id_codigo: str, codigo_sistema_raw: str, descripcion: str, precio, stock_inicial) -> None:
         """Registra un nuevo producto en db_productos."""
         try:

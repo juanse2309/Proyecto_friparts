@@ -1,0 +1,22 @@
+AUDITORIA DE PRECIOS EN CERO -- division FR- (FriParts)
+Generado: 2026-08-10 14:27:23
+Criterio: codigo_sistema ILIKE 'FR-%' AND (precio IS NULL OR precio = 0) AND p_terminado > 0
+Consulta de SOLO LECTURA -- ningun valor fue modificado en la base de datos.
+Total encontrados: 14
+
+codigo_sistema      p_terminado  descripcion
+------------------------------------------------------------------------------------------
+FR-9897                    1602  BUJE MUELLE CHILE
+FR-9974                     581  BUJE PARA BALANCIN DOBLE FUNCION MAZDA B2000 - TOYOTA 4.5 (ARTICULACION)
+FR-9905                     520  BUJE PARA BALANCINES DOBLE ACCION
+FR-9963                     357  BUJE LARGO PARA BALANCION DOBLE FUNCION TOYOTA REVO - VIGO
+FR-9966                     202  SOPORTE
+FR-9958                      92  BUJE NISSAN NV200 2010… NV350 2012… (PANAMA)
+FR-9946                      64  BUJE DELANTERO SUPERIOR NISSAN URVAN D21 MOD 87-90
+FR-9977                      60  BUJE PARA BALANCIN DOBLE FUNCION NISSAN D21 - FRONTIER (ARTICULACION)
+FR-9738R                     42  BUJE MUELLE MAZDA SERIE B (PARTE FIJA)
+FR-4865435010                29  MX-4865435010 BUJE DE TIJERA INFERIOR DELANTERA TOYOTA HILUX 4X2 MAZDA PICK UP B2200
+FR-9756 H                    24  BUJE PUNTA DE BARRA ESTABILIZADORA VOLSWAGEN CAMION 1800 HEMBRA
+FR-97089                     23  FR-97089 97089 BUJE BARRA ESTABILIZADORA RENAULT SYMBOL
+FR-9964                      10  BUJE CORTO PARA BALANCION DOBLE FUNCION TOYOTA REVO - VIGO
+FR-9949                       5  BUJE MUELLE VOLKSWAGEN  AMAROK (TRASERO POSTERIOR)

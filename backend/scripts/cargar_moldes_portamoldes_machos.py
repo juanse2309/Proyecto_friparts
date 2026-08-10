@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Carga a la base de datos real: rel_producto_molde, db_portamoldes,
-rel_molde_portamoldes, rel_maquina_portamolde, db_machos, y las 4 columnas
-geometricas de db_productos.
+rel_molde_portamoldes, db_machos, y las 4 columnas geometricas de
+db_productos. NO carga rel_maquina_portamolde (ver docstring de cargar()) —
+esa asignacion se descarto el 2026-08-06 al contradecir el historico real.
 
 Reutiliza integramente la logica de cruce/limpieza de
 generar_mapeo_molde_friparts.py (mismo dataset ya revisado en
@@ -42,7 +43,7 @@ from backend.scripts.generar_mapeo_molde_friparts import (
     _cargar_moldes_normalizados, _cargar_crudo, _codigos_nuevos_no_normalizados,
     _cargar_inventario_machos, _cargar_geometria, _norm_codigo,
     CROSSWALK_CONFIRMADO, CONFIRMADOS_FALTA_CATALOGO, REFERENCIAS_NUEVAS_CONFIRMADAS,
-    TIPOS_SIN_SKU_PROPIO, MAQUINAS_PORTAMOLDES, GEOMETRIA_VACIA,
+    TIPOS_SIN_SKU_PROPIO, GEOMETRIA_VACIA,
     PATH_MOLDERIA_NORMALIZADO,
 )
 
@@ -103,29 +104,29 @@ def _construir_rel_molde_portamoldes(filas_crudo):
     return pares
 
 
+TODOS_LOS_PORTAMOLDES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'Ñ', 'O', 'P']
+
+
 def cargar():
+    """NO carga rel_maquina_portamolde: la asignacion 'maquinas grandes
+    (1,4)=M,N,Ñ,O,P / chicas (2,3)=A-M' (MAQUINAS_PORTAMOLDES) se descarto
+    2026-08-06 al cruzarla contra el historico real de db_inyeccion — 54 de
+    543 combinaciones maquina-referencia solo eran posibles con un
+    portamolde fuera del grupo "asignado" a esa maquina (ej. Maquina 4 corrio
+    moldes en A,B,C,D,E,F,I casi tantas veces como se esperaria sin
+    restriccion de tamaño). Tabla queda vacia hasta tener el patron real
+    (el usuario va a mostrar ejemplos de montajes para deducirlo bien)."""
     validas, inventario_machos, geometria, filas_crudo = _construir_mapeo()
     pares_molde_portamolde = _construir_rel_molde_portamoldes(filas_crudo)
-    todas_las_letras = sorted({p for info in MAQUINAS_PORTAMOLDES.values() for p in info['portamoldes']})
 
     with app.app_context():
         try:
-            for letra in todas_las_letras:
+            for letra in TODOS_LOS_PORTAMOLDES:
                 db.session.execute(text("""
                     INSERT INTO db_portamoldes (codigo, cantidad_fisica, activo)
                     VALUES (:codigo, 1, TRUE)
                     ON CONFLICT (codigo) DO UPDATE SET cantidad_fisica = 1, activo = TRUE
                 """), {'codigo': letra})
-
-            db.session.execute(text("DELETE FROM rel_maquina_portamolde"))
-            n_rel_maquina = 0
-            for maquina, info in MAQUINAS_PORTAMOLDES.items():
-                for p in info['portamoldes']:
-                    db.session.execute(text("""
-                        INSERT INTO rel_maquina_portamolde (maquina, codigo_portamolde)
-                        VALUES (:maquina, :p)
-                    """), {'maquina': maquina, 'p': p})
-                    n_rel_maquina += 1
 
             for m in inventario_machos:
                 db.session.execute(text("""
@@ -180,8 +181,8 @@ def cargar():
 
             db.session.commit()
             print("Carga exitosa:")
-            print(f"  db_portamoldes: {len(todas_las_letras)} upserted")
-            print(f"  rel_maquina_portamolde: {n_rel_maquina} filas")
+            print(f"  db_portamoldes: {len(TODOS_LOS_PORTAMOLDES)} upserted")
+            print("  rel_maquina_portamolde: 0 filas (no se carga, ver docstring)")
             print(f"  db_machos: {len(inventario_machos)} upserted")
             print(f"  rel_producto_molde: {len(validas)} filas")
             print(f"  rel_molde_portamoldes: {len(pares_molde_portamolde)} filas")

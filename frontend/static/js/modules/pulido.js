@@ -132,26 +132,69 @@ const ModuloPulido = {
         }, 5 * 60 * 1000); // 5 minutos
     },
 
-    verificarReportesPendientes: function() {
-        const backup = localStorage.getItem('pulido_failed_report');
-        if (backup) {
-            Swal.fire({
-                title: 'Reporte Pendiente',
-                text: 'Se detectó un reporte que no se pudo enviar anteriormente por fallo de red. ¿Deseas intentar enviarlo de nuevo?',
-                icon: 'info',
-                showCancelButton: true,
-                confirmButtonText: 'Sí, reintentar envío',
-                cancelButtonText: 'Descartar',
-                confirmButtonColor: '#3b82f6'
-            }).then(async (result) => {
-                if (result.isConfirmed) {
-                    const data = JSON.parse(backup);
-                    await this.enviarAServidor(data);
-                } else if (result.dismiss === Swal.DismissReason.cancel) {
-                    localStorage.removeItem('pulido_failed_report');
-                }
-            });
+    // ──────────────────────────────────────────────────────────────────
+    // COLA DE REPORTES FALLIDOS (localStorage)
+    // Se guarda como LISTA (no una sola llave) para que fallos consecutivos
+    // no se sobrescriban entre sí y se pierdan reportes silenciosamente.
+    // ──────────────────────────────────────────────────────────────────
+    _FAILED_REPORTS_KEY: 'pulido_failed_reports_queue',
+
+    _obtenerReportesFallidos: function() {
+        try {
+            const raw = localStorage.getItem(this._FAILED_REPORTS_KEY);
+            const lista = raw ? JSON.parse(raw) : [];
+            return Array.isArray(lista) ? lista : [];
+        } catch (e) {
+            console.warn('[Pulido] Cola de reportes fallidos corrupta, se reinicia:', e);
+            return [];
         }
+    },
+
+    _guardarReportesFallidos: function(lista) {
+        localStorage.setItem(this._FAILED_REPORTS_KEY, JSON.stringify(lista));
+    },
+
+    _agregarOActualizarReporteFallido: function(data) {
+        const lista = this._obtenerReportesFallidos();
+        const idx = lista.findIndex(r => r._localId === data._localId);
+        if (idx >= 0) {
+            lista[idx] = data;
+        } else {
+            lista.push(data);
+        }
+        this._guardarReportesFallidos(lista);
+    },
+
+    _removerReporteFallido: function(localId) {
+        const lista = this._obtenerReportesFallidos().filter(r => r._localId !== localId);
+        this._guardarReportesFallidos(lista);
+    },
+
+    verificarReportesPendientes: function() {
+        const pendientes = this._obtenerReportesFallidos();
+        if (pendientes.length === 0) return;
+
+        const siguiente = pendientes[0];
+        const texto = pendientes.length > 1
+            ? `Hay ${pendientes.length} reportes que no se pudieron enviar anteriormente por fallo de red. Se procesarán uno a uno. ¿Reintentar el primero ahora?`
+            : 'Se detectó un reporte que no se pudo enviar anteriormente por fallo de red. ¿Deseas intentar enviarlo de nuevo?';
+
+        Swal.fire({
+            title: pendientes.length > 1 ? `${pendientes.length} Reportes Pendientes` : 'Reporte Pendiente',
+            text: texto,
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, reintentar envío',
+            cancelButtonText: 'Descartar este',
+            confirmButtonColor: '#3b82f6'
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                await this.enviarAServidor(siguiente);
+            } else if (result.dismiss === Swal.DismissReason.cancel) {
+                this._removerReporteFallido(siguiente._localId);
+                this.verificarReportesPendientes(); // Seguir con el siguiente pendiente, si hay
+            }
+        });
     },
 
     guardarEstadoLocal: function() {
@@ -1286,6 +1329,12 @@ const ModuloPulido = {
     },
 
     enviarAServidor: async function (data) {
+        // Identificador local estable: permite ubicar y remover ESTE reporte
+        // específico de la cola de fallidos sin afectar a los demás.
+        if (!data._localId) {
+            data._localId = 'LOCAL-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+        }
+
         try {
             if (!navigator.onLine) {
                 throw new Error("No hay conexión a internet (Modo Offline)");
@@ -1294,16 +1343,18 @@ const ModuloPulido = {
             Swal.showLoading();
             // Logger del payload exacto justo antes del post
             console.log('📡 Enviando POST a /api/pulido con payload:', JSON.stringify(data, null, 2));
+            // No enviar el marcador interno de la cola local al backend
+            const { _localId, ...payload } = data;
             // Usar el apiClient robusto que ya implementa 3 reintentos
-            const result = await window.apiClient.post('/pulido', data);
+            const result = await window.apiClient.post('/pulido', payload);
 
             if (result.success) {
                 Swal.fire('¡Éxito!', 'Producción guardada correctamente.', 'success');
-                localStorage.removeItem('pulido_failed_report'); // Limpiar backup si existía
-                
+                this._removerReporteFallido(_localId); // Limpiar SOLO este reporte de la cola
+
                 this.terminarCiclo();
-                this.limpiarSesionLocal(); 
-                
+                this.limpiarSesionLocal();
+
                 const modal = document.getElementById('modal-reporte-final');
                 if (modal) modal.style.display = 'none';
                 this.limpiarFormulario();
@@ -1315,15 +1366,21 @@ const ModuloPulido = {
                 if (window.DataReloadHelpers && window.DataReloadHelpers.recargarProductos) {
                     window.DataReloadHelpers.recargarProductos().catch(err => console.error("[Pulido] Error actualizando stock:", err));
                 }
+
+                // Si quedan más reportes pendientes en la cola, seguir procesándolos
+                if (this._obtenerReportesFallidos().length > 0) {
+                    this.verificarReportesPendientes();
+                }
             } else {
                 console.warn("Servidor rechazó el reporte:", result.error);
                 throw new Error(result.error || 'Error desconocido del servidor');
             }
         } catch (error) {
             console.error("Error crítico al guardar:", error);
-            
-            // Persistencia Local (LocalStorage) ante fallos
-            localStorage.setItem('pulido_failed_report', JSON.stringify(data));
+
+            // Persistencia Local (LocalStorage) ante fallos — se AGREGA a la cola,
+            // nunca sobrescribe reportes previos que sigan pendientes de envío.
+            this._agregarOActualizarReporteFallido(data);
 
             const isServerError = error.message.includes('HTTP');
             const errorMsg = isServerError ? error.message : 'No se pudo contactar al servidor tras varios intentos.';
@@ -1340,7 +1397,7 @@ const ModuloPulido = {
                 if (result.isConfirmed) {
                     this.enviarAServidor(data);
                 } else {
-                    // Si deciden cerrar, limpiamos la UI pero el reporte queda en 'pulido_failed_report'
+                    // Si deciden cerrar, limpiamos la UI pero el reporte queda en la cola local pendiente
                     this.limpiarSesionLocal();
                     const modal = document.getElementById('modal-reporte-final');
                     if (modal) modal.style.display = 'none';

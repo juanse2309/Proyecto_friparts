@@ -121,27 +121,64 @@ def probar_y_sincronizar_productos():
         cursor.fetchall()
         logger.info(f"[AUDITORIA] Columnas de Vista_Tabla_Inventarios: {cols_inv}")
 
-        # Auto-detectar columna de ID interno y columna de SKU/Código
+        # Auto-detectar columna de ID interno, SKU/Código, Descripción, Precio
+        # y Clasificacion. Descripción/Precio son necesarios para que el UPSERT
+        # en la nube pueda crear productos nuevos con datos de catálogo reales
+        # (no solo el saldo) -- ver ProductoRepository.upsert_productos_wo.
+        #
+        # Clasificacion es OBLIGATORIA para filtrar: Vista_Tabla_Inventarios
+        # mezcla productos de inventario real (Clasificacion='Producto': IPT
+        # terminados, IMP materias primas, PNF no fabricados, IPP en proceso)
+        # con cuentas contables que NO son productos (Clasificacion='Gasto',
+        # 'Activo Fijo', 'Servicio', 'Diferido', etc. -- ej. "Honorarios
+        # Auditoria Externa", "Gastos medicos y drogas"). Confirmado contra
+        # SQL Server real (scratch/investigar_clasificacion_wo.py, 2026-08-10):
+        # sin este filtro, ~774 de 1600 filas sincronizadas eran cuentas
+        # contables, no productos -- el UPSERT las hubiera insertado como
+        # "productos" en db_productos.
         col_id_inv   = None  # La FK que une con Vista_Existencias (IdInventario)
         col_sku      = None  # El código alfanumérico del producto (ej: FR-123)
+        col_desc     = None  # Descripción del producto
+        col_precio   = None  # Precio de venta
+        col_clasif   = None  # 'Producto' vs 'Gasto'/'Activo Fijo'/'Servicio'/'Diferido'
         for c in cols_inv:
             cn = c.lower().replace('ó','o').replace('é','e').replace('á','a').replace('í','i')
             if col_id_inv is None and cn in ('idinventario', 'id_inventario', 'id'):
                 col_id_inv = c
             if col_sku is None and ('codigo' in cn or 'referencia' in cn or 'sku' in cn or 'articulo' in cn):
                 col_sku = c
+            if col_desc is None and ('descripcion' in cn or 'nombre' in cn):
+                col_desc = c
+            if col_precio is None and 'precio' in cn:
+                col_precio = c
+            if col_clasif is None and 'clasificacion' in cn:
+                col_clasif = c
 
-        logger.info(f"[AUDITORIA] col_id_inv='{col_id_inv}' | col_sku='{col_sku}'")
+        logger.info(f"[AUDITORIA] col_id_inv='{col_id_inv}' | col_sku='{col_sku}' | "
+                    f"col_desc='{col_desc}' | col_precio='{col_precio}' | col_clasif='{col_clasif}'")
 
         if col_id_inv and col_sku:
+            select_desc = f"i.[{col_desc}]" if col_desc else "NULL"
+            select_precio = f"i.[{col_precio}]" if col_precio else "NULL"
+            # Si no se detecta la columna de clasificacion, NO se filtra (se
+            # preserva el comportamiento anterior) pero se advierte fuerte en
+            # el log, porque sin este filtro pueden colarse cuentas contables.
+            filtro_clasif = f"AND i.[{col_clasif}] = 'Producto'" if col_clasif else ""
+            if not col_clasif:
+                logger.warning("[ADVERTENCIA] No se detecto columna de Clasificacion -- "
+                                "NO se esta filtrando por 'Producto'. Cuentas contables "
+                                "de WO podrian colarse como si fueran productos.")
             query_join = f"""
-                SELECT 
+                SELECT
                     i.[{col_sku}] AS codigo_producto,
-                    SUM(e.[Existencia]) AS stock_wo
+                    SUM(e.[Existencia]) AS stock_wo,
+                    MAX({select_desc}) AS descripcion,
+                    MAX({select_precio}) AS precio_venta
                 FROM [FRIPARTS2021].[dbo].[Vista_Existencias] e
                 INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios] i
                     ON e.[IdInventario] = i.[{col_id_inv}]
                 WHERE e.[Existencia] IS NOT NULL
+                {filtro_clasif}
                 GROUP BY i.[{col_sku}]
             """
             try:
@@ -155,13 +192,27 @@ def probar_y_sincronizar_productos():
                         stock_val = float(row[1])
                     except (ValueError, TypeError):
                         stock_val = 0.0
-                    registros.append({'codigo_producto': codigo_val, 'stock_wo': stock_val})
+                    descripcion_val = str(row[2] or '').strip()
+                    try:
+                        precio_val = float(row[3]) if row[3] is not None else 0.0
+                    except (ValueError, TypeError):
+                        precio_val = 0.0
+                    registros.append({
+                        'codigo_producto': codigo_val,
+                        'stock_wo': stock_val,
+                        'descripcion': descripcion_val,
+                        'precio_wo': precio_val,
+                    })
                 logger.info(f"JOIN exitoso. {len(registros)} productos con SKU real obtenidos.")
             except pyodbc.Error as e_join:
                 logger.warning(f"JOIN fallido (2do intento): {e_join}")
                 logger.info(f"[DIAG] Todas las columnas disponibles en Vista_Tabla_Inventarios: {cols_inv}")
         
-        # Fallback si el JOIN falló o no se detectaron columnas
+        # Fallback si el JOIN falló o no se detectaron columnas. Sin SKU real
+        # tampoco hay como resolver descripcion/precio de forma confiable, así
+        # que estos registros viajan solo con stock (igual que antes de esta
+        # ampliación) -- el UPSERT en la nube los tratará como actualización de
+        # saldo únicamente si el código ya existe en db_productos.
         if not registros:
             logger.warning("FALLBACK: usando IdInventario directamente (sin SKU real). "
                            "Revisa el log [AUDITORIA] para ajustar col_id_inv y col_sku.")
@@ -204,7 +255,8 @@ def probar_y_sincronizar_productos():
         # DEBUG LOCAL: Verificar que los datos tienen stock real antes de enviar
         print("MUESTRA DEL PAYLOAD A ENVIAR (primeros 5):")
         for item in registros[:5]:
-            print(f"  Ref: {item.get('codigo_producto')} | stock_wo: {item.get('stock_wo')}")
+            print(f"  Ref: {item.get('codigo_producto')} | stock_wo: {item.get('stock_wo')} | "
+                  f"descripcion: {item.get('descripcion', '')} | precio_wo: {item.get('precio_wo', 0)}")
         
         # Serializar los datos usando el encoder robusto
         payload_json = json.dumps(payload, cls=SQLServerJSONEncoder)

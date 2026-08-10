@@ -18,7 +18,12 @@ class Producto(db.Model):
     __table_args__ = {'extend_existing': True}
 
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    codigo_sistema  = db.Column(db.String(50),  index=True, nullable=True)
+    # unique=True: soporta INSERT ... ON CONFLICT(codigo_sistema) para el UPSERT
+    # masivo de World Office (ver ProductoRepository.upsert_productos_wo). La
+    # constraint real en Postgres (uq_productos_codigo_sistema) la crea
+    # scratch/migrar_productos_unique.py -- este flag solo refleja el estado
+    # esperado del esquema, no la aplica por si solo.
+    codigo_sistema  = db.Column(db.String(50),  unique=True, index=True, nullable=True)
     id_codigo       = db.Column(db.String(50),  index=True, nullable=True)
     descripcion     = db.Column(db.String(500), nullable=True)
     precio          = db.Column(db.Numeric(18, 2), default=0)

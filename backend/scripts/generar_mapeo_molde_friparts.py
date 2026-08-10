@@ -127,10 +127,15 @@ REFERENCIAS_NUEVAS_CONFIRMADAS = [
 TOLERANCIA_MACHO_MM = 1.0
 TOLERANCIA_PARED_MM = 1.5
 
-# Confirmado por el usuario (2026-08-06), pendiente de verificar en planta en
-# la proxima visita: que portamoldes acepta cada maquina. Cubre las 17 letras
-# reales (A-P + Ñ) sin huecos; 'M' es el unico portamolde compartido entre
-# ambos grupos.
+# DESCARTADO (2026-08-06): esta division "maquinas grandes 1,4 = M,N,Ñ,O,P /
+# chicas 2,3 = A-M" se cruzo contra el historico real de db_inyeccion y no se
+# sostiene — 54 de 543 combinaciones maquina-referencia solo eran posibles
+# con un portamolde fuera del grupo "asignado", y Maquina 4 en particular
+# corrio moldes de casi todo el rango chico (A,B,C,D,E,F,I). Ya NO se carga a
+# rel_maquina_portamolde (ver cargar_moldes_portamoldes_machos.py). Se deja
+# el diccionario aqui solo como referencia historica de la hipotesis
+# descartada; no usar para poblar la tabla real hasta tener el patron
+# correcto (pendiente que el usuario muestre ejemplos reales de montajes).
 MAQUINAS_PORTAMOLDES = {
     'Maquina 1': {'capacidad': 'mayor', 'portamoldes': ['M', 'N', 'Ñ', 'O', 'P']},
     'Maquina 4': {'capacidad': 'mayor', 'portamoldes': ['M', 'N', 'Ñ', 'O', 'P']},
