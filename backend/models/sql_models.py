@@ -639,6 +639,10 @@ class MetalsPersonal(db.Model):
     departamento    = db.Column(db.String(100))
     documento       = db.Column(db.String(50))
     activo          = db.Column(db.String(10), default='SI')
+    # Alineacion 2026-08-10: la tabla real en Postgres SI tiene esta columna
+    # (confirmado via information_schema.columns) pero el modelo no la
+    # declaraba, dejandola invisible para el ORM.
+    telefono        = db.Column(db.String(100))
 
 
 class MetalsProducto(db.Model):
@@ -669,226 +673,65 @@ class OrdenCompra(db.Model):
     __tablename__ = 'ordenes_de_compra'
     __table_args__ = {'extend_existing': True}
 
+    # Alineacion 2026-08-10: la tabla real no tenia columna `id` ni PK alguna
+    # (confirmado via information_schema) -- el modelo la declaraba fantasma.
+    # scratch/fix_ordenes_compra_metals_clientes_pk.py agrego id SERIAL +
+    # PRIMARY KEY real antes de este cambio, asi que ahora es honesto.
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    fecha_solicitud = db.Column(db.String(50))
+    # Los dos db.Column("col_fisica", ...) siguientes preservan el nombre de
+    # atributo Python (fecha_solicitud/cantidad_fact) porque
+    # backend/routes/procura_routes.py los usa como kwargs al construir
+    # OrdenCompra(...) -- solo cambia el nombre de columna FISICA, que en
+    # Postgres es 'fecha_de_solicitud'/'cantidad_facturada', no lo que el
+    # modelo asumia.
+    fecha_solicitud = db.Column('fecha_de_solicitud', db.String(50))
     n_oc            = db.Column(db.String(50), index=True)
     proveedor       = db.Column(db.String(200))
     producto        = db.Column(db.String(50), index=True)
-    cantidad        = db.Column(db.Numeric(18, 2), default=0)
+    # NOTA DE TIPO (hallazgo de la auditoria, no pedido explicito): TODAS las
+    # columnas de ordenes_de_compra son `text` en Postgres, incluidas estas
+    # "numericas" -- WO/la carga original las exporto como texto. Declararlas
+    # Numeric hacia que SQLAlchemy fallara al LEER con
+    # "InvalidRequestError: Unknown PG numeric type: 25" (25 = OID de text),
+    # rompiendo cualquier OrdenCompra.query existente. Mismo patron ya usado
+    # en este archivo para DbCostos.precio_de_venta ("Puede contener '$' y
+    # puntos"). El codigo que escribe estos campos (procura_routes.py) ya les
+    # pasa float() -- eso no cambia con este fix, solo la lectura.
+    cantidad        = db.Column(db.String(50))
     fecha_factura   = db.Column(db.String(50))
     n_factura       = db.Column(db.String(80))
-    cantidad_fact   = db.Column(db.Numeric(18, 2), default=0)
+    cantidad_fact   = db.Column('cantidad_facturada', db.String(50))
     fecha_llegada   = db.Column(db.String(50))
-    cantidad_recibida = db.Column(db.Numeric(18, 2), default=0)
-    diferencia      = db.Column(db.Numeric(18, 2), default=0)
+    cantidad_recibida = db.Column(db.String(50))
+    diferencia      = db.Column(db.String(50))
     observaciones   = db.Column(db.Text)
     estado_proceso  = db.Column(db.String(100))
+    # Columna real que existia en Postgres pero nunca se habia declarado en
+    # el modelo (hallazgo de la auditoria de esquema, no pedido explicito).
+    cantidad_total_enviada = db.Column(db.String(50))
 
 
 class MetalsCliente(db.Model):
+    """Modelo sin usos en el codebase (verificado 2026-08-10: ningun
+    routes/services referencia MetalsCliente) -- se pudo alinear renombrando
+    los atributos Python directamente a los nombres reales de columna, sin
+    necesidad de db.Column('nombre_fisico', ...) para preservar compatibilidad."""
     __tablename__ = 'metals_clientes'
     __table_args__ = {'extend_existing': True}
 
+    # Alineacion 2026-08-10: la tabla real no tenia columna `id` ni PK alguna
+    # (confirmado via information_schema) -- el modelo la declaraba fantasma.
+    # scratch/fix_ordenes_compra_metals_clientes_pk.py agrego id SERIAL +
+    # PRIMARY KEY real antes de este cambio, asi que ahora es honesto.
     id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
     nombre          = db.Column(db.String(200), index=True)
-    nit             = db.Column(db.String(50))
+    # 'nit' -> 'identificacion': la columna real en Postgres se llama
+    # identificacion, no nit.
+    identificacion  = db.Column(db.String(50))
     direccion       = db.Column(db.String(300))
     ciudad          = db.Column(db.String(100))
-    telefono        = db.Column(db.String(100))
-
-
-class MetalsPedido(db.Model):
-    __tablename__ = 'metals_pedidos'
-    __table_args__ = {'extend_existing': True}
-
-    id_pedido       = db.Column(db.String(50), primary_key=True)
-    fecha           = db.Column(db.String(50))
-    hora            = db.Column(db.String(50))
-    id_codigo       = db.Column(db.String(50), primary_key=True)
-    descripcion     = db.Column(db.Text)
-    vendedor        = db.Column(db.String(100))
-    cliente         = db.Column(db.String(200))
-    nit             = db.Column(db.String(50))
-    direccion       = db.Column(db.String(300))
-    ciudad          = db.Column(db.String(100))
-    cantidad        = db.Column(db.Integer, default=0)
-    precio_unitario = db.Column(db.Integer, default=0)
-    total           = db.Column(db.Integer, default=0)
-    estado          = db.Column(db.String(50), default='PENDIENTE')
-    progreso        = db.Column(db.Integer, default=0)
-    observaciones   = db.Column(db.Text)
-
-
-class ProgramacionEnsamble(db.Model):
-    __tablename__ = 'db_programacion_ensamble'
-    __table_args__ = {'extend_existing': True}
-
-    id_prog            = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    id_codigo          = db.Column(db.String(50), index=True, nullable=True)
-    op_numero          = db.Column(db.String(100), nullable=True)
-    cantidad_objetivo  = db.Column(db.Integer, nullable=False)
-    cantidad_realizada = db.Column(db.Integer, default=0)
-    fecha_programada   = db.Column(db.Date, nullable=False)
-    estado             = db.Column(db.String(20), default='PENDIENTE') # PENDIENTE, EN_PROCESO, COMPLETADO
-class DistribucionOpPedidos(db.Model):
-    """
-    Sistema de cubetas para la Vista Gerencial. 
-    Cruza el progreso de todas las etapas productivas basadas en OP y Pedido.
-    """
-    __tablename__ = 'db_distribucion_op_pedidos'
-    __table_args__ = {'extend_existing': True}
-
-    id_distribucion  = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    op_world_office  = db.Column(db.String(100), index=True, nullable=True) # Nullable para planificación de la tarde anterior
-    id_pedido        = db.Column(db.String(80), index=True, nullable=False)
-    codigo_producto  = db.Column(db.String(100), index=True, nullable=False)
-    cant_requerida   = db.Column(db.Integer, nullable=False, default=0)
-    cant_inyectada   = db.Column(db.Integer, default=0)
-    cant_pulida      = db.Column(db.Integer, default=0)
-    cant_ensamblada  = db.Column(db.Integer, default=0)
-    cant_alistada    = db.Column(db.Integer, default=0)
-
-class DespachoPedido(db.Model):
-    """
-    Modelo para registrar el historial de envíos/despachos parciales o totales de un pedido.
-    """
-    __tablename__ = 'db_despachos_pedido'
-    __table_args__ = {'extend_existing': True}
-
-    id_despacho      = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    id_pedido        = db.Column(db.String(80), index=True, nullable=False)
-    id_codigo        = db.Column(db.String(100), index=True, nullable=False)
-    cantidad_enviada = db.Column(db.Integer, nullable=False, default=0)
-    fecha            = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    transportadora   = db.Column(db.String(100), nullable=True)
-    guia             = db.Column(db.String(100), nullable=True)
-    responsable      = db.Column(db.String(150), nullable=True)
-
-class TrazabilidadLote(db.Model):
-    """
-    Tabla pivote de estado del lote (Cabecera MES).
-    Creada por Inyeccion al iniciar turno. Pulido la consume en Modo Lotes en Vivo.
-    Validacion es el unico punto de escritura hacia db_productos (Paso 3).
-    Sin FK -- patron SQL-First del proyecto.
-
-    Ciclo de vida de estado_actual:
-      ABIERTO_PRODUCCION -> EN_PULIDO -> PENDIENTE_VALIDACION -> APROBADO_CERRADO
-    """
-    __tablename__ = 'db_trazabilidad_lotes'
-    __table_args__ = {'extend_existing': True}
-
-    # PK textual -- formato: YYYYMMDD-Maquina-OP (ej: 20260602-MAQ1-OP12345)
-    # Permite lookup natural desde Pulido sin JOIN.
-    id_lote            = db.Column(db.String(120), primary_key=True)
-
-    # Datos de la Orden de Produccion
-    orden_produccion   = db.Column(db.String(100), index=True, nullable=True)
-    id_codigo          = db.Column(db.String(50),  index=True, nullable=False)
-    maquina            = db.Column(db.String(80),  nullable=True)
-
-    # Referencia al registro padre en db_inyeccion (sin FK declarado)
-    id_inyeccion       = db.Column(db.String(80),  index=True, nullable=True)
-
-    # Estado del ciclo de vida del lote
-    estado_actual      = db.Column(db.String(30),  nullable=False, default='ABIERTO_PRODUCCION')
-
-    # Auditoria
-    fecha_creacion     = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    responsable        = db.Column(db.String(150), nullable=True)
-
-    # Cantidad total inyectada -- actualizada al cierre del turno por mes_reportar.
-    # Validacion la usa para calcular WIP: WIP = cantidad_inyectada - SUM(db_pulido.cantidad_real)
-    cantidad_inyectada = db.Column(db.Integer, default=0)
-    por_pulir          = db.Column(db.Integer, default=0)
-
-
-class InventarioWO(db.Model):
-    __tablename__ = 'inventario_wo'
-    __table_args__ = {'extend_existing': True}
-
-    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    fecha           = db.Column(db.String(50))
-    responsable     = db.Column(db.String(150), index=True)
-    departamento    = db.Column(db.String(100))
-    proceso         = db.Column(db.String(150))
-    maquina         = db.Column(db.String(100))
-    id_pedido       = db.Column(db.String(50), index=True)
-    codigo          = db.Column(db.String(50), index=True)
-    descripcion     = db.Column(db.String(500))
-    cantidad_ok     = db.Column(db.Numeric(18, 2), default=0)
-    pnc             = db.Column(db.Numeric(18, 2), default=0)
-    hora_inicio     = db.Column(db.String(50))
-    hora_fin        = db.Column(db.String(50))
-    tiempo          = db.Column(db.String(50))
-    observaciones   = db.Column(db.Text)
-    campos_extra    = db.Column(db.Text)
-
-
-class MetalsPersonal(db.Model):
-    __tablename__ = 'metals_personal'
-    __table_args__ = {'extend_existing': True}
-
-    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    responsable     = db.Column(db.String(150), index=True)
-    departamento    = db.Column(db.String(100))
-    documento       = db.Column(db.String(50))
-    activo          = db.Column(db.String(10), default='SI')
-
-
-class MetalsProducto(db.Model):
-    __tablename__ = 'metals_productos'
-    __table_args__ = {'extend_existing': True}
-
-    codigo          = db.Column(db.String(50), primary_key=True)
-    descripcion     = db.Column(db.String(500))
-    precio          = db.Column(db.Integer, default=0)
-
-
-class DbProveedor(db.Model):
-    __tablename__ = 'db_proveedores'
-    __table_args__ = {'extend_existing': True}
-
-    proveedores     = db.Column(db.String(200), index=True)
-    nit             = db.Column(db.String(50), primary_key=True)
-    direccion       = db.Column(db.String(300))
-    persona_de_contacto = db.Column(db.String(150))
-    telefono        = db.Column(db.String(100))
-    correo          = db.Column(db.String(150))
-    proceso         = db.Column(db.String(100))
-    forma_de_pago   = db.Column(db.String(100))
-    ultima_evaluacion = db.Column(db.String(50))
-
-
-class OrdenCompra(db.Model):
-    __tablename__ = 'ordenes_de_compra'
-    __table_args__ = {'extend_existing': True}
-
-    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    fecha_solicitud = db.Column(db.String(50))
-    n_oc            = db.Column(db.String(50), index=True)
-    proveedor       = db.Column(db.String(200))
-    producto        = db.Column(db.String(50), index=True)
-    cantidad        = db.Column(db.Numeric(18, 2), default=0)
-    fecha_factura   = db.Column(db.String(50))
-    n_factura       = db.Column(db.String(80))
-    cantidad_fact   = db.Column(db.Numeric(18, 2), default=0)
-    fecha_llegada   = db.Column(db.String(50))
-    cantidad_recibida = db.Column(db.Numeric(18, 2), default=0)
-    diferencia      = db.Column(db.Numeric(18, 2), default=0)
-    observaciones   = db.Column(db.Text)
-    estado_proceso  = db.Column(db.String(100))
-
-
-class MetalsCliente(db.Model):
-    __tablename__ = 'metals_clientes'
-    __table_args__ = {'extend_existing': True}
-
-    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    nombre          = db.Column(db.String(200), index=True)
-    nit             = db.Column(db.String(50))
-    direccion       = db.Column(db.String(300))
-    ciudad          = db.Column(db.String(100))
-    telefono        = db.Column(db.String(100))
+    # 'telefono' -> 'telefonos': la columna real en Postgres es plural.
+    telefonos       = db.Column(db.String(100))
 
 
 class MetalsPedido(db.Model):
