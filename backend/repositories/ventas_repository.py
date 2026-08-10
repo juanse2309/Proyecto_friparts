@@ -20,16 +20,26 @@ class VentasRepository:
         Obtiene pedidos pendientes para Almacén con mapeo robusto.
         """
         try:
+            # LEFT JOIN informativo con cartera_wo: no bloquea ni condiciona el listado,
+            # solo anexa el saldo vencido del cliente (por NIT) para que Sofía/Andrés
+            # lo vean en la tarjeta del pedido antes de despachar.
             sql = """
                 SELECT
-                    id, id_pedido, fecha, hora, estado, delegado_a, vendedor,
-                    nit, cliente, direccion, ciudad, id_codigo, descripcion,
-                    cantidad, precio_unitario, total, observaciones, progreso,
-                    progreso_despacho, cant_alistada
-                FROM db_pedidos
-                WHERE estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
-                  AND estado IS NOT NULL
-                ORDER BY fecha ASC, id_pedido ASC
+                    p.id, p.id_pedido, p.fecha, p.hora, p.estado, p.delegado_a, p.vendedor,
+                    p.nit, p.cliente, p.direccion, p.ciudad, p.id_codigo, p.descripcion,
+                    p.cantidad, p.precio_unitario, p.total, p.observaciones, p.progreso,
+                    p.progreso_despacho, p.cant_alistada,
+                    cw.saldo_vencido_total
+                FROM db_pedidos p
+                LEFT JOIN (
+                    SELECT identificacion, SUM(saldo_documento) AS saldo_vencido_total
+                    FROM cartera_wo
+                    WHERE fecha_vencimiento < CURRENT_DATE AND saldo_documento > 0
+                    GROUP BY identificacion
+                ) cw ON cw.identificacion = p.nit
+                WHERE p.estado NOT IN ('COMPLETADO', 'DESPACHADO', 'ENTREGADO', 'FACTURADO', 'CANCELADO')
+                  AND p.estado IS NOT NULL
+                ORDER BY p.fecha ASC, p.id_pedido ASC
             """
             rows = db.session.execute(text(sql)).mappings().all()
 
@@ -61,6 +71,7 @@ class VentasRepository:
                         "observaciones": str(r['observaciones'] or '').strip(),
                         "progreso": str(r['progreso'] or '0').replace('%', ''),
                         "progreso_despacho": str(r['progreso_despacho'] or '0').replace('%', ''),
+                        "saldo_vencido_total": float(r['saldo_vencido_total'] or 0),
                         "productos": []
                     }
 
@@ -333,14 +344,15 @@ class VentasRepository:
 
         try:
             sql = text("""
-                INSERT INTO cartera_wo (documento, identificacion, nombre, vendedor, moneda, empresa, fecha_vencimiento, saldo_documento, ultima_actualizacion)
-                VALUES (:documento, :identificacion, :nombre, :vendedor, :moneda, :empresa, :fecha_vencimiento, :saldo_documento, CURRENT_TIMESTAMP)
+                INSERT INTO cartera_wo (documento, identificacion, nombre, vendedor, moneda, empresa, fecha_emision, fecha_vencimiento, saldo_documento, ultima_actualizacion)
+                VALUES (:documento, :identificacion, :nombre, :vendedor, :moneda, :empresa, :fecha_emision, :fecha_vencimiento, :saldo_documento, CURRENT_TIMESTAMP)
                 ON CONFLICT (documento) DO UPDATE SET
                     identificacion = EXCLUDED.identificacion,
                     nombre = EXCLUDED.nombre,
                     vendedor = EXCLUDED.vendedor,
                     moneda = EXCLUDED.moneda,
                     empresa = EXCLUDED.empresa,
+                    fecha_emision = EXCLUDED.fecha_emision,
                     fecha_vencimiento = EXCLUDED.fecha_vencimiento,
                     saldo_documento = EXCLUDED.saldo_documento,
                     ultima_actualizacion = CURRENT_TIMESTAMP

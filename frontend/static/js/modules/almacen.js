@@ -356,7 +356,13 @@ const AlmacenModule = {
                             </div>
                         </div>
                         <div class="card-body" style="padding: 15px; flex: 1; display: flex; flex-direction: column;">
-                            <h6 class="card-title fw-bold mb-1" style="color: #1e293b; cursor: pointer; font-size: 0.85rem; line-height: 1.3; margin-bottom: 4px !important;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">${pedido.cliente}</h6>
+                            <h6 class="card-title fw-bold mb-1 d-flex align-items-center flex-wrap" style="color: #1e293b; cursor: pointer; font-size: 0.85rem; line-height: 1.3; margin-bottom: 4px !important; gap: 6px;" onclick="AlmacenModule.abrirModal('${pedido.id_pedido}')">
+                                <span>${pedido.cliente}</span>
+                                ${(parseFloat(pedido.saldo_vencido_total) || 0) > 0 ? `
+                                <span class="badge" style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.6rem; padding: 3px 7px; border-radius: 6px; font-weight: 700; text-transform: none;" title="Cartera vencida del cliente (solo informativo, no bloquea el despacho)">
+                                    <i class="fas fa-exclamation-circle me-1"></i>Mora: ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(pedido.saldo_vencido_total)}
+                                </span>` : ''}
+                            </h6>
                             <p class="text-muted mb-1" style="font-size: 0.70rem; margin-bottom: 4px !important;"><i class="fas fa-map-marker-alt me-1"></i> ${pedido.direccion || 'S/D'} - ${pedido.ciudad || 'S/C'}</p>
                             <p class="text-muted mb-3" style="font-size: 0.70rem; margin-bottom: 12px !important;">
                                 <i class="fas fa-calendar-alt me-1"></i> ${pedido.fecha} 

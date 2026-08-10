@@ -70,6 +70,7 @@ with app.app_context():
         from backend.models.sql_models import TrazabilidadLote
         db.create_all()
         db.session.execute(text("ALTER TABLE db_pulido ADD COLUMN IF NOT EXISTS fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+        db.session.execute(text("ALTER TABLE cartera_wo ADD COLUMN IF NOT EXISTS fecha_emision DATE;"))
         db.session.commit()
         logger.info("✅ [DB] Tablas y columna fecha_registro en db_pulido verificadas/creadas con éxito")
     except Exception as e_db:
@@ -104,6 +105,7 @@ from backend.routes.cliente_routes import cliente_bp
 from backend.routes.pnc_routes import pnc_bp
 from backend.routes.simulador_routes import simulador_bp
 from backend.routes.asistente_routes import asistente_bp
+from backend.routes.cartera_routes import cartera_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(simulador_bp)
@@ -131,6 +133,7 @@ app.register_blueprint(ensamble_bp)
 app.register_blueprint(ia_bp)
 app.register_blueprint(gerencia_bp)
 app.register_blueprint(wo_bp)
+app.register_blueprint(cartera_bp)
 
 from backend.routes.pwa_routes import pwa_bp
 app.register_blueprint(pwa_bp)

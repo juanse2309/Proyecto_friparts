@@ -9,6 +9,76 @@ logger = logging.getLogger(__name__)
 
 class CarteraService:
     @staticmethod
+    def generar_reporte_edades_excel():
+        """
+        Genera el reporte de edades de cartera (30-60-90) en Excel, con el saldo
+        de cada factura clasificado por rango de mora. Es un reporte informativo:
+        no aplica bloqueos ni valida contra otros módulos.
+        Retorna un BytesIO listo para enviar con send_file.
+        """
+        import pandas as pd
+        from datetime import datetime
+        import pytz
+
+        sql = text("""
+            SELECT
+                nombre, identificacion, vendedor, documento,
+                fecha_vencimiento, saldo_documento
+            FROM cartera_wo
+            WHERE saldo_documento > 0
+            ORDER BY nombre ASC, fecha_vencimiento ASC
+        """)
+
+        with db.engine.connect() as connection:
+            df = pd.read_sql(sql, connection)
+
+        tz_col = pytz.timezone('America/Bogota')
+        hoy = datetime.now(tz_col).date()
+
+        df = df.rename(columns={
+            'nombre': 'Cliente',
+            'identificacion': 'Identificacion',
+            'vendedor': 'Vendedor',
+            'documento': 'Documento',
+            'fecha_vencimiento': 'Fecha Vence',
+            'saldo_documento': 'Saldo Total'
+        })
+
+        def _dias_mora(fecha_vence):
+            if pd.isna(fecha_vence):
+                return None
+            return (hoy - pd.Timestamp(fecha_vence).date()).days
+
+        df['Dias Mora'] = df['Fecha Vence'].apply(_dias_mora)
+        df['Saldo Total'] = df['Saldo Total'].astype(float)
+
+        # Rangos: Corriente (<=0), 1-30, 31-60, 61-90, +90
+        df['Corriente'] = df.apply(lambda r: r['Saldo Total'] if (r['Dias Mora'] is None or r['Dias Mora'] <= 0) else 0.0, axis=1)
+        df['1-30 Dias'] = df.apply(lambda r: r['Saldo Total'] if (r['Dias Mora'] is not None and 1 <= r['Dias Mora'] <= 30) else 0.0, axis=1)
+        df['31-60 Dias'] = df.apply(lambda r: r['Saldo Total'] if (r['Dias Mora'] is not None and 31 <= r['Dias Mora'] <= 60) else 0.0, axis=1)
+        df['61-90 Dias'] = df.apply(lambda r: r['Saldo Total'] if (r['Dias Mora'] is not None and 61 <= r['Dias Mora'] <= 90) else 0.0, axis=1)
+        df['Mas De 90 Dias'] = df.apply(lambda r: r['Saldo Total'] if (r['Dias Mora'] is not None and r['Dias Mora'] > 90) else 0.0, axis=1)
+
+        columnas_finales = [
+            'Cliente', 'Identificacion', 'Vendedor', 'Documento', 'Fecha Vence',
+            'Dias Mora', 'Saldo Total', 'Corriente', '1-30 Dias', '31-60 Dias',
+            '61-90 Dias', 'Mas De 90 Dias'
+        ]
+        df = df[columnas_finales]
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Edades de Cartera')
+
+            worksheet = writer.sheets['Edades de Cartera']
+            for idx, columna in enumerate(columnas_finales, start=1):
+                ancho = max(14, min(40, len(columna) + 4))
+                worksheet.column_dimensions[worksheet.cell(row=1, column=idx).column_letter].width = ancho
+
+        buffer.seek(0)
+        return buffer
+
+    @staticmethod
     def generar_export_csv():
         """
         Generador que extrae la cartera usando cursores del servidor (streaming)

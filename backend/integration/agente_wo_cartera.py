@@ -44,9 +44,9 @@ def extraer_cartera():
         
         import pandas as pd
         
-        # 1. Extracción de Encabezados (Filtrado por Vendedor 431)
-        print("\n[*] 1. Extrayendo encabezados para vendedor '431' (CARLOS FELIPE RICO NAVAS)...")
-        query_encabezados = "SELECT Numero_de_Documento, Tipo_de_Documento, Nombre_Empresa FROM Vista_Tabla_Encabezados WHERE Elaborado_Vendedor = 431"
+        # 1. Extracción de Encabezados (TODOS los vendedores, sin filtrar)
+        print("\n[*] 1. Extrayendo encabezados de TODOS los vendedores (visualización comercial global)...")
+        query_encabezados = "SELECT Numero_de_Documento, Tipo_de_Documento, Nombre_Empresa, Nombres_tercero_interno, Fecha FROM Vista_Tabla_Encabezados"
         cursor.execute(query_encabezados)
         cols_e = [col[0] for col in cursor.description]
         df_e = pd.DataFrame.from_records(cursor.fetchall(), columns=cols_e)
@@ -97,14 +97,18 @@ def extraer_cartera():
         for _, row in merged.iterrows():
             fv = row.get('Vencimiento')
             fv_str = pd.to_datetime(fv).strftime('%Y-%m-%d') if pd.notnull(fv) else None
-            
+
+            fe = row.get('Fecha')
+            fe_str = pd.to_datetime(fe).strftime('%Y-%m-%d') if pd.notnull(fe) else None
+
             datos.append({
                 "documento": str(row.get('DocumentoNumero', 'N/A')).strip(),
                 "identificacion": str(row.get('Identificacion', '')).strip(),
                 "nombre": str(row.get('Nombres_terceros', '')).strip(),
-                "vendedor": 'CARLOS FELIPE RICO NAVAS',
+                "vendedor": str(row.get('Nombres_tercero_interno', '') or '').strip(),
                 "moneda": VALOR_MONEDA,
                 "empresa": str(row.get('Nombre_Empresa', VALOR_EMPRESA)).strip(),
+                "fecha_emision": fe_str,
                 "fecha_vencimiento": fv_str,
                 "saldo_documento": str(row.get('Saldo', '0'))
             })

@@ -880,6 +880,7 @@ def sincronizar_cartera():
                 'vendedor': str(item.get('vendedor') or '').strip(),
                 'moneda': str(item.get('moneda') or '').strip(),
                 'empresa': str(item.get('empresa') or '').strip(),
+                'fecha_emision': item.get('fecha_emision') or None,
                 'fecha_vencimiento': item.get('fecha_vencimiento') or None,
                 'saldo_documento': saldo_documento
             })
