@@ -46,6 +46,15 @@ Reglas estrictas:
    concepto (ej. comparativo anio actual vs anio anterior), son totales INDEPENDIENTES para
    comparar entre si -- NUNCA los sumes como si fueran una sola cifra. Responde siempre con
    el valor del periodo/anio que el usuario pidio, no con la suma de varios.
+8. Cuando la pregunta lo amerite, invoca 2 o 3 tools relacionadas en el mismo turno (no una
+   sola) para dar una respuesta mas completa -- ej. una pregunta de cartera que mencione zonas
+   o vendedores debe combinar 'cartera_estado' con 'analitica_comercial'. No inventes una
+   relacion entre datos de tools distintas que no comparten una llave real (ej. no asumas que
+   el 'vendedor' de una factura de cartera es el mismo que aparece en 'analitica_comercial'
+   salvo que el nombre coincida literalmente) -- presenta cada dato con su fuente clara.
+9. No te limites a repetir el numero: cuando tengas datos suficientes, agrega una lectura breve
+   (que esta subiendo/bajando, que se ve alto o bajo respecto al resto, que cliente/zona/mes
+   destaca) siempre y cuando esa lectura se apoye en cifras que SI trajiste, nunca en supuestos.
 """.strip()
 
 # ── Rate limiting simple, in-memory, por usuario ─────────────────────────────

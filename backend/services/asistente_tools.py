@@ -170,7 +170,25 @@ def _tool_productos_sin_rotacion(params, ctx):
 
 
 def _tool_cartera_estado(params, ctx):
-    return DashboardService.get_cartera_wo_stats()
+    # Antes usaba DashboardService.get_cartera_wo_stats() (solo 3 totales + top 5
+    # clientes). CarteraService.obtener_cartera_agrupada() es el mismo dato que
+    # alimenta el modulo de Cartera real: por cliente, con edades de mora
+    # (corriente/1-30/31-60/61-90/+90) y vendedor -- mucho mas util para que el
+    # asistente pueda responder cosas como "quien tiene mora de mas de 90 dias"
+    # en vez de solo el total agregado.
+    from backend.services.cartera_service import CarteraService
+    agrupada = CarteraService.obtener_cartera_agrupada()
+
+    total_cartera = sum(c['saldo_total'] for c in agrupada)
+    total_vencida = sum(c['d1_30'] + c['d31_60'] + c['d61_90'] + c['mas_90'] for c in agrupada)
+
+    clientes_ordenados = sorted(agrupada, key=lambda c: c['saldo_total'], reverse=True)
+    return {
+        'total_cartera_cop': total_cartera,
+        'total_vencida_cop': total_vencida,
+        'total_corriente_cop': total_cartera - total_vencida,
+        'clientes': clientes_ordenados[:30],
+    }
 
 
 def _tool_pnc_metricas(params, ctx):
@@ -342,6 +360,18 @@ def _serie_analitica_comercial(datos):
     }
 
 
+def _serie_cartera_estado(datos):
+    clientes = datos.get('clientes') or []
+    if not clientes:
+        return None
+    top = sorted(clientes, key=lambda c: float(c.get('saldo_total', 0) or 0), reverse=True)[:10]
+    return {
+        'labels': [c.get('nombre', '') for c in top],
+        'values': [float(c.get('saldo_total', 0) or 0) for c in top],
+        'etiqueta': 'saldo_total_cop',
+    }
+
+
 def _serie_alertas_abastecimiento(datos):
     alertas = datos.get('alertas') or []
     if not alertas:
@@ -481,11 +511,17 @@ TOOLS = {
         'tipo_grafica': 'table',
     },
     'cartera_estado': {
-        'description': "Estado de cartera / cuentas por cobrar: total, vencida y clientes con mayor saldo vencido.",
+        'description': (
+            "Cartera / cuentas por cobrar POR CLIENTE con edades de mora (corriente, 1-30, "
+            "31-60, 61-90, mas de 90 dias) y vendedor asignado. Usar para preguntas de que "
+            "cliente debe mas, quien tiene mora vieja, o el estado general de cartera. Si la "
+            "pregunta menciona zonas o vendedores especificos, combinar con 'analitica_comercial'."
+        ),
         'parameters': {'type': 'object', 'properties': {}, 'required': []},
         'allowed_roles': ROL_ADMINS + ROL_COMERCIALES,
         'handler': _tool_cartera_estado,
-        'tipo_grafica': 'table',
+        'tipo_grafica': 'bar',
+        'serie_grafica': _serie_cartera_estado,
     },
     'pnc_metricas': {
         'description': "Metricas de calidad / PNC (piezas no conformes) consolidadas de inyeccion, pulido y ensamble para un periodo.",
@@ -522,7 +558,14 @@ TOOLS = {
         'tipo_grafica': 'table',
     },
     'analitica_comercial': {
-        'description': "Analitica historica de ventas DEL VENDEDOR QUE ESTA PREGUNTANDO (sus propios clientes/ventas), por rango de anios. No sirve para consultar las cifras de otro vendedor.",
+        'description': (
+            "Analitica historica de ventas por anio, por ZONA (resumen_zonas) y top clientes "
+            "(top_clientes). Si quien pregunta es ADMIN/GERENCIA ve la vista global de toda la "
+            "empresa; si es un vendedor (rol COMERCIAL), ve SOLO sus propios clientes/ventas -- "
+            "no sirve para consultar las cifras de otro vendedor. Usar para preguntas de ventas "
+            "por zona, evolucion anual, o para complementar una pregunta de cartera que mencione "
+            "zonas o vendedores."
+        ),
         'parameters': {
             'type': 'object',
             'properties': {

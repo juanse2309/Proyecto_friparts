@@ -55,28 +55,46 @@ window.ModuloAsistente = (function () {
         return div.innerHTML;
     }
 
-    // Markdown ligero -> HTML seguro: negritas (**texto**) y listas con * o -.
-    // Gemini responde con este formato de forma natural; antes se mostraba crudo
-    // (con los asteriscos literales) porque solo se escapaba el texto sin interpretarlo.
+    // Markdown ligero -> HTML seguro: encabezados (#/##/###), negritas (**texto**),
+    // listas con viñeta (*/-) o numeradas (1.) y separadores (---). Gemini responde
+    // con este formato de forma natural, sobre todo en respuestas que combinan varias
+    // tools; sin esto se veian los simbolos crudos (**, ###, etc.) en vez de renderizarse.
     function formatearMarkdownLigero(texto) {
         const lineas = escapeHtml(texto).split(/\r?\n/);
         let html = '';
-        let dentroDeLista = false;
+        let listaAbierta = null; // 'ul' | 'ol' | null
 
-        const cerrarLista = () => { if (dentroDeLista) { html += '</ul>'; dentroDeLista = false; } };
+        const cerrarLista = () => {
+            if (listaAbierta) { html += `</${listaAbierta}>`; listaAbierta = null; }
+        };
 
         for (const lineaRaw of lineas) {
             const linea = lineaRaw.trim();
             if (!linea) { cerrarLista(); continue; }
 
-            const esItem = /^[*\-]\s+/.test(linea);
-            if (esItem) {
-                if (!dentroDeLista) { html += '<ul class="mb-1 ps-3">'; dentroDeLista = true; }
-                html += `<li>${linea.replace(/^[*\-]\s+/, '')}</li>`;
-            } else {
+            if (/^-{3,}$/.test(linea)) { cerrarLista(); html += '<hr class="my-2">'; continue; }
+
+            const encabezado = linea.match(/^(#{1,3})\s+(.*)$/);
+            if (encabezado) {
                 cerrarLista();
-                html += `<div>${linea}</div>`;
+                const nivel = encabezado[1].length; // 1-3
+                const tag = nivel === 1 ? 'h6' : (nivel === 2 ? 'h6' : 'div');
+                html += `<${tag} class="fw-bold mt-2 mb-1">${encabezado[2]}</${tag}>`;
+                continue;
             }
+
+            const item = linea.match(/^(?:[*\-]|\d+[.)])\s+(.*)$/);
+            if (item) {
+                const esNumerada = /^\d+[.)]/.test(linea);
+                const tipoLista = esNumerada ? 'ol' : 'ul';
+                if (listaAbierta && listaAbierta !== tipoLista) cerrarLista();
+                if (!listaAbierta) { html += `<${tipoLista} class="mb-1 ps-3">`; listaAbierta = tipoLista; }
+                html += `<li>${item[1]}</li>`;
+                continue;
+            }
+
+            cerrarLista();
+            html += `<div>${linea}</div>`;
         }
         cerrarLista();
 
