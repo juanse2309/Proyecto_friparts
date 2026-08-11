@@ -126,7 +126,29 @@ def _tool_desglose_ventas_mensual(params, ctx):
     tipo_vista = params.get('tipo_vista') or 'money'
     if not mes or not anio:
         raise ValueError("Se requieren 'mes' y 'anio' para el desglose mensual de ventas.")
-    return VentasRepository.get_desglose_mensual_ventas(mes, anio, tipo_vista)
+    raw = VentasRepository.get_desglose_mensual_ventas(mes, anio, tipo_vista)
+    productos = raw.get('productos') or []
+    clientes = raw.get('clientes') or []
+
+    # 'productos' y 'clientes' son DOS DESGLOSES DEL MISMO total del mes (por
+    # producto y por cliente), no dos montos separados -- mismo patron de riesgo
+    # que el bug de comparativo_mensual (ver ahi). Se agrega un total explicito +
+    # 'concepto' para que el modelo no sume ambos desgloses pensando que son
+    # cifras independientes.
+    total_mes = sum(float(p.get('total_ventas', 0) or 0) for p in productos)
+    return {
+        'mes': mes,
+        'anio': anio,
+        'total_mes_cop': total_mes,
+        'concepto': (
+            'total_mes_cop es el total real de ventas del mes. "por_producto" y "por_cliente" '
+            'son DOS DESGLOSES DISTINTOS de ese MISMO total (cada uno ya suma el 100%, solo '
+            'agrupado diferente) -- NO sumar por_producto con por_cliente, ni sumarlos a '
+            'total_mes_cop.'
+        ),
+        'por_producto': productos,
+        'por_cliente': clientes,
+    }
 
 
 def _tool_backorder_cliente(params, ctx):
@@ -166,7 +188,16 @@ def _tool_productos_sin_rotacion(params, ctx):
         max_ventas = int(params.get('max_ventas', 0) or 0)
     except (TypeError, ValueError):
         max_ventas = 0
-    return DashboardService.get_productos_sin_rotacion(q=q, max_ventas=max_ventas)
+    raw = DashboardService.get_productos_sin_rotacion(q=q, max_ventas=max_ventas)
+
+    # El DTO original trae 'stock' y 'stock_terminado' como el MISMO numero
+    # duplicado con dos nombres -- se quita el alias para que el modelo no lo
+    # lea como dos cantidades distintas y las sume.
+    productos = [
+        {k: v for k, v in p.items() if k != 'stock_terminado'}
+        for p in (raw.get('productos') or [])
+    ]
+    return {**raw, 'productos': productos}
 
 
 def _tool_cartera_estado(params, ctx):
@@ -194,7 +225,17 @@ def _tool_cartera_estado(params, ctx):
 def _tool_pnc_metricas(params, ctx):
     desde = _fecha(params.get('desde'))
     hasta = _fecha(params.get('hasta'))
-    return PncService.obtener_metricas_pnc_consolidadas(desde, hasta)
+    raw = PncService.obtener_metricas_pnc_consolidadas(desde, hasta)
+    # 'modos_falla_area' (piezas) y 'modos_falla_dinero_area' (COP) son el MISMO
+    # motivo de falla en dos unidades distintas -- no se suman entre si. Y
+    # 'totales_area' (agrupado por area) y 'pareto_referencias' (agrupado por
+    # referencia, solo top 10) son dos cortes del MISMO total de piezas PNC.
+    raw['concepto'] = (
+        'modos_falla_area = piezas PNC; modos_falla_dinero_area = el MISMO dato en pesos COP '
+        '(no se suman entre si). totales_area (por area) y pareto_referencias (top 10 '
+        'referencias) son dos cortes del mismo total de piezas PNC, no cifras adicionales.'
+    )
+    return raw
 
 
 def _tool_stock_producto(params, ctx):
@@ -219,13 +260,46 @@ def _tool_analitica_comercial(params, ctx):
         anio_hasta = int(params.get('anio_hasta') or 2026)
     except (TypeError, ValueError):
         anio_desde, anio_hasta = 2024, 2026
-    return ComercialHistoricoService.obtener_analitica_historica(
+    raw = ComercialHistoricoService.obtener_analitica_historica(
         user_id=ctx['user_id'],
         username=ctx['user'],
         user_role=ctx['role'],
         start_year=anio_desde,
         end_year=anio_hasta,
     )
+
+    # 'resumen_anual' (por anio individual), 'resumen_zonas' y 'top_clientes' son
+    # TRES cortes DISTINTOS del MISMO dinero total del rango de anios consultado
+    # -- no cifras independientes que se puedan sumar entre si. Ademas
+    # resumen_zonas/top_clientes son acumulados de TODO el rango (no por anio),
+    # mientras resumen_anual SI esta separado anio por anio: si se mezclan sin
+    # aclarar el alcance, el modelo puede confundir "ventas de 2026" con el
+    # acumulado 2024-2026 de una zona. top_clientes ademas esta truncado (no es
+    # el 100% de los clientes).
+    return {
+        'periodo': raw.get('periodo'),
+        'vista_global_toda_la_empresa': (raw.get('seguridad') or {}).get('vista_global'),
+        'ventas_por_anio': {
+            'concepto': 'Total de ventas de CADA anio individual dentro del periodo consultado.',
+            'anios': raw.get('resumen_anual') or [],
+        },
+        'ventas_por_zona': {
+            'concepto': (
+                'Total de ventas por zona ACUMULADO de TODO el periodo consultado (no es por '
+                'anio individual). La suma de todas las zonas es el mismo total que la suma de '
+                'ventas_por_anio -- son el mismo dinero visto de dos formas, NO se suman entre si.'
+            ),
+            'zonas': raw.get('resumen_zonas') or [],
+        },
+        'top_clientes': {
+            'concepto': (
+                'Los clientes con mayor venta ACUMULADA de todo el periodo (lista truncada, NO '
+                'es el 100% de los clientes ni del total). NO sumar con ventas_por_anio ni con '
+                'ventas_por_zona.'
+            ),
+            'clientes': raw.get('top_clientes') or [],
+        },
+    }
 
 
 def _tool_pedidos_pendientes_facturacion(params, ctx):
@@ -338,7 +412,7 @@ def _serie_produccion_por_maquina(datos):
 
 
 def _serie_desglose_ventas_mensual(datos):
-    productos = datos.get('productos') or []
+    productos = datos.get('por_producto') or []
     if not productos:
         return None
     ordenado = sorted(productos, key=lambda p: float(p.get('total_ventas', 0) or 0), reverse=True)[:10]
@@ -350,7 +424,7 @@ def _serie_desglose_ventas_mensual(datos):
 
 
 def _serie_analitica_comercial(datos):
-    resumen = datos.get('resumen_anual') or []
+    resumen = (datos.get('ventas_por_anio') or {}).get('anios') or []
     if not resumen:
         return None
     return {
