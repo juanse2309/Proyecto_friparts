@@ -280,6 +280,30 @@ window.ModuloAsistente = (function () {
         contenedor.appendChild(wrap);
     }
 
+    // Botón "ver en el módulo": navega dentro del mismo SPA (window.cargarPagina ya
+    // existe y ya respeta permisos por rol) y, si aplica, hace scroll a la sección
+    // exacta dentro del dashboard.
+    function renderizarEnlace(contenedor, enlace) {
+        if (!enlace || !enlace.pagina || typeof window.cargarPagina !== 'function') return;
+
+        const boton = document.createElement('button');
+        boton.type = 'button';
+        boton.className = 'btn btn-sm btn-outline-primary mt-2';
+        boton.innerHTML = `<i class="fas fa-arrow-right me-1"></i> ${escapeHtml(enlace.etiqueta || 'Ver más')}`;
+        boton.addEventListener('click', () => {
+            window.cargarPagina(enlace.pagina);
+            if (enlace.seccion) {
+                setTimeout(() => {
+                    document.getElementById(enlace.seccion)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 200);
+            }
+        });
+
+        const wrap = document.createElement('div');
+        wrap.appendChild(boton);
+        contenedor.appendChild(wrap);
+    }
+
     async function enviarPregunta() {
         if (enviando) return;
         const input = document.getElementById('asistente-input');
@@ -333,6 +357,10 @@ window.ModuloAsistente = (function () {
                 } else if (data.tipo_grafica === 'table') {
                     renderizarTabla(bubble, data.datos);
                 }
+            }
+
+            if (bubble && data.enlace_sugerido) {
+                renderizarEnlace(bubble, data.enlace_sugerido);
             }
         } catch (e) {
             console.error('[ModuloAsistente] Error consultando el asistente:', e);

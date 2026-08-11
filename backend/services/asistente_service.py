@@ -149,6 +149,7 @@ class AsistenteService:
         datos_por_tool = {}
         tipo_grafica = None
         serie_grafica = None
+        enlace_sugerido = None
 
         try:
             parts = response.candidates[0].content.parts
@@ -161,7 +162,7 @@ class AsistenteService:
                     args = dict(fc.args) if fc.args else {}
                     logger.info(f"[Asistente] user={user} role={role} tool={nombre} args={args}")
                     try:
-                        datos, grafica_tool, serie_tool = ejecutar_tool(nombre, args, ctx)
+                        datos, grafica_tool, serie_tool, enlace_tool = ejecutar_tool(nombre, args, ctx)
                         datos = _json_seguro(datos)
                         tool_usado.append(nombre)
                         datos_por_tool[nombre] = datos
@@ -169,6 +170,8 @@ class AsistenteService:
                             tipo_grafica = grafica_tool
                         if serie_tool and not serie_grafica:
                             serie_grafica = _json_seguro({**serie_tool, 'toolName': nombre})
+                        if enlace_tool and not enlace_sugerido:
+                            enlace_sugerido = enlace_tool
                         payload = {'result': datos}
                     except PermissionError as e:
                         payload = {'error': str(e)}
@@ -196,4 +199,5 @@ class AsistenteService:
             'datos': datos_por_tool,
             'tipo_grafica': tipo_grafica,
             'serie_grafica': serie_grafica,
+            'enlace_sugerido': enlace_sugerido,
         }

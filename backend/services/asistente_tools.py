@@ -502,6 +502,15 @@ def _tool_nomina_consolidado(params, ctx):
 
 # ── Definiciones (schema + rol + handler + tipo de grafica sugerido) ────────
 
+def _enlace(pagina, etiqueta, seccion=None):
+    """Boton 'ver en el modulo' que el frontend ofrece junto a la respuesta.
+    'pagina' es el nombre que espera window.cargarPagina() (SPA existente, ya
+    respeta permisos por rol); 'seccion' es un id opcional dentro de esa
+    pagina para hacer scroll (solo tiene sentido dentro de 'dashboard', que
+    es una sola pagina con varias secciones)."""
+    return {'pagina': pagina, 'seccion': seccion, 'etiqueta': etiqueta}
+
+
 TOOLS = {
     'ventas_periodo': {
         'description': "KPIs generales de ventas y produccion (inyeccion, pulido, ensamble, scrap, perdida por calidad) para un periodo de fechas. Usar para preguntas generales de 'cuanto vendimos/produjimos'.",
@@ -516,6 +525,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_ventas_periodo,
         'tipo_grafica': None,
+        'enlace': _enlace('dashboard', 'Ver Dashboard'),
     },
     'comparativo_mensual': {
         'description': "Comparativo mensual de ventas vs pedidos, anio actual vs anterior. Usar para preguntas de tendencia o evolucion mes a mes.",
@@ -531,6 +541,7 @@ TOOLS = {
         'handler': _tool_comparativo_mensual,
         'tipo_grafica': 'line',
         'serie_grafica': _serie_comparativo_mensual,
+        'enlace': _enlace('dashboard', 'Ver comparativo mensual', 'dashboard-section-jefatura'),
     },
     'desglose_ventas_mensual': {
         'description': "Desglose de ventas de un mes especifico, por producto y por cliente.",
@@ -547,6 +558,7 @@ TOOLS = {
         'handler': _tool_desglose_ventas_mensual,
         'tipo_grafica': 'bar',
         'serie_grafica': _serie_desglose_ventas_mensual,
+        'enlace': _enlace('dashboard', 'Ver desglose de ventas', 'dashboard-section-jefatura'),
     },
     'backorder_cliente': {
         'description': "Pedidos pendientes de despacho (backorder) de un cliente especifico.",
@@ -562,6 +574,7 @@ TOOLS = {
         'allowed_roles': ROL_ADMINS + ROL_COMERCIALES,
         'handler': _tool_backorder_cliente,
         'tipo_grafica': 'table',
+        'enlace': _enlace('dashboard', 'Ver Backorder', 'dashboard-section-incumplimiento'),
     },
     'ranking_operarios': {
         'description': (
@@ -583,6 +596,7 @@ TOOLS = {
         'handler': _tool_ranking_operarios,
         'tipo_grafica': 'bar',
         'serie_grafica': _serie_ranking_operarios,
+        'enlace': _enlace('dashboard', 'Ver ranking de operarios', 'dashboard-section-pulido-kpis'),
     },
     'produccion_por_maquina': {
         'description': "Produccion acumulada de cada maquina de inyeccion (total, dias trabajados, promedio, estado).",
@@ -591,6 +605,7 @@ TOOLS = {
         'handler': _tool_produccion_por_maquina,
         'tipo_grafica': 'bar',
         'serie_grafica': _serie_produccion_por_maquina,
+        'enlace': _enlace('dashboard', 'Ver producción por máquina', 'dashboard-section-inyeccion'),
     },
     'scrap_detalle': {
         'description': "Detalle de piezas de scrap/mermas (fecha y maquina de origen) para una referencia de producto especifica.",
@@ -606,6 +621,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_scrap_detalle,
         'tipo_grafica': 'table',
+        'enlace': _enlace('dashboard', 'Ver tendencia de scrap', 'dashboard-section-tendencia'),
     },
     'productos_sin_rotacion': {
         'description': "Productos de baja o nula rotacion en los ultimos 12 meses.",
@@ -620,6 +636,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_productos_sin_rotacion,
         'tipo_grafica': 'table',
+        'enlace': _enlace('dashboard', 'Ver productos sin rotación', 'dashboard-section-sin-rotacion'),
     },
     'cartera_estado': {
         'description': (
@@ -633,6 +650,7 @@ TOOLS = {
         'handler': _tool_cartera_estado,
         'tipo_grafica': 'bar',
         'serie_grafica': _serie_cartera_estado,
+        'enlace': _enlace('cartera', 'Ver módulo de Cartera'),
     },
     'pnc_metricas': {
         'description': "Metricas de calidad / PNC (piezas no conformes) consolidadas de inyeccion, pulido y ensamble para un periodo.",
@@ -647,6 +665,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_pnc_metricas,
         'tipo_grafica': 'table',
+        'enlace': _enlace('pnc', 'Ver módulo de PNC'),
     },
     'stock_producto': {
         'description': "Ficha y stock actual de un producto especifico, buscado por su codigo.",
@@ -660,6 +679,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_stock_producto,
         'tipo_grafica': None,
+        'enlace': _enlace('inventario', 'Ver Inventario'),
     },
     'stock_critico': {
         'description': "Lista de productos que estan por debajo de su nivel minimo de stock.",
@@ -667,6 +687,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_stock_critico,
         'tipo_grafica': 'table',
+        'enlace': _enlace('inventario', 'Ver Inventario'),
     },
     'analitica_comercial': {
         'description': (
@@ -689,6 +710,7 @@ TOOLS = {
         'handler': _tool_analitica_comercial,
         'tipo_grafica': 'line',
         'serie_grafica': _serie_analitica_comercial,
+        'enlace': _enlace('comercial-historico', 'Ver Analítica Comercial'),
     },
     'nomina_consolidado': {
         'description': "Horas ordinarias y extras PENDIENTES de pago por colaborador. Solo disponible para administracion.",
@@ -696,6 +718,7 @@ TOOLS = {
         'allowed_roles': ROL_ADMINS,
         'handler': _tool_nomina_consolidado,
         'tipo_grafica': 'table',
+        'enlace': _enlace('asistencia', 'Ver módulo de Asistencia'),
     },
     'pedidos_pendientes_facturacion': {
         'description': "Pedidos en estado PENDIENTE de facturar/despachar (agrupados por pedido, con cliente, vendedor y total). Usar para preguntas de 'que pedidos faltan por facturar/alistar'.",
@@ -703,6 +726,7 @@ TOOLS = {
         'allowed_roles': ROL_ADMINS + ROL_JEFES,
         'handler': _tool_pedidos_pendientes_facturacion,
         'tipo_grafica': 'table',
+        'enlace': _enlace('facturacion', 'Ver módulo de Facturación'),
     },
     'alertas_abastecimiento': {
         'description': "Productos cuyo stock en bodega esta por debajo del minimo configurado (alertas de compra/abastecimiento).",
@@ -711,6 +735,7 @@ TOOLS = {
         'handler': _tool_alertas_abastecimiento,
         'tipo_grafica': 'bar',
         'serie_grafica': _serie_alertas_abastecimiento,
+        'enlace': _enlace('procura', 'Ver módulo de Procura'),
     },
     'programacion_maquinas': {
         'description': "Estado actual de cada maquina de inyeccion: que esta trabajando ahora mismo y que hay en cola de programacion (MES). Usar para 'que esta programado/trabajando en las maquinas'.",
@@ -718,6 +743,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_programacion_maquinas,
         'tipo_grafica': 'table',
+        'enlace': _enlace('inyeccion', 'Ver Inyección (MES)'),
     },
     'ensamble_tareas_pendientes': {
         'description': "Tareas de ensamble programadas que aun no estan completadas (cantidad objetivo vs realizada, faltante, fecha programada).",
@@ -725,6 +751,7 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_ensamble_tareas_pendientes,
         'tipo_grafica': 'table',
+        'enlace': _enlace('ensamble', 'Ver módulo de Ensamble'),
     },
 }
 
@@ -742,9 +769,11 @@ def tools_visibles_para_rol(role):
 
 def ejecutar_tool(nombre, params, ctx):
     """Valida rol + existencia y ejecuta el handler real. ctx = {user, user_id, role, tenant}.
-    Retorna (datos, tipo_grafica, serie_grafica). serie_grafica ya viene con el campo
+    Retorna (datos, tipo_grafica, serie_grafica, enlace). serie_grafica ya viene con el campo
     correcto identificado explicitamente (ver comentario sobre jsonify sort_keys arriba),
-    o None si la tool no tiene extractor definido o no aplica graficar."""
+    o None si la tool no tiene extractor definido o no aplica graficar. enlace es un dict
+    {pagina, seccion, etiqueta} para que el frontend ofrezca un boton "ver en el modulo",
+    o None si la tool no tiene un modulo real asociado en la UI."""
     tool = TOOLS.get(nombre)
     if not tool:
         raise ValueError(f"Tool desconocida: {nombre}")
@@ -763,4 +792,4 @@ def ejecutar_tool(nombre, params, ctx):
         except Exception as e:
             logger.warning(f"[Asistente] No se pudo extraer serie de grafica de '{nombre}': {e}")
 
-    return datos, tool.get('tipo_grafica'), serie
+    return datos, tool.get('tipo_grafica'), serie, tool.get('enlace')
