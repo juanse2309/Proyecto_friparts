@@ -165,7 +165,26 @@ def _tool_ranking_operarios(params, ctx):
     desde = _fecha(params.get('desde'))
     hasta = _fecha(params.get('hasta'))
     if area == 'pulido':
-        return {'area': 'pulido', 'ranking': DashboardRepository.get_ranking_operarios_pulido(desde, hasta)}
+        ranking = DashboardRepository.get_ranking_operarios_pulido(desde, hasta)
+        # 'eficiencia'/'minutos' de get_ranking_operarios_pulido dependen de
+        # db_costos.tiempo_estandar, que solo esta cargado para ~25% de las
+        # referencias (96 de 386 verificado en produccion) -- para un operario
+        # que trabaja mayormente en referencias SIN tiempo estandar cargado, el
+        # calculo (tiempo_std / tiempo_real) queda artificialmente bajisimo
+        # (valores reales vistos: 4.8%, 5%, 9.2%), no porque el operario rinda
+        # mal. Mismo problema de fondo por el que el Arquitecto de Software ya
+        # dio de baja el modulo hermano
+        # DashboardService.calcular_eficiencia_pulido_por_referencia (ver ese
+        # comentario). El ranking real del dashboard
+        # (/avanzado/produccion_operario_ranking) tampoco expone 'eficiencia' --
+        # solo usa 'nombre'/'valor'. Se quita aqui por la misma razon, para no
+        # ser el unico lugar de la app presentando una metrica ya identificada
+        # como no confiable.
+        ranking = [
+            {k: v for k, v in r.items() if k not in ('eficiencia', 'minutos')}
+            for r in ranking
+        ]
+        return {'area': 'pulido', 'ranking': ranking}
     return {'area': 'inyeccion', 'ranking': DashboardRepository.get_ranking_operarios_inyeccion(desde, hasta)}
 
 
@@ -545,7 +564,12 @@ TOOLS = {
         'tipo_grafica': 'table',
     },
     'ranking_operarios': {
-        'description': "Ranking de operarios de inyeccion o pulido por piezas OK producidas.",
+        'description': (
+            "Ranking de operarios de inyeccion o pulido por piezas OK producidas (campo "
+            "'valor') y piezas no conformes ('pnc'). NO incluye un indicador de eficiencia "
+            "confiable -- si preguntan por eficiencia/rendimiento porcentual de un operario, "
+            "aclarar que no esta disponible, no inferirlo de 'valor' ni 'pnc'."
+        ),
         'parameters': {
             'type': 'object',
             'properties': {
