@@ -67,18 +67,18 @@ def normalizar_fecha_hora_24h(valor):
 
 def preparar_movimientos_para_excel(movimientos):
     """
-    Recibe la lista de movimientos del Historial Global (ya serializados por el
-    endpoint principal) y devuelve una copia normalizada para exportacion a Excel:
-    los campos de hora quedan estrictamente en formato militar de 24 horas
-    (HH:MM:SS), eliminando cualquier ambiguedad AM/PM antes de llegar a OpenPyXL.
+    Recibe la lista de movimientos del Historial Global (propiedad exclusiva del
+    caller de exportacion, no compartida con nadie mas) y la normaliza in-place
+    para exportacion a Excel: los campos de hora quedan estrictamente en formato
+    militar de 24 horas (HH:MM:SS), eliminando cualquier ambiguedad AM/PM antes
+    de llegar a OpenPyXL.
+    Normaliza in-place (no copia la lista completa) para no duplicar el dataset
+    en memoria -- con rangos de fecha grandes esa copia fue causa de OOM.
     """
-    movimientos_excel = []
     for mov in movimientos:
-        mov_excel = dict(mov)
-        mov_excel['HORA_INICIO'] = normalizar_hora_24h(mov.get('HORA_INICIO'))
-        mov_excel['HORA_FIN'] = normalizar_hora_24h(mov.get('HORA_FIN'))
-        movimientos_excel.append(mov_excel)
-    return movimientos_excel
+        mov['HORA_INICIO'] = normalizar_hora_24h(mov.get('HORA_INICIO'))
+        mov['HORA_FIN'] = normalizar_hora_24h(mov.get('HORA_FIN'))
+    return movimientos
 
 
 def generar_excel_historial_global(movimientos):
@@ -89,6 +89,13 @@ def generar_excel_historial_global(movimientos):
       - 'Control PNC': solo Tipo == 'PNC' (agrupa Inyección/Pulido/Ensamble,
         que en el DTO ya comparten el mismo Tipo 'PNC' — ver historial_routes.py).
     Devuelve el buffer BytesIO listo para send_file.
+
+    Usa Workbook(write_only=True): en modo normal OpenPyXL retiene en memoria
+    un objeto Cell por cada celda escrita durante toda la vida del Workbook;
+    en write_only cada fila se serializa y se libera al hacer ws.append(), lo
+    que evita mantener el dataset completo duplicado como arbol de objetos.
+    Con rangos de fecha grandes esto fue la causa principal del OOM del server
+    (Render free tier, 512MB, ver gunicorn.conf.py).
     """
     from openpyxl import Workbook
     from io import BytesIO
@@ -101,15 +108,18 @@ def generar_excel_historial_global(movimientos):
     ]
     anchos = [12, 11, 11, 12, 20, 18, 15, 15, 10, 14, 10, 12, 16, 12, 40]
 
-    wb = Workbook()
+    wb = Workbook(write_only=True)
 
-    _escribir_hoja_historial(wb.active, "Historial Completo", movimientos, columnas, anchos)
+    ws_completo = wb.create_sheet("Historial Completo")
+    _escribir_hoja_historial(ws_completo, movimientos, columnas, anchos)
 
     movimientos_inyeccion = [m for m in movimientos if m.get('Tipo') == 'INYECCION']
-    _escribir_hoja_historial(wb.create_sheet("Inyección"), "Inyección", movimientos_inyeccion, columnas, anchos)
+    ws_iny = wb.create_sheet("Inyección")
+    _escribir_hoja_historial(ws_iny, movimientos_inyeccion, columnas, anchos)
 
     movimientos_pnc = [m for m in movimientos if m.get('Tipo') == 'PNC']
-    _escribir_hoja_historial(wb.create_sheet("Control PNC"), "Control PNC", movimientos_pnc, columnas, anchos)
+    ws_pnc = wb.create_sheet("Control PNC")
+    _escribir_hoja_historial(ws_pnc, movimientos_pnc, columnas, anchos)
 
     output = BytesIO()
     wb.save(output)
@@ -117,12 +127,18 @@ def generar_excel_historial_global(movimientos):
     return output
 
 
-def _escribir_hoja_historial(ws, titulo, movimientos, columnas, anchos):
-    """Escribe cabecera en negrita, filas saneadas, cebreado y anchos en una hoja del Historial Global."""
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
+_COLUMNAS_TEXTO_IZQ = {4, 5, 6, 7, 8, 15}  # Tipo, Responsable, Producto, Orden, Máquina, Detalle
 
-    ws.title = titulo
+
+def _escribir_hoja_historial(ws, movimientos, columnas, anchos):
+    """
+    Escribe cabecera en negrita, filas saneadas, cebreado y anchos en una hoja
+    del Historial Global (worksheet en modo write_only: las celdas se arman
+    fila por fila con WriteOnlyCell y se entregan via ws.append()).
+    """
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.cell import WriteOnlyCell
+    from openpyxl.utils import get_column_letter
 
     header_font = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
     header_fill = PatternFill(start_color='2C3E50', end_color='2C3E50', fill_type='solid')
@@ -137,12 +153,23 @@ def _escribir_hoja_historial(ws, titulo, movimientos, columnas, anchos):
     data_align = Alignment(horizontal='center', vertical='center')
     text_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
-    for col_idx, titulo_col in enumerate(columnas, 1):
-        cell = ws.cell(row=1, column=col_idx, value=titulo_col)
+    # En modo write_only el anchor/freeze deben fijarse ANTES del primer
+    # ws.append(): el writer streamea <cols>/panes al abrir la hoja, y una
+    # vez que arrancó <sheetData> ya no puede insertarlos (quedan en 13.0
+    # default / sin freeze, sin error visible).
+    for i, w in enumerate(anchos, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = 'A2'
+
+    fila_header = []
+    for titulo_col in columnas:
+        cell = WriteOnlyCell(ws, value=titulo_col)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_align
         cell.border = thin_border
+        fila_header.append(cell)
+    ws.append(fila_header)
 
     for row_idx, r in enumerate(movimientos, 2):
         fila = [
@@ -163,6 +190,8 @@ def _escribir_hoja_historial(ws, titulo, movimientos, columnas, anchos):
             r.get('Detalle', '')
         ]
 
+        es_par = (row_idx % 2 == 0)
+        fila_celdas = []
         for col_idx, valor in enumerate(fila, 1):
             # Purgar estrictamente cualquier representación de nulo a None para celda vacía en Excel
             if valor is None or (isinstance(valor, float) and (valor != valor)) or str(valor).strip().lower() in ('nan', 'none', 'null'):
@@ -170,7 +199,7 @@ def _escribir_hoja_historial(ws, titulo, movimientos, columnas, anchos):
             else:
                 cell_val = valor
 
-            cell = ws.cell(row=row_idx, column=col_idx, value=cell_val)
+            cell = WriteOnlyCell(ws, value=cell_val)
             cell.border = thin_border
 
             # Columnas 2 y 3 = Hora Inicio / Hora Fin: forzar formato Texto
@@ -179,16 +208,11 @@ def _escribir_hoja_historial(ws, titulo, movimientos, columnas, anchos):
             if col_idx in (2, 3):
                 cell.number_format = '@'
 
-            if col_idx in (4, 5, 6, 7, 8, 15):
-                cell.alignment = text_align
-            else:
-                cell.alignment = data_align
+            cell.alignment = text_align if col_idx in _COLUMNAS_TEXTO_IZQ else data_align
 
-        if row_idx % 2 == 0:
-            for col_idx in range(1, len(columnas) + 1):
-                ws.cell(row=row_idx, column=col_idx).fill = zebra_fill
+            if es_par:
+                cell.fill = zebra_fill
 
-    for i, w in enumerate(anchos, 1):
-        ws.column_dimensions[get_column_letter(i)].width = w
+            fila_celdas.append(cell)
 
-    ws.freeze_panes = 'A2'
+        ws.append(fila_celdas)
