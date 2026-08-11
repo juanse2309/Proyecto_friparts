@@ -178,21 +178,48 @@ class VentasRepository:
                 )
             """
 
+            # BUGFIX: el LEFT JOIN anterior (`v.raw_codigo = p.id_codigo OR v.raw_codigo =
+            # p.codigo_sistema`) podia matchear MAS DE UNA fila de db_productos para el mismo
+            # raw_codigo (ej. un codigo que coincide con id_codigo de un producto Y con
+            # codigo_sistema de otro). Eso duplicaba las filas de VentasPeriodo ANTES del
+            # SUM (fan-out de join), inflando total_ventas/unidades de ese codigo tantas veces
+            # como productos matcheara -- confirmado en produccion con 'FR-5002B' (2 matches),
+            # que inflaba el total de julio 2026 en +$27,500. Se resuelve agregando primero por
+            # raw_codigo (sin ningun join, imposible de duplicar) y solo despues enriqueciendo
+            # la descripcion con un LEFT JOIN a una subconsulta deduplicada (DISTINCT ON) que
+            # garantiza como maximo 1 fila por codigo.
             sql_productos = text(cte_ventas_periodo + f"""
+                , VentasPorCodigo AS (
+                    SELECT
+                        v.raw_codigo as id_codigo,
+                        MAX(NULLIF(v.desc_raw, '')) as desc_raw,
+                        MAX(v.raw_string) as raw_string,
+                        SUM({_sql_cast_num('v.cantidad')}) as unidades,
+                        SUM({_sql_cast_num('v.total_ingresos')}) as total_ventas
+                    FROM VentasPeriodo v
+                    GROUP BY v.raw_codigo
+                    HAVING SUM({_sql_cast_num('v.cantidad')}) > 0
+                ),
+                ProductosDedup AS (
+                    SELECT DISTINCT ON (codigo) codigo, descripcion
+                    FROM (
+                        SELECT id_codigo as codigo, descripcion FROM db_productos WHERE id_codigo IS NOT NULL
+                        UNION ALL
+                        SELECT codigo_sistema as codigo, descripcion FROM db_productos WHERE codigo_sistema IS NOT NULL
+                    ) candidatos
+                    ORDER BY codigo
+                )
                 SELECT
-                    v.raw_codigo as id_codigo,
+                    vc.id_codigo,
                     COALESCE(
-                        p.descripcion,
-                        NULLIF(v.desc_raw, ''),
-                        v.raw_string
+                        pd.descripcion,
+                        NULLIF(vc.desc_raw, ''),
+                        vc.raw_string
                     ) as descripcion,
-                    SUM({_sql_cast_num('v.cantidad')}) as unidades,
-                    SUM({_sql_cast_num('v.total_ingresos')}) as total_ventas
-                FROM VentasPeriodo v
-                LEFT JOIN db_productos p ON v.raw_codigo = p.id_codigo
-                                         OR v.raw_codigo = p.codigo_sistema
-                GROUP BY v.raw_codigo, p.descripcion, v.desc_raw, v.raw_string
-                HAVING SUM({_sql_cast_num('v.cantidad')}) > 0
+                    vc.unidades,
+                    vc.total_ventas
+                FROM VentasPorCodigo vc
+                LEFT JOIN ProductosDedup pd ON vc.id_codigo = pd.codigo
                 ORDER BY {order_col} DESC
             """)
             rows_productos = db.session.execute(sql_productos, params).mappings().all()
@@ -247,9 +274,21 @@ class VentasRepository:
                     SUM(CASE WHEN b.clasificacion ILIKE '%pedido%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as p_qty,
                     SUM(CASE WHEN b.clasificacion ILIKE '%venta%' THEN {_sql_cast_num('b.cantidad')} ELSE 0 END) as v_qty
                 FROM db_ventas b
-                LEFT JOIN db_cliente_equivalencias e
-                    ON UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))
-                    OR UPPER(TRIM(b.nombres)) ILIKE '%' || UPPER(TRIM(e.alias)) || '%'
+                -- BUGFIX defensivo: el OR/ILIKE fuzzy de abajo podia matchear MAS DE UN
+                -- alias para el mismo b.nombres (fan-out de join, mismo patron confirmado
+                -- en get_desglose_mensual_ventas -- ver nota ahi), duplicando filas de
+                -- db_ventas ANTES del SUM e inflando p_qty/v_qty. Hoy no hay ningun alias
+                -- real que dispare el fan-out (verificado en produccion), pero el LATERAL +
+                -- LIMIT 1 lo hace estructuralmente imposible en vez de confiar en que los
+                -- datos nunca cambien. Prioriza el match exacto sobre el fuzzy.
+                LEFT JOIN LATERAL (
+                    SELECT e.nombre_canonical
+                    FROM db_cliente_equivalencias e
+                    WHERE UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))
+                       OR UPPER(TRIM(b.nombres)) ILIKE '%' || UPPER(TRIM(e.alias)) || '%'
+                    ORDER BY (UPPER(TRIM(b.nombres)) = UPPER(TRIM(e.alias))) DESC, LENGTH(e.alias) DESC
+                    LIMIT 1
+                ) e ON true
                 WHERE (
                     b.nombres ILIKE :cliente
                     OR (CASE WHEN UPPER(TRIM(b.nombres)) ILIKE '%DISTRIBUJES%'

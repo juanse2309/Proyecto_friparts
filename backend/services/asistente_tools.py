@@ -214,10 +214,21 @@ def _tool_cartera_estado(params, ctx):
     total_vencida = sum(c['d1_30'] + c['d31_60'] + c['d61_90'] + c['mas_90'] for c in agrupada)
 
     clientes_ordenados = sorted(agrupada, key=lambda c: c['saldo_total'], reverse=True)
+    # total_clientes_con_saldo es el conteo REAL (antes de truncar) -- sin esto,
+    # "cuantos clientes deben" se contestaba contando la lista 'clientes' (solo
+    # los 30 mas grandes), no el total real. Mismo patron de bug que las demas
+    # tools con listas truncadas (alertas_abastecimiento, pedidos_pendientes_
+    # facturacion, ensamble_tareas_pendientes ya traen su total explicito).
     return {
         'total_cartera_cop': total_cartera,
         'total_vencida_cop': total_vencida,
         'total_corriente_cop': total_cartera - total_vencida,
+        'total_clientes_con_saldo': len(agrupada),
+        'concepto': (
+            "'clientes' trae solo los 30 con mayor saldo (de "
+            f"{len(agrupada)} clientes con saldo en total) -- usar "
+            "'total_clientes_con_saldo' para el conteo real, no len(clientes)."
+        ),
         'clientes': clientes_ordenados[:30],
     }
 
