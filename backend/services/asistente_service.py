@@ -20,6 +20,7 @@ import google.generativeai as genai
 import google.generativeai.protos as genai_protos
 
 from backend.services.asistente_tools import tools_visibles_para_rol, ejecutar_tool
+from backend.utils.time_utils import get_colombia_time
 
 logger = logging.getLogger(__name__)
 
@@ -118,10 +119,16 @@ class AsistenteService:
         if not gemini_tools:
             return {'success': False, 'error': 'Tu rol no tiene consultas disponibles en el asistente.'}
 
-        contexto_txt = ""
+        # La empresa opera en hora Colombia (America/Bogota, GMT-5), pero Gemini no
+        # tiene forma de saberlo por su cuenta -- sin esto, una pregunta relativa
+        # ("este mes", "hoy") sin filtro de fechas activo en el dashboard quedaba
+        # a que el modelo ADIVINARA la fecha actual, con riesgo real de desfase
+        # (ej. de noche en Colombia ya es "manana" en UTC).
+        hoy_colombia = get_colombia_time().strftime('%Y-%m-%d')
+        contexto_txt = f"\nFecha de HOY en Colombia (America/Bogota): {hoy_colombia}."
         if contexto_dashboard and contexto_dashboard.get('desde') and contexto_dashboard.get('hasta'):
-            contexto_txt = (
-                f"\nContexto: el usuario tiene el dashboard filtrado actualmente entre "
+            contexto_txt += (
+                f" El usuario tiene el dashboard filtrado actualmente entre "
                 f"{contexto_dashboard['desde']} y {contexto_dashboard['hasta']}. "
                 f"Si la pregunta no especifica fechas, usa ese rango."
             )
