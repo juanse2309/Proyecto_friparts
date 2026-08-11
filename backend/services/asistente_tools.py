@@ -197,7 +197,9 @@ def _tool_productos_sin_rotacion(params, ctx):
         {k: v for k, v in p.items() if k != 'stock_terminado'}
         for p in (raw.get('productos') or [])
     ]
-    return {**raw, 'productos': productos}
+    total = raw.get('total', len(productos))
+    concepto = f"'total' es el conteo REAL ({total}); 'productos' esta limitada a los primeros {len(productos)} (mayor stock primero) -- no asumir que len(productos) es el total."
+    return {**raw, 'total': total, 'concepto': concepto, 'productos': productos}
 
 
 def _tool_cartera_estado(params, ctx):

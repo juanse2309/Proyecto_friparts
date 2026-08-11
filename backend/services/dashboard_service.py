@@ -403,14 +403,15 @@ class DashboardService:
             from backend.config.business_rules import CatalogExclusionConfig
             excl_sin_rot, excl_sin_rot_params = CatalogExclusionConfig.get_sql_exclusion_clause('p.codigo_sistema', mode='sin_rotacion')
 
-            sql = f"""
-                SELECT 
-                    p.id,
-                    COALESCE(NULLIF(TRIM(p.codigo_sistema), ''), p.id_codigo, 'S/C') as codigo,
-                    COALESCE(NULLIF(TRIM(p.descripcion), ''), 'Sin descripción') as descripcion,
-                    COALESCE(w.stock_wo, p.p_terminado, 0) as stock_terminado,
-                    COALESCE(p.precio, 0) as precio,
-                    COALESCE(v_tot.total_ventas, 0) as ventas_periodo
+            # FROM/JOIN/WHERE compartido entre el COUNT (sin LIMIT, el total real) y el
+            # SELECT (con LIMIT, solo para no sobrecargar la respuesta) -- BUGFIX: antes
+            # 'total' se calculaba como len(resultado) DESPUES de aplicar LIMIT :limit
+            # (50 por defecto) directo en el SQL, asi que nunca podia superar el limite
+            # aunque hubiera muchos mas productos calificando. Confirmado en produccion:
+            # con max_ventas=0 hay 521 productos sin rotacion reales, pero 'total' devolvia
+            # 50 -- afecta tanto el badge del dashboard (badge-total-sin-rotacion) como
+            # esta misma tool del asistente.
+            from_join_where = f"""
                 FROM db_productos p
                 LEFT JOIN (
                     SELECT DISTINCT ON (codigo_producto) codigo_producto, stock_wo
@@ -419,7 +420,7 @@ class DashboardService:
                     ORDER BY codigo_producto
                 ) w ON TRIM(UPPER(REPLACE(w.codigo_producto::text, 'FR-', ''))) = TRIM(UPPER(REPLACE(p.codigo_sistema::text, 'FR-', '')))
                 LEFT JOIN (
-                    SELECT 
+                    SELECT
                         TRIM(UPPER(REPLACE(productos::text, 'FR-', ''))) as ref,
                         SUM(COALESCE(cantidad, 0)) as total_ventas
                     FROM db_ventas
@@ -431,7 +432,7 @@ class DashboardService:
                   {excl_sin_rot}
                   AND (
                       :q_raw != '%%' OR (
-                          p.codigo_sistema ILIKE 'FR-%' OR p.codigo_sistema ILIKE 'MT-%' 
+                          p.codigo_sistema ILIKE 'FR-%' OR p.codigo_sistema ILIKE 'MT-%'
                           OR p.codigo_sistema ILIKE 'DE-%'
                           OR p.id_codigo ILIKE 'FR-%' OR p.id_codigo ILIKE 'MT-%'
                       )
@@ -447,21 +448,35 @@ class DashboardService:
             if q and str(q).strip():
                 q_clean = str(q).strip()
                 q_norm = q_clean.upper().replace('FR-', '').strip()
-                sql += """ AND (
-                    p.codigo_sistema ILIKE :q_raw 
-                    OR p.id_codigo ILIKE :q_raw 
+                from_join_where += """ AND (
+                    p.codigo_sistema ILIKE :q_raw
+                    OR p.id_codigo ILIKE :q_raw
                     OR p.descripcion ILIKE :q_raw
                     OR TRIM(UPPER(REPLACE(p.codigo_sistema::text, 'FR-', ''))) ILIKE :q_norm
                 )"""
                 params['q_raw'] = f"%{q_clean}%"
                 params['q_norm'] = f"%{q_norm}%"
 
-            sql += " ORDER BY stock_terminado DESC, p.id ASC LIMIT :limit"
+            total_real = db.session.execute(
+                text(f"SELECT COUNT(*) {from_join_where}"), params
+            ).scalar()
+
+            sql = f"""
+                SELECT
+                    p.id,
+                    COALESCE(NULLIF(TRIM(p.codigo_sistema), ''), p.id_codigo, 'S/C') as codigo,
+                    COALESCE(NULLIF(TRIM(p.descripcion), ''), 'Sin descripción') as descripcion,
+                    COALESCE(w.stock_wo, p.p_terminado, 0) as stock_terminado,
+                    COALESCE(p.precio, 0) as precio,
+                    COALESCE(v_tot.total_ventas, 0) as ventas_periodo
+                {from_join_where}
+                ORDER BY stock_terminado DESC, p.id ASC LIMIT :limit
+            """
             params['limit'] = limit
 
             logger.info(f"🔍 [get_productos_sin_rotacion] Consultando catálogo 100% con max_ventas={max_ventas_val}, q='{q or ''}'")
             rows = db.session.execute(text(sql), params).mappings().all()
-            logger.info(f"✅ [get_productos_sin_rotacion] Filas obtenidas tras filtro: {len(rows)}")
+            logger.info(f"✅ [get_productos_sin_rotacion] Total real={total_real}, filas devueltas={len(rows)}")
 
             resultado = [{
                 "id": r['id'],
@@ -474,7 +489,7 @@ class DashboardService:
             } for r in rows]
 
             return {
-                "total": len(resultado),
+                "total": total_real,
                 "max_ventas_aplicado": max_ventas_val,
                 "productos": resultado
             }
