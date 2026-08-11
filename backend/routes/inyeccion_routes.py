@@ -11,7 +11,7 @@ inyeccion_bp = Blueprint('inyeccion_bp', __name__)
 
 
 @inyeccion_bp.route('/api/inyeccion/lote', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION', 'AUXILIAR INVENTARIO', 'INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD', 'SUPERVISOR'])
 def registrar_inyeccion_lote():
     """
     Registro de un lote de PRODUCCIÓN de Inyección (controller delgado).
@@ -21,10 +21,11 @@ def registrar_inyeccion_lote():
     No valida lotes: ese flujo es exclusivo de /api/inyeccion/validar/<id>, por lo
     que aquí no puede lanzarse ValidadorRequeridoException.
 
-    RBAC: solo quien inyecta puede crear lotes de inyección. Los roles de
-    calidad/inventario (CALIDAD, AUXILIAR INVENTARIO, STAFF FRIMETALS) estaban
-    aquí para el camino de validación que ya se eliminó de esta ruta; conservan
-    su acceso en /api/inyeccion/validar/<id>, que es donde auditan.
+    RBAC: además de quien inyecta, calidad/inventario también necesita crear
+    lotes aquí manualmente ("Nuevo Manual") cuando Producción no completó el
+    ciclo normal de programación/MES para un turno — es la única vía que tienen
+    para dejar ese registro. Mismo set de roles que /api/inyeccion/validar/<id>,
+    donde además auditan y cierran el lote.
     """
     data = request.json or {}
     usuario_activo = _obtener_usuario_activo()
@@ -75,7 +76,7 @@ def iniciar_turno_inyeccion():
     }), 201
 
 @inyeccion_bp.route('/api/inyeccion/validar/<id_inyeccion>', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD', 'SUPERVISOR'])
 def validar_lote_inyeccion(id_inyeccion):
     """
     Controller delgado: parsea el request, delega a InyeccionService.validar_lote

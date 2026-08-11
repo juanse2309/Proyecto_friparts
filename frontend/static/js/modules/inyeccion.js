@@ -482,6 +482,15 @@ const ModuloInyeccion = {
     validarRegistro: async function (idInyeccion) {
         if (!idInyeccion) return;
 
+        // Guard: si hay merma de pulido que atribuir pero el catálogo de
+        // operarias nunca cargó, el <select> no tiene opciones y el guard de
+        // abajo bloquearía sin que el usuario pueda resolverlo. Avisar explícito.
+        const requierePulido = this.items.some(i => (i.pnc_pulido || 0) > 0);
+        if (requierePulido && (!this.responsablesPulido || this.responsablesPulido.length === 0)) {
+            Swal.fire('Error', 'No se pudo cargar el catálogo de operarias de pulido. Contacte a soporte o recargue la página.', 'error');
+            return;
+        }
+
         // Guard: toda merma de pulido debe quedar atribuida a una persona.
         const sinOperaria = this.items.find(i => (i.pnc_pulido || 0) > 0 && !i.operaria_pulido);
         if (sinOperaria) {
@@ -529,7 +538,9 @@ const ModuloInyeccion = {
                     Swal.fire('¡Validado!', res.message, 'success');
                     if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-inyeccion');
                     this.limpiarFormularioValidacion(true);
-                    if (window.ModuloHistorial) window.ModuloHistorial.cargarHistorial();
+                    if (window.ModuloHistorial && typeof window.ModuloHistorial.cargarHistorial === 'function') {
+                        window.ModuloHistorial.cargarHistorial();
+                    }
                 } else {
                     Swal.fire('Error', res?.error || 'No se pudo validar', 'error');
                 }
@@ -1663,7 +1674,10 @@ const ModuloInyeccion = {
                     window.DataReloadHelpers.recargarProductos().catch(err => console.error("[Inyeccion] Error actualizando stock:", err));
                 }
             } else {
-                Swal.fire('Error', resultado.error || 'Error procesando reporte', 'error');
+                // require_role (403) responde {status, message}, no {success, error} —
+                // sin este fallback el mensaje real de permisos se perdía y quedaba
+                // el genérico "Error procesando reporte".
+                Swal.fire('Error', resultado.error || resultado.message || 'Error procesando reporte', 'error');
             }
 
         } catch (e) {
