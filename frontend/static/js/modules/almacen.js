@@ -1516,6 +1516,21 @@ const AlmacenModule = {
     },
 
     /**
+     * Normaliza un NIT/CC al mismo formato base que usa el backend
+     * (backend/services/cartera_service.py::_normalizar_identificacion). Distintos
+     * pedidos del mismo cliente pueden traer el nit como "NIT 901653115 9" o ya
+     * limpio "901653115" segun el flujo que los creo -- sin esto se agrupan como
+     * si fueran clientes distintos.
+     */
+    _normalizarNit: function (valor) {
+        if (!valor) return '';
+        let texto = String(valor).trim().toUpperCase();
+        texto = texto.replace(/^(NIT|CC)\s+/, '');
+        texto = texto.replace(/\s+\d+$/, '');
+        return texto.trim();
+    },
+
+    /**
      * Modal informativo de cartera: solo clientes con pedidos activos visibles
      * en este momento y saldo vencido. No bloquea ni condiciona el despacho.
      */
@@ -1527,10 +1542,11 @@ const AlmacenModule = {
         const clientesMap = {};
         (this.pedidosVisibles || []).forEach(p => {
             const saldo = parseFloat(p.saldo_vencido_total) || 0;
-            if (saldo > 0 && p.nit && p.nit !== 'S/N') {
-                const existente = clientesMap[p.nit];
+            const clave = this._normalizarNit(p.nit);
+            if (saldo > 0 && clave && clave !== 'S/N') {
+                const existente = clientesMap[clave];
                 if (!existente || saldo > existente.saldo_vencido_total) {
-                    clientesMap[p.nit] = { nit: p.nit, cliente: p.cliente, saldo_vencido_total: saldo };
+                    clientesMap[clave] = { nit: p.nit, cliente: p.cliente, saldo_vencido_total: saldo };
                 }
             }
         });
