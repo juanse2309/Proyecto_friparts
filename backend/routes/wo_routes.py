@@ -813,6 +813,13 @@ def verificar_sync():
 # ENDPOINT: SINCRONIZAR CARTERA DESDE WO
 # ====================================================================
 
+# Umbral del circuit breaker: si la cartera recibida cae por debajo de este
+# porcentaje de la cartera actual en cartera_wo, se aborta el DELETE de
+# obsoletos (aunque se procese el upsert) para no borrar facturas vigentes
+# ante una extraccion parcial/rota en el agente local.
+UMBRAL_CAIDA_ANOMALA_CARTERA = 0.5
+
+
 @wo_bp.route('/api/wo/sincronizar_cartera', methods=['POST'])
 def sincronizar_cartera():
     """Recibe y procesa el estado de cartera desde el Agente WO con chunking."""
@@ -831,6 +838,7 @@ def sincronizar_cartera():
         if not isinstance(datos, list):
             datos = [datos] if datos else []
             
+        from backend.core.sql_database import db
         from backend.repositories.ventas_repository import VentasRepository
 
         # Validar y limpiar datos
@@ -838,12 +846,12 @@ def sincronizar_cartera():
         for item in datos:
             if not item.get('documento'):
                 continue
-            
+
             try:
                 saldo_documento = Decimal(str(item.get('saldo_documento', '0')))
             except InvalidOperation:
                 saldo_documento = Decimal('0')
-                
+
             datos_limpios.append({
                 'documento': str(item.get('documento')).strip(),
                 'identificacion': str(item.get('identificacion')).strip(),
@@ -859,17 +867,37 @@ def sincronizar_cartera():
         # Procesamiento por lotes (chunking) de 500 en 500
         BATCH_SIZE = 500
         procesados_totales = 0
-        
+
         for i in range(0, len(datos_limpios), BATCH_SIZE):
             chunk = datos_limpios[i:i+BATCH_SIZE]
             procesados = VentasRepository.upsert_cartera_wo(chunk)
             procesados_totales += procesados
             logger.info(f"Procesado chunk {i//BATCH_SIZE + 1} de Cartera: {procesados} registros")
-        
+
+        # --- Limpieza de obsoletos ---
+        # WO solo extrae documentos con Saldo > 0: una factura que se paga/cruza
+        # deja de venir en el payload y el upsert nunca la toca, quedando huerfana
+        # con su saldo viejo. Aqui se borra todo lo que no vino en esta extraccion,
+        # protegido por un circuit breaker por si la extraccion vino incompleta.
+        documentos_vigentes = [d['documento'] for d in datos_limpios]
+        count_actual = db.session.execute(text("SELECT COUNT(*) FROM cartera_wo")).scalar() or 0
+        eliminados = 0
+        if count_actual > 0 and len(documentos_vigentes) < count_actual * UMBRAL_CAIDA_ANOMALA_CARTERA:
+            logger.critical(
+                f"❌ [CRÍTICO] Caída anómala en la sincronización de cartera: "
+                f"recibidos={len(documentos_vigentes)} vs actuales={count_actual} "
+                f"(umbral {UMBRAL_CAIDA_ANOMALA_CARTERA:.0%}). Se omite el borrado de obsoletos."
+            )
+        else:
+            eliminados = VentasRepository.eliminar_cartera_wo_obsoleta(documentos_vigentes)
+            if eliminados:
+                logger.info(f"Cartera: {eliminados} facturas obsoletas (pagadas/cruzadas) eliminadas de cartera_wo")
+
         return jsonify({
             "success": True,
             "message": "Cartera sincronizada correctamente",
-            "procesados": procesados_totales
+            "procesados": procesados_totales,
+            "eliminados_obsoletos": eliminados
         }), 200
         
     except Exception as e:

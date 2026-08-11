@@ -406,3 +406,29 @@ class VentasRepository:
             rollback_seguro()
             logger.error(f"[VentasRepository.upsert_cartera_wo] Error en el UPSERT: {e}")
             raise e
+
+    @staticmethod
+    def eliminar_cartera_wo_obsoleta(documentos_vigentes):
+        """
+        Borra de cartera_wo los documentos que ya no vienen en la extraccion de WO
+        (Vista_CuentasPorCobrar_Detallada filtra Saldo > 0). El upsert nunca toca
+        una fila que deja de llegar, asi que una factura que se paga/cruza en WO
+        se queda huerfana con su saldo viejo para siempre si no se borra aqui.
+        Se llama solo despues de pasar el circuit breaker en la ruta, con el set
+        completo de documentos de la extraccion actual.
+        """
+        if not documentos_vigentes:
+            return 0
+
+        try:
+            sql = text("""
+                DELETE FROM cartera_wo
+                WHERE documento NOT IN :documentos_vigentes
+            """).bindparams(db.bindparam('documentos_vigentes', expanding=True))
+            resultado = db.session.execute(sql, {"documentos_vigentes": documentos_vigentes})
+            db.session.commit()
+            return resultado.rowcount
+        except Exception as e:
+            rollback_seguro()
+            logger.error(f"[VentasRepository.eliminar_cartera_wo_obsoleta] Error en el DELETE: {e}")
+            raise e
