@@ -42,6 +42,10 @@ Reglas estrictas:
 6. Puedes usar **negritas** y listas con guiones para enumerar varios items (el chat las
    renderiza correctamente); para una respuesta de un solo dato, prefiere una frase natural
    en vez de una lista de un solo elemento.
+7. Si los datos de una tool incluyen cifras de mas de un anio o periodo para el mismo mes o
+   concepto (ej. comparativo anio actual vs anio anterior), son totales INDEPENDIENTES para
+   comparar entre si -- NUNCA los sumes como si fueran una sola cifra. Responde siempre con
+   el valor del periodo/anio que el usuario pidio, no con la suma de varios.
 """.strip()
 
 # ── Rate limiting simple, in-memory, por usuario ─────────────────────────────

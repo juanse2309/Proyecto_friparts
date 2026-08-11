@@ -72,7 +72,50 @@ def _tool_ventas_periodo(params, ctx):
 def _tool_comparativo_mensual(params, ctx):
     desde = _fecha(params.get('desde'))
     hasta = _fecha(params.get('hasta'))
-    return DashboardRepository.get_monthly_performance_comparison(desde, hasta)
+    raw = DashboardRepository.get_monthly_performance_comparison(desde, hasta)
+    anio_actual = raw.get('year_actual')
+    anio_anterior = raw.get('year_prev')
+    mensual = raw.get('mensual') or []
+
+    # DashboardRepository devuelve, por mes, 4 cifras de dinero como campos
+    # hermanos del mismo objeto: 'actual_dinero'/'prev_dinero' (ventas anio
+    # actual/anterior) y 'actual_pedidos'/'prev_pedidos' (pedidos anio
+    # actual/anterior) -- mas alias duplicados ('ventas_dinero' = copia de
+    # 'actual_dinero'). Al mandarle ese JSON crudo a Gemini, el modelo sumaba
+    # cifras que NO son sumables entre si: distintos anios (ventas 2026 +
+    # ventas 2025), y hasta ventas con pedidos (dinero ya facturado vs dinero
+    # solo solicitado). Por eso ventas y pedidos ahora van en secciones
+    # top-level separadas (no como campos hermanos en el mismo mes), cada una
+    # con su propio 'concepto' explicando que NO se suman entre secciones ni
+    # entre anios -- son totales independientes para comparar, no combinar.
+    return {
+        'anio_actual': anio_actual,
+        'anio_anterior': anio_anterior,
+        'ventas_facturadas': {
+            'concepto': (
+                'Dinero de VENTAS ya facturadas por mes. NO sumar el anio actual con el '
+                'anterior (son para comparar, no combinar), y NO sumar con pedidos_solicitados '
+                '(son conceptos distintos: facturado vs solo solicitado).'
+            ),
+            'meses': [{
+                'mes': m.get('mes'),
+                f'{anio_actual}_cop': m.get('actual_dinero', 0),
+                f'{anio_anterior}_cop': m.get('prev_dinero', 0),
+            } for m in mensual],
+        },
+        'pedidos_solicitados': {
+            'concepto': (
+                'Dinero de PEDIDOS solicitados por clientes por mes (no necesariamente ya '
+                'facturados/despachados). NO sumar el anio actual con el anterior, y NO sumar '
+                'con ventas_facturadas.'
+            ),
+            'meses': [{
+                'mes': m.get('mes'),
+                f'{anio_actual}_cop': m.get('actual_pedidos', 0),
+                f'{anio_anterior}_cop': m.get('prev_pedidos', 0),
+            } for m in mensual],
+        },
+    }
 
 
 def _tool_desglose_ventas_mensual(params, ctx):
@@ -173,13 +216,15 @@ def _tool_analitica_comercial(params, ctx):
 # adivinarlo del lado del frontend.
 
 def _serie_comparativo_mensual(datos):
-    mensual = datos.get('mensual') or []
-    if not mensual:
+    anio_actual = datos.get('anio_actual')
+    meses = (datos.get('ventas_facturadas') or {}).get('meses') or []
+    if not meses or anio_actual is None:
         return None
+    campo = f'{anio_actual}_cop'
     return {
-        'labels': [m.get('mes', '') for m in mensual],
-        'values': [float(m.get('actual_dinero', 0) or 0) for m in mensual],
-        'etiqueta': 'ventas_mes_actual',
+        'labels': [m.get('mes', '') for m in meses],
+        'values': [float(m.get(campo, 0) or 0) for m in meses],
+        'etiqueta': f'ventas_{campo}',
     }
 
 
