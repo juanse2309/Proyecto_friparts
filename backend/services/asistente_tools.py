@@ -17,7 +17,9 @@ from backend.repositories.producto_repository import producto_repo
 from backend.services.dashboard_service import DashboardService
 from backend.services.pnc_service import PncService
 from backend.services.comercial_service import ComercialHistoricoService
+from backend.services.programacion_service import ProgramacionService
 from backend.services import nomina_service
+from backend.models.sql_models import Pedido, Producto, ProgramacionEnsamble
 from backend.utils.auth_middleware import ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES
 
 logger = logging.getLogger(__name__)
@@ -208,6 +210,72 @@ def _tool_analitica_comercial(params, ctx):
     )
 
 
+def _tool_pedidos_pendientes_facturacion(params, ctx):
+    # Misma consulta que /api/facturacion/pedidos-pendientes (facturacion_routes.py),
+    # reusada tal cual: agrupa lineas de Pedido en estado PENDIENTE por id_pedido.
+    pendientes = Pedido.query.filter(Pedido.estado == 'PENDIENTE').all()
+    agrupados = {}
+    for r in pendientes:
+        id_ped = r.id_pedido
+        if id_ped not in agrupados:
+            agrupados[id_ped] = {
+                'id_pedido': id_ped, 'fecha': str(r.fecha), 'cliente': r.cliente,
+                'vendedor': r.vendedor, 'items_count': 0, 'total_cop': 0,
+            }
+        cant = float(r.cantidad or 0)
+        prec = float(r.precio_unitario or 0)
+        agrupados[id_ped]['items_count'] += 1
+        agrupados[id_ped]['total_cop'] += (cant * prec)
+
+    resultado = sorted(agrupados.values(), key=lambda x: x['fecha'], reverse=True)
+    return {'total_pedidos_pendientes': len(resultado), 'pedidos': resultado[:100]}
+
+
+def _tool_alertas_abastecimiento(params, ctx):
+    # Misma consulta que /api/procura/alertas_abastecimiento (procura_routes.py):
+    # productos cuyo stock en bodega esta por debajo del minimo configurado.
+    productos = Producto.query.all()
+    alertas = []
+    for p in productos:
+        stock = float(p.stock_bodega or 0)
+        minimo = float(p.stock_minimo or 0)
+        if stock < minimo:
+            alertas.append({
+                'producto': p.id_codigo or p.codigo_sistema,
+                'descripcion': p.descripcion,
+                'stock_actual': stock,
+                'minimo_requerido': minimo,
+                'faltante': minimo - stock,
+                'urgencia': 'CRITICA_SIN_STOCK' if stock == 0 else 'BAJO_MINIMO',
+            })
+    alertas.sort(key=lambda x: x['faltante'], reverse=True)
+    return {'total_alertas': len(alertas), 'alertas': alertas[:100]}
+
+
+def _tool_programacion_maquinas(params, ctx):
+    # Envuelve ProgramacionService.obtener_dashboard_mes() (metodo ya existente,
+    # usado por /api/mes/dashboard): trabajo activo + cola por cada maquina de inyeccion.
+    maquinas = ProgramacionService.obtener_dashboard_mes()
+    return {'maquinas': maquinas}
+
+
+def _tool_ensamble_tareas_pendientes(params, ctx):
+    # Misma consulta que /api/ensamble/tareas_pendientes (ensamble_routes.py).
+    tareas = ProgramacionEnsamble.query.filter(
+        ProgramacionEnsamble.estado != 'COMPLETADO'
+    ).order_by(ProgramacionEnsamble.fecha_programada.asc()).all()
+
+    resultado = [{
+        'id_codigo': t.id_codigo,
+        'cantidad_objetivo': t.cantidad_objetivo,
+        'cantidad_realizada': t.cantidad_realizada,
+        'faltante': max(0, (t.cantidad_objetivo or 0) - (t.cantidad_realizada or 0)),
+        'fecha_programada': t.fecha_programada.strftime('%Y-%m-%d') if t.fecha_programada else '',
+        'estado': t.estado,
+    } for t in tareas]
+    return {'total_pendientes': len(resultado), 'tareas': resultado[:100]}
+
+
 # ── Extractores de serie graficable (corren en Python, ANTES de json.dumps) ──
 # jsonify ordena las claves alfabeticamente por defecto en esta version de Flask,
 # asi que "la primera clave numerica" deja de identificar de forma fiable el campo
@@ -271,6 +339,18 @@ def _serie_analitica_comercial(datos):
         'labels': [str(r.get('anio', '')) for r in resumen],
         'values': [float(r.get('total_ventas', 0) or 0) for r in resumen],
         'etiqueta': 'total_ventas',
+    }
+
+
+def _serie_alertas_abastecimiento(datos):
+    alertas = datos.get('alertas') or []
+    if not alertas:
+        return None
+    top = sorted(alertas, key=lambda a: float(a.get('faltante', 0) or 0), reverse=True)[:10]
+    return {
+        'labels': [a.get('producto', '') for a in top],
+        'values': [float(a.get('faltante', 0) or 0) for a in top],
+        'etiqueta': 'faltante_unidades',
     }
 
 
@@ -461,6 +541,35 @@ TOOLS = {
         'parameters': {'type': 'object', 'properties': {}, 'required': []},
         'allowed_roles': ROL_ADMINS,
         'handler': _tool_nomina_consolidado,
+        'tipo_grafica': 'table',
+    },
+    'pedidos_pendientes_facturacion': {
+        'description': "Pedidos en estado PENDIENTE de facturar/despachar (agrupados por pedido, con cliente, vendedor y total). Usar para preguntas de 'que pedidos faltan por facturar/alistar'.",
+        'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        'allowed_roles': ROL_ADMINS + ROL_JEFES,
+        'handler': _tool_pedidos_pendientes_facturacion,
+        'tipo_grafica': 'table',
+    },
+    'alertas_abastecimiento': {
+        'description': "Productos cuyo stock en bodega esta por debajo del minimo configurado (alertas de compra/abastecimiento).",
+        'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        'allowed_roles': ROL_ADMINS + ROL_JEFES,
+        'handler': _tool_alertas_abastecimiento,
+        'tipo_grafica': 'bar',
+        'serie_grafica': _serie_alertas_abastecimiento,
+    },
+    'programacion_maquinas': {
+        'description': "Estado actual de cada maquina de inyeccion: que esta trabajando ahora mismo y que hay en cola de programacion (MES). Usar para 'que esta programado/trabajando en las maquinas'.",
+        'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        'allowed_roles': ROL_TODOS,
+        'handler': _tool_programacion_maquinas,
+        'tipo_grafica': 'table',
+    },
+    'ensamble_tareas_pendientes': {
+        'description': "Tareas de ensamble programadas que aun no estan completadas (cantidad objetivo vs realizada, faltante, fecha programada).",
+        'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        'allowed_roles': ROL_TODOS,
+        'handler': _tool_ensamble_tareas_pendientes,
         'tipo_grafica': 'table',
     },
 }

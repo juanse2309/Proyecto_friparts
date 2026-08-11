@@ -27,6 +27,10 @@ window.ModuloAsistente = (function () {
         stock_critico: 'Productos en stock crítico',
         analitica_comercial: 'Analítica comercial',
         nomina_consolidado: 'Consolidado de nómina',
+        pedidos_pendientes_facturacion: 'Pedidos pendientes de facturar',
+        alertas_abastecimiento: 'Alertas de abastecimiento',
+        programacion_maquinas: 'Programación de máquinas',
+        ensamble_tareas_pendientes: 'Tareas de ensamble pendientes',
     };
 
     // Claves que se muestran como dinero (COP) en vez de número plano.
