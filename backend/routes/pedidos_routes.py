@@ -484,6 +484,92 @@ def delegar_pedido():
         db.session.rollback()
         return jsonify({"success": False, "error": str(e)}), 500
 
+@pedidos_bp.route('/api/pedidos/<id_pedido>/reasignar_cliente', methods=['PUT'])
+@require_role(ROL_ADMINS)
+def reasignar_cliente_pedido_route(id_pedido):
+    """Reasigna la cabecera comercial (cliente/nit/direccion/ciudad) de un pedido existente.
+    Restringido a Admin/Gerencia. Requiere motivo explícito; queda auditado en db_logs.
+
+    Si el pedido ya fue exportado a World Office (estado EXPORTADO_WO), exige
+    confirmar_desacople_wo=true explícito en el payload: la corrección solo
+    actualiza el MES (Postgres), nunca el documento ya emitido en World Office.
+    """
+    from backend.services.pedidos_service import (
+        reasignar_cliente_pedido,
+        ValidacionReasignacionError,
+        PedidoNoEncontradoError,
+        PedidoEstadoInmutableError,
+        DesacopleWoNoAutorizadoError,
+    )
+
+    try:
+        data = request.json or {}
+
+        nuevo_cliente = data.get('nuevo_cliente')
+        nuevo_nit = data.get('nuevo_nit')
+        nueva_direccion = data.get('nueva_direccion')
+        nueva_ciudad = data.get('nueva_ciudad')
+        motivo = data.get('motivo')
+        confirmar_desacople_wo = bool(data.get('confirmar_desacople_wo', False))
+
+        if not all([nuevo_cliente, nuevo_nit, motivo]):
+            return jsonify({
+                "success": False,
+                "error": "Faltan campos obligatorios: nuevo_cliente, nuevo_nit, motivo",
+                "code": "CAMPOS_REQUERIDOS"
+            }), 400
+
+        usuario_activo = _obtener_usuario_activo()
+        if not usuario_activo:
+            return jsonify({"success": False, "error": "No fue posible identificar al usuario autenticado"}), 401
+
+        try:
+            estado_anterior, estado_nuevo, id_pedido_real = reasignar_cliente_pedido(
+                id_pedido=id_pedido,
+                nuevo_cliente=nuevo_cliente,
+                nuevo_nit=nuevo_nit,
+                nueva_direccion=nueva_direccion,
+                nueva_ciudad=nueva_ciudad,
+                usuario=usuario_activo,
+                motivo=motivo,
+                db_session=db.session,
+                permitir_desacople_wo=confirmar_desacople_wo
+            )
+        except ValidacionReasignacionError as e:
+            db.session.rollback()
+            return jsonify({"success": False, "error": str(e), "code": "VALIDACION_INVALIDA"}), 400
+        except PedidoNoEncontradoError as e:
+            db.session.rollback()
+            return jsonify({"success": False, "error": str(e), "code": "PEDIDO_NO_ENCONTRADO"}), 404
+        except DesacopleWoNoAutorizadoError as e:
+            db.session.rollback()
+            return jsonify({"success": False, "error": str(e), "code": "DESACOPLE_WO_NO_AUTORIZADO"}), 403
+        except PedidoEstadoInmutableError as e:
+            db.session.rollback()
+            return jsonify({"success": False, "error": str(e), "code": "ESTADO_INMUTABLE"}), 409
+
+        db.session.commit()
+        logger.info(f"✅ [REASIGNACION_CLIENTE] Pedido {id_pedido_real} reasignado por {usuario_activo}")
+
+        try:
+            from backend.app import invalidar_cache_pedidos
+            invalidar_cache_pedidos()
+        except: pass
+
+        return jsonify({
+            "success": True,
+            "message": f"Pedido {id_pedido_real} reasignado correctamente",
+            "id_pedido": id_pedido_real,
+            "estado_anterior": estado_anterior,
+            "estado_nuevo": estado_nuevo
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ Error reasignando cliente del pedido {id_pedido}: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @pedidos_bp.route('/api/pedidos/eliminar-producto', methods=['POST'])
 @require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def eliminar_producto_pedido():

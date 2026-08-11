@@ -1,6 +1,7 @@
 import logging
 import pyodbc
 import os
+import re
 from sqlalchemy import text
 from datetime import datetime
 from backend.models.sql_models import Pedido, DistribucionOpPedidos
@@ -174,5 +175,171 @@ def reiniciar_pedido_wo(id_pedido_numero, db_session):
         
     except Exception as e:
         logger.error(f"Error reiniciando pedido {id_pedido_numero}: {e}")
+        db_session.rollback()
+        raise e
+
+
+ESTADOS_INMUTABLES_PEDIDO = {'DESPACHADO', 'DESPACHADO PARCIAL', 'FACTURADO', 'CERRADO', 'CANCELADO'}
+
+# Estados "sensibles": no bloquean la reasignación de forma permanente (a
+# diferencia de ESTADOS_INMUTABLES_PEDIDO), pero exigen autorización explícita
+# porque ya existe un documento correspondiente en un sistema externo.
+# EXPORTADO_WO se fija en facturacion_routes.py cuando el pedido ya generó un
+# documento real en World Office (wo_consecutivo) -- corregir cliente/nit aquí
+# solo actualiza el MES (Postgres), NUNCA el documento en World Office.
+ESTADOS_SENSIBLES_PEDIDO = {'EXPORTADO_WO'}
+
+
+class ReasignacionClienteError(ValueError):
+    """Excepción base de negocio para reasignar_cliente_pedido. Todas las
+    subclases heredan de ValueError para no romper callers que capturen
+    ValueError de forma genérica."""
+
+
+class ValidacionReasignacionError(ReasignacionClienteError):
+    """Datos de entrada inválidos (motivo faltante, NIT sin formato válido)."""
+
+
+class PedidoNoEncontradoError(ReasignacionClienteError):
+    """El id_pedido no existe en db_pedidos, ni en su variante con/sin 'PED-'."""
+
+
+class PedidoEstadoInmutableError(ReasignacionClienteError):
+    """El pedido está en un estado que no admite reasignación de cliente."""
+
+
+class DesacopleWoNoAutorizadoError(ReasignacionClienteError):
+    """El pedido ya fue exportado a World Office y falta autorización explícita
+    (permitir_desacople_wo=True) para desacoplar el cliente en MES."""
+
+
+def _resolver_filas_pedido(id_pedido, db_session):
+    """
+    Busca las filas de un pedido tolerando ambos formatos de id_pedido vistos
+    en producción: el crudo ('10396', dejado por facturacion_routes.py al
+    sobreescribir id_pedido con el consecutivo de World Office) y el
+    prefijado ('PED-10396', usado por _generar_siguiente_id_pedido_sql).
+
+    :return: (filas, id_pedido_real_en_bd)
+    """
+    id_norm = str(id_pedido).strip().upper()
+    filas = db_session.query(Pedido).filter(Pedido.id_pedido == id_norm).all()
+    if filas:
+        return filas, id_norm
+
+    alterno = id_norm[4:] if id_norm.startswith('PED-') else f"PED-{id_norm}"
+    filas = db_session.query(Pedido).filter(Pedido.id_pedido == alterno).all()
+    if filas:
+        return filas, alterno
+
+    return [], id_norm
+
+
+def _validar_nit(nit):
+    """
+    Valida que el NIT tenga contenido real. No impone un formato estricto de
+    NIT colombiano (dígito de verificación, guiones) porque la data existente
+    en db_pedidos ya trae formatos inconsistentes (ej. 'NIT 900315300 2') --
+    solo exige que, tras limpiar caracteres no numéricos, queden dígitos
+    suficientes para ser un identificador real.
+    """
+    if not nit or not str(nit).strip():
+        raise ValidacionReasignacionError("El NIT es requerido y no puede estar vacío")
+    digitos = re.sub(r'\D', '', str(nit))
+    if len(digitos) < 5:
+        raise ValidacionReasignacionError(
+            f"El NIT '{nit}' no tiene un formato válido (se esperan al menos 5 dígitos)"
+        )
+
+
+def reasignar_cliente_pedido(id_pedido, nuevo_cliente, nuevo_nit, nueva_direccion,
+                              nueva_ciudad, usuario, motivo, db_session,
+                              permitir_desacople_wo=False):
+    """
+    Reasigna la cabecera comercial (cliente/nit/direccion/ciudad) de TODAS las
+    filas de un pedido existente, dentro de una transacción atómica.
+
+    No hace commit: el caller (route) es responsable de confirmar o abortar,
+    igual que reiniciar_pedido_wo.
+
+    Reglas de inmutabilidad:
+      - ESTADOS_INMUTABLES_PEDIDO bloquea siempre (ya hay stock/documentos
+        físicos atados, ver db_despachos_pedido).
+      - ESTADOS_SENSIBLES_PEDIDO (EXPORTADO_WO) bloquea salvo que el caller
+        pase permitir_desacople_wo=True: la corrección solo toca el MES
+        (Postgres), nunca el documento ya emitido en World Office.
+
+    :raises ValidacionReasignacionError: motivo vacío o NIT con formato inválido.
+    :raises PedidoNoEncontradoError: id_pedido inexistente (en ninguna variante).
+    :raises PedidoEstadoInmutableError: estado en ESTADOS_INMUTABLES_PEDIDO.
+    :raises DesacopleWoNoAutorizadoError: estado EXPORTADO_WO sin autorización.
+    :return: (estado_anterior, estado_nuevo, id_pedido_real) -- dicts con la
+        cabecera antes/después y el id_pedido tal como está en BD.
+    """
+    if not motivo or not str(motivo).strip():
+        raise ValidacionReasignacionError("Se requiere un motivo explícito para reasignar el cliente")
+
+    _validar_nit(nuevo_nit)
+
+    try:
+        filas, id_pedido_real = _resolver_filas_pedido(id_pedido, db_session)
+        if not filas:
+            raise PedidoNoEncontradoError(f"Pedido {id_pedido} no encontrado")
+
+        estado_actual = str(filas[0].estado or '').strip().upper()
+
+        if estado_actual in ESTADOS_INMUTABLES_PEDIDO:
+            raise PedidoEstadoInmutableError(
+                f"El pedido {id_pedido_real} está en estado '{estado_actual}' y no admite "
+                f"reasignación de cliente."
+            )
+
+        if estado_actual in ESTADOS_SENSIBLES_PEDIDO and not permitir_desacople_wo:
+            raise DesacopleWoNoAutorizadoError(
+                "El pedido ya fue exportado a World Office. Se requiere autorización "
+                "explícita para desacoplar el cliente en MES."
+            )
+
+        estado_anterior = {
+            "cliente": filas[0].cliente,
+            "nit": filas[0].nit,
+            "direccion": filas[0].direccion,
+            "ciudad": filas[0].ciudad,
+        }
+
+        for fila in filas:
+            fila.cliente = nuevo_cliente
+            fila.nit = nuevo_nit
+            fila.direccion = nueva_direccion
+            fila.ciudad = nueva_ciudad
+
+        estado_nuevo = {
+            "cliente": nuevo_cliente,
+            "nit": nuevo_nit,
+            "direccion": nueva_direccion,
+            "ciudad": nueva_ciudad,
+        }
+
+        detalles_log = (
+            f"'{estado_anterior['cliente']}' (NIT {estado_anterior['nit']}) -> "
+            f"'{nuevo_cliente}' (NIT {nuevo_nit}). Motivo: {motivo}. Autoriza: {usuario}"
+        )
+        if estado_actual in ESTADOS_SENSIBLES_PEDIDO:
+            detalles_log += " [Desacople MES/World Office autorizado explícitamente]"
+
+        from backend.models.sql_models import OperacionLog
+        db_session.add(OperacionLog(
+            modulo="PEDIDOS",
+            operario=usuario,
+            accion=f"REASIGNACION_CLIENTE {id_pedido_real}",
+            detalles=detalles_log
+        ))
+
+        db_session.flush()
+        logger.info(f"🔄 [REASIGNACION_CLIENTE] Pedido {id_pedido_real}: {estado_anterior} -> {estado_nuevo} (por {usuario})")
+        return estado_anterior, estado_nuevo, id_pedido_real
+
+    except Exception as e:
+        logger.error(f"Error reasignando cliente en pedido {id_pedido}: {e}")
         db_session.rollback()
         raise e
