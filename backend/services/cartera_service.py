@@ -103,11 +103,34 @@ class CarteraService:
         match (confirmado contra producción: 0 filas) -- hay que comparar
         contra la parte numérica de v.documento.
 
+        Acepta el número con o sin prefijo. Sin prefijo (ej. "10086") se
+        resuelve contra la parte numérica de db_ventas.documento -- pero ese
+        número por sí solo es ambiguo: WO genera un PED y una FEV con el
+        MISMO número para la misma venta (confirmado contra producción:
+        4011 de 4811 números se repiten así). Como este módulo es Cartera
+        (cuentas por cobrar), ante esa ambigüedad se prioriza la factura
+        (prefijo FEV) sobre el pedido -- es lo que de verdad le interesa a
+        quien está cobrando. Si no hay FEV con ese número, se toma
+        cualquier otro documento que sí exista.
+
         Retorna None si el documento no existe en db_ventas (0 filas).
         """
         documento_limpio = _normalizar_numero_documento(numero_documento)
         if not documento_limpio:
             return None
+
+        if '-' not in documento_limpio:
+            sql_resolver = text("""
+                SELECT documento FROM db_ventas
+                WHERE split_part(documento, '-', 2) = :numero
+                ORDER BY (split_part(documento, '-', 1) = 'FEV') DESC
+                LIMIT 1
+            """)
+            with db.engine.connect() as connection:
+                resuelto = connection.execute(sql_resolver, {"numero": documento_limpio}).fetchone()
+            if not resuelto:
+                return None
+            documento_limpio = resuelto[0]
 
         sql = text("""
             SELECT
