@@ -157,7 +157,16 @@ def ejecutar_extraccion():
                     break
         print(f"[AUDITORIA] Columna de NIT/identificación detectada en Vista_Tabla_Encabezados: '{col_nit}'")
 
-        select_iva = f"CAST(D.[{col_iva}] AS FLOAT)" if col_iva else "NULL"
+        # OJO: la columna Iva en Vista_Tabla_Movimientos_Inventario es la TASA
+        # del renglon (0.19 = 19%, 0.00 = exento), no el monto en pesos --
+        # confirmado contra produccion (2026-08-12): valores observados son
+        # exactamente 0.19 / 0.00 / -0.19, nunca montos grandes. Por eso aqui
+        # se multiplica por el subtotal del renglon (misma formula que
+        # total_ingresos) para obtener el monto real de IVA en pesos.
+        select_iva = (
+            f"CAST((D.Cantidad * D.Valor_Unitario * (1 - (D.Descuento/100.0)) * D.[{col_iva}]) AS FLOAT)"
+            if col_iva else "NULL"
+        )
         select_nit = f"E.[{col_nit}]" if col_nit else "NULL"
 
         # 2. Consulta SQL Definitiva simplificada
