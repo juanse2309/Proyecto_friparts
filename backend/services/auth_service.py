@@ -109,7 +109,7 @@ class AuthService:
                     user_data['direccion'] = match.direccion
                 if not user_data.get('ciudad'):
                     user_data['ciudad'] = match.ciudad
-                logger.info(f"✅ Datos enriquecidos para {nit} desde SQL (db_clientes)")
+                logger.debug(f"✅ Datos enriquecidos para {nit} desde SQL (db_clientes)")
         except Exception as e:
             logger.error(f"⚠️ Error enriqueciendo datos desde SQL: {e}")
         return user_data
@@ -207,7 +207,7 @@ class AuthService:
             raise ValueError("Faltan datos")
 
         user = Usuario.query.filter_by(username=usuario_nombre, activo=True).first()
-        logger.info(f"Intento de login metals: usuario='{usuario_nombre}', encontrado={user is not None}")
+        logger.debug(f"Intento de login metals: usuario='{usuario_nombre}', encontrado={user is not None}")
 
         if not user:
             raise UsuarioNoEncontradoException()
@@ -268,13 +268,13 @@ class AuthService:
 
         user = Usuario.query.filter(or_(Usuario.username == usuario_nombre, Usuario.cedula == usuario_nombre)).first()
 
-        logger.info("--- DEBUG LOGIN (STAFF) ---")
-        logger.info(f"1. Identificador buscado (email/cedula): '{usuario_nombre}'")
-        logger.info(f"2. ¿Usuario encontrado en BD?: {user is not None}")
+        logger.debug("--- DEBUG LOGIN (STAFF) ---")
+        logger.debug(f"1. Identificador buscado (email/cedula): '{usuario_nombre}'")
+        logger.debug(f"2. ¿Usuario encontrado en BD?: {user is not None}")
         if user:
-            logger.info(f"3. Rol del usuario: {user.rol}")
-            logger.info(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'")
-        logger.info("-------------------")
+            logger.debug(f"3. Rol del usuario: {user.rol}")
+            logger.debug(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'")
+        logger.debug("-------------------")
 
         if not user:
             raise UsuarioNoEncontradoException()
@@ -352,13 +352,13 @@ class AuthService:
         """
         user = Usuario.query.filter(or_(Usuario.username == email, Usuario.cedula == email)).first()
 
-        logger.info("--- DEBUG LOGIN (CLIENTE) ---")
-        logger.info(f"1. Identificador buscado (email/cedula): '{email}'")
-        logger.info(f"2. ¿Usuario encontrado en BD?: {user is not None}")
+        logger.debug("--- DEBUG LOGIN (CLIENTE) ---")
+        logger.debug(f"1. Identificador buscado (email/cedula): '{email}'")
+        logger.debug(f"2. ¿Usuario encontrado en BD?: {user is not None}")
         if user:
-            logger.info(f"3. Rol del usuario: {user.rol}")
-            logger.info(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'")
-        logger.info("-------------------")
+            logger.debug(f"3. Rol del usuario: {user.rol}")
+            logger.debug(f"4. Hash en BD a comparar: '{user.password_hash[:15]}...'")
+        logger.debug("-------------------")
 
         # Mensaje deliberadamente genérico ("Usuario o contraseña incorrectos")
         # en no-encontrado e incorrecta: no revelar si el email existe.

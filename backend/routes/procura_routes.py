@@ -341,11 +341,7 @@ def rotacion_prioridades():
         total_limpios = sum(1 for x in resultado if x["tipo_buen"] == "LIMPIO")
         total_armados = sum(1 for x in resultado if x["tipo_buen"] == "ARMADO")
         
-        print(f"\n=========================================")
-        print(f"[CONTEO DE MOTOR ABC] Universo procesado: {len(resultado)} productos.")
-        print(f" -> Bujes Clasificados como LIMPIOS: {total_limpios}")
-        print(f" -> Bujes Clasificados como ARMADOS: {total_armados}")
-        print(f"=========================================\n")
+        logger.debug(f"[CONTEO DE MOTOR ABC] Universo procesado: {len(resultado)} productos. Limpios={total_limpios} Armados={total_armados}")
 
         return jsonify({"status": "success", "data": resultado}), 200
     except Exception as e:

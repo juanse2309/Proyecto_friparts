@@ -35,7 +35,7 @@ def _refrescar_mv_dashboard_ventas():
             for vista in vistas:
                 try:
                     conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {vista}"))
-                    logger.info(f"✅ {vista} refrescada tras sincronización de WO.")
+                    logger.debug(f"✅ {vista} refrescada tras sincronización de WO.")
                 except Exception as e_vista:
                     logger.error(f"⚠️ Fallo al refrescar {vista} tras sync de WO: {e_vista}")
         finally:
@@ -129,14 +129,14 @@ def recibir_datos():
             # Normalizar llaves de todos los registros
             datos_normalizados = [normalizar_llaves(item) for item in datos]
 
-            logger.info(f"[DEBUG] Recibidos {len(datos_normalizados)} registros para insertar.")
+            logger.debug(f"[DEBUG] Recibidos {len(datos_normalizados)} registros para insertar.")
             if datos_normalizados:
-                logger.info(f"[DEBUG] Llaves del primer registro: {list(datos_normalizados[0].keys())}")
-                logger.info(f"[DEBUG NUBE] Muestra primeros 5 registros recibidos:")
+                logger.debug(f"[DEBUG] Llaves del primer registro: {list(datos_normalizados[0].keys())}")
+                logger.debug(f"[DEBUG NUBE] Muestra primeros 5 registros recibidos:")
                 for i, r in enumerate(datos_normalizados[:5]):
                     cod = r.get('codigo_producto') or r.get('codigo') or '(sin_cod)'
                     stk = r.get('stock_wo') or r.get('existencia') or r.get('stock') or 0
-                    logger.info(f"  [{i}] Ref: {cod} | Stock: {stk}")
+                    logger.debug(f"  [{i}] Ref: {cod} | Stock: {stk}")
 
             try:
                 # PRE-AUDITORÍA DE STOCK: Verificar si TODOS los registros vienen con stock 0
@@ -160,7 +160,7 @@ def recibir_datos():
                     }), 400
 
                 # PASO 1 y 2: UPSERT Atómico (DELETE previo + INSERT en transacción)
-                logger.info("[AUDITORIA] Estrategia de UPSERT Atómica iniciada. No se usará TRUNCATE.")
+                logger.debug("[AUDITORIA] Estrategia de UPSERT Atómica iniciada. No se usará TRUNCATE.")
 
                 BATCH_SIZE = 500
                 rows_insertados = 0
@@ -191,10 +191,10 @@ def recibir_datos():
                         stock_raw = r.get(columna_stock_leida)
                         
                         if j == 0 and i == 0:
-                            logger.info(f"[AUDITORIA EXPLICITA] Leyendo valor de stock desde la clave: '{columna_stock_leida}'")
+                            logger.debug(f"[AUDITORIA EXPLICITA] Leyendo valor de stock desde la clave: '{columna_stock_leida}'")
 
-                        if j < 5 and i == 0:  
-                            logger.info(f"[CARGA WO] Procesando Ref: {codigo_producto} | Valor Detectado: {stock_raw}")
+                        if j < 5 and i == 0:
+                            logger.debug(f"[CARGA WO] Procesando Ref: {codigo_producto} | Valor Detectado: {stock_raw}")
 
                         # Validación de Datos Segura contra NULL o vacíos
                         if stock_raw is None or str(stock_raw).strip() == "":
@@ -242,7 +242,7 @@ def recibir_datos():
 
                 # Verificar persistencia real en DB
                 count_res = db.session.execute(text("SELECT COUNT(*) FROM inventario_wo")).scalar()
-                logger.info(f"[DEBUG] Registros guardados en inventario_wo tras INSERT: {count_res}")
+                logger.debug(f"[DEBUG] Registros guardados en inventario_wo tras INSERT: {count_res}")
                 logger.info(f"✅ INSERT masivo completado: {rows_insertados} filas insertadas en inventario_wo.")
 
             except Exception as e_sql:
@@ -317,7 +317,7 @@ def recibir_comercial():
             index = payload.get("index", 0)
             total_chunks = payload.get("total_chunks", 1)
             datos = payload.get("data", [])
-            logger.info(f"Recibiendo lote {index + 1}/{total_chunks} de datos comerciales de WO: {len(datos)} registros")
+            logger.debug(f"Recibiendo lote {index + 1}/{total_chunks} de datos comerciales de WO: {len(datos)} registros")
         else:
             index = 0
             total_chunks = 1
@@ -351,7 +351,7 @@ def recibir_comercial():
 
         # Paso 1: Si es el primer lote, inicializamos la tabla Staging en PostgreSQL
         if index == 0:
-            logger.info("Lote inicial (index 0). Preparando tabla Staging 'db_ventas_staging'...")
+            logger.debug("Lote inicial (index 0). Preparando tabla Staging 'db_ventas_staging'...")
             # Asumimos que db_ventas_staging ya existe estáticamente. Vaciamos la tabla para el nuevo volcado.
             db.session.execute(text("TRUNCATE db_ventas_staging"))
             db.session.commit()
@@ -435,7 +435,7 @@ def recibir_comercial():
 
         # Paso 3: Si llegamos al último chunk, procedemos con la transacción atómica
         if index == total_chunks - 1:
-            logger.info("Último lote recibido. Iniciando Volcado Atómico desde Staging a db_ventas...")
+            logger.debug("Último lote recibido. Iniciando Volcado Atómico desde Staging a db_ventas...")
             try:
                 # Transacción ultrarrápida: Swap de tablas en el motor SQL
                 db.session.execute(text("TRUNCATE db_ventas"))

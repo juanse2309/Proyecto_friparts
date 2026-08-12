@@ -15,7 +15,7 @@ from sqlalchemy import text
 from backend.core.sql_database import db
 
 # Configurar logging detallado
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configurar Flask
@@ -63,7 +63,7 @@ if not DATABASE_URL:
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
-logger.info("📡 [DB] SQLAlchemy inicializado con éxito")
+logger.debug("📡 [DB] SQLAlchemy inicializado con éxito")
 
 with app.app_context():
     try:
@@ -72,7 +72,7 @@ with app.app_context():
         db.session.execute(text("ALTER TABLE db_pulido ADD COLUMN IF NOT EXISTS fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
         db.session.execute(text("ALTER TABLE cartera_wo ADD COLUMN IF NOT EXISTS fecha_emision DATE;"))
         db.session.commit()
-        logger.info("✅ [DB] Tablas y columna fecha_registro en db_pulido verificadas/creadas con éxito")
+        logger.debug("✅ [DB] Tablas y columna fecha_registro en db_pulido verificadas/creadas con éxito")
     except Exception as e_db:
         logger.error(f"❌ Error creando tablas de base de datos: {e_db}")
 # ---------------------------------------------
@@ -163,7 +163,7 @@ def index():
         from backend.services.auth_service import AuthService
         lista_usuarios = AuthService.obtener_staff_frimetals_admin_activo()
 
-        logger.info(f"[{get_now_colombia()}] >>> PETICIÓN RECIBIDA: index.html")
+        logger.debug(f"[{get_now_colombia()}] >>> PETICIÓN RECIBIDA: index.html")
         return render_template('index.html', usuarios=lista_usuarios)
     except Exception as e:
         logger.error(f"âŒ ERROR RENDERIZANDO index.html: {e}")
@@ -190,7 +190,7 @@ def invalidar_cache_pedidos():
     global PEDIDOS_PENDIENTES_CACHE
     PEDIDOS_PENDIENTES_CACHE["friparts"]["timestamp"] = 0
     PEDIDOS_PENDIENTES_CACHE["frimetals"]["timestamp"] = 0
-    logger.info("ðŸ—‘ï¸ CachÃ© de PEDIDOS invalidado (ambos tenants)")
+    logger.debug("ðŸ—‘ï¸ CachÃ© de PEDIDOS invalidado (ambos tenants)")
 
 
 # error_response, validate_required_fields y un to_int local (que
@@ -313,11 +313,11 @@ def serve_static(path):
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5005))
-    print("\n" + "="*50)
-    print(f"    INICIANDO SERVIDOR FLASK (PUERTO {port})")
-    print("="*50)
-    print(f"    URL: http://0.0.0.0:{port}")
-    print("="*50 + "\n")
+    logger.debug("\n" + "="*50)
+    logger.debug(f"    INICIANDO SERVIDOR FLASK (PUERTO {port})")
+    logger.debug("="*50)
+    logger.debug(f"    URL: http://0.0.0.0:{port}")
+    logger.debug("="*50 + "\n")
     
     app.run(
         host='0.0.0.0',

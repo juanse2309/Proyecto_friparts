@@ -105,7 +105,7 @@ class EnsambleService:
             db.session.add(nuevo_ensamble)
             db.session.commit()
 
-            logger.info(f"✅ [Ensamble] Inicio persistido: {id_ensamble} ({responsable})")
+            logger.debug(f"✅ [Ensamble] Inicio persistido: {id_ensamble} ({responsable})")
             return {'ya_registrado': False, 'id_ensamble': id_ensamble}
         except Exception as e:
             db.session.rollback()
@@ -184,7 +184,7 @@ class EnsambleService:
                     tiempo_m = float(round(duracion_s / 60.0, 2))
                     if cantidad > 0:
                         s_por_u = float(round(duracion_s / cantidad, 2))
-                    logger.info(f"⏱️ [Ensamble] Tiempos: {h_ini}->{h_fin} = {duracion_s}s ({tiempo_m}min)")
+                    logger.debug(f"⏱️ [Ensamble] Tiempos: {h_ini}->{h_fin} = {duracion_s}s ({tiempo_m}min)")
                 except Exception as e_time:
                     logger.warning(f"Error calculando tiempos ensamble: {e_time}")
 
@@ -337,7 +337,7 @@ class EnsambleService:
         # vez (stock, FIFO) ya corrieron en un commit anterior; no repetirlos.
         ya_finalizado_previamente = bool(registro_final_db and registro_final_db.estado == 'FINALIZADO')
 
-        logger.info(f"[ENSAMBLE-MULTI] Procesando {len(registros_data)} registros para id_ensamble={id_ensamble_global}")
+        logger.debug(f"[ENSAMBLE-MULTI] Procesando {len(registros_data)} registros para id_ensamble={id_ensamble_global}")
 
         try:
             for reg_data in registros_data:
@@ -512,7 +512,7 @@ class EnsambleService:
                         cubetas = [nueva_cubeta]
                         piezas_por_repartir = 0.0
 
-                    logger.info(f" 📦 [ENSAMBLE-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
+                    logger.debug(f" 📦 [ENSAMBLE-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
 
                     for cubeta in cubetas:
                         if piezas_por_repartir <= 0:

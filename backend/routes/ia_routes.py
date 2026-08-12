@@ -30,7 +30,7 @@ def procesar_audio_ensamble():
             audio_file.save(f)
 
         file_size = os.path.getsize(temp_path)
-        logger.info(f"[IA-Voz] Procesando audio en: {temp_path} ({file_size} bytes)")
+        logger.debug(f"[IA-Voz] Procesando audio en: {temp_path} ({file_size} bytes)")
         
         if file_size == 0:
             return jsonify({'success': False, 'error': 'El archivo de audio recibido está vacío (0 bytes). Verifica el micrófono.'}), 400
@@ -39,11 +39,11 @@ def procesar_audio_ensamble():
         uploaded_file = genai.upload_file(path=temp_path, mime_type='audio/webm')
         
         # Espera activa (polling) para asegurar que el archivo esté procesado (ACTIVE)
-        logger.info(f"[IA-Voz] Esperando a que el archivo {uploaded_file.name} esté ACTIVE...")
+        logger.debug(f"[IA-Voz] Esperando a que el archivo {uploaded_file.name} esté ACTIVE...")
         for _ in range(10):
             file_info = genai.get_file(uploaded_file.name)
             if file_info.state.name == "ACTIVE":
-                logger.info(f"[IA-Voz] Archivo listo para ser procesado.")
+                logger.debug(f"[IA-Voz] Archivo listo para ser procesado.")
                 break
             elif file_info.state.name == "FAILED":
                 logger.error(f"[IA-Voz] Procesamiento fallido en Gemini. Info: {file_info}")
@@ -67,10 +67,10 @@ Campos:
 - fecha: DEBE ser siempre 'YYYY-MM-DD' (Ej: 2026-03-12). Si dice 'hoy', usa la fecha actual.
 """
         # Debug: Listar modelos disponibles
-        logger.info("[IA-Voz] Verificando modelos disponibles...")
+        logger.debug("[IA-Voz] Verificando modelos disponibles...")
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
-                logger.info(f"Modelo disponible: {m.name}")
+                logger.debug(f"Modelo disponible: {m.name}")
 
         model = genai.GenerativeModel(
             model_name="gemini-3.1-flash-lite",

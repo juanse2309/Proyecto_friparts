@@ -118,7 +118,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
             else:
                 registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
 
-        logger.info(f" [TIME-DEBUG] {registro.id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, DescProgramado: {segundos_descuento}s, Total: {segundos_totales}s")
+        logger.debug(f" [TIME-DEBUG] {registro.id_pulido} -> Seg: {segundos_segmento}s, Acum: {tiempo_acumulado_ms}ms, DescProgramado: {segundos_descuento}s, Total: {segundos_totales}s")
     else:
         registro.duracion_segundos = 0
         registro.tiempo_total_minutos = 0.0
@@ -209,7 +209,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
 
     # Manejo de Bujes Revueltos
     revueltos_list = data.get('revueltos', [])
-    logger.info(f" [REVUELTOS-DEBUG] Payload recibido: {revueltos_list}")
+    logger.debug(f" [REVUELTOS-DEBUG] Payload recibido: {revueltos_list}")
     
     db.session.query(BujeRevuelto).filter_by(id_pulido=registro.id_pulido).delete()
 
@@ -295,7 +295,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
                 # Sumar las buenas a p_terminado
                 prod_wip.p_terminado = float(prod_wip.p_terminado or 0) + buenas
         else:
-            logger.info(f"🧪 [SANDBOX] Lote de prueba {registro.id_pulido}. Se ignoró impacto en inventario.")
+            logger.debug(f"🧪 [SANDBOX] Lote de prueba {registro.id_pulido}. Se ignoró impacto en inventario.")
     except Exception as err:
         logger.error(f"Error actualizando inventario directo en pulido: {err}")
 
@@ -528,7 +528,7 @@ def pausar_pulido():
         db.session.add(registro)
         db.session.commit()
         
-        logger.info(f" [PAUSA] Actividad {id_pulido} pausada a las {registro.hora_pausa}")
+        logger.debug(f" [PAUSA] Actividad {id_pulido} pausada a las {registro.hora_pausa}")
         return jsonify({"success": True})
     except Exception as e:
         db.session.rollback()
@@ -577,7 +577,7 @@ def swap_pulido_task():
         id_raw = data.get('id_pulido')
 
         # Registro de depuración para Render
-        logger.info(f" [SWAP-DEBUG] Recibido id_pulido: {id_raw} (Tipo: {type(id_raw)})")
+        logger.debug(f" [SWAP-DEBUG] Recibido id_pulido: {id_raw} (Tipo: {type(id_raw)})")
 
         # Blindaje definitivo contra [object Object] o diccionarios
         if isinstance(id_raw, dict):
@@ -893,7 +893,7 @@ def exportar_excel_pulido():
         fecha_archivo = datetime.now().strftime('%Y-%m-%d')
         filename = f"Historial_Pulido_{fecha_archivo}.xlsx"
 
-        logger.info(f"📊 [Excel] Exportando {len(resultados)} registros de Pulido")
+        logger.debug(f"📊 [Excel] Exportando {len(resultados)} registros de Pulido")
 
         return send_file(
             output,
@@ -1038,7 +1038,7 @@ def reporte_masivo():
             
             # Filtro de Seguridad Backend (Anti-Basura)
             if (buenos + rev_total) <= 0:
-                logger.info(f"Omitiendo registro de {referencia_raw} porque la cantidad total es cero.")
+                logger.debug(f"Omitiendo registro de {referencia_raw} porque la cantidad total es cero.")
                 continue
 
             # ── Blindaje: se guarda la referencia tal cual la dictó la operaria,
@@ -1099,7 +1099,7 @@ def reporte_masivo():
                         lote_traz.estado_actual = 'PENDIENTE_VALIDACION'
                         logger.info(f'🟡 [Trazabilidad] Lote {id_lote_ref} completó por_pulir -> PENDIENTE_VALIDACION por operaria {responsable}')
                     else:
-                        logger.info(f'🔄 [Trazabilidad] Lote {id_lote_ref} registrado. Quedan {lote_traz.por_pulir} por pulir.')
+                        logger.debug(f'🔄 [Trazabilidad] Lote {id_lote_ref} registrado. Quedan {lote_traz.por_pulir} por pulir.')
                 else:
                     logger.warning(f'⚠️ [Trazabilidad] id_lote {id_lote_ref} no encontrado en db_trazabilidad_lotes')
 

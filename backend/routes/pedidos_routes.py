@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def _resolve_tenant():
     """Resuelve el tenant desde la sesión."""
     tenant = get_tenant_from_request()
-    logger.info(f"🏢 [Tenant] Resuelto: {tenant}")
+    logger.debug(f"🏢 [Tenant] Resuelto: {tenant}")
     return tenant
 
 def _buscar_producto_inteligente(codigo_buscado, registros):
@@ -46,7 +46,7 @@ def _buscar_producto_inteligente(codigo_buscado, registros):
         # 2. Coincidencia por Prefijo (Solo componentes)
         if es_comp:
             if v_sis.startswith(target) or v_id.startswith(target):
-                logger.info(f"   🔍 [Prefix Match] '{target}' hallado en '{v_sis or v_id}'")
+                logger.debug(f"   🔍 [Prefix Match] '{target}' hallado en '{v_sis or v_id}'")
                 return idx + 2, r
 
     return None, None
@@ -93,7 +93,7 @@ def registrar_pedido():
         # Asegurar transacción limpia
         db.session.rollback()
         
-        logger.info("🛒 ===== INICIO REGISTRO DE PEDIDO (UPSERT-MODE) =====")
+        logger.debug("🛒 ===== INICIO REGISTRO DE PEDIDO (UPSERT-MODE) =====")
         data = request.json
         if not data:
             return jsonify({"success": False, "error": "No data provided"}), 400
@@ -118,11 +118,11 @@ def registrar_pedido():
         es_edicion = False
         if not id_pedido_final:
             id_pedido_final = _generar_siguiente_id_pedido_sql()
-            logger.info(f"🆔 Nuevo ID Pedido Generado: {id_pedido_final}")
+            logger.debug(f"🆔 Nuevo ID Pedido Generado: {id_pedido_final}")
         else:
             id_pedido_final = str(id_pedido_final).strip().upper()
             es_edicion = True
-            logger.info(f"🔄 Actualizando Pedido Existente: {id_pedido_final}")
+            logger.debug(f"🔄 Actualizando Pedido Existente: {id_pedido_final}")
 
         # Guard de ownership centralizado con AuditService e identificación desacoplada HTTP
         registro_previo = Pedido.query.filter_by(id_pedido=id_pedido_final).first() if es_edicion else None
@@ -217,11 +217,11 @@ def registrar_pedido():
                 # Si NO viene id_sql pero se halló por id_pedido + id_codigo -> Sumamos.
                 if id_sql:
                     registro_existente.cantidad = cantidad
-                    logger.info(f"📝 Sobreescribiendo fila {id_sql} (Edición directa)")
+                    logger.debug(f"📝 Sobreescribiendo fila {id_sql} (Edición directa)")
                 else:
                     nueva_cantidad = float(registro_existente.cantidad or 0) + cantidad
                     registro_existente.cantidad = nueva_cantidad
-                    logger.info(f"➕ Sumando cantidad a producto existente {codigo}: {cantidad} -> Total: {nueva_cantidad}")
+                    logger.debug(f"➕ Sumando cantidad a producto existente {codigo}: {cantidad} -> Total: {nueva_cantidad}")
 
                 registro_existente.fecha = fecha_dt
                 registro_existente.cliente = cliente
@@ -323,7 +323,7 @@ def obtener_detalle_pedido(id_pedido):
              return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
 
         id_pedido_buscado = str(id_pedido).strip().upper()
-        logger.info(f"🔍 [SQL-DETALLE] Consultando pedido: {id_pedido_buscado}")
+        logger.debug(f"🔍 [SQL-DETALLE] Consultando pedido: {id_pedido_buscado}")
         
         # 1. Buscar todos los items en SQL
         items_sql = Pedido.query.filter_by(id_pedido=id_pedido_buscado).all()
@@ -451,7 +451,7 @@ def obtener_pedidos_pendientes():
                     filtrados.append(p)
 
         # 4. DEBUG EN TERMINAL (Solicitado por el usuario)
-        print(f"DEBUG ALMACEN: Rol detectado: {rol_session}, Usuario normalizado: {username_user} ({nombre_completo_user}), Pedidos totales SQL: {len(pedidos)}, Pedidos filtrados: {len(filtrados)}")
+        logger.debug(f"DEBUG ALMACEN: Rol detectado: {rol_session}, Usuario normalizado: {username_user} ({nombre_completo_user}), Pedidos totales SQL: {len(pedidos)}, Pedidos filtrados: {len(filtrados)}")
 
         response = make_response(jsonify({
             "success": True, 
@@ -622,7 +622,7 @@ def actualizar_alistamiento():
         if not id_pedido:
             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
             
-        logger.info(f"📦 [SQL-ALISTAMIENTO] Actualizando pedido: {id_pedido}")
+        logger.debug(f"📦 [SQL-ALISTAMIENTO] Actualizando pedido: {id_pedido}")
 
         # 1. Buscar todos los items del pedido en SQL
         items_sql = Pedido.query.filter_by(id_pedido=id_pedido).all()
@@ -735,7 +735,7 @@ def actualizar_alistamiento():
                     for cubeta in cubetas:
                         cubeta.cant_alistada = 0.0
 
-                logger.info(f" 📦 [ALMACEN-FIFO] Distribuyendo {piezas_por_repartir} piezas alistadas FIFO para Pedido: {id_pedido}, Producto: {codigo_limpio} (Original: {codigo_front})")
+                logger.debug(f" 📦 [ALMACEN-FIFO] Distribuyendo {piezas_por_repartir} piezas alistadas FIFO para Pedido: {id_pedido}, Producto: {codigo_limpio} (Original: {codigo_front})")
 
                 for cubeta in cubetas:
                     if piezas_por_repartir <= 0:
@@ -844,7 +844,7 @@ def listar_pedidos():
         division = request.args.get('division', 'friparts').lower()
         search = request.args.get('search', '').strip().upper()
         
-        logger.info(f"🔍 [API] Listando pedidos - División: {division}, Búsqueda: {search}")
+        logger.debug(f"🔍 [API] Listando pedidos - División: {division}, Búsqueda: {search}")
 
         if division == 'frimetals':
             # Consulta a la tabla metals_pedidos (mapeada en sql_models.py)

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def listar_productos_metals():
     """Lista productos de Frimetals usando el repositorio unificado (DRY)."""
     try:
-        logger.info("🌐 [API] Consultando productos de Frimetals via ProductoRepository")
+        logger.debug("🌐 [API] Consultando productos de Frimetals via ProductoRepository")
         repo = ProductoRepository(tenant="frimetals")
         productos = repo.listar_todos()
         return jsonify({"success": True, "productos": productos})
@@ -223,7 +223,7 @@ def get_metals_dashboard_stats():
         hoy_dt = datetime.now(bogota_tz)
         hoy_str = hoy_dt.strftime("%d/%m/%Y")
         
-        logger.info(f"📊 [Dashboard Metales] Consultando estadísticas para fecha: {hoy_str}")
+        logger.debug(f"📊 [Dashboard Metales] Consultando estadísticas para fecha: {hoy_str}")
         
         # KPI 1: Piezas producidas hoy (Suma de cantidad_ok)
         piezas_hoy = 0
@@ -372,7 +372,7 @@ def get_metals_dashboard_stats():
             db.session.rollback()
             logger.error(f"Error listando actividad reciente: {e_rec}")
             
-        logger.info(f"✅ Dashboard Data Loaded. Activity Items: {len(actividad)}")
+        logger.debug(f"✅ Dashboard Data Loaded. Activity Items: {len(actividad)}")
             
         return jsonify({
             "success": True,

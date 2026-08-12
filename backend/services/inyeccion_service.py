@@ -230,7 +230,7 @@ class InyeccionService:
             if not success:
                 return False, "Error al generar el archivo PDF localmente."
 
-            logger.info(f" ✅ PDF generado localmente: {tmp_filename}. (Subida a Drive deshabilitada)")
+            logger.debug(f" ✅ PDF generado localmente: {tmp_filename}. (Subida a Drive deshabilitada)")
             return True, None
 
         except Exception as e:
@@ -337,11 +337,11 @@ class InyeccionService:
                 responsable = AuditService.resolver_y_validar_propietario(registro, responsable_input)
 
                 if not registro:
-                    logger.info(f"🆕 [Inyeccion] Creando nuevo registro: {id_iny} - {id_cod}")
+                    logger.debug(f"🆕 [Inyeccion] Creando nuevo registro: {id_iny} - {id_cod}")
                     registro = ProduccionInyeccion(id_inyeccion=id_iny, id_codigo=id_cod)
                     db.session.add(registro)
                 else:
-                    logger.info(f"🔄 [Inyeccion] Actualizando registro existente (ID SQL: {registro.id})")
+                    logger.debug(f"🔄 [Inyeccion] Actualizando registro existente (ID SQL: {registro.id})")
 
                 # --- Sincronización de campos ---
                 # El lote de producción siempre nace 'PENDIENTE' de auditoría.
@@ -809,7 +809,7 @@ class InyeccionService:
         id_inyeccion_bloque = f"INY-{uuid.uuid4().hex[:8].upper()}"
         ahora = get_colombia_time()
 
-        logger.info(f"⚡ Iniciando trabajo para la máquina {prog_inicial.maquina}, Referencias: {len(programaciones_bloque)}")
+        logger.debug(f"⚡ Iniciando trabajo para la máquina {prog_inicial.maquina}, Referencias: {len(programaciones_bloque)}")
 
         # Guard de ownership centralizado con AuditService: puede lanzar
         # OwnershipMismatchException antes de tocar la sesión (no hay nada que
@@ -872,7 +872,7 @@ class InyeccionService:
                         por_pulir=0
                     )
                     db.session.add(lote_traz)
-                    logger.info(f"🟢 [Trazabilidad] Lote MES creado: {id_lote_mes} | OP: {op_world_office} | Ref: {prog.codigo_sistema}")
+                    logger.debug(f"🟢 [Trazabilidad] Lote MES creado: {id_lote_mes} | OP: {op_world_office} | Ref: {prog.codigo_sistema}")
 
             db.session.commit()
 
@@ -1008,7 +1008,7 @@ class InyeccionService:
                     for lote_cierre in lotes_cierre:
                         lote_cierre.cantidad_inyectada = piezas_inyectadas
                         lote_cierre.por_pulir = piezas_inyectadas
-                        logger.info(f"🔄 [Trazabilidad] Lote {lote_cierre.id_lote} ({prod.id_codigo}) → {piezas_inyectadas} piezas | por_pulir: {piezas_inyectadas}")
+                        logger.debug(f"🔄 [Trazabilidad] Lote {lote_cierre.id_lote} ({prod.id_codigo}) → {piezas_inyectadas} piezas | por_pulir: {piezas_inyectadas}")
                 else:
                     lote_generico = db.session.query(TrazabilidadLote).filter_by(id_inyeccion=id_iny).first()
                     if lote_generico:
@@ -1051,7 +1051,7 @@ class InyeccionService:
                         cubetas = [nueva_cubeta]
                         piezas_por_repartir = 0.0
 
-                    logger.info(f" 📦 [INYECCION-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
+                    logger.debug(f" 📦 [INYECCION-FIFO] Propagando {piezas_por_repartir} piezas a {len(cubetas)} cubetas. OP: {op_limpia}, Producto: {codigo_limpio}")
 
                     for cubeta in cubetas:
                         if piezas_por_repartir <= 0:

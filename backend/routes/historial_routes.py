@@ -79,14 +79,14 @@ def _construir_movimientos_historial(f_desde, f_hasta, tipo_filtro):
                 WHERE CAST(fecha_inicia AS DATE) BETWEEN :desde AND :hasta
                 ORDER BY fecha_inicia DESC
             """
-            logger.info(
+            logger.debug(
                 f"🔍 [Historial-INYECCION] SQL enviado a PostgreSQL: "
                 f"SELECT ... FROM db_inyeccion WHERE CAST(fecha_inicia AS DATE) "
                 f"BETWEEN '{f_desde}' AND '{f_hasta}'"
             )
             res_raw = db.session.execute(text(sql_iny), {"desde": f_desde, "hasta": f_hasta})
             res_iny = [dict(row._mapping) for row in res_raw]
-            logger.info(f"✅ [Historial-INYECCION] Registros encontrados: {len(res_iny)} (rango {f_desde} → {f_hasta})")
+            logger.debug(f"✅ [Historial-INYECCION] Registros encontrados: {len(res_iny)} (rango {f_desde} → {f_hasta})")
 
             for r in res_iny:
                 try:
@@ -198,11 +198,11 @@ def _construir_movimientos_historial(f_desde, f_hasta, tipo_filtro):
                     })
                 except Exception as e_row:
                     db.session.rollback()
-                    print(f'Error en fila Pulido: {e_row}')
+                    logger.debug(f'Error en fila Pulido: {e_row}')
                     logger.error(f"❌ Error procesando fila Pulido (ID {r.get('id', '?')}): {e_row}")
                     continue
         except Exception as e_block:
-            print(f'Error en Pulido: {e_block}')
+            logger.debug(f'Error en Pulido: {e_block}')
             logger.error(f"❌ ERROR CRÍTICO EN BLOQUE PULIDO: {e_block}")
             import traceback
             logger.error(traceback.format_exc())
@@ -499,7 +499,7 @@ def obtener_historial_global():
         f_desde = datetime.strptime(desde_str, '%Y-%m-%d').date() if desde_str else hoy
         f_hasta = datetime.strptime(hasta_str, '%Y-%m-%d').date() if hasta_str else hoy
 
-        logger.info(f"🔍 [Historial] Consulta v5.0 SQL-Limpio ({f_desde} -> {f_hasta})")
+        logger.debug(f"🔍 [Historial] Consulta v5.0 SQL-Limpio ({f_desde} -> {f_hasta})")
         movimientos = _construir_movimientos_historial(f_desde, f_hasta, tipo_filtro)
         return jsonify(movimientos)
 
@@ -789,7 +789,7 @@ def exportar_excel_historial_global():
         # el round-trip jsonify()->get_json() que duplicaba la lista completa
         # en memoria y fue la causa del OOM del servidor con rangos grandes.
         resultados = _construir_movimientos_historial(f_desde, f_hasta, tipo_filtro)
-        logger.info(f"📊 [Historial-Excel] Exportando {len(resultados)} movimientos ({f_desde} -> {f_hasta})")
+        logger.debug(f"📊 [Historial-Excel] Exportando {len(resultados)} movimientos ({f_desde} -> {f_hasta})")
 
         # Normalizacion estricta a 24h (delegada al servicio, ver FRITECH V4.5)
         resultados = preparar_movimientos_para_excel(resultados)
