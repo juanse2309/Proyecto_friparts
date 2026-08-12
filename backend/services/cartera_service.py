@@ -94,6 +94,15 @@ class CarteraService:
         World Office (ver comentario en agente_wo_comercial.py) -- el
         endpoint no debe fallar por eso, simplemente esos campos van vacíos.
 
+        IMPORTANTE sobre el join: db_ventas.documento guarda PREFIJO+NUMERO
+        (ej. "FEV-6076", construido en agente_wo_comercial.py como
+        E.prefijo + '-' + Numero_de_Documento), pero cartera_wo.documento
+        guarda SOLO el número (ej. "6076", viene de DocumentoNumero en
+        agente_wo_cartera.py / Vista_CuentasPorCobrar_Detallada, sin
+        prefijo). Un join directo `c.documento = v.documento` nunca hace
+        match (confirmado contra producción: 0 filas) -- hay que comparar
+        contra la parte numérica de v.documento.
+
         Retorna None si el documento no existe en db_ventas (0 filas).
         """
         documento_limpio = _normalizar_numero_documento(numero_documento)
@@ -109,7 +118,7 @@ class CarteraService:
                 v.productos, v.descripcion_producto, v.cantidad,
                 v.precio_promedio, v.total_ingresos, v.iva
             FROM db_ventas v
-            LEFT JOIN cartera_wo c ON c.documento = v.documento
+            LEFT JOIN cartera_wo c ON c.documento = split_part(v.documento, '-', 2)
             WHERE v.documento = :documento
             ORDER BY v.id ASC
         """)
