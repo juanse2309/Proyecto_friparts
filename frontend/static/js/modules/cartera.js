@@ -237,52 +237,96 @@ const ModuloCartera = {
         const items = data.items || [];
         const tot = data.totales || {};
         const fmtNum = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 });
-        const naSpan = '<span class="text-muted">N/D</span>';
+        const naDash = '<span style="color:#cbd5e1;font-style:italic;">— N/D</span>';
 
-        const filasItems = items.map(it => `
-            <tr>
-                <td>${it.codigo_producto || ''}</td>
-                <td>${it.descripcion || naSpan}</td>
-                <td class="text-end">${fmtNum.format(it.cantidad || 0)}</td>
-                <td class="text-end">${this.fmt.format(it.precio_unitario || 0)}</td>
-                <td class="text-end">${this.fmt.format(it.subtotal || 0)}</td>
-                <td class="text-end">${it.iva !== null && it.iva !== undefined ? this.fmt.format(it.iva) : naSpan}</td>
+        const campoEncabezado = (icono, etiqueta, valor) => `
+            <div style="display:flex; align-items:flex-start; gap:10px; min-width:0;">
+                <div style="width:30px;height:30px;border-radius:9px;background:#eef2ff;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">
+                    <i class="fas ${icono}" style="color:#4f46e5;font-size:0.8rem;"></i>
+                </div>
+                <div style="min-width:0;">
+                    <div style="font-size:0.68rem;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">${etiqueta}</div>
+                    <div style="font-weight:600;color:#1e293b;word-break:break-word;">${valor}</div>
+                </div>
+            </div>`;
+
+        const tieneSaldo = enc.saldo_pendiente !== null && enc.saldo_pendiente !== undefined;
+        const saldoEsCero = tieneSaldo && Number(enc.saldo_pendiente) <= 0;
+
+        const filasItems = items.map((it, idx) => `
+            <tr style="background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};">
+                <td style="padding:10px 14px;"><span style="font-weight:600;color:#4f46e5;">${it.codigo_producto || ''}</span></td>
+                <td style="padding:10px 14px;color:#475569;">${it.descripcion || naDash}</td>
+                <td class="text-end" style="padding:10px 14px;">${fmtNum.format(it.cantidad || 0)}</td>
+                <td class="text-end" style="padding:10px 14px;">${this.fmt.format(it.precio_unitario || 0)}</td>
+                <td class="text-end" style="padding:10px 14px;font-weight:600;">${this.fmt.format(it.subtotal || 0)}</td>
+                <td class="text-end" style="padding:10px 14px;">${it.iva !== null && it.iva !== undefined ? this.fmt.format(it.iva) : naDash}</td>
             </tr>
         `).join('');
 
         const modalHtml = `
-            <div class="modal-overlay" id="modal-factura-wo" style="z-index: 10001; background: rgba(0,0,0,0.5); position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;">
-                <div class="modal-content" style="background: white; width: 95%; max-width: 820px; max-height: 90vh; overflow-y: auto; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); animation: zoomIn 0.3s ease;">
-                    <div class="modal-header d-flex justify-content-between align-items-center" style="padding: 20px 25px; border-bottom: 1px solid #e2e8f0;">
-                        <h5 class="fw-bold mb-0"><i class="fas fa-file-invoice me-2 text-primary"></i>Factura ${enc.documento || ''}</h5>
-                        <button class="btn btn-sm btn-light" onclick="document.getElementById('modal-factura-wo').remove()"><i class="fas fa-times"></i></button>
+            <div class="modal-overlay" id="modal-factura-wo" style="z-index: 10001; background: rgba(15,23,42,0.55); backdrop-filter: blur(2px); position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px;">
+                <div class="modal-content" style="background: #fff; width: 100%; max-width: 860px; max-height: 90vh; overflow-y: auto; border-radius: 18px; box-shadow: 0 25px 60px -15px rgba(0,0,0,0.35); animation: zoomIn 0.25s ease;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%); padding: 22px 28px; display:flex; justify-content:space-between; align-items:center; position: sticky; top: 0; z-index: 1;">
+                        <div style="display:flex; align-items:center; gap:14px;">
+                            <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,0.16);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <i class="fas fa-file-invoice-dollar" style="color:#fff;font-size:1.25rem;"></i>
+                            </div>
+                            <div>
+                                <div style="color:rgba(255,255,255,0.65);font-size:0.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">Factura World Office</div>
+                                <div style="color:#fff;font-size:1.3rem;font-weight:700;line-height:1.2;">${enc.documento || ''}</div>
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('modal-factura-wo').remove()" style="width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,0.16);border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.16)'">
+                            <i class="fas fa-times"></i>
+                        </button>
                     </div>
-                    <div class="modal-body" style="padding: 25px;">
-                        <div class="row g-3 mb-4">
-                            <div class="col-md-6"><strong>Cliente:</strong> ${enc.cliente || 'N/A'}</div>
-                            <div class="col-md-6"><strong>Identificación:</strong> ${enc.identificacion || 'N/A'}</div>
-                            <div class="col-md-6"><strong>Vendedor:</strong> ${enc.vendedor || 'N/A'}</div>
-                            <div class="col-md-6"><strong>Zona:</strong> ${enc.zona || 'N/A'}</div>
-                            <div class="col-md-6"><strong>Fecha emisión:</strong> ${enc.fecha_emision || 'N/A'}</div>
-                            <div class="col-md-6"><strong>Fecha vencimiento:</strong> ${enc.fecha_vencimiento || 'N/A'}</div>
-                            ${enc.saldo_pendiente !== null && enc.saldo_pendiente !== undefined ? `<div class="col-md-6"><strong>Saldo pendiente:</strong> ${this.fmt.format(enc.saldo_pendiente)}</div>` : ''}
+                    <div class="modal-body" style="padding: 26px 28px;">
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:20px 22px; margin-bottom:24px;">
+                            <div class="row gy-3">
+                                <div class="col-md-6">${campoEncabezado('fa-building', 'Cliente', enc.cliente || 'N/A')}</div>
+                                <div class="col-md-6">${campoEncabezado('fa-id-card', 'Identificación', enc.identificacion || 'N/A')}</div>
+                                <div class="col-md-6">${campoEncabezado('fa-user-tie', 'Vendedor', enc.vendedor || 'N/A')}</div>
+                                <div class="col-md-6">${campoEncabezado('fa-map-marker-alt', 'Zona', enc.zona || 'N/A')}</div>
+                                <div class="col-md-6">${campoEncabezado('fa-calendar-plus', 'Fecha emisión', enc.fecha_emision || 'N/A')}</div>
+                                <div class="col-md-6">${campoEncabezado('fa-calendar-times', 'Fecha vencimiento', enc.fecha_vencimiento || 'N/A')}</div>
+                                ${tieneSaldo ? `<div class="col-md-6">${campoEncabezado('fa-hand-holding-usd', 'Saldo pendiente',
+                                    `<span style="display:inline-block;padding:2px 12px;border-radius:20px;font-weight:700;font-size:0.92rem;background:${saldoEsCero ? '#dcfce7' : '#fee2e2'};color:${saldoEsCero ? '#16a34a' : '#dc2626'};">${this.fmt.format(enc.saldo_pendiente)}</span>`)}</div>` : ''}
+                            </div>
                         </div>
-                        <div class="table-responsive">
-                            <table class="table table-sm table-bordered mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Código</th><th>Descripción</th><th class="text-end">Cantidad</th>
-                                        <th class="text-end">Precio Unitario</th><th class="text-end">Subtotal</th><th class="text-end">IVA</th>
-                                    </tr>
-                                </thead>
-                                <tbody>${filasItems || '<tr><td colspan="6" class="text-center text-muted py-3">Sin ítems</td></tr>'}</tbody>
-                            </table>
+
+                        <div style="border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-bottom:22px;">
+                            <div class="table-responsive">
+                                <table class="table table-sm mb-0" style="font-size:0.88rem;">
+                                    <thead>
+                                        <tr style="background:#eef2ff;">
+                                            <th style="padding:11px 14px;color:#4338ca;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border:none;">Código</th>
+                                            <th style="padding:11px 14px;color:#4338ca;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border:none;">Descripción</th>
+                                            <th class="text-end" style="padding:11px 14px;color:#4338ca;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border:none;">Cantidad</th>
+                                            <th class="text-end" style="padding:11px 14px;color:#4338ca;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border:none;">Precio Unit.</th>
+                                            <th class="text-end" style="padding:11px 14px;color:#4338ca;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border:none;">Subtotal</th>
+                                            <th class="text-end" style="padding:11px 14px;color:#4338ca;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border:none;">IVA</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${filasItems || '<tr><td colspan="6" class="text-center text-muted py-4">Sin ítems</td></tr>'}</tbody>
+                                </table>
+                            </div>
                         </div>
-                        <div class="d-flex justify-content-end mt-3">
-                            <div style="min-width: 260px;">
-                                <div class="d-flex justify-content-between"><span>Subtotal:</span><strong>${this.fmt.format(tot.subtotal || 0)}</strong></div>
-                                <div class="d-flex justify-content-between"><span>IVA:</span><strong>${tot.iva !== null && tot.iva !== undefined ? this.fmt.format(tot.iva) : naSpan}</strong></div>
-                                <div class="d-flex justify-content-between fs-5 border-top pt-2 mt-2"><span>Total:</span><strong class="text-success">${this.fmt.format(tot.total || 0)}</strong></div>
+
+                        <div style="display:flex; justify-content:flex-end;">
+                            <div style="min-width: 280px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px;">
+                                <div class="d-flex justify-content-between align-items-center" style="padding:4px 0;">
+                                    <span style="color:#64748b;font-size:0.88rem;">Subtotal</span>
+                                    <strong style="color:#1e293b;">${this.fmt.format(tot.subtotal || 0)}</strong>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center" style="padding:4px 0;">
+                                    <span style="color:#64748b;font-size:0.88rem;">IVA</span>
+                                    <strong style="color:#1e293b;">${tot.iva !== null && tot.iva !== undefined ? this.fmt.format(tot.iva) : naDash}</strong>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center" style="border-top: 1px dashed #cbd5e1; margin-top:10px; padding-top:12px;">
+                                    <span style="font-weight:700;color:#1e293b;">Total</span>
+                                    <strong style="color:#16a34a;font-size:1.3rem;">${this.fmt.format(tot.total || 0)}</strong>
+                                </div>
                             </div>
                         </div>
                     </div>
