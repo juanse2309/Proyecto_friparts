@@ -90,7 +90,7 @@ def probar_y_sincronizar_productos():
     """
     # Construir el string de conexión a SQL Server
     conn_str = (
-        f"DRIVER={{SQL Server}};"
+        f"DRIVER={DB_DRIVER};"
         f"SERVER={DB_SERVER};"
         f"DATABASE={DB_DATABASE};"
         f"UID={DB_UID};"

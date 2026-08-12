@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 # Cargar variables de entorno desde .env o el sistema
 load_dotenv()
 
+DB_DRIVER = os.getenv("WO_DB_DRIVER", "{ODBC Driver 17 for SQL Server}")
 DB_SERVER = os.getenv("WO_SERVER", r"SERVERWO\WORLDOFFICE17")
 DB_DATABASE = os.getenv("WO_DB", "FRIPARTS2021")
 DB_UID = os.getenv("WO_USER", "wo_cliente")
@@ -20,7 +21,7 @@ if not SYNC_TOKEN:
     raise RuntimeError("SYNC_TOKEN no está configurada")
 
 conn_str = (
-    f"DRIVER={{SQL Server}};"
+    f"DRIVER={DB_DRIVER};"
     f"SERVER={DB_SERVER};"
     f"DATABASE={DB_DATABASE};"
     f"UID={DB_UID};"

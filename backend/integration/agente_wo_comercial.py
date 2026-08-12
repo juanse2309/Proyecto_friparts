@@ -26,7 +26,7 @@ if not API_KEY:
 
 # Construir el string de conexión a SQL Server exactamente como en agente_wo.py
 conn_str = (
-    f"DRIVER={{SQL Server}};"
+    f"DRIVER={DB_DRIVER};"
     f"SERVER={DB_SERVER};"
     f"DATABASE={DB_DATABASE};"
     f"UID={DB_UID};"
@@ -86,11 +86,23 @@ def ejecutar_extraccion():
         def _normalizar(nombre_col):
             return nombre_col.lower().replace('ó', 'o').replace('é', 'e').replace('á', 'a').replace('í', 'i')
 
+        # Confirmado contra WO real (2026-08-12, ver commit): la vista trae
+        # DOS columnas de descripcion -- "Descripción" (con tilde, llega
+        # corrupta como "Descripci�n" via este driver/codepage) y
+        # "Descripcion" (limpia, ASCII). Se prioriza el match exacto por la
+        # version limpia; el fallback generico queda solo por si el nombre
+        # cambia en otro entorno/version de WO.
         col_descripcion_inv = None
         for c in cols_inventarios:
-            cn = _normalizar(c)
-            if col_descripcion_inv is None and ('descripcion' in cn or 'nombre' in cn):
+            if _normalizar(c) == 'descripcion':
                 col_descripcion_inv = c
+                break
+        if not col_descripcion_inv:
+            for c in cols_inventarios:
+                cn = _normalizar(c)
+                if 'descripcion' in cn or 'nombre' in cn:
+                    col_descripcion_inv = c
+                    break
         print(f"[AUDITORIA] Columna de descripción detectada en Vista_Tabla_Inventarios: '{col_descripcion_inv}'")
 
         select_desc_inv = f", [{col_descripcion_inv}]" if col_descripcion_inv else ""
@@ -122,17 +134,24 @@ def ejecutar_extraccion():
         cursor.execute("SELECT TOP 1 * FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados]")
         cols_encabezados = [col[0] for col in cursor.description]
         cursor.fetchall()
+        # Confirmado contra WO real (2026-08-12): la columna correcta es
+        # "Identificacion_Tercero" (el NUMERO de NIT/CC). OJO: tambien existe
+        # "Tipo_identificacion_tercero_externo", que es solo el TIPO de
+        # documento (NIT/CC/CE) -- contiene "identificacion" y "externo" en
+        # el nombre, por lo que la heuristica original (que exigia
+        # "externo") la habria escogido por error en vez del numero real.
+        # Por eso ahora se prioriza el match exacto y luego se excluye
+        # explicitamente cualquier columna que empiece por "tipo_".
         col_nit = None
         for c in cols_encabezados:
-            cn = _normalizar(c)
-            if ('identificacion' in cn or 'nit' in cn) and 'externo' in cn:
+            if _normalizar(c) == 'identificacion_tercero':
                 col_nit = c
                 break
         if not col_nit:
-            # Segunda pasada sin exigir "externo" en el nombre, por si la
-            # columna real no sigue ese patrón de nombres.
             for c in cols_encabezados:
                 cn = _normalizar(c)
+                if cn.startswith('tipo_'):
+                    continue
                 if 'identificacion' in cn or 'nit' in cn:
                     col_nit = c
                     break
