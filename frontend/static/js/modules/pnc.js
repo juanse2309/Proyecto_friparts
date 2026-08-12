@@ -33,11 +33,19 @@ const ModuloPNC = {
      */
     cargarResponsables: async function () {
         try {
-            const responsables = await fetchData('/api/obtener_responsables');
             const select = document.getElementById('pnc-manual-responsable');
-            if (!select || !responsables) return;
+            if (!select) return;
 
-            const nombres = responsables.map(r => typeof r === 'object' ? r.nombre : r);
+            const usuarioActual = (window.AuthModule && AuthModule.getUsuarioActual()) || '';
+            const responsables = await fetchData('/api/obtener_responsables');
+            const nombres = Array.isArray(responsables) ? responsables.map(r => typeof r === 'object' ? r.nombre : r) : [];
+
+            // Defensivo: si el catálogo no trae al usuario activo (fallo de red,
+            // catálogo vacío, etc.) se agrega igual, para que el select nunca
+            // quede sin una opción válida que bloquee el registro del PNC.
+            if (usuarioActual && !nombres.includes(usuarioActual)) {
+                nombres.unshift(usuarioActual);
+            }
 
             select.innerHTML = '<option value="">Selecciona...</option>';
             nombres.forEach(nombre => {
@@ -46,6 +54,10 @@ const ModuloPNC = {
                 opt.textContent = nombre;
                 select.appendChild(opt);
             });
+
+            if (usuarioActual && nombres.includes(usuarioActual)) {
+                select.value = usuarioActual;
+            }
         } catch (error) {
             console.error('Error [PNC] cargarResponsables:', error);
         }
@@ -130,7 +142,7 @@ const ModuloPNC = {
                 cantidad: document.getElementById('pnc-manual-cantidad')?.value || '0',
                 criterio: document.getElementById('pnc-manual-criterio')?.value || '',
                 notas: document.getElementById('pnc-manual-ensamble')?.value || '',
-                responsable: document.getElementById('pnc-manual-responsable')?.value || ''
+                responsable: document.getElementById('pnc-manual-responsable')?.value || (window.AuthModule ? AuthModule.getUsuarioActual() : '')
             };
 
             console.log('📤 [PNC] ENVIANDO:', datos);

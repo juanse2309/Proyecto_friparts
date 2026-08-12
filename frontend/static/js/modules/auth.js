@@ -53,6 +53,12 @@ const AuthModule = {
         return allowedBase.includes(pageName);
     },
 
+    // Nombre del usuario activo, para pre-poblar campos de responsable/operario
+    getUsuarioActual: function () {
+        if (!this.currentUser) return '';
+        return this.currentUser.nombre || this.currentUser.username || '';
+    },
+
     // Matriz de Permisos por Rol (Modelo RBAC Estricto basado en Departamentos)
     permissions: {
         'ADMINISTRACION': ['dashboard', 'inventario', 'inyeccion', 'simulador', 'pulido', 'ensamble', 'pnc', 'facturacion', 'mezcla', 'historial', 'reportes', 'pedidos', 'almacen', 'admin-clientes', 'procura', 'rotacion', 'asistencia', 'nomina', 'gerencia', 'notificaciones', 'comercial-historico', 'cartera', 'metals-dashboard', 'metals-produccion', 'metals-pedidos', 'metals-torno', 'metals-laser', 'metals-soldadura', 'metals-marcadora', 'metals-taladro', 'metals-dobladora', 'metals-pintura', 'metals-zincado', 'metals-horno', 'metals-pulido-m'],

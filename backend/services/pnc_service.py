@@ -286,7 +286,16 @@ class PncService:
         if cantidad <= 0:
             raise PncDatosInvalidosException('Cantidad debe ser mayor a 0')
 
-        responsable = str(data.get('responsable', '')).strip()
+        responsable = str(data.get('responsable') or '').strip()
+        if not responsable:
+            # Fallback defensivo: si el frontend no envió responsable (fallo
+            # de fetch, catálogo vacío, etc.) se atribuye al usuario
+            # autenticado en vez de rechazar el registro, para no bloquear
+            # la trazabilidad de la merma por un problema de UI ajeno al dato.
+            from flask import request
+            from backend.utils.auth_middleware import obtener_identidad_segura
+            usuario_identidad, _rol = obtener_identidad_segura(request)
+            responsable = str(usuario_identidad or '').strip()
         if not responsable:
             raise PncDatosInvalidosException('Responsable requerido: toda merma debe quedar atribuida a una persona')
 
