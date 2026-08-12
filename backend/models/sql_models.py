@@ -237,6 +237,12 @@ class RawVentas(db.Model):
     vendedor        = db.Column(db.String(150), index=True, nullable=True)
     zona            = db.Column(db.String(100), index=True, nullable=True)
     # estado no existe en la DB real
+    # Detalle de factura WO -- nullable: solo se llenan si agente_wo_comercial.py
+    # logro detectar la columna correspondiente en la vista de WO (ver ese
+    # archivo). Filas sincronizadas antes de esta ampliacion quedan en NULL.
+    descripcion_producto  = db.Column(db.String(255), nullable=True)
+    iva                    = db.Column(db.Numeric(18, 2), nullable=True)
+    identificacion_cliente = db.Column(db.String(50), nullable=True)
 
 
 class DbClientes(db.Model):

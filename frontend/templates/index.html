@@ -4235,6 +4235,12 @@
                     <h5 class="fw-bold mb-0 text-dark"><i class="fas fa-list me-2 text-muted"></i>Cartera por Cliente</h5>
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <input type="text" id="cartera-modulo-buscador" class="form-control form-control-sm" placeholder="Buscar cliente o NIT..." style="width: 240px;" oninput="ModuloCartera.filtrar()">
+                        <div class="input-group input-group-sm" style="width: 220px;">
+                            <input type="text" id="cartera-buscador-factura" class="form-control" placeholder="N° factura WO..." onkeydown="if(event.key==='Enter') ModuloCartera.buscarFacturaWO()">
+                            <button class="btn btn-outline-primary" id="btn-buscar-factura-wo" onclick="ModuloCartera.buscarFacturaWO()" title="Consultar factura">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
                         <button class="btn btn-sm btn-outline-success shadow-sm" id="btn-descargar-edades-cartera" onclick="ModuloCartera.descargarExcel()">
                             <i class="fas fa-file-excel me-1"></i> <span id="text-descargar-edades-cartera">Descargar Excel</span>
                         </button>
@@ -5220,7 +5226,7 @@
 
     <script src="/static/js/modules/pedidos.js?v=1.6.4"></script>
     <script src="/static/js/modules/almacen.js?v=1.6.6"></script>
-    <script src="/static/js/modules/cartera.js?v=1.0.2"></script>
+    <script src="/static/js/modules/cartera.js?v=1.0.3"></script>
     <script src="/static/js/modules/metals.js?v=1.6.4"></script>
     <script src="/static/js/modules/portal_client.js?v=1.6.4"></script>
     <script src="/static/js/modules/procura.js?v=1.6.4"></script>

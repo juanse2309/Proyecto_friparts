@@ -26,6 +26,27 @@ def obtener_cartera_cliente(identificacion):
         return jsonify({"success": False, "error": "No fue posible obtener la cartera del cliente."}), 500
 
 
+@cartera_bp.route('/api/cartera/factura/<numero_documento>', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
+def obtener_detalle_factura(numero_documento):
+    """
+    Detalle de una factura/documento World Office puntual (encabezado, items
+    y totales) para la vista de consulta tipo WO por número de factura.
+    """
+    try:
+        from backend.services.cartera_service import CarteraService
+
+        detalle = CarteraService.obtener_detalle_factura(numero_documento)
+        if not detalle:
+            return jsonify({"success": False, "error": "Factura no encontrada o no sincronizada."}), 404
+
+        return jsonify({"success": True, **detalle}), 200
+    except Exception as e:
+        rollback_seguro()
+        logger.error(f"Error obteniendo detalle de factura {numero_documento}: {e}")
+        return jsonify({"success": False, "error": "No fue posible obtener el detalle de la factura."}), 500
+
+
 @cartera_bp.route('/api/cartera/listar', methods=['GET'])
 @require_role(ROL_ADMINS + ROL_COMERCIALES)
 def listar_cartera_agrupada():

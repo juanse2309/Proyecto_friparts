@@ -408,8 +408,17 @@ def recibir_comercial():
             except (ValueError, TypeError):
                 precio_promedio = 0.0
 
+            # Detalle de factura WO: nullable, el agente local los envía en
+            # None cuando no logró detectar la columna real en WO (ver
+            # agente_wo_comercial.py) -- no se fuerza un valor por defecto.
+            iva = item.get('iva')
+            try:
+                iva = float(iva) if iva is not None else None
+            except (ValueError, TypeError):
+                iva = None
+
             fecha_parsed = parse_date(item.get('fecha'))
-            
+
             mappings_chunk.append({
                 'fecha': fecha_parsed,
                 'documento': str(item.get('documento') or '').strip()[:80],
@@ -420,15 +429,18 @@ def recibir_comercial():
                 'precio_promedio': precio_promedio,
                 'clasificacion': clasif,
                 'vendedor': str(item.get('vendedor') or '').strip()[:150],
-                'zona': str(item.get('zona') or '').strip()[:100]
+                'zona': str(item.get('zona') or '').strip()[:100],
+                'descripcion_producto': (str(item.get('descripcion') or '').strip()[:255] or None),
+                'iva': iva,
+                'identificacion_cliente': (str(item.get('nit_cliente') or '').strip()[:50] or None)
             })
 
         # Persistir el chunk actual en la tabla Staging
         if mappings_chunk:
             sql_insert = text("""
                 INSERT INTO db_ventas_staging
-                (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona)
-                VALUES (:fecha, :documento, :nombres, :productos, :cantidad, :total_ingresos, :precio_promedio, :clasificacion, :vendedor, :zona)
+                (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona, descripcion_producto, iva, identificacion_cliente)
+                VALUES (:fecha, :documento, :nombres, :productos, :cantidad, :total_ingresos, :precio_promedio, :clasificacion, :vendedor, :zona, :descripcion_producto, :iva, :identificacion_cliente)
             """)
             db.session.execute(sql_insert, mappings_chunk)
             db.session.commit()
@@ -440,8 +452,8 @@ def recibir_comercial():
                 # Transacción ultrarrápida: Swap de tablas en el motor SQL
                 db.session.execute(text("TRUNCATE db_ventas"))
                 db.session.execute(text("""
-                    INSERT INTO db_ventas (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona)
-                    SELECT fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona
+                    INSERT INTO db_ventas (fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona, descripcion_producto, iva, identificacion_cliente)
+                    SELECT fecha, documento, nombres, productos, cantidad, total_ingresos, precio_promedio, clasificacion, vendedor, zona, descripcion_producto, iva, identificacion_cliente
                     FROM db_ventas_staging
                 """))
                 db.session.commit()

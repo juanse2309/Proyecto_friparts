@@ -74,15 +74,75 @@ def ejecutar_extraccion():
         cursor = conn.cursor()
         
         # 1. Crear Diccionario de Mapeo en Memoria (Catálogo Maestro)
+        # Auto-detectamos la columna de descripción del producto (igual que
+        # agente_wo.py hace para Vista_Existencias) porque no hay forma de
+        # confirmar su nombre exacto sin conexión directa a WO. Si no se
+        # detecta, la descripción viaja vacía en vez de romper la extracción.
         print(">> Cargando catálogo maestro de inventarios en memoria...")
-        cursor.execute("SELECT Autonumerico, Codigo_Producto FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios]")
+        cursor.execute("SELECT TOP 1 * FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios]")
+        cols_inventarios = [col[0] for col in cursor.description]
+        cursor.fetchall()
+
+        def _normalizar(nombre_col):
+            return nombre_col.lower().replace('ó', 'o').replace('é', 'e').replace('á', 'a').replace('í', 'i')
+
+        col_descripcion_inv = None
+        for c in cols_inventarios:
+            cn = _normalizar(c)
+            if col_descripcion_inv is None and ('descripcion' in cn or 'nombre' in cn):
+                col_descripcion_inv = c
+        print(f"[AUDITORIA] Columna de descripción detectada en Vista_Tabla_Inventarios: '{col_descripcion_inv}'")
+
+        select_desc_inv = f", [{col_descripcion_inv}]" if col_descripcion_inv else ""
+        cursor.execute(
+            f"SELECT Autonumerico, Codigo_Producto{select_desc_inv} "
+            f"FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Inventarios]"
+        )
         mapping = {}
+        descripciones = {}
         for row in cursor.fetchall():
             # Autonumerico puede venir como numérico o string, lo forzamos a string para cruzar
             mapping[str(row[0])] = row[1]
-            
+            if col_descripcion_inv:
+                descripciones[str(row[0])] = str(row[2] or '').strip()
+
+        # 1.b Auto-detectar columna de IVA en el detalle y de identificación/NIT
+        # del tercero externo en el encabezado. Mismo motivo: no hay forma de
+        # confirmar estos nombres sin acceso directo a la vista de WO.
+        cursor.execute("SELECT TOP 1 * FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario]")
+        cols_movimientos = [col[0] for col in cursor.description]
+        cursor.fetchall()
+        col_iva = None
+        for c in cols_movimientos:
+            cn = _normalizar(c)
+            if col_iva is None and 'iva' in cn:
+                col_iva = c
+        print(f"[AUDITORIA] Columna de IVA detectada en Vista_Tabla_Movimientos_Inventario: '{col_iva}'")
+
+        cursor.execute("SELECT TOP 1 * FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados]")
+        cols_encabezados = [col[0] for col in cursor.description]
+        cursor.fetchall()
+        col_nit = None
+        for c in cols_encabezados:
+            cn = _normalizar(c)
+            if ('identificacion' in cn or 'nit' in cn) and 'externo' in cn:
+                col_nit = c
+                break
+        if not col_nit:
+            # Segunda pasada sin exigir "externo" en el nombre, por si la
+            # columna real no sigue ese patrón de nombres.
+            for c in cols_encabezados:
+                cn = _normalizar(c)
+                if 'identificacion' in cn or 'nit' in cn:
+                    col_nit = c
+                    break
+        print(f"[AUDITORIA] Columna de NIT/identificación detectada en Vista_Tabla_Encabezados: '{col_nit}'")
+
+        select_iva = f"CAST(D.[{col_iva}] AS FLOAT)" if col_iva else "NULL"
+        select_nit = f"E.[{col_nit}]" if col_nit else "NULL"
+
         # 2. Consulta SQL Definitiva simplificada
-        sql = """
+        sql = f"""
         SELECT
             E.Fecha AS fecha,
             (E.prefijo + '-' + CAST(E.Numero_de_Documento AS VARCHAR)) AS documento,
@@ -93,15 +153,17 @@ def ejecutar_extraccion():
             CAST(D.Cantidad AS FLOAT) AS cantidad,
             CAST((D.Cantidad * D.Valor_Unitario * (1 - (D.Descuento/100.0))) AS FLOAT) AS total_ingresos,
             CAST(D.Valor_Unitario AS FLOAT) AS precio_promedio,
+            {select_iva} AS iva,
+            {select_nit} AS nit_cliente,
             E.Tipo_de_Documento AS tipo_doc
         FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
-        INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D 
+        INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D
             ON E.Autonumerico = D.Pertenece_A
         WHERE YEAR(E.Fecha) >= 2024
           AND E.Tipo_de_Documento IN ('FV', 'PED', 'COT', 'NC', 'NCV', 'NCCL', 'DMC')
           AND E.Anulado = 0;
         """
-        
+
         print(">> Ejecutando consulta SQL...")
         cursor.execute(sql)
         
@@ -128,7 +190,9 @@ def ejecutar_extraccion():
                 if tipo_doc in ['NC', 'NCV', 'NCCL', 'DMC']:
                     # Se asume que total_ingresos viene en positivo, lo volvemos negativo
                     item['total_ingresos'] = float(item.get('total_ingresos', 0)) * -1
-                
+                    if item.get('iva') is not None:
+                        item['iva'] = float(item['iva']) * -1
+
                 # Para el control de seguridad local (solo FV suma al control)
                 if tipo_doc == 'FV':
                     total_ventas += float(item.get('total_ingresos', 0))
@@ -138,10 +202,17 @@ def ejecutar_extraccion():
             prod_id = str(item.get('productos', '')).strip()
             # Buscar en el diccionario el código real, si no lo halla, usar el original
             mapped_prod = mapping.get(prod_id, prod_id)
-            
+
             # Priorización de datos reales: asignamos exactamente lo que devolvió el mapeo (o el original si falló) sin prefijos inventados
             item['productos'] = str(mapped_prod or '').strip()
-            
+
+            # Descripción del producto (vacía si no se detectó la columna en WO)
+            item['descripcion'] = descripciones.get(prod_id, '')
+
+            # IVA y NIT quedan en None si no se pudo detectar la columna real en WO
+            item['iva'] = float(item['iva']) if item.get('iva') is not None else None
+            item['nit_cliente'] = str(item['nit_cliente']).strip() if item.get('nit_cliente') is not None else None
+
             # Eliminar la columna tipo_doc original
             if 'tipo_doc' in item:
                 del item['tipo_doc']

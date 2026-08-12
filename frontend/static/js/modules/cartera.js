@@ -184,6 +184,120 @@ const ModuloCartera = {
         }
     },
 
+    buscarFacturaWO: async function () {
+        const input = document.getElementById('cartera-buscador-factura');
+        const btn = document.getElementById('btn-buscar-factura-wo');
+        const numero = (input?.value || '').trim();
+        if (!numero) return;
+
+        const icono = btn?.querySelector('i');
+        const iconoOriginal = icono?.className;
+
+        try {
+            if (btn) btn.disabled = true;
+            if (icono) icono.className = 'fas fa-spinner fa-spin';
+
+            const pwaToken = localStorage.getItem('pwa_token');
+            const headers = { 'Accept': 'application/json' };
+            if (pwaToken) headers['Authorization'] = `Bearer ${pwaToken}`;
+
+            const res = await fetch(`/api/cartera/factura/${encodeURIComponent(numero)}`, { headers, credentials: 'include' });
+            const data = await res.json().catch(() => ({}));
+
+            if (res.status === 404 || !data.success) {
+                const mensaje = data.error || 'Factura no encontrada o no sincronizada.';
+                if (window.Swal) {
+                    Swal.fire({ icon: 'warning', title: 'Sin resultados', text: mensaje });
+                } else {
+                    alert(mensaje);
+                }
+                return;
+            }
+
+            this.renderModalFactura(data);
+        } catch (error) {
+            console.error('❌ Error buscando factura WO:', error);
+            const mensaje = 'No fue posible consultar la factura.';
+            if (window.Swal) {
+                Swal.fire({ icon: 'error', title: 'Error', text: mensaje });
+            } else {
+                alert(mensaje);
+            }
+        } finally {
+            if (btn) btn.disabled = false;
+            if (icono && iconoOriginal) icono.className = iconoOriginal;
+        }
+    },
+
+    renderModalFactura: function (data) {
+        const existente = document.getElementById('modal-factura-wo');
+        if (existente) existente.remove();
+
+        const enc = data.encabezado || {};
+        const items = data.items || [];
+        const tot = data.totales || {};
+        const fmtNum = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 });
+        const naSpan = '<span class="text-muted">N/D</span>';
+
+        const filasItems = items.map(it => `
+            <tr>
+                <td>${it.codigo_producto || ''}</td>
+                <td>${it.descripcion || naSpan}</td>
+                <td class="text-end">${fmtNum.format(it.cantidad || 0)}</td>
+                <td class="text-end">${this.fmt.format(it.precio_unitario || 0)}</td>
+                <td class="text-end">${this.fmt.format(it.subtotal || 0)}</td>
+                <td class="text-end">${it.iva !== null && it.iva !== undefined ? this.fmt.format(it.iva) : naSpan}</td>
+            </tr>
+        `).join('');
+
+        const modalHtml = `
+            <div class="modal-overlay" id="modal-factura-wo" style="z-index: 10001; background: rgba(0,0,0,0.5); position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;">
+                <div class="modal-content" style="background: white; width: 95%; max-width: 820px; max-height: 90vh; overflow-y: auto; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); animation: zoomIn 0.3s ease;">
+                    <div class="modal-header d-flex justify-content-between align-items-center" style="padding: 20px 25px; border-bottom: 1px solid #e2e8f0;">
+                        <h5 class="fw-bold mb-0"><i class="fas fa-file-invoice me-2 text-primary"></i>Factura ${enc.documento || ''}</h5>
+                        <button class="btn btn-sm btn-light" onclick="document.getElementById('modal-factura-wo').remove()"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="modal-body" style="padding: 25px;">
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6"><strong>Cliente:</strong> ${enc.cliente || 'N/A'}</div>
+                            <div class="col-md-6"><strong>Identificación:</strong> ${enc.identificacion || 'N/A'}</div>
+                            <div class="col-md-6"><strong>Vendedor:</strong> ${enc.vendedor || 'N/A'}</div>
+                            <div class="col-md-6"><strong>Zona:</strong> ${enc.zona || 'N/A'}</div>
+                            <div class="col-md-6"><strong>Fecha emisión:</strong> ${enc.fecha_emision || 'N/A'}</div>
+                            <div class="col-md-6"><strong>Fecha vencimiento:</strong> ${enc.fecha_vencimiento || 'N/A'}</div>
+                            ${enc.saldo_pendiente !== null && enc.saldo_pendiente !== undefined ? `<div class="col-md-6"><strong>Saldo pendiente:</strong> ${this.fmt.format(enc.saldo_pendiente)}</div>` : ''}
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Código</th><th>Descripción</th><th class="text-end">Cantidad</th>
+                                        <th class="text-end">Precio Unitario</th><th class="text-end">Subtotal</th><th class="text-end">IVA</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${filasItems || '<tr><td colspan="6" class="text-center text-muted py-3">Sin ítems</td></tr>'}</tbody>
+                            </table>
+                        </div>
+                        <div class="d-flex justify-content-end mt-3">
+                            <div style="min-width: 260px;">
+                                <div class="d-flex justify-content-between"><span>Subtotal:</span><strong>${this.fmt.format(tot.subtotal || 0)}</strong></div>
+                                <div class="d-flex justify-content-between"><span>IVA:</span><strong>${tot.iva !== null && tot.iva !== undefined ? this.fmt.format(tot.iva) : naSpan}</strong></div>
+                                <div class="d-flex justify-content-between fs-5 border-top pt-2 mt-2"><span>Total:</span><strong class="text-success">${this.fmt.format(tot.total || 0)}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        const overlay = document.getElementById('modal-factura-wo');
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) overlay.remove();
+            });
+        }
+    },
+
     descargarExcel: async function () {
         const btn = document.getElementById('btn-descargar-edades-cartera');
         const text = document.getElementById('text-descargar-edades-cartera');

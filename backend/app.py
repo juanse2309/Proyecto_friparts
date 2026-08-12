@@ -71,6 +71,16 @@ with app.app_context():
         db.create_all()
         db.session.execute(text("ALTER TABLE db_pulido ADD COLUMN IF NOT EXISTS fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
         db.session.execute(text("ALTER TABLE cartera_wo ADD COLUMN IF NOT EXISTS fecha_emision DATE;"))
+        # Detalle de factura WO (descripcion/IVA/NIT por item): columnas nuevas,
+        # nullable, en db_ventas y su staging -- agente_wo_comercial.py las
+        # llena best-effort via deteccion dinamica de columnas en WO (pueden
+        # no existir aun si el agente local no se ha vuelto a ejecutar).
+        db.session.execute(text("ALTER TABLE db_ventas ADD COLUMN IF NOT EXISTS descripcion_producto VARCHAR(255);"))
+        db.session.execute(text("ALTER TABLE db_ventas ADD COLUMN IF NOT EXISTS iva NUMERIC(18,2);"))
+        db.session.execute(text("ALTER TABLE db_ventas ADD COLUMN IF NOT EXISTS identificacion_cliente VARCHAR(50);"))
+        db.session.execute(text("ALTER TABLE db_ventas_staging ADD COLUMN IF NOT EXISTS descripcion_producto VARCHAR(255);"))
+        db.session.execute(text("ALTER TABLE db_ventas_staging ADD COLUMN IF NOT EXISTS iva NUMERIC(18,2);"))
+        db.session.execute(text("ALTER TABLE db_ventas_staging ADD COLUMN IF NOT EXISTS identificacion_cliente VARCHAR(50);"))
         db.session.commit()
         logger.debug("✅ [DB] Tablas y columna fecha_registro en db_pulido verificadas/creadas con éxito")
     except Exception as e_db:

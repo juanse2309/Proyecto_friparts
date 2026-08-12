@@ -9,6 +9,18 @@ from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 
+def _normalizar_numero_documento(valor):
+    """
+    Limpia el número de documento recibido desde el frontend antes de usarlo
+    en la consulta parametrizada (espacios, minúsculas accidentales). El
+    formato real en db_ventas/cartera_wo es "PREFIJO-NUMERO" (ej. "FV-12345"),
+    por eso no se fuerza a int.
+    """
+    if valor is None:
+        return ''
+    return str(valor).strip().upper()
+
+
 def _normalizar_identificacion(valor):
     """
     Normaliza un NIT/CC al formato base de cartera_wo.identificacion.
@@ -66,6 +78,92 @@ class CarteraService:
                 "saldo": float(row[4] or 0)
             })
         return facturas
+
+    @staticmethod
+    def obtener_detalle_factura(numero_documento):
+        """
+        Detalle completo de una factura/documento WO por número: encabezado
+        (cliente, vendedor, fechas, saldo) + items (código, descripción,
+        cantidad, precio unitario, subtotal, IVA) + totales.
+
+        Fuente: db_ventas (un renglón por producto del documento, cargado por
+        agente_wo_comercial.py -> /api/wo/recibir_comercial) enriquecido con
+        LEFT JOIN a cartera_wo (saldo, fecha_vencimiento, NIT normalizado) si
+        el documento sigue teniendo cartera pendiente. descripcion_producto e
+        iva pueden venir NULL si el agente local no detectó esas columnas en
+        World Office (ver comentario en agente_wo_comercial.py) -- el
+        endpoint no debe fallar por eso, simplemente esos campos van vacíos.
+
+        Retorna None si el documento no existe en db_ventas (0 filas).
+        """
+        documento_limpio = _normalizar_numero_documento(numero_documento)
+        if not documento_limpio:
+            return None
+
+        sql = text("""
+            SELECT
+                v.fecha, v.documento, v.nombres, v.vendedor, v.zona,
+                v.identificacion_cliente,
+                c.identificacion AS identificacion_cartera,
+                c.fecha_emision, c.fecha_vencimiento, c.saldo_documento,
+                v.productos, v.descripcion_producto, v.cantidad,
+                v.precio_promedio, v.total_ingresos, v.iva
+            FROM db_ventas v
+            LEFT JOIN cartera_wo c ON c.documento = v.documento
+            WHERE v.documento = :documento
+            ORDER BY v.id ASC
+        """)
+
+        with db.engine.connect() as connection:
+            rows = connection.execute(sql, {"documento": documento_limpio}).fetchall()
+
+        if not rows:
+            return None
+
+        primera = rows[0]
+        identificacion = primera[5] or primera[6]
+        fecha_emision = primera[7] if primera[7] else primera[0]
+
+        items = []
+        subtotal_total = 0.0
+        iva_total = 0.0
+        hay_iva = False
+        for row in rows:
+            subtotal_item = float(row[14] or 0)
+            iva_item = float(row[15]) if row[15] is not None else None
+            if iva_item is not None:
+                hay_iva = True
+                iva_total += iva_item
+            subtotal_total += subtotal_item
+            items.append({
+                "codigo_producto": row[10],
+                "descripcion": row[11] or '',
+                "cantidad": float(row[12] or 0),
+                "precio_unitario": float(row[13] or 0),
+                "subtotal": subtotal_item,
+                "iva": iva_item
+            })
+
+        iva_final = iva_total if hay_iva else None
+
+        return {
+            "encabezado": {
+                "documento": primera[1],
+                "cliente": primera[2],
+                "identificacion": identificacion,
+                "vendedor": primera[3],
+                "zona": primera[4],
+                "fecha_emision": fecha_emision.strftime('%Y-%m-%d') if hasattr(fecha_emision, 'strftime') else fecha_emision,
+                "fecha_vencimiento": primera[8].strftime('%Y-%m-%d') if primera[8] else None,
+                "saldo_pendiente": float(primera[9]) if primera[9] is not None else None
+            },
+            "items": items,
+            "totales": {
+                "subtotal": subtotal_total,
+                "iva": iva_final,
+                "total": subtotal_total + (iva_final or 0)
+            }
+        }
 
     @staticmethod
     def obtener_cartera_agrupada():
