@@ -92,6 +92,7 @@ class DashboardRepository:
                        LEFT JOIN db_ensambles d ON p.id_ensamble = d.id_ensamble
                        {filt_pul_pnc}) AS ens_pnc,
                     (SELECT COALESCE(SUM({_sql_cast_num('total_ingresos')}), 0) FROM db_ventas {filt_gen}) AS ventas_totales,
+                    (SELECT COALESCE(SUM({_sql_cast_num('cantidad')}), 0) FROM db_ventas {filt_gen}) AS ventas_unidades,
                     (SELECT COALESCE(SUM({_sql_cast_num('cantidad')}), 0) FROM db_ventas {filt_gen} AND clasificacion ILIKE '%pedido%') AS pedidos_sum,
                     (SELECT SUM({_user_cast('virgen_kg')} + {_user_cast('molido_kg')}) FROM db_mezcla {filt_gen}) AS mezcla_total
             """
@@ -104,6 +105,7 @@ class DashboardRepository:
             ens_ok = _num(r['ens_ok'])
             ens_pnc = _num(r['ens_pnc'])
             ventas_totales = _num(r['ventas_totales'])
+            ventas_unidades = _num(r['ventas_unidades'])
             pedidos_sum = _num(r['pedidos_sum'])
             mezcla_total = _num(r['mezcla_total'])
 
@@ -128,6 +130,7 @@ class DashboardRepository:
                 'ensambles_ok':  ens_ok,
                 'ensamble_pnc':  ens_pnc,
                 'ventas_totales': ventas_totales,
+                'ventas_unidades': ventas_unidades,
                 'pedidos_solicitados': pedidos_sum,
                 'mezcla_total_kg': mezcla_total,
                 'scrap_total':   scrap_tot,
@@ -149,7 +152,7 @@ class DashboardRepository:
                 'inyeccion_ok': 0, 'inyeccion_pnc': 0,
                 'pulido_ok': 0, 'pulido_pnc': 0,
                 'ensambles_ok': 0, 'ensamble_pnc': 0,
-                'scrap_total': 0, 'ventas_totales': 0,
+                'scrap_total': 0, 'ventas_totales': 0, 'ventas_unidades': 0,
                 'pedidos_solicitados': 0,
                 'perdida_calidad_dinero': 0,
                 'scrap_detalle': {'inyeccion': 0, 'pulido': 0, 'ensamble': 0, 'almacen': 0}

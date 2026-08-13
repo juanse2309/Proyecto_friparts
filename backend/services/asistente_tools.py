@@ -60,7 +60,8 @@ def _tool_ventas_periodo(params, ctx):
     hasta = _fecha(params.get('hasta'))
     kpis = DashboardRepository.get_dashboard_kpis(desde, hasta)
     return {
-        'ventas_totales': kpis.get('ventas_totales', 0),
+        'ventas_unidades': kpis.get('ventas_unidades', 0),
+        'ventas_totales_cop': kpis.get('ventas_totales', 0),
         'inyeccion_ok': kpis.get('inyeccion_ok', 0),
         'pulido_ok': kpis.get('pulido_ok', 0),
         'ensambles_ok': kpis.get('ensambles_ok', 0),
@@ -93,7 +94,21 @@ def _tool_comparativo_mensual(params, ctx):
     return {
         'anio_actual': anio_actual,
         'anio_anterior': anio_anterior,
-        'ventas_facturadas': {
+        # 'unidades' va primero porque es lo que mas se consulta en la practica --
+        # el jefe de planta prioriza volumen fisico sobre dinero facturado.
+        'ventas_unidades': {
+            'concepto': (
+                'UNIDADES de ventas ya facturadas por mes (piezas, no dinero). NO sumar el '
+                'anio actual con el anterior (son para comparar, no combinar), y NO sumar con '
+                'pedidos_unidades (son conceptos distintos: facturado vs solo solicitado).'
+            ),
+            'meses': [{
+                'mes': m.get('mes'),
+                f'{anio_actual}_unds': m.get('actual_unidades', 0),
+                f'{anio_anterior}_unds': m.get('prev_unidades', 0),
+            } for m in mensual],
+        },
+        'ventas_facturadas_cop': {
             'concepto': (
                 'Dinero de VENTAS ya facturadas por mes. NO sumar el anio actual con el '
                 'anterior (son para comparar, no combinar), y NO sumar con pedidos_solicitados '
@@ -105,11 +120,23 @@ def _tool_comparativo_mensual(params, ctx):
                 f'{anio_anterior}_cop': m.get('prev_dinero', 0),
             } for m in mensual],
         },
-        'pedidos_solicitados': {
+        'pedidos_unidades': {
+            'concepto': (
+                'UNIDADES de pedidos solicitados por clientes por mes (no necesariamente ya '
+                'despachados). NO sumar el anio actual con el anterior, y NO sumar con '
+                'ventas_unidades.'
+            ),
+            'meses': [{
+                'mes': m.get('mes'),
+                f'{anio_actual}_unds': m.get('actual_pedidos_unidades', 0),
+                f'{anio_anterior}_unds': m.get('prev_pedidos_unidades', 0),
+            } for m in mensual],
+        },
+        'pedidos_solicitados_cop': {
             'concepto': (
                 'Dinero de PEDIDOS solicitados por clientes por mes (no necesariamente ya '
                 'facturados/despachados). NO sumar el anio actual con el anterior, y NO sumar '
-                'con ventas_facturadas.'
+                'con ventas_facturadas_cop.'
             ),
             'meses': [{
                 'mes': m.get('mes'),
@@ -408,11 +435,12 @@ def _tool_ensamble_tareas_pendientes(params, ctx):
 # adivinarlo del lado del frontend.
 
 def _serie_comparativo_mensual(datos):
+    # Unidades primero: es lo que mas se consulta en la practica.
     anio_actual = datos.get('anio_actual')
-    meses = (datos.get('ventas_facturadas') or {}).get('meses') or []
+    meses = (datos.get('ventas_unidades') or {}).get('meses') or []
     if not meses or anio_actual is None:
         return None
-    campo = f'{anio_actual}_cop'
+    campo = f'{anio_actual}_unds'
     return {
         'labels': [m.get('mes', '') for m in meses],
         'values': [float(m.get(campo, 0) or 0) for m in meses],
@@ -444,25 +472,27 @@ def _serie_produccion_por_maquina(datos):
 
 
 def _serie_desglose_ventas_mensual(datos):
+    # Unidades primero: es lo que mas se consulta en la practica.
     productos = datos.get('por_producto') or []
     if not productos:
         return None
-    ordenado = sorted(productos, key=lambda p: float(p.get('total_ventas', 0) or 0), reverse=True)[:10]
+    ordenado = sorted(productos, key=lambda p: float(p.get('unidades', 0) or 0), reverse=True)[:10]
     return {
         'labels': [p.get('id_codigo') or p.get('descripcion') or '' for p in ordenado],
-        'values': [float(p.get('total_ventas', 0) or 0) for p in ordenado],
-        'etiqueta': 'total_ventas',
+        'values': [float(p.get('unidades', 0) or 0) for p in ordenado],
+        'etiqueta': 'unidades',
     }
 
 
 def _serie_analitica_comercial(datos):
+    # Unidades primero: es lo que mas se consulta en la practica.
     resumen = (datos.get('ventas_por_anio') or {}).get('anios') or []
     if not resumen:
         return None
     return {
         'labels': [str(r.get('anio', '')) for r in resumen],
-        'values': [float(r.get('total_ventas', 0) or 0) for r in resumen],
-        'etiqueta': 'total_ventas',
+        'values': [float(r.get('total_unidades', 0) or 0) for r in resumen],
+        'etiqueta': 'total_unidades',
     }
 
 
@@ -544,13 +574,24 @@ TOOLS = {
         'enlace': _enlace('dashboard', 'Ver comparativo mensual', 'dashboard-section-jefatura'),
     },
     'desglose_ventas_mensual': {
-        'description': "Desglose de ventas de un mes especifico, por producto y por cliente.",
+        'description': (
+            "Desglose de ventas de un mes especifico, por producto y por cliente. UNA sola "
+            "llamada ya trae unidades Y dinero juntos para cada producto/cliente -- no hace "
+            "falta llamarla dos veces con distinto tipo_vista para tener ambos datos."
+        ),
         'parameters': {
             'type': 'object',
             'properties': {
                 'mes': {'type': 'string', 'description': 'Numero de mes, 1-12'},
                 'anio': {'type': 'string', 'description': 'Anio, ej 2026'},
-                'tipo_vista': {'type': 'string', 'description': "'money' o 'unidades'"},
+                'tipo_vista': {
+                    'type': 'string',
+                    'description': (
+                        "SOLO afecta el ORDEN de los resultados ('unidades' ordena por unidades "
+                        "vendidas, 'money' por dinero) -- ambos campos vienen siempre en la "
+                        "respuesta sin importar este valor. Opcional, default 'money'."
+                    ),
+                },
             },
             'required': ['mes', 'anio'],
         },

@@ -174,12 +174,15 @@ window.ModuloAsistente = (function () {
             serie = { ...serie, labels: combinado.map(c => c.label), values: combinado.map(c => c.valor) };
         }
 
-        const esDinero = CLAVES_DINERO.test(serie.etiqueta || '');
+        // 'unds'/'unidad' manda primero: campos como 'ventas_2026_unds' contienen la
+        // palabra "venta" (CLAVES_DINERO la matchea) pero son UNIDADES, no dinero.
+        const esUnidades = /unds|unidad/i.test(serie.etiqueta || '');
+        const esDinero = !esUnidades && CLAVES_DINERO.test(serie.etiqueta || '');
         const titulo = TITULOS_TOOL[serie.toolName] || 'Resultado de la consulta';
 
         const canvasId = `asistente-chart-${++contadorMensajes}`;
         const wrap = document.createElement('div');
-        wrap.style.cssText = 'width:100%;max-width:600px;height:280px;margin-top:0.6rem;background:#fff;border-radius:10px;padding:0.5rem;';
+        wrap.style.cssText = 'width:100%;max-width:640px;height:320px;margin-top:0.6rem;background:#fff;border-radius:10px;padding:0.75rem 0.75rem 0.5rem;';
         wrap.innerHTML = `<canvas id="${canvasId}"></canvas>`;
         contenedor.appendChild(wrap);
 
@@ -188,8 +191,32 @@ window.ModuloAsistente = (function () {
 
         const esLinea = tipoGrafica === 'line';
         const colores = serie.labels.map((_, i) => PALETA[i % PALETA.length]);
+        const valorMax = Math.max(0, ...serie.values.map(v => Number(v) || 0));
+
+        // Plugin propio (sin dependencias externas) que escribe el valor real
+        // encima de cada barra -- para no depender de pasar el mouse para ver
+        // la cifra exacta. Solo en barras: en líneas de 12 puntos se satura.
+        const etiquetasDeValor = {
+            id: 'etiquetasDeValor',
+            afterDatasetsDraw(chart) {
+                if (esLinea) return;
+                const { ctx: c } = chart;
+                const meta = chart.getDatasetMeta(0);
+                c.save();
+                c.fillStyle = '#334155';
+                c.font = '600 11px system-ui, sans-serif';
+                c.textAlign = 'center';
+                meta.data.forEach((barra, i) => {
+                    const valor = serie.values[i];
+                    if (valor === undefined || valor === null) return;
+                    c.fillText(formatearNumero(valor, esDinero), barra.x, barra.y - 8);
+                });
+                c.restore();
+            }
+        };
 
         new Chart(ctx, {
+            plugins: esLinea ? [] : [etiquetasDeValor],
             type: esLinea ? 'line' : 'bar',
             data: {
                 labels: serie.labels,
@@ -211,6 +238,7 @@ window.ModuloAsistente = (function () {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                layout: { padding: { top: esLinea ? 4 : 20 } },
                 plugins: {
                     title: { display: true, text: titulo, font: { size: 13, weight: '600' }, color: '#1e293b', padding: { bottom: 10 } },
                     legend: { display: false },
@@ -223,6 +251,8 @@ window.ModuloAsistente = (function () {
                 scales: {
                     y: {
                         beginAtZero: true,
+                        // Headroom para que la etiqueta de valor no quede cortada arriba de la barra mas alta.
+                        suggestedMax: esLinea ? undefined : (valorMax * 1.18 || undefined),
                         grid: { color: '#f1f5f9' },
                         ticks: { callback: (v) => formatearNumero(v, esDinero) }
                     },

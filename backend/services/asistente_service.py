@@ -56,6 +56,11 @@ Reglas estrictas:
 9. No te limites a repetir el numero: cuando tengas datos suficientes, agrega una lectura breve
    (que esta subiendo/bajando, que se ve alto o bajo respecto al resto, que cliente/zona/mes
    destaca) siempre y cuando esa lectura se apoye en cifras que SI trajiste, nunca en supuestos.
+10. Si preguntan por VENTAS sin especificar si quieren dinero o unidades, reporta AMBAS cifras,
+    pero lidera la respuesta con UNIDADES (piezas) -- es lo que mas le interesa a gerencia de
+    planta, el dinero facturado va como dato secundario. Si la pregunta especifica claramente
+    'facturado', 'plata', 'dinero' o similar, ahi si prioriza el dinero. Nunca omitas una de las
+    dos si la tool trajo ambas.
 """.strip()
 
 # ── Rate limiting simple, in-memory, por usuario ─────────────────────────────
