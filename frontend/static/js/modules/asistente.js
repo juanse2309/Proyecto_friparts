@@ -164,9 +164,11 @@ window.ModuloAsistente = (function () {
     }
 
     function renderizarGrafica(contenedor, tipoGrafica, serieOriginal) {
-        // Top 10 + orden descendente para barras: mucho mas legible que 20+ categorias sin ordenar.
+        // Top 10 + orden descendente para barras: mucho mas legible que 20+ categorias sin
+        // ordenar -- PERO no aplica a series cronologicas (ordenar:false, ej. meses del anio o
+        // anio anterior vs actual), donde reordenar por valor rompe la secuencia de tiempo.
         let serie = serieOriginal;
-        if (tipoGrafica === 'bar' && serie.labels.length > 1) {
+        if (tipoGrafica === 'bar' && serie.ordenar !== false && serie.labels.length > 1) {
             const combinado = serie.labels
                 .map((label, i) => ({ label, valor: serie.values[i] }))
                 .sort((a, b) => b.valor - a.valor)

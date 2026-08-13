@@ -446,14 +446,35 @@ def _tool_ensamble_tareas_pendientes(params, ctx):
 def _serie_comparativo_mensual(datos):
     # Unidades primero: es lo que mas se consulta en la practica.
     anio_actual = datos.get('anio_actual')
+    anio_anterior = datos.get('anio_anterior')
     meses = (datos.get('ventas_unidades') or {}).get('meses') or []
     if not meses or anio_actual is None:
         return None
-    campo = f'{anio_actual}_unds'
+    campo_actual = f'{anio_actual}_unds'
+
+    if len(meses) == 1:
+        # Un JSON con un solo mes -> una "linea"/tendencia de 1 punto no dice nada
+        # (ni siquiera se alcanza a dibujar una linea con un solo punto; se veia
+        # el grafico practicamente vacio, un unico puntico). Con un solo mes lo
+        # util es comparar ese mes contra el mismo mes del anio anterior, que es
+        # justo lo que el texto de la respuesta ya menciona.
+        campo_anterior = f'{anio_anterior}_unds'
+        m = meses[0]
+        return {
+            'labels': [str(anio_anterior), str(anio_actual)],
+            'values': [float(m.get(campo_anterior, 0) or 0), float(m.get(campo_actual, 0) or 0)],
+            'etiqueta': f"ventas_{m.get('mes', '')}_unds",
+            'ordenar': False,  # son 2 barras cronologicas (anio anterior -> actual), no un ranking
+        }
+
+    # Varios meses -> tendencia cronologica real, NO reordenar por valor (eso
+    # tiene sentido para un ranking de clientes/productos, no para una serie
+    # de tiempo: enero debe seguir mostrandose antes que febrero).
     return {
         'labels': [m.get('mes', '') for m in meses],
-        'values': [float(m.get(campo, 0) or 0) for m in meses],
-        'etiqueta': f'ventas_{campo}',
+        'values': [float(m.get(campo_actual, 0) or 0) for m in meses],
+        'etiqueta': f'ventas_{campo_actual}',
+        'ordenar': False,
     }
 
 
@@ -595,7 +616,10 @@ TOOLS = {
         },
         'allowed_roles': ROL_TODOS,
         'handler': _tool_comparativo_mensual,
-        'tipo_grafica': 'line',
+        # 'bar' en vez de 'line': cuando la pregunta acota a un solo mes (caso mas
+        # comun: "cuanto vendimos en julio"), una linea de 1 solo punto no se ve
+        # (no hay 2do punto para trazar la linea) -- ver _serie_comparativo_mensual.
+        'tipo_grafica': 'bar',
         'serie_grafica': _serie_comparativo_mensual,
         'enlace': _enlace('dashboard', 'Ver comparativo mensual', 'dashboard-section-jefatura'),
     },
