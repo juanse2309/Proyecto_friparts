@@ -146,10 +146,9 @@ const ModuloNomina = (function () {
 
         if (!isConfirmed) return;
 
-        // 1. Generar y Descargar CSV detallado
-        generarCSV();
-
-        // 2. Notificar al backend para sellar el periodo
+        // 1. Sellar el periodo en el backend PRIMERO. Solo si esto tiene éxito
+        //    se entrega el CSV: así nunca queda un CSV descargado sin su
+        //    respaldo correspondiente en db_asistencia/db_cortes_nomina.
         try {
             const response = await fetch('/api/asistencia/ejecutar_corte', {
                 method: 'POST',
@@ -160,15 +159,18 @@ const ModuloNomina = (function () {
             });
 
             const res = await response.json();
-            if (res.status === 'success') {
-                Swal.fire('Corte Exitoso', res.message, 'success');
-                await cargarConsolidado(); // Recargar (debería quedar vacío)
-            } else {
+            if (res.status !== 'success') {
                 throw new Error(res.message);
             }
+
+            // 2. Corte confirmado en DB: ahora sí generar y descargar el CSV.
+            generarCSV();
+
+            Swal.fire('Corte Exitoso', res.message, 'success');
+            await cargarConsolidado(); // Recargar (debería quedar vacío)
         } catch (error) {
             console.error("Error al sellar corte:", error);
-            Swal.fire('Error', 'No se pudo registrar el cierre en la base de datos, pero el CSV fue generado.', 'warning');
+            Swal.fire('Corte NO ejecutado', `No se pudo registrar el cierre en la base de datos, así que no se generó el CSV. Ningún registro fue modificado. Detalle: ${error.message || error}`, 'error');
         }
     }
 
