@@ -190,7 +190,7 @@ def mes_pendientes_validacion():
 
 
 @inyeccion_bp.route('/api/mes/iniciar_trabajo', methods=['POST'])
-@require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION', 'ENSAMBLE'])
 def mes_iniciar_trabajo():
     """
     Controller delgado: parsea el request, delega a InyeccionService.iniciar_trabajo
@@ -225,7 +225,7 @@ def mes_iniciar_trabajo():
 
 
 @inyeccion_bp.route('/api/mes/reportar', methods=['POST'])
-@require_role(ROL_ADMINS + ['INYECCION', 'ENSAMBLE'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION', 'ENSAMBLE'])
 def mes_reportar():
     """
     Controller delgado: parsea el request, delega a InyeccionService.reportar_trabajo
