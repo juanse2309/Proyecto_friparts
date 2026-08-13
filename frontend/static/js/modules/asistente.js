@@ -322,7 +322,27 @@ window.ModuloAsistente = (function () {
         boton.type = 'button';
         boton.className = 'btn btn-sm btn-outline-primary mt-2';
         boton.innerHTML = `<i class="fas fa-arrow-right me-1"></i> ${escapeHtml(enlace.etiqueta || 'Ver más')}`;
-        boton.addEventListener('click', () => {
+        if (enlace.target_start) boton.dataset.targetStart = enlace.target_start;
+        if (enlace.target_end) boton.dataset.targetEnd = enlace.target_end;
+
+        boton.addEventListener('click', async () => {
+            // El bot puede haber respondido sobre un periodo distinto al filtro
+            // activo del dashboard (ej. preguntar por Julio con el filtro en
+            // Agosto) -- sin sincronizar el filtro global ANTES de navegar, el
+            // boton llevaba a la seccion correcta pero seguia mostrando los
+            // datos del periodo viejo.
+            const targetStart = boton.dataset.targetStart;
+            const targetEnd = boton.dataset.targetEnd;
+            if (targetStart && targetEnd && enlace.pagina === 'dashboard'
+                && window.ModuloDashboard && typeof window.ModuloDashboard.establecerFiltroFechas === 'function') {
+                boton.disabled = true;
+                try {
+                    await window.ModuloDashboard.establecerFiltroFechas(targetStart, targetEnd);
+                } finally {
+                    boton.disabled = false;
+                }
+            }
+
             window.cargarPagina(enlace.pagina);
             if (enlace.seccion) {
                 setTimeout(() => {

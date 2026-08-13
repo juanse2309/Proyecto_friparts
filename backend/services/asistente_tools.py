@@ -7,6 +7,7 @@ nombres); nunca genera SQL ni nombres de columna/tabla. Esto es la defensa
 principal contra inyeccion: el modelo elige QUE tool llamar y con que
 argumentos, pero el SQL que se ejecuta ya estaba escrito y probado de antemano.
 """
+import calendar
 import logging
 import unicodedata
 from datetime import datetime
@@ -571,6 +572,37 @@ def _enlace(pagina, etiqueta, seccion=None):
     return {'pagina': pagina, 'seccion': seccion, 'etiqueta': etiqueta}
 
 
+def _target_periodo(nombre, params):
+    """Resuelve el rango de fechas EXACTO al que responde una tool, para que el
+    boton 'ver en el modulo' pueda sincronizar el filtro global del dashboard
+    antes de navegar -- sin esto, el usuario podia preguntar por un mes distinto
+    al filtro activo (ej. Julio con el dashboard filtrado en Agosto), hacer clic
+    en el boton, y aterrizar en la seccion correcta pero con datos del filtro
+    viejo todavia en pantalla.
+    Devuelve (target_start, target_end) como 'YYYY-MM-DD' o (None, None) si la
+    tool no tiene un periodo propio que sincronizar (ej. una consulta sin
+    fechas como stock_critico, o una tool que no recibio fechas explicitas del
+    modelo -- en ese caso el boton solo navega, sin tocar el filtro, igual que
+    antes)."""
+    params = params or {}
+    desde = _fecha(params.get('desde'))
+    hasta = _fecha(params.get('hasta'))
+    if desde and hasta:
+        return desde, hasta
+
+    if nombre == 'desglose_ventas_mensual':
+        try:
+            mes = int(params.get('mes'))
+            anio = int(params.get('anio'))
+            if 1 <= mes <= 12:
+                ultimo_dia = calendar.monthrange(anio, mes)[1]
+                return f'{anio:04d}-{mes:02d}-01', f'{anio:04d}-{mes:02d}-{ultimo_dia:02d}'
+        except (TypeError, ValueError):
+            pass
+
+    return None, None
+
+
 TOOLS = {
     'ventas_periodo': {
         'description': "KPIs generales de ventas y produccion (inyeccion, pulido, ensamble, scrap, perdida por calidad) para un periodo de fechas. Usar para preguntas generales de 'cuanto vendimos/produjimos'.",
@@ -883,4 +915,13 @@ def ejecutar_tool(nombre, params, ctx):
         except Exception as e:
             logger.warning(f"[Asistente] No se pudo extraer serie de grafica de '{nombre}': {e}")
 
-    return datos, tool.get('tipo_grafica'), serie, tool.get('enlace')
+    enlace = tool.get('enlace')
+    if enlace:
+        target_start, target_end = _target_periodo(nombre, params)
+        if target_start and target_end:
+            # Copia nueva -- 'enlace' es el dict ESTATICO definido en TOOLS y se
+            # comparte entre todas las peticiones concurrentes; mutarlo in-place
+            # filtrarian las fechas de una consulta a la respuesta de otro usuario.
+            enlace = {**enlace, 'target_start': target_start, 'target_end': target_end}
+
+    return datos, tool.get('tipo_grafica'), serie, enlace

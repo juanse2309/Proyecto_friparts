@@ -1829,6 +1829,24 @@ window.ModuloDashboard = (function () {
     }
 
 
+    // Sincroniza el filtro global de fechas del dashboard (inputs + localStorage +
+    // recarga de datos) de forma programatica, sin depender de que el usuario haga
+    // clic en "Actualizar". La necesita el boton "ver en el modulo" del Asistente
+    // IA: si la respuesta del bot fue sobre un periodo distinto al filtro activo
+    // (ej. Julio con el dashboard filtrado en Agosto), navegar sin esto dejaba al
+    // usuario en la seccion correcta pero mirando datos del periodo viejo.
+    async function establecerFiltroFechas(desde, hasta) {
+        if (!desde || !hasta) return;
+        const f_desde = document.getElementById('db-fecha-desde');
+        const f_hasta = document.getElementById('db-fecha-hasta');
+        if (f_desde) f_desde.value = desde;
+        if (f_hasta) f_hasta.value = hasta;
+        localStorage.setItem('db_filtro_desde', desde);
+        localStorage.setItem('db_filtro_hasta', hasta);
+        await cargarDatos(true);
+        await fetchAndRenderMonthlyPerformance('chartMensual', desde, hasta);
+    }
+
     function iniciar() {
         if (isInitialized) {
             console.log("🛡️ Dashboard ya inicializado. Abortando secuencia redundante.");
@@ -3904,6 +3922,7 @@ window.ModuloDashboard = (function () {
     window.ModuloDashboard = {
         inicializar: iniciar,
         refrescar: cargarDatos,
+        establecerFiltroFechas: establecerFiltroFechas,
         refrescarDatos: async () => {
             try {
                 const response = await fetch('/api/wo/solicitar_sync', {
