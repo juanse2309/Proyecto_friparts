@@ -246,6 +246,13 @@ def serve_manifest():
     return send_from_directory(root_path, 'manifest.json', mimetype='application/manifest+json')
 
 
+# --- VERSION DE RELEASE (semantica, se bumpea a mano en cada release) ---
+# Fuente unica de verdad para el numero de version que ve el usuario
+# (cache-busting de CSS/JS en index.html, footer, loader). Distinta de
+# _APP_VERSION de abajo, que es el hash del deploy activo para detectar
+# frontend desactualizado -- no confundir ambas.
+RELEASE_VERSION = "1.7.0"
+
 # --- VERSION DEL DEPLOY ACTIVO ---
 # RENDER_GIT_COMMIT la puebla Render automaticamente en cada deploy (no hay
 # que mantenerla a mano). En local, sin esa env var, cae a la hora de arranque
@@ -268,7 +275,7 @@ def index():
         lista_usuarios = AuthService.obtener_staff_frimetals_admin_activo()
 
         logger.debug(f"[{get_now_colombia()}] >>> PETICIÓN RECIBIDA: index.html")
-        return render_template('index.html', usuarios=lista_usuarios)
+        return render_template('index.html', usuarios=lista_usuarios, RELEASE_VERSION=RELEASE_VERSION)
     except Exception as e:
         logger.error(f"âŒ ERROR RENDERIZANDO index.html: {e}")
         return f"Error en el servidor: {str(e)}", 500

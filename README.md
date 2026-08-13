@@ -1,8 +1,19 @@
-# 🏭 FriTech MES - Sistema de Gestión de Producción e Inventario ![v1.6.4](https://img.shields.io/badge/versión-1.6.4--estable-green)
+# 🏭 FriTech MES - Sistema de Gestión de Producción e Inventario ![v1.7.0](https://img.shields.io/badge/versión-1.7.0--estable-green)
 
 FriTech MES (Manufacturing Execution System) es una plataforma full-stack diseñada específicamente para el control y automatización de procesos de producción, gestión de inventarios y sincronización con el ERP World Office de la planta de fabricación de bujes de FriParts.
 
 El sistema utiliza una **arquitectura 100% SQL-First**, empleando **PostgreSQL** en la nube como base de datos transaccional única. La dependencia histórica de Google Sheets ha sido completamente removida, conservando únicamente la API de Google Drive de manera opcional para el almacenamiento de reportes PDF generados.
+
+## ✨ Novedades Versión 1.7.0 (Estable)
+- **Nuevo módulo — Cartera**: saldos, edades de cartera (30-60-90) y detalle de factura por cliente sincronizados desde World Office, con búsqueda por número de documento sin prefijo.
+- **Nuevo módulo — Asistente IA**: chat de datos en lenguaje natural sobre ventas, cartera, producción y procura, con síntesis multi-herramienta, markdown enriquecido, gráficas y botón "ver en el módulo" que navega directo al dashboard real.
+- **Nuevo módulo — Analítica Comercial (YoY)**: clasificación de clientes por crecimiento interanual (nuevo/reactivado/activo) por vendedor y zona, con corte YTD dinámico y exportación a Excel.
+- **Nuevo módulo — Simulador de Programación**: sandbox de asignación de moldes/portamoldes/máquinas para planeación "qué pasaría si" sin afectar el MES real.
+- **PWA**: se reemplazó el auto-reload silencioso por un banner de actualización con confirmación explícita; el service worker fuerza recarga cuando el frontend queda desactualizado contra el backend, sin bloquear CDNs externos (íconos/estilos) y esperando a que el nuevo SW tome control antes de recargar.
+- **Rendimiento**: el dashboard administrativo bajó de ~14.9s a menos de 1s; se eliminaron queries de PNC duplicadas y joins fan-out que inflaban el conteo de ventas; Comercial Histórico ahora pagina server-side con debounce.
+- **Seguridad**: RBAC exacto para Auxiliar de Inventario, validación server-side de identidad (JWT/sesión) en el cierre de nómina, el Ownership Guard normaliza tildes/espacios al comparar propietario, y se retiraron credenciales hardcodeadas del módulo de productos.
+- **Arquitectura**: `app.py` monolítico se dividió en repositorios/servicios/rutas de dominio; se alineó el esquema físico de los modelos y se purgaron 11 clases duplicadas; los controladores de World Office y Pedidos ahora son "thin" (sin lógica de negocio en las rutas).
+- **Correcciones de datos**: duplicidad de PNC por colisión de IDs en Historial, pérdida de signo/escala en helpers numéricos del dashboard, alias faltante en el `UPDATE` de nómina, y agotamiento de memoria (OOM) al exportar el Historial Global a Excel.
 
 ## ✨ Novedades Versión 1.6.4 (Estable)
 - **Nómina — Sábado/Domingo**: se corrige el cálculo de jornada para que un formato de hora no estándar ya no caiga silenciosamente en 0 horas; se centraliza la normalización en `nomina_service.py` con logging explícito, y se ejecutó un backfill histórico de los registros afectados en periodo abierto.
@@ -20,14 +31,53 @@ El sistema utiliza una **arquitectura 100% SQL-First**, empleando **PostgreSQL**
 
 ## 🧭 Módulos Principales del Sistema
 
+### 🏭 Producción y Planta
+
 | Módulo | Descripción Técnica | Componentes Clave |
 | :--- | :--- | :--- |
 | **🏭 Inyección** | Control del proceso primario de inyección de plástico. Soporta configuraciones de "Molde de Familia" (múltiples SKUs por ciclo), control de cavidades y control de tiempos y contadores por máquina. | `inyeccion_routes.py`<br>`inyeccion.js`<br>`PDFGenerator` (ReportLab) |
 | **✨ Pulido** | Monitoreo del acabado y calidad de piezas. Incluye el flujo de **Liquidación de Lote**, cálculo automático de diferencias e inventario en tránsito desde satélites externos. | `pulido_routes.py`<br>`pulido.js`<br>`trazabilidad_lotes` (SQL) |
 | **🔩 Ensamble** | Mapeo y ensamble final de bujes con base en una ficha maestra (recetas de componentes). Realiza deducciones automáticas de stock del almacén de materias primas al ensamblar un SKU. | `ensamble_routes.py`<br>`ensamble.js`<br>`bom_service.py` |
+| **🧪 Mezcla y Molido** | Registro de mezclas de materia prima y pesajes de material molido (recuperado/contaminado) en planta. | `materia_prima_routes.py`<br>`mezcla.js` |
+| **⚠️ PNC** | Control de **Producto No Conforme**. Registro, clasificación y búsqueda inteligente de rechazos de calidad por tipo de defecto, con descuento automático de inventario. | `pnc_routes.py`<br>`pnc.js` |
+| **🗓️ Control MES / Programación** | Catálogo de máquinas y programación general de producción en planta. | `programacion_routes.py`<br>`mes_control.js` |
+| **🧮 Simulador de Programación** | Sandbox de asignación de máquinas/moldes/portamoldes para planear "qué pasaría si" sin afectar el MES real. | `simulador_routes.py`<br>`simulador.js` |
+| **⚙️ Frimetals** | Línea de negocio metalmecánica independiente: registro de producción, dashboard y catálogo propio. | `metals_routes.py`<br>`metals.js` |
+| **📦 Inventario** | Entradas, salidas, conteos físicos y gestión de fichas/moldes. | `inventario_routes.py`<br>`inventario.js` |
+| **🚚 Almacén / Alistamiento** | Flujo logístico interno con **Doble Check**: Alistamiento de mercancía (**Box** 📦) y confirmación de Despacho de camiones (**Truck** 🚚), con soporte para despachos parciales. | `pedidos_routes.py`<br>`almacen.js` |
+| **🔁 Rotación y Prioridades de Compra** | Prioriza qué insumos reponer según rotación real de inventario. | `procura_routes.py`<br>`rotacion.js` |
+| **🧾 Procura / Órdenes de Compra** | Gestión de proveedores, órdenes de compra y alertas de abastecimiento. | `procura_routes.py`<br>`procura.js` |
+
+### 🛒 Comercial y Ventas
+
+| Módulo | Descripción Técnica | Componentes Clave |
+| :--- | :--- | :--- |
 | **🛒 Pedidos** | Gestión de órdenes de compra comerciales y solicitudes de clientes. Visualización en tiempo real optimizada para visualizadores en planta (Modo TV) con alertas sonoras integradas. | `pedidos_routes.py`<br>`pedidos.js` |
-| **📦 Almacén** | Flujo logístico interno con **Doble Check**: Alistamiento de mercancía (**Box** 📦) y confirmación de Despacho de camiones (**Truck** 🚚), con soporte para despachos parciales. | `inventario_routes.py`<br>`almacen.js` |
-| **⚠️ PNC** | Control de **Producto No Conforme**. Registro, clasificación y búsqueda inteligente de rechazos de control de calidad por tipo de defecto para mitigar mermas en planta. | `pnc.js` (Registros de Calidad) |
+| **🌐 Portal de Cliente (B2B)** | Catálogo, carrito y seguimiento de pedidos para clientes externos autenticados. | `cliente_routes.py`<br>`portal_client.js` |
+| **🧾 Facturación / World Office** | Exporta pedidos al formato de World Office para facturación, con auto-sanado de precios. | `facturacion_routes.py`<br>`facturacion.js` |
+| **💰 Cartera** | Saldos, edades de cartera (30-60-90) y detalle de facturas por cliente, sincronizados desde World Office. | `cartera_routes.py`<br>`cartera.js` |
+| **📈 Analítica Comercial Histórica** | Series históricas de ventas agregadas (2024 en adelante) para consulta gerencial. | `comercial_routes.py`<br>`comercial_historico.js` |
+| **📊 Crecimiento de Clientes (YoY)** | Clasificación de clientes por crecimiento interanual: nuevo, reactivado o activo, por vendedor/zona. | `comercial_routes.py`<br>`analitica_comercial.js` |
+| **👤 Administración de Clientes B2B** | Alta, reseteo de clave y activación de cuentas de clientes del portal. | `admin_routes.py`<br>`admin_clientes.js` |
+| **📣 Marketing / Notificaciones Push** | Envío masivo de campañas push a clientes y personal. | `pwa_routes.py`<br>`marketing.js` |
+
+### 📊 Dashboard e Inteligencia
+
+| Módulo | Descripción Técnica | Componentes Clave |
+| :--- | :--- | :--- |
+| **📊 Dashboard BI** | Panel principal de indicadores: ventas, producción, cartera y PNC, incluida la métrica consolidada Lean de calidad. | `dashboard_routes.py`<br>`gerencia_routes.py`<br>`dashboard.js` |
+| **🤖 Asistente IA** | Preguntas en lenguaje natural sobre los datos reales del negocio (ventas, cartera, producción), con gráficas y síntesis en el chat. | `asistente_routes.py`<br>`asistente.js` |
+| **🎙️ IA de Voz para Ensamble** | Transcribe audio a datos estructurados para reportar producción de Ensamble por voz (Gemini). | `ia_routes.py` |
+| **🕓 Historial Global** | Consulta y edición de movimientos históricos consolidados de Inyección, Pulido, Ensamble y PNC. | `historial_routes.py`<br>`historial.js` |
+
+### 👥 Personas
+
+| Módulo | Descripción Técnica | Componentes Clave |
+| :--- | :--- | :--- |
+| **🕘 Asistencia** | Registro de asistencia diaria/masiva, ausencias y horas por colaborador. | `asistencia_routes.py`<br>`asistencia.js` |
+| **💵 Nómina** | Consolidado de horas y ejecución del cierre/corte de nómina. | `asistencia_routes.py`<br>`nomina_service.py`<br>`nomina.js` |
+
+Además de lo anterior, un conjunto de rutas de infraestructura compartida (`productos_routes.py` como catálogo maestro de SKUs, `imagenes_routes.py` como proxy con caché de imágenes de producto en Google Drive, `auth_routes.py` para sesión/roles y `pwa_routes.py` para push) da soporte transversal a todos los módulos de arriba.
 
 ---
 

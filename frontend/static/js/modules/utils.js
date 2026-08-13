@@ -383,7 +383,7 @@ function cerrarLoaderGlobalUI() {
 }
 
 /**
- * Mostrar/ocultar loading unificado con V4.5 Híbrido
+ * Mostrar/ocultar loading unificado (Híbrido)
  */
 function mostrarLoading(mostrar) {
     if (mostrar) {
