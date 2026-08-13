@@ -24,10 +24,47 @@ function _hayModalAbierto() {
     return !!document.querySelector('.modal.show');
 }
 
+function _recargarCuandoElSWNuevoTomeControl() {
+    // Recargar sin más (location.reload) puede correr TODAVÍA bajo el
+    // Service Worker viejo -- el registro/instalación/activación del nuevo
+    // sw.js es asíncrono y no está garantizado que termine antes del reload,
+    // así que ese primer refresh no arreglaba nada (mismo SW con el mismo bug
+    // seguía sirviendo la página). Forzamos el chequeo de actualización del
+    // SW ya mismo y esperamos a que el nuevo worker tome el control
+    // (evento 'controllerchange') antes de recargar. Si no hay SW nuevo que
+    // instalar (ya estaba al día), el timeout de respaldo recarga igual.
+    if (!('serviceWorker' in navigator)) {
+        window.location.reload();
+        return;
+    }
+
+    let yaRecargado = false;
+    const recargarUnaVez = () => {
+        if (yaRecargado) return;
+        yaRecargado = true;
+        window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', recargarUnaVez, { once: true });
+    setTimeout(recargarUnaVez, 4000);
+
+    navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg) reg.update().catch(() => {});
+    }).catch(() => {});
+}
+
 function forzarActualizacionFritech(segundosEspera) {
     if (_actualizacionFritechEnCurso) return;
     _actualizacionFritechEnCurso = true;
     segundosEspera = segundosEspera || 45;
+
+    // Disparar el chequeo de SW desde ya (no esperar a que termine el
+    // countdown) para darle el máximo tiempo posible a instalar/activar.
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(reg => {
+            if (reg) reg.update().catch(() => {});
+        }).catch(() => {});
+    }
 
     const banner = document.createElement('div');
     banner.id = 'banner-actualizacion-fritech';
@@ -53,7 +90,7 @@ function forzarActualizacionFritech(segundosEspera) {
 
     const recargarYaLimpio = () => {
         clearInterval(idIntervalo);
-        window.location.reload(true);
+        _recargarCuandoElSWNuevoTomeControl();
     };
     boton.addEventListener('click', recargarYaLimpio);
 
@@ -70,7 +107,7 @@ function forzarActualizacionFritech(segundosEspera) {
                 texto.textContent = '🆕 Actualización de FRITECH lista. Se aplicará apenas termines lo que estás haciendo.';
                 setTimeout(esperarModalYRecargar, 4000);
             } else {
-                window.location.reload(true);
+                _recargarCuandoElSWNuevoTomeControl();
             }
         };
         esperarModalYRecargar();

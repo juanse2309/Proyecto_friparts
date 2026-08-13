@@ -227,11 +227,16 @@ app.register_blueprint(pwa_bp)
 # --- PWA SERVICE WORKER ---
 @app.route('/service-worker.js')
 def service_worker():
-    """Sirve el Service Worker desde la raíz para evitar conflictos de scope (/static/)."""
+    """Sirve el Service Worker desde la raíz para evitar conflictos de scope (/static/).
+    Sin cache: si el navegador sirve sw.js desde su cache HTTP normal, el
+    chequeo de actualizacion del SW puede comparar contra bytes viejos y
+    nunca detectar que hay una version nueva que instalar."""
     import os
     from flask import send_from_directory
     static_path = os.path.join(app.root_path, '../frontend/static')
-    return send_from_directory(static_path, 'sw.js', mimetype='application/javascript')
+    response = send_from_directory(static_path, 'sw.js', mimetype='application/javascript')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
 
 @app.route('/manifest.json')
 def serve_manifest():
