@@ -19,24 +19,26 @@ def _obtener_jwt_secrets():
     """
     Retorna la lista ordenada de posibles claves secretas para decodificar JWT,
     desduplicando y omitiendo valores nulos o vacíos.
+
+    Solo considera JWT_PWA_SECRET (env var y/o app.config) -- YA NO cae de
+    vuelta a SECRET_KEY/app.secret_key. Reutilizar el secreto de firma de
+    sesión Flask como secreto de JWT ampliaba la superficie de ataque:
+    comprometer un canal comprometía el otro. app.py exige JWT_PWA_SECRET de
+    forma fail-fast al arrancar (RuntimeError si falta), así que en
+    producción esta lista nunca debería llegar vacía.
     """
     candidatas = []
-    
+
     # 1. Variable de entorno explícita
     env_secret = os.environ.get('JWT_PWA_SECRET')
     if env_secret:
         candidatas.append(env_secret)
 
-    # 2. Claves en la aplicación Flask
+    # 2. Config de la aplicación Flask (poblado desde la misma env var en app.py)
     try:
         cfg_pwa = current_app.config.get('JWT_PWA_SECRET')
         if cfg_pwa:
             candidatas.append(cfg_pwa)
-        cfg_secret = current_app.config.get('SECRET_KEY')
-        if cfg_secret:
-            candidatas.append(cfg_secret)
-        if getattr(current_app, 'secret_key', None):
-            candidatas.append(current_app.secret_key)
     except Exception:
         pass
 
@@ -117,50 +119,77 @@ def obtener_identidad_segura(req):
 
     return user, role
 
+def require_login(f):
+    """
+    Exige únicamente una identidad autenticada (vía JWT o sesión Flask),
+    sin restricción de rol específico. Pensado para endpoints de datos de
+    referencia consumidos transversalmente por todos los roles (incluido
+    el portal de clientes), donde el requisito real es "no anónimo", no
+    un rol concreto.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user, _ = obtener_identidad_segura(request)
+        if not user:
+            return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def require_role(allowed_roles_input):
     """
     Examines the current user's role obtained via obtener_identidad_segura with strict UPPERCASE normalization.
-    allowed_roles_input: A list of strings or a single role string. 
+    allowed_roles_input: A list of strings or a single role string.
     Accepts both flat lists and our predefined constants.
+
+    Comparación por pertenencia EXACTA a un conjunto (no substring). Antes,
+    `allowed in user_role` comparaba por contención: un rol de texto libre
+    que simplemente CONTUVIERA un rol permitido como substring (p.ej. un
+    futuro rol mal tipeado que incluyera "ADMIN") heredaba acceso no
+    previsto. Con pertenencia exacta, si un endpoint debe ser accesible
+    tanto para un operario como para su jefe, ambos roles deben listarse
+    explícitamente (patrón ya usado en la mayoría de rutas: ROL_ADMINS +
+    ROL_JEFES + ROL_OPERARIOS).
     """
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             user, raw_role = obtener_identidad_segura(request)
-            
+
             if not user or not raw_role:
                 return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
-            
+
             import unicodedata
-            
+
             # 2. Extract user's role and normalize (Accents removed + UPPERCASE + strip)
             raw_role_str = str(raw_role).strip().upper() # ⚡ ALWAYS UPPERCASE
             user_role = ''.join((c for c in unicodedata.normalize('NFD', raw_role_str) if unicodedata.category(c) != 'Mn'))
-            
-            # 3. Handle input: Convert nested lists (from constants) to a flat list of upper cases
+
+            # 3. Handle input: Convert nested lists (from constants) a un set plano, exacto y en mayúsculas
             allowed_roles = []
             if isinstance(allowed_roles_input, list):
                 for r in allowed_roles_input:
                     if isinstance(r, list): # handle ROL_ADMINS + ['JEFE']
-                        allowed_roles.extend([x.upper() for x in r])
+                        allowed_roles.extend([str(x).strip().upper() for x in r])
                     else:
-                        allowed_roles.append(r.upper())
+                        allowed_roles.append(str(r).strip().upper())
             else:
-                allowed_roles = [str(allowed_roles_input).upper()]
+                allowed_roles = [str(allowed_roles_input).strip().upper()]
 
-            # 4. Global God Mode: Admins variation always matches
-            if user_role in ROL_ADMINS:
+            allowed_roles_set = set(allowed_roles)
+
+            # 4. Global God Mode: Admins variation always matches (pertenencia exacta a ROL_ADMINS)
+            if user_role in set(r.strip().upper() for r in ROL_ADMINS):
                 return f(*args, **kwargs)
-            
-            # 5. Check specific access (flexible/inclusive matching)
-            for allowed in allowed_roles:
-                if allowed in user_role:
-                    return f(*args, **kwargs)
-            
+
+            # 5. Check specific access: pertenencia EXACTA al conjunto, nunca substring
+            if user_role in allowed_roles_set:
+                return f(*args, **kwargs)
+
             return jsonify({
-                'status': 'error', 
+                'status': 'error',
                 'message': f'Acceso denegado: permisos insuficientes para el rol {user_role}.'
             }), 403
-            
+
         return decorated_function
     return decorator

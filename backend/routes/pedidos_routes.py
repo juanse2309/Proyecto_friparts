@@ -1,5 +1,5 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES, _obtener_usuario_activo
-from flask import Blueprint, jsonify, request, session, make_response, current_app
+from flask import Blueprint, jsonify, request, make_response, current_app
 from backend.models.sql_models import db, Pedido, MetalsPedido, DespachoPedido
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 from backend.config.constants import FALLBACK_OPERARIO
@@ -14,6 +14,11 @@ import json
 
 pedidos_bp = Blueprint('pedidos', __name__)
 logger = logging.getLogger(__name__)
+
+# Superset de roles con acceso a las páginas "pedidos"/"almacen" en el frontend
+# (ver frontend/static/js/modules/auth.js) — usado para los endpoints de
+# consulta/gestión interna de pedidos que no tienen matiz de ownership por cliente.
+ROLES_PEDIDOS_INTERNOS = ROL_ADMINS + ROL_COMERCIALES + ROL_JEFES + ['ALISTAMIENTO']
 
 
 def _resolve_tenant():
@@ -51,33 +56,33 @@ def _buscar_producto_inteligente(codigo_buscado, registros):
 
     return None, None
 
-def obtener_siguiente_id_pedido(hoja_pedidos=None):
-    """DEPRECATED: Usar _generar_siguiente_id_pedido_sql."""
-    return _generar_siguiente_id_pedido_sql()
+def _validar_ownership_cliente(nit_pedido):
+    """
+    Guard de acceso para endpoints de consulta de pedidos consumidos tanto por
+    staff interno como por el portal B2B de clientes:
+    - Exige sesión/JWT válido (bloquea acceso anónimo).
+    - Si el rol activo es CLIENTE, exige que el NIT del pedido consultado
+      coincida con el NIT de su propia empresa (evita IDOR: un cliente
+      autenticado no puede enumerar/consultar pedidos de otro NIT).
+    - Cualquier otro rol interno autenticado conserva el acceso sin restricción
+      de NIT (comportamiento previo para el módulo de staff).
 
-def _generar_siguiente_id_pedido_sql():
-    """Genera el siguiente consecutivo PED-XXXX consultando la base de datos SQL."""
-    from backend.models.sql_models import Pedido
-    from backend.core.sql_database import db
-    from sqlalchemy import text
-    try:
-        # Buscar el último registro que tenga el formato PED- usando SQL crudo para mayor precisión en el ordenamiento
-        sql = "SELECT id_pedido FROM db_pedidos WHERE id_pedido LIKE 'PED-%' ORDER BY id DESC LIMIT 1"
-        result = db.session.execute(text(sql)).fetchone()
-        
-        if not result or not result[0]:
-            return "PED-1001" # Base inicial
-            
-        import re
-        match = re.search(r'PED-(\d+)', result[0])
-        if match:
-            ultimo_num = int(match.group(1))
-            return f"PED-{ultimo_num + 1}"
-        
-        return f"PED-{datetime.now().strftime('%M%S')}" # Fallback
-    except Exception as e:
-        logger.error(f"❌ Error generando ID Pedido SQL: {e}")
-        return f"PED-{datetime.now().strftime('%M%S')}"
+    Retorna None si el acceso es válido, o (response, status) si debe rechazarse.
+    """
+    from backend.utils.auth_middleware import obtener_identidad_segura
+    from backend.models.sql_models import Usuario
+
+    user, role = obtener_identidad_segura(request)
+    if not user:
+        return jsonify({"success": False, "error": "No autorizado"}), 401
+
+    if str(role or '').strip().upper() == 'CLIENTE':
+        cuenta = Usuario.query.filter_by(username=user, rol='cliente').first()
+        nit_propio = str(getattr(cuenta, 'nit_empresa', '') or '').strip()
+        if not nit_propio or nit_propio != str(nit_pedido or '').strip():
+            return jsonify({"success": False, "error": "No autorizado para consultar este pedido"}), 403
+
+    return None
 
 @pedidos_bp.route('/api/pedidos/registrar', methods=['POST'])
 @require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
@@ -88,11 +93,12 @@ def registrar_pedido():
     """
     from backend.models.sql_models import Pedido
     from backend.core.sql_database import db
-    
+    from backend.services.pedidos_service import generar_siguiente_id_pedido, GeneracionIdPedidoError
+
     try:
         # Asegurar transacción limpia
         db.session.rollback()
-        
+
         logger.debug("🛒 ===== INICIO REGISTRO DE PEDIDO (UPSERT-MODE) =====")
         data = request.json
         if not data:
@@ -117,7 +123,15 @@ def registrar_pedido():
         id_pedido_final = data.get('id_pedido')
         es_edicion = False
         if not id_pedido_final:
-            id_pedido_final = _generar_siguiente_id_pedido_sql()
+            try:
+                id_pedido_final = generar_siguiente_id_pedido(db.session)
+            except GeneracionIdPedidoError as e:
+                logger.error(f"❌ Fallo generando id_pedido: {e}")
+                return jsonify({
+                    "success": False,
+                    "error": "No fue posible generar un identificador de pedido único. Intente nuevamente.",
+                    "code": "ID_PEDIDO_CONFLICT"
+                }), 409
             logger.debug(f"🆔 Nuevo ID Pedido Generado: {id_pedido_final}")
         else:
             id_pedido_final = str(id_pedido_final).strip().upper()
@@ -336,7 +350,11 @@ def obtener_detalle_pedido(id_pedido):
             
         # 2. Construir cabecera (usando el primer item)
         cab = items_sql[0]
-        
+
+        bloqueo = _validar_ownership_cliente(cab.nit)
+        if bloqueo:
+            return bloqueo
+
         # Formatear fecha para el input date del frontend (YYYY-MM-DD)
         fecha_str = cab.fecha.strftime('%Y-%m-%d') if cab.fecha else ""
 
@@ -398,6 +416,7 @@ def obtener_detalle_pedido(id_pedido):
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/pendientes', methods=['GET'])
+@require_role(ROLES_PEDIDOS_INTERNOS)
 def obtener_pedidos_pendientes():
     """
     Retorna la lista de pedidos que no están completados.
@@ -406,18 +425,25 @@ def obtener_pedidos_pendientes():
     try:
         from backend.repositories.ventas_repository import VentasRepository
         from backend.models.sql_models import Usuario
+        from backend.utils.auth_middleware import obtener_identidad_segura
 
         # 1. Obtener datos desde SQL (JOIN incluido)
         pedidos = VentasRepository.get_pedidos_pendientes()
-        
+
         # 2. Determinar tenant para filtrado
         tenant = get_tenant_from_request()
 
         # 3. Filtrar por usuario y rol (Lógica RBAC Estricta)
-        # Compatibilidad: Chequear sesión Flask y fallback a query params para robustez en producción
-        user_raw = session.get('user') or request.args.get('usuario', '')
-        rol_session = str(session.get('rol') or session.get('role') or request.args.get('rol', '')).lower().strip()
-        
+        # Identidad extraída EXCLUSIVAMENTE de obtener_identidad_segura (JWT o
+        # sesión Flask ya validados por @require_role). El fallback previo a
+        # request.args.get('rol'/'usuario') permitía que cualquier usuario
+        # autenticado con rol bajo (p.ej. ALISTAMIENTO) anexara ?rol=admin a
+        # la URL y viera los pedidos de todos los demás usuarios, saltándose
+        # el filtro por delegado_a -- un query param nunca es una fuente
+        # válida para una decisión de autorización.
+        user_raw, rol_identidad = obtener_identidad_segura(request)
+        rol_session = str(rol_identidad or '').lower().strip()
+
         nombre_completo_user = ""
         username_user = ""
         
@@ -602,185 +628,41 @@ def eliminar_producto_pedido():
         return jsonify({"error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/actualizar-alistamiento', methods=['POST'])
+@require_role(ROLES_PEDIDOS_INTERNOS)
 def actualizar_alistamiento():
     """
-    Actualiza el progreso y estado de un pedido en PostgreSQL (SQL-Native).
-    Elimina dependencia de Google Sheets.
+    Actualiza el progreso y estado de alistamiento de bodega de un pedido.
+    Thin controller: parsea el payload, delega en
+    PedidosService.actualizar_alistamiento (algoritmo FIFO de cubetas,
+    cálculo de progreso, promoción de estado) y responde jsonify. Rollback
+    atómico ante cualquier fallo -- ningún cambio parcial queda persistido.
     """
-    from backend.models.sql_models import Pedido
     from backend.core.sql_database import db
-    
+    from backend.services.pedidos_service import PedidosService, PedidoNoEncontradoError
+
     try:
-        movimientos_inventario = []
         data = request.json or {}
         id_pedido = data.get("id_pedido")
         estado_general = data.get("estado")  # ej: "EN ALISTAMIENTO"
         progreso_pedido = data.get("progreso")  # ej: "40%"
         progreso_despacho_pedido = data.get("progreso_despacho")  # ej: "10%"
         detalles = data.get("detalles", [])  # [{codigo, cant_lista, despachado, no_disponible}, ...]
-        
+
         if not id_pedido:
             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
-            
+
         logger.debug(f"📦 [SQL-ALISTAMIENTO] Actualizando pedido: {id_pedido}")
 
-        # 1. Buscar todos los items del pedido en SQL
-        items_sql = Pedido.query.filter_by(id_pedido=id_pedido).all()
-        
-        if not items_sql:
-            return jsonify({"success": False, "error": f"Pedido {id_pedido} no encontrado en SQL"}), 404
-
-        items_actualizados = 0
-
-        def _clean_num(val):
-            """
-            Convierte entradas como '10', '10.0', '10%', '$1,200' a float.
-            Mantiene el punto decimal; remueve símbolos y separadores de miles.
-            """
-            if val is None:
-                return 0.0
-            s = str(val).strip()
-            if s in ['', 'None', 'null', 'undefined']:
-                return 0.0
-            s = s.replace('%', '').replace('$', '').replace(' ', '')
-            # Quitar separadores de miles (coma) sin tocar el punto decimal
-            s = s.replace(',', '')
-            try:
-                return float(s)
-            except Exception:
-                return 0.0
-
-        def _clean_pct_str(val, default="0%"):
-            if val is None:
-                return default
-            s = str(val).strip()
-            if not s:
-                return default
-            # normalizar "40" -> "40%"
-            if not s.endswith('%'):
-                s = f"{s}%"
-            return s
-
-        for d in detalles:
-            codigo_front = str(d.get("codigo", "")).strip().upper()
-            cant_lista_front = _clean_num(d.get("cant_lista", 0))
-            
-            # Buscar el match en SQL para este código dentro del pedido
-            item = next((i for i in items_sql if str(i.id_codigo).strip().upper() == codigo_front), None)
-            
-            if item:
-                # 1. Obtener tope máximo y aplicar filtro min() de seguridad
-                cantidad_total = _clean_num(item.cantidad)
-                cant_segura = min(cant_lista_front, cantidad_total)
-                
-                # 2. Persistir cantidad segura (como entero para evitar bug de .0 -> 000)
-                item.cant_alistada = str(int(cant_segura))
-                
-                # Lógica de progreso y estado por item
-                cantidad_total = _clean_num(item.cantidad)
-                if cantidad_total > 0:
-                    porcentaje = (cant_segura / cantidad_total) * 100
-                    item.progreso = f"{int(porcentaje)}%"
-                    
-                    if cant_segura >= cantidad_total:
-                        item.estado = 'ALISTADO'
-                        item.progreso = '100%'
-                    else:
-                        item.estado = estado_general or 'EN ALISTAMIENTO'
-                
-                # --- Distribución FIFO para Almacén / Empaque (cant_alistada) ---
-                from backend.models.sql_models import DistribucionOpPedidos
-                
-                # Normalizar el código eliminando el prefijo FR- si existe
-                codigo_limpio = str(codigo_front).replace('FR-', '').strip()
-                
-                # Buscar las cubetas por id_pedido y Producto ordenadas de forma ascendente
-                cubetas = db.session.query(DistribucionOpPedidos).filter(
-                    DistribucionOpPedidos.id_pedido == id_pedido,
-                    DistribucionOpPedidos.codigo_producto == codigo_limpio
-                ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
-
-                piezas_por_repartir = cant_segura
-                
-                # Validación y creación de cubeta de contingencia (Alistamiento Express)
-                if not cubetas and piezas_por_repartir > 0:
-                    # Buscar OP inteligente
-                    op_asoc = db.session.query(DistribucionOpPedidos.op_world_office).filter(
-                        (DistribucionOpPedidos.id_pedido == id_pedido) & (DistribucionOpPedidos.op_world_office.isnot(None))
-                    ).first()
-                    if not op_asoc:
-                        op_asoc = db.session.query(DistribucionOpPedidos.op_world_office).filter(
-                            (DistribucionOpPedidos.codigo_producto == codigo_limpio) & (DistribucionOpPedidos.op_world_office.isnot(None))
-                        ).first()
-                    
-                    op_final = op_asoc[0] if (op_asoc and op_asoc[0]) else getattr(item, 'wo_consecutivo', None) or f"OP-IMPREVISTA-{id_pedido}"
-                    
-                    logger.info(f" ⚠️ [ALMACEN-CONTINGENCIA] Creando cubeta temporal para Pedido: {id_pedido}, Producto: {codigo_limpio}, OP: {op_final}")
-                    nueva_cubeta = DistribucionOpPedidos(
-                        op_world_office=op_final,
-                        id_pedido=id_pedido,
-                        codigo_producto=codigo_limpio,
-                        cant_requerida=piezas_por_repartir,
-                        cant_inyectada=piezas_por_repartir,
-                        cant_pulida=piezas_por_repartir,
-                        cant_ensamblada=piezas_por_repartir,
-                        cant_alistada=piezas_por_repartir
-                    )
-                    db.session.add(nueva_cubeta)
-                    db.session.flush() # Sincronizar temporalmente en sesión
-                    cubetas = [nueva_cubeta]
-                    piezas_por_repartir = 0.0 # Consumido por completo
-                else:
-                    # Reiniciar cant_alistada en las cubetas para esta referencia del pedido antes de distribuir
-                    for cubeta in cubetas:
-                        cubeta.cant_alistada = 0.0
-
-                logger.debug(f" 📦 [ALMACEN-FIFO] Distribuyendo {piezas_por_repartir} piezas alistadas FIFO para Pedido: {id_pedido}, Producto: {codigo_limpio} (Original: {codigo_front})")
-
-                for cubeta in cubetas:
-                    if piezas_por_repartir <= 0:
-                        break
-                    
-                    falta = max(0.0, (cubeta.cant_requerida or 0) - (cubeta.cant_alistada or 0))
-                    if falta > 0:
-                        if piezas_por_repartir >= falta:
-                            cubeta.cant_alistada = (cubeta.cant_alistada or 0) + falta
-                            piezas_por_repartir -= falta
-                        else:
-                            cubeta.cant_alistada = (cubeta.cant_alistada or 0) + piezas_por_repartir
-                            piezas_por_repartir = 0.0
-                
-                items_actualizados += 1
-
-        # Validar si el pedido completo quedó 100% alistado en bodega
-        todo_alistado = True
-        for it in items_sql:
-            cant_req_item = _clean_num(it.cantidad)
-            cant_ali_item = _clean_num(it.cant_alistada)
-            if cant_ali_item < cant_req_item:
-                todo_alistado = False
-                break
-
-        if todo_alistado and len(items_sql) > 0:
-            estado_general = "LISTO PARA DESPACHO"
-            progreso_pedido = "100%"
-            logger.info(f" 🏆 [ALISTAMIENTO-COMPLETO] Pedido {id_pedido} completamente alistado. Promocionando a LISTO PARA DESPACHO.")
-
-        # Persistir estado/progresos a nivel pedido (en TODAS las filas),
-        # porque el listado agrupa tomando el primer item del pedido.
-        if estado_general or progreso_pedido or progreso_despacho_pedido:
-            update_data = {}
-            if estado_general:
-                update_data["estado"] = estado_general
-            if progreso_pedido is not None:
-                update_data["progreso"] = _clean_pct_str(progreso_pedido)
-            if progreso_despacho_pedido is not None:
-                update_data["progreso_despacho"] = _clean_pct_str(progreso_despacho_pedido)
-            if update_data:
-                Pedido.query.filter_by(id_pedido=id_pedido).update(update_data)
+        resultado = PedidosService.actualizar_alistamiento(
+            id_pedido=id_pedido,
+            estado_general=estado_general,
+            progreso_pedido=progreso_pedido,
+            progreso_despacho_pedido=progreso_despacho_pedido,
+            detalles=detalles,
+            db_session=db.session,
+        )
 
         db.session.commit()
-        logger.info(f"✅ [SQL-ALISTAMIENTO] {items_actualizados} items actualizados para {id_pedido}")
 
         # Opcional: Invalidar caché
         try:
@@ -789,11 +671,14 @@ def actualizar_alistamiento():
         except: pass
 
         return jsonify({
-            "success": True, 
-            "message": f"Progreso actualizado en SQL para {items_actualizados} productos",
-            "movimientos_inventario": movimientos_inventario
+            "success": True,
+            "message": f"Progreso actualizado en SQL para {resultado['items_actualizados']} productos",
+            "movimientos_inventario": resultado['movimientos_inventario']
         })
 
+    except PedidoNoEncontradoError as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 404
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error alistamiento SQL: {e}")
@@ -806,7 +691,11 @@ def obtener_pedidos_cliente():
     try:
         nit = request.args.get('nit')
         if not nit: return jsonify({"error": "NIT requerido"}), 400
-        
+
+        bloqueo = _validar_ownership_cliente(nit)
+        if bloqueo:
+            return bloqueo
+
         items = Pedido.query.filter_by(nit=str(nit)).all()
         # Agrupar por id_pedido
         ped_map = {}
@@ -838,6 +727,7 @@ def obtener_pedidos_cliente():
         return jsonify({"error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/listar', methods=['GET'])
+@require_role(ROLES_PEDIDOS_INTERNOS)
 def listar_pedidos():
     """Listado general de pedidos con soporte estricto para FriMetals."""
     try:
@@ -991,6 +881,7 @@ def listar_pedidos():
         }), 500
 
 @pedidos_bp.route('/api/pedidos/actualizar-progreso', methods=['POST'])
+@require_role(ROLES_PEDIDOS_INTERNOS)
 def actualizar_progreso_pedido():
     """Actualiza el porcentaje de progreso de un pedido de Metales."""
     try:
@@ -1019,6 +910,7 @@ def actualizar_progreso_pedido():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pedidos_bp.route('/api/pedidos/despacho', methods=['POST'])
+@require_role(ROLES_PEDIDOS_INTERNOS)
 def registrar_despacho():
     """Registra un envío/despacho parcial o total de un pedido y descuenta stock."""
     from backend.models.sql_models import db, Pedido, DespachoPedido
@@ -1143,6 +1035,7 @@ def registrar_despacho():
 
 
 @pedidos_bp.route('/api/pedidos/<id_pedido>/despachos', methods=['GET'])
+@require_role(ROLES_PEDIDOS_INTERNOS)
 def obtener_despachos_pedido(id_pedido):
     """Consulta el historial de despachos de un pedido específico."""
     from backend.models.sql_models import DespachoPedido

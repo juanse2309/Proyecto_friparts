@@ -3,10 +3,61 @@ import pyodbc
 import os
 import re
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, OperationalError
 from datetime import datetime
 from backend.models.sql_models import Pedido, DistribucionOpPedidos
 
 logger = logging.getLogger(__name__)
+
+
+MAX_REINTENTOS_ID_PEDIDO = 3
+
+
+class GeneracionIdPedidoError(RuntimeError):
+    """Se agotaron los reintentos generando un id_pedido único (ver
+    generar_siguiente_id_pedido). El caller (route) debe traducir esto a
+    HTTP 409 Conflict."""
+
+
+def generar_siguiente_id_pedido(db_session):
+    """
+    Genera el siguiente consecutivo PED-XXXX de forma atómica usando la
+    secuencia nativa de PostgreSQL 'pedido_id_seq' (bootstrap en app.py,
+    junto a las demás DDL idempotentes de arranque).
+
+    Reemplaza al viejo patrón "SELECT id_pedido ... ORDER BY id DESC LIMIT 1"
+    + incrementar en Python, que tenía una condición de carrera real: dos
+    requests concurrentes podían leer el mismo último id_pedido y generar el
+    mismo consecutivo (dos comerciales registrando pedidos al mismo tiempo).
+
+    nextval() es no transaccional y atómico a nivel de motor: dos llamadas
+    concurrentes NUNCA devuelven el mismo valor, sin necesidad de bloquear
+    filas de db_pedidos (SELECT ... FOR UPDATE no aplica aquí porque no hay
+    una fila existente que bloquear -- el consecutivo se calcula antes de
+    que exista cualquier fila del pedido nuevo).
+
+    Se reintenta ante IntegrityError/OperationalError como red de seguridad
+    (p.ej. si en el futuro se agrega una constraint única sobre id_pedido,
+    o ante un fallo transitorio de conexión), no porque la secuencia en sí
+    pueda colisionar.
+    """
+    ultimo_error = None
+    for intento in range(1, MAX_REINTENTOS_ID_PEDIDO + 1):
+        try:
+            numero = db_session.execute(text("SELECT nextval('pedido_id_seq')")).scalar()
+            return f"PED-{numero}"
+        except (IntegrityError, OperationalError) as e:
+            ultimo_error = e
+            db_session.rollback()
+            logger.warning(
+                f"Colisión/fallo generando id_pedido (intento {intento}/{MAX_REINTENTOS_ID_PEDIDO}): {e}"
+            )
+
+    logger.error(f"Se agotaron los reintentos generando id_pedido: {ultimo_error}")
+    raise GeneracionIdPedidoError(
+        f"No fue posible generar un id_pedido único tras {MAX_REINTENTOS_ID_PEDIDO} intentos"
+    ) from ultimo_error
+
 
 def normalizar_llaves_dict(row_dict):
     """
@@ -218,7 +269,7 @@ def _resolver_filas_pedido(id_pedido, db_session):
     Busca las filas de un pedido tolerando ambos formatos de id_pedido vistos
     en producción: el crudo ('10396', dejado por facturacion_routes.py al
     sobreescribir id_pedido con el consecutivo de World Office) y el
-    prefijado ('PED-10396', usado por _generar_siguiente_id_pedido_sql).
+    prefijado ('PED-10396', usado por generar_siguiente_id_pedido).
 
     :return: (filas, id_pedido_real_en_bd)
     """
@@ -343,3 +394,202 @@ def reasignar_cliente_pedido(id_pedido, nuevo_cliente, nuevo_nit, nueva_direccio
         logger.error(f"Error reasignando cliente en pedido {id_pedido}: {e}")
         db_session.rollback()
         raise e
+
+
+class PedidosService:
+    """
+    Namespace de métodos de negocio del dominio de pedidos (patrón
+    clase + staticmethod, igual que EnsambleService/InventarioService). Las
+    funciones de módulo existentes en este archivo (generar_siguiente_id_pedido,
+    reasignar_cliente_pedido, reiniciar_pedido_wo) se mantienen tal cual para
+    no romper a sus callers actuales -- código nuevo se agrega aquí.
+    """
+
+    @staticmethod
+    def _clean_num(val):
+        """
+        Convierte entradas como '10', '10.0', '10%', '$1,200' a float.
+        Mantiene el punto decimal; remueve símbolos y separadores de miles.
+        """
+        if val is None:
+            return 0.0
+        s = str(val).strip()
+        if s in ('', 'None', 'null', 'undefined'):
+            return 0.0
+        s = s.replace('%', '').replace('$', '').replace(' ', '')
+        s = s.replace(',', '')
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _clean_pct_str(val, default="0%"):
+        if val is None:
+            return default
+        s = str(val).strip()
+        if not s:
+            return default
+        if not s.endswith('%'):
+            s = f"{s}%"
+        return s
+
+    @staticmethod
+    def _distribuir_fifo_cubetas(id_pedido, codigo_front, cant_segura, item, db_session):
+        """
+        Distribuye FIFO la cantidad recién alistada (cant_segura) entre las
+        cubetas de db_distribucion_op_pedidos de este pedido/producto. Si no
+        existen cubetas (alistamiento express, sin programación previa), crea
+        una cubeta de contingencia con la OP asociada más cercana que
+        encuentre (por pedido, luego por producto), o una OP sintética como
+        último recurso.
+        """
+        codigo_limpio = str(codigo_front).replace('FR-', '').strip()
+
+        cubetas = db_session.query(DistribucionOpPedidos).filter(
+            DistribucionOpPedidos.id_pedido == id_pedido,
+            DistribucionOpPedidos.codigo_producto == codigo_limpio
+        ).order_by(DistribucionOpPedidos.id_distribucion.asc()).all()
+
+        piezas_por_repartir = cant_segura
+
+        if not cubetas and piezas_por_repartir > 0:
+            op_asoc = db_session.query(DistribucionOpPedidos.op_world_office).filter(
+                (DistribucionOpPedidos.id_pedido == id_pedido) & (DistribucionOpPedidos.op_world_office.isnot(None))
+            ).first()
+            if not op_asoc:
+                op_asoc = db_session.query(DistribucionOpPedidos.op_world_office).filter(
+                    (DistribucionOpPedidos.codigo_producto == codigo_limpio) & (DistribucionOpPedidos.op_world_office.isnot(None))
+                ).first()
+
+            op_final = op_asoc[0] if (op_asoc and op_asoc[0]) else getattr(item, 'wo_consecutivo', None) or f"OP-IMPREVISTA-{id_pedido}"
+
+            logger.info(f" ⚠️ [ALMACEN-CONTINGENCIA] Creando cubeta temporal para Pedido: {id_pedido}, Producto: {codigo_limpio}, OP: {op_final}")
+            nueva_cubeta = DistribucionOpPedidos(
+                op_world_office=op_final,
+                id_pedido=id_pedido,
+                codigo_producto=codigo_limpio,
+                cant_requerida=piezas_por_repartir,
+                cant_inyectada=piezas_por_repartir,
+                cant_pulida=piezas_por_repartir,
+                cant_ensamblada=piezas_por_repartir,
+                cant_alistada=piezas_por_repartir
+            )
+            db_session.add(nueva_cubeta)
+            db_session.flush()  # Sincronizar temporalmente en sesión
+            cubetas = [nueva_cubeta]
+            piezas_por_repartir = 0.0  # Consumido por completo
+        else:
+            # Reiniciar cant_alistada en las cubetas para esta referencia del pedido antes de distribuir
+            for cubeta in cubetas:
+                cubeta.cant_alistada = 0.0
+
+        logger.debug(f" 📦 [ALMACEN-FIFO] Distribuyendo {piezas_por_repartir} piezas alistadas FIFO para Pedido: {id_pedido}, Producto: {codigo_limpio} (Original: {codigo_front})")
+
+        for cubeta in cubetas:
+            if piezas_por_repartir <= 0:
+                break
+
+            falta = max(0.0, (cubeta.cant_requerida or 0) - (cubeta.cant_alistada or 0))
+            if falta > 0:
+                if piezas_por_repartir >= falta:
+                    cubeta.cant_alistada = (cubeta.cant_alistada or 0) + falta
+                    piezas_por_repartir -= falta
+                else:
+                    cubeta.cant_alistada = (cubeta.cant_alistada or 0) + piezas_por_repartir
+                    piezas_por_repartir = 0.0
+
+    @staticmethod
+    def actualizar_alistamiento(id_pedido, estado_general, progreso_pedido,
+                                 progreso_despacho_pedido, detalles, db_session):
+        """
+        Actualiza el progreso de alistamiento de bodega de un pedido:
+        distribuye FIFO las piezas alistadas entre las cubetas de OP
+        (db_distribucion_op_pedidos), calcula progreso/estado por ítem y
+        promueve automáticamente el pedido completo a "LISTO PARA DESPACHO"
+        cuando todos sus ítems quedan 100% alistados.
+
+        No hace commit: el caller (route) es responsable de confirmar o
+        abortar la transacción completa (mismo contrato que
+        reasignar_cliente_pedido/reiniciar_pedido_wo), preservando la
+        atomicidad de todos los updates (ítems + cubetas + cabecera) como
+        una sola unidad -- si el caller hace rollback tras una excepción,
+        ningún cambio parcial de esta función queda persistido.
+
+        :raises PedidoNoEncontradoError: id_pedido sin filas en db_pedidos.
+        :return: dict con 'items_actualizados' y 'movimientos_inventario'
+            (lista siempre vacía hoy -- se conserva por compatibilidad de
+            forma con el contrato de respuesta del endpoint).
+        """
+        items_sql = db_session.query(Pedido).filter_by(id_pedido=id_pedido).all()
+        if not items_sql:
+            raise PedidoNoEncontradoError(f"Pedido {id_pedido} no encontrado en SQL")
+
+        movimientos_inventario = []
+        items_actualizados = 0
+
+        for d in detalles:
+            codigo_front = str(d.get("codigo", "")).strip().upper()
+            cant_lista_front = PedidosService._clean_num(d.get("cant_lista", 0))
+
+            # Buscar el match en SQL para este código dentro del pedido
+            item = next((i for i in items_sql if str(i.id_codigo).strip().upper() == codigo_front), None)
+            if not item:
+                continue
+
+            # Obtener tope máximo y aplicar filtro min() de seguridad
+            cantidad_total = PedidosService._clean_num(item.cantidad)
+            cant_segura = min(cant_lista_front, cantidad_total)
+
+            # Persistir cantidad segura (como entero para evitar bug de .0 -> 000)
+            item.cant_alistada = str(int(cant_segura))
+
+            # Lógica de progreso y estado por item
+            if cantidad_total > 0:
+                porcentaje = (cant_segura / cantidad_total) * 100
+                item.progreso = f"{int(porcentaje)}%"
+
+                if cant_segura >= cantidad_total:
+                    item.estado = 'ALISTADO'
+                    item.progreso = '100%'
+                else:
+                    item.estado = estado_general or 'EN ALISTAMIENTO'
+
+            PedidosService._distribuir_fifo_cubetas(id_pedido, codigo_front, cant_segura, item, db_session)
+
+            items_actualizados += 1
+
+        # Validar si el pedido completo quedó 100% alistado en bodega
+        todo_alistado = True
+        for it in items_sql:
+            cant_req_item = PedidosService._clean_num(it.cantidad)
+            cant_ali_item = PedidosService._clean_num(it.cant_alistada)
+            if cant_ali_item < cant_req_item:
+                todo_alistado = False
+                break
+
+        if todo_alistado and len(items_sql) > 0:
+            estado_general = "LISTO PARA DESPACHO"
+            progreso_pedido = "100%"
+            logger.info(f" 🏆 [ALISTAMIENTO-COMPLETO] Pedido {id_pedido} completamente alistado. Promocionando a LISTO PARA DESPACHO.")
+
+        # Persistir estado/progresos a nivel pedido (en TODAS las filas),
+        # porque el listado agrupa tomando el primer item del pedido.
+        if estado_general or progreso_pedido or progreso_despacho_pedido:
+            update_data = {}
+            if estado_general:
+                update_data["estado"] = estado_general
+            if progreso_pedido is not None:
+                update_data["progreso"] = PedidosService._clean_pct_str(progreso_pedido)
+            if progreso_despacho_pedido is not None:
+                update_data["progreso_despacho"] = PedidosService._clean_pct_str(progreso_despacho_pedido)
+            if update_data:
+                db_session.query(Pedido).filter_by(id_pedido=id_pedido).update(update_data)
+
+        db_session.flush()
+        logger.info(f"✅ [SQL-ALISTAMIENTO] {items_actualizados} items actualizados para {id_pedido}")
+
+        return {
+            "items_actualizados": items_actualizados,
+            "movimientos_inventario": movimientos_inventario,
+        }

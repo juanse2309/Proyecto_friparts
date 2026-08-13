@@ -20,10 +20,21 @@ logger = logging.getLogger(__name__)
 
 # Configurar Flask
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-app = Flask(__name__, 
-            template_folder=os.path.join(BASE_DIR, '../frontend/templates'), 
+app = Flask(__name__,
+            template_folder=os.path.join(BASE_DIR, '../frontend/templates'),
             static_folder=os.path.join(BASE_DIR, '../frontend/static'))
-CORS(app)
+
+# CORS restringido a los orígenes reales conocidos del frontend (el SPA se sirve
+# same-origin desde este mismo Flask, así que la navegación normal no depende de
+# esto -- CORS solo importa para llamadas cross-origin desde OTRO sitio, que hoy
+# no tiene ningún consumidor legítimo conocido). Configurable vía env var para
+# agregar un dominio propio sin tocar código.
+_cors_origins_env = os.environ.get(
+    'CORS_ALLOWED_ORIGINS',
+    'https://proyecto-friparts.onrender.com,http://localhost:5005,http://127.0.0.1:5005'
+)
+_cors_origins = [o.strip() for o in _cors_origins_env.split(',') if o.strip()]
+CORS(app, origins=_cors_origins, supports_credentials=True)
 
 # Compresion de respuestas (gzip/brotli) para reducir ancho de banda en Render
 app.config['COMPRESS_MIMETYPES'] = ['application/json', 'text/html']
@@ -36,6 +47,33 @@ def set_static_cache_headers(response):
         response.headers['Cache-Control'] = 'public, max-age=2592000'
     return response
 
+# Headers de seguridad (hardening general). CSP permite 'unsafe-inline' porque
+# el SPA usa extensivamente onclick="..." inline (162+ instancias en index.html)
+# y no hay nonces/hashes implementados -- restringirlo rompería la UI. Los
+# orígenes externos permitidos son exactamente los que carga index.html hoy
+# (jsDelivr/cdnjs para libs, Power BI embebido en el iframe del dashboard).
+_CSP_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
+    "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; "
+    "img-src 'self' data: https:; "
+    "connect-src 'self'; "
+    "frame-src 'self' https://app.powerbi.com; "
+    "object-src 'none'; "
+    "frame-ancestors 'self'"
+)
+
+@app.after_request
+def set_security_headers(response):
+    response.headers['Content-Security-Policy'] = _CSP_POLICY
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    if request.is_secure:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
+
 # Required for Flask Sessions
 FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY")
 if not FLASK_SECRET_KEY:
@@ -44,8 +82,26 @@ if not FLASK_SECRET_KEY:
         "(archivo .env en local, panel de Environment en Render en producción)."
     )
 app.secret_key = FLASK_SECRET_KEY
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+# 'Lax' (no 'None'): el frontend es same-origin y los contextos que sí lo
+# necesitan (PWA standalone, iframe comercial-historico) ya usan JWT Bearer
+# en vez de depender de la cookie -- ver restore_session_from_token() en
+# auth_routes.py y la propagación de token a #comercial-historico-iframe en
+# app.js. 'Lax' cierra CSRF a nivel de navegador sin requerir tokens nuevos.
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = True
+
+# JWT de PWA/API Bearer -- secreto propio, deliberadamente distinto de
+# FLASK_SECRET_KEY (ver auth_middleware._obtener_jwt_secrets): compartir el
+# secreto de firma de sesión Flask con el de JWT ampliaba la superficie de
+# ataque entre ambos canales de autenticación. Fail-fast: sin esta variable
+# no hay fallback y la app no debe arrancar.
+JWT_PWA_SECRET = os.environ.get("JWT_PWA_SECRET")
+if not JWT_PWA_SECRET:
+    raise RuntimeError(
+        "JWT_PWA_SECRET no está configurada. Defínela como variable de entorno "
+        "(archivo .env en local, panel de Environment en Render en producción)."
+    )
+app.config['JWT_PWA_SECRET'] = JWT_PWA_SECRET
 
 # --- GLOBAL TIMEZONE CONFIG (Colombia UTC-5) ---
 COLOMBIA_TZ = pytz.timezone('America/Bogota')
@@ -81,6 +137,24 @@ with app.app_context():
         db.session.execute(text("ALTER TABLE db_ventas_staging ADD COLUMN IF NOT EXISTS descripcion_producto VARCHAR(255);"))
         db.session.execute(text("ALTER TABLE db_ventas_staging ADD COLUMN IF NOT EXISTS iva NUMERIC(18,2);"))
         db.session.execute(text("ALTER TABLE db_ventas_staging ADD COLUMN IF NOT EXISTS identificacion_cliente VARCHAR(50);"))
+        # Secuencia nativa para el consecutivo PED-XXXX de db_pedidos (ver
+        # PedidosService.generar_siguiente_id_pedido). Se crea y se arranca
+        # (bootstrap) UNA sola vez -- el bloque completo queda dentro del
+        # NOT EXISTS para no rebobinar el contador en cada redeploy si ya
+        # avanzó por inserciones reales.
+        db.session.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename = 'pedido_id_seq') THEN
+                    CREATE SEQUENCE pedido_id_seq START WITH 1001;
+                    PERFORM setval('pedido_id_seq', GREATEST(1000, COALESCE((
+                        SELECT MAX(CAST(SUBSTRING(id_pedido FROM 5) AS INTEGER))
+                        FROM db_pedidos
+                        WHERE id_pedido ~ '^PED-[0-9]+$'
+                    ), 1000)));
+                END IF;
+            END $$;
+        """))
         db.session.commit()
         logger.debug("✅ [DB] Tablas y columna fecha_registro en db_pulido verificadas/creadas con éxito")
     except Exception as e_db:
@@ -332,7 +406,7 @@ if __name__ == '__main__':
     app.run(
         host='0.0.0.0',
         port=port,
-        debug=True,
+        debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true',
         use_reloader=False
     )
 

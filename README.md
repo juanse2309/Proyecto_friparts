@@ -63,7 +63,14 @@ DRIVE_REPORTS_FOLDER_ID=id_de_la_carpeta_de_drive_para_reportes
 FLASK_ENV=development # development | production
 FLASK_DEBUG=true
 PORT=5005
-SECRET_KEY=clave_secreta_para_sesiones_flask
+# Requerida (Fail-Fast): backend/app.py aborta el arranque si falta. Firma las
+# cookies de sesión Flask. Genera un valor aleatorio largo, distinto de JWT_PWA_SECRET.
+FLASK_SECRET_KEY=clave_secreta_para_sesiones_flask
+# Requerida (Fail-Fast): backend/app.py aborta el arranque si falta. Firma/valida
+# los JWT Bearer usados por la PWA y el portal de clientes (ver auth_middleware.py).
+# Deliberadamente distinta de FLASK_SECRET_KEY -- no se debe reutilizar el mismo
+# secreto entre ambos canales de autenticación. Mínimo 32 caracteres aleatorios.
+JWT_PWA_SECRET=tu_clave_secreta_pwa_aqui_minimo_32_caracteres
 CACHE_TTL=120
 CACHE_ENABLED=true
 
