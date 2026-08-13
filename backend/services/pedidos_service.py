@@ -1,5 +1,4 @@
 import logging
-import pyodbc
 import os
 import re
 from sqlalchemy import text
@@ -99,8 +98,12 @@ def reiniciar_pedido_wo(id_pedido_numero, db_session):
     borrando los detalles anteriores y dejándolo en 0% de progreso con la 
     cabecera correctamente mapeada.
     """
+    import pyodbc  # Import local: driver ODBC no instalado en todos los entornos;
+    # aislarlo aqui evita que su ausencia tumbe el resto de PedidosService
+    # (afectaba antes a actualizar_alistamiento, que no lo necesita).
+
     id_pedido_str = f"PED-{id_pedido_numero}"
-    
+
     # Configuracion de la base de datos de World Office
     DB_SERVER   = os.environ.get("WO_SERVER", r"SERVERWO\WORLDOFFICE17")
     DB_DATABASE = os.environ.get("WO_DB", "FRIPARTS2021")
