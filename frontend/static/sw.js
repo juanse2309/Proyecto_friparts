@@ -36,6 +36,17 @@ self.addEventListener('fetch', event => {
     const { request } = event;
     const url = new URL(request.url);
 
+    // CRÍTICO: Nunca interceptar peticiones a otros orígenes (CDNs: Font
+    // Awesome, Bootstrap, SweetAlert2, Chart.js, jsPDF...). Un fetch() hecho
+    // DESDE DENTRO del Service Worker se evalúa contra el CSP connect-src
+    // (aunque el recurso original sea un <link>/<script> permitido por
+    // style-src/script-src), y aquí connect-src es 'self' -- el navegador
+    // los bloqueaba en silencio, tumbando iconos y estilos de toda la app.
+    // Dejar pasar estas peticiones tal cual, sin pasar por el SW.
+    if (url.origin !== self.location.origin) {
+        return;
+    }
+
     // CRÍTICO: Nunca interceptar el manifest.json, el navegador necesita acceso directo para la instalación
     if (url.pathname.endsWith('manifest.json')) {
         event.respondWith(fetch(request));
