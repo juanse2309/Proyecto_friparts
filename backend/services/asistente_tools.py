@@ -60,6 +60,12 @@ def _tool_ventas_periodo(params, ctx):
     hasta = _fecha(params.get('hasta'))
     kpis = DashboardRepository.get_dashboard_kpis(desde, hasta)
     return {
+        'concepto': (
+            'ventas_unidades y ventas_totales_cop son la MISMA venta en dos unidades (piezas '
+            'vs pesos) -- no se suman entre si. inyeccion_ok/pulido_ok/ensambles_ok son piezas '
+            'PRODUCIDAS, pedidos_solicitados son piezas PEDIDAS por clientes -- ninguno de esos '
+            'es lo mismo que ventas_unidades (piezas ya facturadas), no los mezcles ni sumes.'
+        ),
         'ventas_unidades': kpis.get('ventas_unidades', 0),
         'ventas_totales_cop': kpis.get('ventas_totales', 0),
         'inyeccion_ok': kpis.get('inyeccion_ok', 0),
@@ -75,6 +81,7 @@ def _tool_ventas_periodo(params, ctx):
 def _tool_comparativo_mensual(params, ctx):
     desde = _fecha(params.get('desde'))
     hasta = _fecha(params.get('hasta'))
+    incluir_pedidos = bool(params.get('incluir_pedidos', False))
     raw = DashboardRepository.get_monthly_performance_comparison(desde, hasta)
     anio_actual = raw.get('year_actual')
     anio_anterior = raw.get('year_prev')
@@ -83,15 +90,15 @@ def _tool_comparativo_mensual(params, ctx):
     # DashboardRepository devuelve, por mes, 4 cifras de dinero como campos
     # hermanos del mismo objeto: 'actual_dinero'/'prev_dinero' (ventas anio
     # actual/anterior) y 'actual_pedidos'/'prev_pedidos' (pedidos anio
-    # actual/anterior) -- mas alias duplicados ('ventas_dinero' = copia de
-    # 'actual_dinero'). Al mandarle ese JSON crudo a Gemini, el modelo sumaba
-    # cifras que NO son sumables entre si: distintos anios (ventas 2026 +
-    # ventas 2025), y hasta ventas con pedidos (dinero ya facturado vs dinero
-    # solo solicitado). Por eso ventas y pedidos ahora van en secciones
-    # top-level separadas (no como campos hermanos en el mismo mes), cada una
-    # con su propio 'concepto' explicando que NO se suman entre secciones ni
-    # entre anios -- son totales independientes para comparar, no combinar.
-    return {
+    # actual/anterior) -- mas alias duplicados. Separar en secciones top-level
+    # con 'concepto' explicando "NO sumar" NO fue suficiente: en produccion el
+    # modelo igual sumo ventas_facturadas_cop + pedidos_solicitados_cop en una
+    # respuesta ($625,209,132 + $433,674,947 = $1,058,884,079 reportado como
+    # "cierre de julio", incorrecto). Una advertencia en texto es una sugerencia,
+    # no un bloqueo real. La defensa que si funciona es no darle al modelo el
+    # dato de pedidos en dinero salvo que la pregunta EXPLICITAMENTE lo pida
+    # (incluir_pedidos=true) -- no puede sumar un numero que nunca recibio.
+    resultado = {
         'anio_actual': anio_actual,
         'anio_anterior': anio_anterior,
         # 'unidades' va primero porque es lo que mas se consulta en la practica --
@@ -99,8 +106,7 @@ def _tool_comparativo_mensual(params, ctx):
         'ventas_unidades': {
             'concepto': (
                 'UNIDADES de ventas ya facturadas por mes (piezas, no dinero). NO sumar el '
-                'anio actual con el anterior (son para comparar, no combinar), y NO sumar con '
-                'pedidos_unidades (son conceptos distintos: facturado vs solo solicitado).'
+                'anio actual con el anterior -- son para comparar, no combinar.'
             ),
             'meses': [{
                 'mes': m.get('mes'),
@@ -111,8 +117,7 @@ def _tool_comparativo_mensual(params, ctx):
         'ventas_facturadas_cop': {
             'concepto': (
                 'Dinero de VENTAS ya facturadas por mes. NO sumar el anio actual con el '
-                'anterior (son para comparar, no combinar), y NO sumar con pedidos_solicitados '
-                '(son conceptos distintos: facturado vs solo solicitado).'
+                'anterior -- son para comparar, no combinar.'
             ),
             'meses': [{
                 'mes': m.get('mes'),
@@ -120,31 +125,35 @@ def _tool_comparativo_mensual(params, ctx):
                 f'{anio_anterior}_cop': m.get('prev_dinero', 0),
             } for m in mensual],
         },
-        'pedidos_unidades': {
+    }
+
+    if incluir_pedidos:
+        resultado['pedidos_unidades'] = {
             'concepto': (
                 'UNIDADES de pedidos solicitados por clientes por mes (no necesariamente ya '
-                'despachados). NO sumar el anio actual con el anterior, y NO sumar con '
-                'ventas_unidades.'
+                'despachados). Concepto DISTINTO de ventas_unidades (facturado vs solo '
+                'solicitado) -- preséntalos por separado, nunca sumados.'
             ),
             'meses': [{
                 'mes': m.get('mes'),
                 f'{anio_actual}_unds': m.get('actual_pedidos_unidades', 0),
                 f'{anio_anterior}_unds': m.get('prev_pedidos_unidades', 0),
             } for m in mensual],
-        },
-        'pedidos_solicitados_cop': {
+        }
+        resultado['pedidos_solicitados_cop'] = {
             'concepto': (
                 'Dinero de PEDIDOS solicitados por clientes por mes (no necesariamente ya '
-                'facturados/despachados). NO sumar el anio actual con el anterior, y NO sumar '
-                'con ventas_facturadas_cop.'
+                'facturados/despachados). Concepto DISTINTO de ventas_facturadas_cop '
+                '(solicitado vs ya facturado) -- preséntalos por separado, nunca sumados.'
             ),
             'meses': [{
                 'mes': m.get('mes'),
                 f'{anio_actual}_cop': m.get('actual_pedidos', 0),
                 f'{anio_anterior}_cop': m.get('prev_pedidos', 0),
             } for m in mensual],
-        },
-    }
+        }
+
+    return resultado
 
 
 def _tool_desglose_ventas_mensual(params, ctx):
@@ -555,15 +564,32 @@ TOOLS = {
         'allowed_roles': ROL_TODOS,
         'handler': _tool_ventas_periodo,
         'tipo_grafica': None,
-        'enlace': _enlace('dashboard', 'Ver Dashboard'),
+        # Antes apuntaba a 'dashboard' sin seccion: si el usuario ya estaba en el
+        # dashboard el boton no hacia nada visible. Apunta a la seccion real
+        # donde vive el resumen de ventas/pedidos.
+        'enlace': _enlace('dashboard', 'Ver Dashboard', 'dashboard-section-jefatura'),
     },
     'comparativo_mensual': {
-        'description': "Comparativo mensual de ventas vs pedidos, anio actual vs anterior. Usar para preguntas de tendencia o evolucion mes a mes.",
+        'description': (
+            "Comparativo mensual de VENTAS (unidades y dinero facturado), anio actual vs "
+            "anterior. Por defecto NO incluye pedidos -- para 'cuanto vendimos/se cerro/se "
+            "factuo en el mes X' esto ya alcanza, no combines con otra tool de pedidos. Si la "
+            "pregunta pide explicitamente comparar pedidos solicitados vs ventas facturadas, "
+            "invoca con incluir_pedidos=true (asi el pedido y la venta vienen bien separados, "
+            "en vez de tener que sumarlos vos mismo)."
+        ),
         'parameters': {
             'type': 'object',
             'properties': {
                 'desde': {'type': 'string', 'description': 'Fecha inicio YYYY-MM-DD, opcional'},
                 'hasta': {'type': 'string', 'description': 'Fecha fin YYYY-MM-DD, opcional'},
+                'incluir_pedidos': {
+                    'type': 'boolean',
+                    'description': (
+                        "Poner en true SOLO si la pregunta pide explicitamente pedidos "
+                        "solicitados ademas de ventas. Default false."
+                    ),
+                },
             },
             'required': [],
         },
