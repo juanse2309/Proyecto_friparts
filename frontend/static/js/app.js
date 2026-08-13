@@ -9,34 +9,114 @@ window.addEventListener('unhandledrejection', event => {
     console.error('🚨 Unhandled Promise Rejection:', event.reason);
 });
 
-// --- REGISTRO DEL SERVICE WORKER (PWA) ---
-if ('serviceWorker' in navigator) {
+// --- ACTUALIZACIÓN FORZADA DE VERSIÓN ---
+// Banner + recarga forzada tras una cuenta regresiva. Antes solo se avisaba
+// y quedaba a criterio del operario recargar -- en la práctica casi nadie lo
+// hacía y se quedaban corriendo JS viejo contra un backend ya actualizado
+// (causa raíz de varios incidentes: el frontend viejo no manda campos/headers
+// que el backend nuevo ya espera). Se banner-ea igual (para que quien esté
+// escribiendo algo pueda guardar), pero SIEMPRE termina recargando solo.
+// Único freno: si hay un modal Bootstrap abierto (`.modal.show`), se espera
+// a que se cierre para no tirar datos a medio llenar.
+let _actualizacionFritechEnCurso = false;
 
-    // Banner de actualización disponible: el operario decide cuándo recargar
-    // (evita perder datos de un formulario a medio llenar en planta por un reload forzado).
-    function mostrarBannerActualizacionPWA() {
-        if (typeof Swal !== 'undefined') {
-            Swal.fire({
-                toast: true,
-                position: 'bottom',
-                icon: 'info',
-                title: 'Actualización de FRITECH disponible',
-                text: 'Hay una nueva versión lista para instalar.',
-                confirmButtonText: 'Actualizar ahora',
-                showCloseButton: true,
-                allowOutsideClick: true,
-                allowEscapeKey: true
-            }).then(result => {
-                if (result.isConfirmed) {
-                    window.location.reload(true);
-                }
-            });
-        } else if (window.AuthModule && typeof window.AuthModule.mostrarNotificacion === 'function') {
-            window.AuthModule.mostrarNotificacion('Actualización de FRITECH disponible. Recarga la página para aplicarla.', 'info');
-        } else {
-            console.log('🆕 Actualización de FRITECH disponible. Recarga la página para aplicarla.');
+function _hayModalAbierto() {
+    return !!document.querySelector('.modal.show');
+}
+
+function forzarActualizacionFritech(segundosEspera) {
+    if (_actualizacionFritechEnCurso) return;
+    _actualizacionFritechEnCurso = true;
+    segundosEspera = segundosEspera || 45;
+
+    const banner = document.createElement('div');
+    banner.id = 'banner-actualizacion-fritech';
+    banner.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;'
+        + 'background:#1f2937;color:#fff;padding:10px 16px;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;'
+        + 'display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.25);';
+
+    const texto = document.createElement('span');
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.textContent = 'Actualizar ahora';
+    boton.style.cssText = 'background:#3b82f6;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:600;';
+
+    banner.appendChild(texto);
+    banner.appendChild(boton);
+    document.body.appendChild(banner);
+
+    let restante = segundosEspera;
+    const pintarTexto = () => {
+        texto.textContent = `🆕 Hay una nueva versión de FRITECH. Se actualizará en ${restante}s — guarda lo que estés haciendo.`;
+    };
+    pintarTexto();
+
+    const recargarYaLimpio = () => {
+        clearInterval(idIntervalo);
+        window.location.reload(true);
+    };
+    boton.addEventListener('click', recargarYaLimpio);
+
+    const idIntervalo = setInterval(() => {
+        restante -= 1;
+        if (restante > 0) {
+            pintarTexto();
+            return;
+        }
+        clearInterval(idIntervalo);
+
+        const esperarModalYRecargar = () => {
+            if (_hayModalAbierto()) {
+                texto.textContent = '🆕 Actualización de FRITECH lista. Se aplicará apenas termines lo que estás haciendo.';
+                setTimeout(esperarModalYRecargar, 4000);
+            } else {
+                window.location.reload(true);
+            }
+        };
+        esperarModalYRecargar();
+    }, 1000);
+}
+
+// --- CHEQUEO DE VERSIÓN CONTRA EL BACKEND (polling) ---
+// Señal confiable e independiente del Service Worker: el SW solo detecta
+// cambios si sw.js mismo cambia de bytes, lo cual casi nunca pasa entre
+// deploys normales (solo cambian los ?v= de los módulos JS). Este polling
+// compara la versión del backend activo (RENDER_GIT_COMMIT, ver
+// /api/version) contra la que tenía el navegador al cargar la página.
+(function verificarVersionApp() {
+    const INTERVALO_MS = 3 * 60 * 1000; // 3 minutos
+    let versionInicial = null;
+
+    async function obtenerVersion() {
+        try {
+            const res = await fetch('/api/version', { cache: 'no-store' });
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.version || null;
+        } catch (e) {
+            return null;
         }
     }
+
+    async function chequear() {
+        const actual = await obtenerVersion();
+        if (!actual) return;
+        if (versionInicial === null) {
+            versionInicial = actual;
+            return;
+        }
+        if (actual !== versionInicial) {
+            console.log(`🆕 Versión de backend cambió (${versionInicial} → ${actual})`);
+            forzarActualizacionFritech(45);
+        }
+    }
+
+    chequear();
+    setInterval(chequear, INTERVALO_MS);
+})();
+
+// --- REGISTRO DEL SERVICE WORKER (PWA) ---
+if ('serviceWorker' in navigator) {
 
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
@@ -45,7 +125,7 @@ if ('serviceWorker' in navigator) {
 
                 // Caso 1: ya había un Service Worker nuevo instalado antes de este registro
                 if (registration.waiting) {
-                    mostrarBannerActualizacionPWA();
+                    forzarActualizacionFritech(45);
                 }
 
                 // Caso 2: se detecta una actualización mientras la app sigue abierta
@@ -56,8 +136,8 @@ if ('serviceWorker' in navigator) {
                     nuevoWorker.addEventListener('statechange', () => {
                         // 'installed' + ya existe un controller = es una actualización real (no la primera instalación)
                         if (nuevoWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            console.log('🆕 Nueva versión de FRITECH instalada, esperando confirmación del usuario.');
-                            mostrarBannerActualizacionPWA();
+                            console.log('🆕 Nueva versión de FRITECH instalada.');
+                            forzarActualizacionFritech(45);
                         }
                     });
                 });

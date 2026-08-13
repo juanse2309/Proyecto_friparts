@@ -5,6 +5,7 @@ from flask_compress import Compress
 from datetime import datetime
 import pytz
 import os
+import time
 from dotenv import load_dotenv
 load_dotenv()
 import logging
@@ -238,6 +239,20 @@ def serve_manifest():
     from flask import send_from_directory
     root_path = os.path.join(app.root_path, '..')
     return send_from_directory(root_path, 'manifest.json', mimetype='application/manifest+json')
+
+
+# --- VERSION DEL DEPLOY ACTIVO ---
+# RENDER_GIT_COMMIT la puebla Render automaticamente en cada deploy (no hay
+# que mantenerla a mano). En local, sin esa env var, cae a la hora de arranque
+# del proceso -- sirve igual para que el frontend note un reinicio del server.
+_APP_VERSION = os.environ.get('RENDER_GIT_COMMIT', f"local-{int(time.time())}")[:12]
+
+@app.route('/api/version')
+def obtener_version_app():
+    """Version del deploy activo -- el frontend hace polling de esto para
+    avisar/forzar recarga cuando detecta que corre codigo viejo contra un
+    backend ya actualizado (ver verificarVersionApp en app.js)."""
+    return jsonify({"version": _APP_VERSION})
 
 # --- RUTA DE DEBUG INICIAL ---
 @app.route('/')

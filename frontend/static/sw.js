@@ -1,6 +1,5 @@
-const CACHE_NAME = 'friparts-cache-v2';
+const CACHE_NAME = 'friparts-cache-v3';
 const STATIC_ASSETS = [
-    '/',
     '/static/css/styles.css',
     '/static/js/app.js'
 ];
@@ -56,7 +55,23 @@ self.addEventListener('fetch', event => {
                     return caches.match(request); // Retorna caché si existe
                 })
         );
-    } 
+    }
+    // Estrategia: Network-First para navegaciones (document HTML, incluida '/').
+    // Cache-first aqui era el bug real: index.html quedaba servido desde cache
+    // indefinidamente (CACHE_NAME no sube en cada deploy), asi que ni cerrando
+    // y reabriendo el navegador se cargaban las referencias <script v=...>
+    // nuevas. La cache solo se usa como fallback offline.
+    else if (request.mode === 'navigate') {
+        event.respondWith(
+            fetch(request)
+                .then(response => {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+                    return response;
+                })
+                .catch(() => caches.match(request))
+        );
+    }
     // Estrategia: Cache-First para recursos estáticos
     else {
         event.respondWith(
