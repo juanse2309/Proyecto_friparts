@@ -96,6 +96,72 @@ window.ModuloDashboard = (function () {
         errBanner.style.display = 'block';
     }
 
+    // --- Overlay de error puntual sobre un <canvas> de Chart.js que falló al renderizar ---
+    function mostrarErrorEnCanvas(canvasEl, mensaje = 'No se pudo renderizar el gráfico.') {
+        if (!canvasEl || !canvasEl.parentElement) return;
+        const parent = canvasEl.parentElement;
+        let errDiv = parent.querySelector('.chart-error-overlay');
+        if (!errDiv) {
+            errDiv = document.createElement('div');
+            errDiv.className = 'chart-error-overlay text-center text-danger small py-3';
+            parent.appendChild(errDiv);
+        }
+        errDiv.innerHTML = `<i class="fas fa-triangle-exclamation me-1"></i>${mensaje}`;
+    }
+
+    function limpiarErrorEnCanvas(canvasEl) {
+        if (!canvasEl || !canvasEl.parentElement) return;
+        canvasEl.parentElement.querySelector('.chart-error-overlay')?.remove();
+    }
+
+    // --- e8 auditoría: aviso pasivo si algún agente WO (cartera/clientes/comercial)
+    // lleva demasiado tiempo sin reportar una sincronización exitosa. Los agentes
+    // corren desatendidos cada 15 min en la máquina de planta -- más de 24h sin
+    // éxito es señal de un fallo persistente (SQL Server caído, token vencido, etc.)
+    // que de otro modo nadie notaría hasta que alguien preguntara por qué los datos
+    // están desactualizados. Mismo umbral que la advertencia de antigüedad del stock WO.
+    const UMBRAL_SYNC_STALE_HORAS = 24;
+
+    async function verificarEstadoSincronizacionesWO() {
+        try {
+            const res = await fetch('/api/wo/estado_sincronizaciones', {
+                headers: construirAuthHeaders({ 'Accept': 'application/json' }),
+                credentials: 'include'
+            });
+            if (!res.ok) return; // silencioso: sin permisos o error puntual, no es crítico mostrarlo
+            const data = await res.json();
+            if (!data.success) return;
+
+            const NOMBRES = { cartera: 'Cartera', clientes: 'Clientes', comercial: 'Ventas/Pedidos' };
+            const stale = Object.entries(NOMBRES)
+                .filter(([clave]) => {
+                    const info = data[clave];
+                    return !info || info.antiguedad_horas === null || info.antiguedad_horas > UMBRAL_SYNC_STALE_HORAS;
+                })
+                .map(([clave, nombre]) => {
+                    const horas = data[clave]?.antiguedad_horas;
+                    return horas == null ? `${nombre} (sin registro)` : `${nombre} (hace ${Math.round(horas)}h)`;
+                });
+
+            let banner = document.getElementById('dashboard-sync-stale-banner');
+            if (stale.length === 0) {
+                if (banner) banner.remove();
+                return;
+            }
+
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'dashboard-sync-stale-banner';
+                banner.className = 'alert alert-warning mx-3 mt-3 shadow-sm';
+                const container = document.querySelector('.main-content .container-fluid') || document.body;
+                container.prepend(banner);
+            }
+            banner.innerHTML = `<i class="fas fa-plug-circle-exclamation me-2"></i> <strong>Agentes de sincronización desactualizados:</strong> ${stale.join(', ')}. Verifica el agente en la máquina de planta.`;
+        } catch (e) {
+            console.warn('[Dashboard] No se pudo verificar el estado de sincronizaciones WO:', e);
+        }
+    }
+
     function construirAuthHeaders(extraHeaders = {}) {
         const pwaToken = localStorage.getItem('pwa_token');
         const headers = { ...extraHeaders };
@@ -157,6 +223,8 @@ window.ModuloDashboard = (function () {
             }
 
             if (isAdminOrManagement) {
+                verificarEstadoSincronizacionesWO(); // fire-and-forget: no bloquea el render principal del dashboard
+
                 const adminParams = new URLSearchParams();
                 if (desde) adminParams.append('start', desde);
                 if (hasta) adminParams.append('end', hasta);
@@ -806,7 +874,7 @@ window.ModuloDashboard = (function () {
                     </div>
                     <div id="modalDrilldownContent" class="d-none">
                       <div class="table-responsive">
-                        <table class="table table-hover table-bordered table-sm align-middle mb-0 text-dark" style="font-size: 0.84rem; background-color: #ffffff; border-color: #cbd5e1;">
+                        <table class="table table-hover table-bordered table-sm align-middle mb-0 text-dark responsive-mobile" style="font-size: 0.84rem; background-color: #ffffff; border-color: #cbd5e1;">
                           <thead class="table-dark text-uppercase small align-middle" style="background-color: #1e293b; color: #ffffff;">
                             <tr>
                               <th class="text-white fw-bold py-2">OP</th>
@@ -877,14 +945,14 @@ window.ModuloDashboard = (function () {
 
                     htmlTbody += `
                     <tr>
-                      <td class="fw-bold text-dark font-monospace">${f.orden_produccion}</td>
-                      <td><span class="badge bg-primary text-white px-2 py-1">${f.maquina}</span></td>
-                      <td class="fw-bold text-primary font-monospace">${f.id_codigo}</td>
-                      <td class="text-dark fw-medium text-truncate" style="max-width: 220px;" title="${f.descripcion}">${f.descripcion}</td>
-                      <td class="text-dark fw-semibold">${f.operario}</td>
-                      <td class="text-end fw-bold text-success fs-6">${f.buenas.toLocaleString()}</td>
-                      <td class="text-end fw-bold ${f.malas > 0 ? 'text-danger fs-6' : 'text-secondary'}">${f.malas.toLocaleString()}</td>
-                      <td class="text-center fw-bold text-dark">${cavidades}</td>
+                      <td class="fw-bold text-dark font-monospace" data-label="OP">${f.orden_produccion}</td>
+                      <td data-label="Máquina"><span class="badge bg-primary text-white px-2 py-1">${f.maquina}</span></td>
+                      <td class="fw-bold text-primary font-monospace" data-label="Referencia">${f.id_codigo}</td>
+                      <td class="text-dark fw-medium text-truncate" style="max-width: 220px;" title="${f.descripcion}" data-label="Descripción">${f.descripcion}</td>
+                      <td class="text-dark fw-semibold" data-label="Operario">${f.operario}</td>
+                      <td class="text-end fw-bold text-success fs-6" data-label="Buenas (Pz)">${f.buenas.toLocaleString()}</td>
+                      <td class="text-end fw-bold ${f.malas > 0 ? 'text-danger fs-6' : 'text-secondary'}" data-label="Malas / PNC">${f.malas.toLocaleString()}</td>
+                      <td class="text-center fw-bold text-dark" data-label="Cavidades">${cavidades}</td>
                     </tr>`;
                 });
             }
@@ -1478,7 +1546,7 @@ window.ModuloDashboard = (function () {
                 
                 container.innerHTML = `
                     <div class="table-responsive">
-                        <table class="table table-hover table-sm align-middle mb-0">
+                        <table class="table table-hover table-sm align-middle mb-0 responsive-mobile">
                             <thead class="table-light">
                                 <tr>
                                     <th>Código</th>
@@ -1491,11 +1559,11 @@ window.ModuloDashboard = (function () {
                             <tbody>
                                 ${prods.map(p => `
                                     <tr>
-                                        <td><span class="fw-bold text-dark">${p.codigo}</span></td>
-                                        <td><span class="text-muted small">${p.descripcion}</span></td>
-                                        <td class="text-end fw-bold text-primary">${(p.ventas_periodo || 0).toLocaleString()} Pz</td>
-                                        <td class="text-end fw-semibold text-dark">${(p.stock !== undefined && p.stock !== null ? p.stock : p.stock_terminado || 0).toLocaleString()} Pz</td>
-                                        <td class="text-end"><span class="badge ${p.ventas_periodo === 0 ? 'bg-danger' : 'bg-warning text-dark'}"><i class="fas fa-exclamation-triangle me-1"></i> ${p.ventas_periodo === 0 ? 'Sin Ventas (12m)' : `Baja Rotación (<= ${data.data.max_ventas_aplicado} Pz)`}</span></td>
+                                        <td data-label="Código"><span class="fw-bold text-dark">${p.codigo}</span></td>
+                                        <td data-label="Descripción"><span class="text-muted small">${p.descripcion}</span></td>
+                                        <td class="text-end fw-bold text-primary" data-label="Ventas 12m">${(p.ventas_periodo || 0).toLocaleString()} Pz</td>
+                                        <td class="text-end fw-semibold text-dark" data-label="Stock P. Terminado (WO)">${(p.stock !== undefined && p.stock !== null ? p.stock : p.stock_terminado || 0).toLocaleString()} Pz</td>
+                                        <td class="text-end" data-label="Estado Movimiento"><span class="badge ${p.ventas_periodo === 0 ? 'bg-danger' : 'bg-warning text-dark'}"><i class="fas fa-exclamation-triangle me-1"></i> ${p.ventas_periodo === 0 ? 'Sin Ventas (12m)' : `Baja Rotación (<= ${data.data.max_ventas_aplicado} Pz)`}</span></td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -2272,10 +2340,10 @@ window.ModuloDashboard = (function () {
                     totalMinutos += f.duracion_minutos;
                     return `
                     <tr>
-                        <td class="text-start fw-medium"><i class="fas fa-cube text-muted me-1"></i> ${f.id_codigo}</td>
-                        <td class="text-center">${f.cavidades}</td>
-                        <td class="text-center"><span class="badge bg-success text-white">${f.unidades_buenas.toLocaleString()}</span></td>
-                        <td class="text-end text-muted small">${f.fecha}</td>
+                        <td class="text-start fw-medium" data-label="Referencia"><i class="fas fa-cube text-muted me-1"></i> ${f.id_codigo}</td>
+                        <td class="text-center" data-label="Cavidades">${f.cavidades}</td>
+                        <td class="text-center" data-label="Buenas"><span class="badge bg-success text-white">${f.unidades_buenas.toLocaleString()}</span></td>
+                        <td class="text-end text-muted small" data-label="Fecha">${f.fecha}</td>
                     </tr>
                     `;
                 }).join('');
@@ -2298,7 +2366,7 @@ window.ModuloDashboard = (function () {
                         </div>
                     </div>
                     <div class="table-responsive" style="max-height: 320px;">
-                        <table class="table table-hover align-middle small mb-0" style="width: 100% !important; min-width: 100% !important; table-layout: fixed;">
+                        <table class="table table-hover align-middle small mb-0 responsive-mobile" style="width: 100% !important; min-width: 100% !important; table-layout: fixed;">
                             <thead class="bg-light sticky-top">
                                 <tr>
                                     <th class="text-start">Referencia</th>
@@ -2375,6 +2443,7 @@ window.ModuloDashboard = (function () {
     function renderChartMensual(datosMensuales, mode = 'money') {
         const ctx = document.getElementById('chartMensual');
         if (!ctx || !Array.isArray(datosMensuales) || datosMensuales.length === 0) return;
+        limpiarErrorEnCanvas(ctx);
 
         try {
             let datosFiltrados = datosMensuales;
@@ -2565,6 +2634,7 @@ window.ModuloDashboard = (function () {
             });
         } catch (e) {
             console.error("Error renderizando chartMensual:", e);
+            mostrarErrorEnCanvas(ctx, 'No se pudo renderizar el gráfico mensual. Intenta recargar la página.');
         }
     }
 
@@ -2809,6 +2879,7 @@ window.ModuloDashboard = (function () {
     function renderChartRendimientoMensualNew(datosMensuales, mode = 'money', highlightIndex = -1) {
         const ctx = document.getElementById('chartRendimientoMensualNew');
         if (!ctx || !Array.isArray(datosMensuales) || datosMensuales.length === 0) return;
+        limpiarErrorEnCanvas(ctx);
 
         try {
             const labels = datosMensuales.map(d => d.mes);
@@ -2934,6 +3005,7 @@ window.ModuloDashboard = (function () {
             });
         } catch (e) {
             console.error("Error renderizando chartRendimientoMensualNew:", e);
+            mostrarErrorEnCanvas(ctx, 'No se pudo renderizar el gráfico de rendimiento. Intenta recargar la página.');
         }
     }
 
@@ -3213,6 +3285,7 @@ window.ModuloDashboard = (function () {
     function renderChartTopMejores(arr, mode = 'money') {
         const ctx = document.getElementById('chartTopMejores');
         if (!ctx || !Array.isArray(arr) || arr.length === 0) return;
+        limpiarErrorEnCanvas(ctx);
 
         try {
             const isMoney = mode === 'money';
@@ -3277,11 +3350,13 @@ window.ModuloDashboard = (function () {
             suscribirClickNativoCanvas('chartTopMejores');
         } catch (e) {
             console.error("Error renderizando chartTopMejores:", e);
+            mostrarErrorEnCanvas(ctx, 'No se pudo renderizar el ranking de mejores productos.');
         }
     }
     function renderChartTopPeores(arr, mode = 'money') {
         const ctx = document.getElementById('chartTopPeores');
         if (!ctx || !Array.isArray(arr) || arr.length === 0) return;
+        limpiarErrorEnCanvas(ctx);
 
         try {
             const isMoney = mode === 'money';
@@ -3345,6 +3420,7 @@ window.ModuloDashboard = (function () {
             suscribirClickNativoCanvas('chartTopPeores');
         } catch (e) {
             console.error("Error renderizando chartTopPeores:", e);
+            mostrarErrorEnCanvas(ctx, 'No se pudo renderizar el ranking de peores productos.');
         }
     }
 
@@ -3456,14 +3532,14 @@ window.ModuloDashboard = (function () {
 
                 rowsHtml += `
                     <tr style="background-color: ${rowBg}; border-bottom: 1px solid #f1f5f9;">
-                        <td class="text-start ps-3 py-3" style="font-size: 0.85rem; width: 42%;">
+                        <td class="text-start ps-3 py-3" style="font-size: 0.85rem; width: 42%;" data-label="Referencia / Producto">
                             <div class="fw-bold text-slate-800">${item.referencia || '-'}</div>
                             <div class="text-muted small" style="font-size: 0.7rem;">${item.descripcion || ''}</div>
                         </td>
-                        <td class="text-end pe-3 py-3 text-muted" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.pedidos)}</td>
-                        <td class="text-end pe-3 py-3 text-primary" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;">${formatNumber(item.ventas)}</td>
-                        <td class="text-end pe-3 py-3 text-danger fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.04);">${formatNumber(item.pendiente)}</td>
-                        <td class="text-end pe-4 py-3 text-success fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace;">${formatCOP(item.impacto)}</td>
+                        <td class="text-end pe-3 py-3 text-muted" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;" data-label="Pedido">${formatNumber(item.pedidos)}</td>
+                        <td class="text-end pe-3 py-3 text-primary" style="font-size: 0.9rem; font-family: 'JetBrains Mono', monospace;" data-label="Facturado">${formatNumber(item.ventas)}</td>
+                        <td class="text-end pe-3 py-3 text-danger fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace; background-color: rgba(239, 68, 68, 0.04);" data-label="Faltante">${formatNumber(item.pendiente)}</td>
+                        <td class="text-end pe-4 py-3 text-success fw-bold" style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace;" data-label="Impacto ($)">${formatCOP(item.impacto)}</td>
                     </tr>
                     `;
             });
@@ -3472,7 +3548,7 @@ window.ModuloDashboard = (function () {
                 title: `<div class="mb-1"><i class="fas fa-history text-danger fs-3"></i></div><div style="font-size:1.25rem; font-weight:800; color: #1e293b;">KPI: Análisis Comercial Detallado</div><div class="text-muted small fw-normal">${decodedCliente}</div>`,
                 html: `
                     <div class="table-responsive border rounded-3" style="max-height: 520px; overflow-y: auto; position: relative;">
-                        <table class="table table-sm table-hover align-middle mb-0" style="min-width: 900px; border-collapse: separate; border-spacing: 0;">
+                        <table class="table table-sm table-hover align-middle mb-0 responsive-mobile" style="min-width: 900px; border-collapse: separate; border-spacing: 0;">
                             <thead style="position: sticky; top: 0; z-index: 20; background-color: #1e293b; color: #f8fafc;">
                                 <tr>
                                     <th class="text-start ps-3 py-3" style="font-size:0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: none;">REFERENCIA / PRODUCTO</th>
@@ -3691,6 +3767,7 @@ window.ModuloDashboard = (function () {
     function renderChartMonthlyPerformance(data, containerId = 'chartMensual') {
         const ctx = document.getElementById(containerId);
         if (!ctx || !data || !Array.isArray(data.mensual) || data.mensual.length === 0) return;
+        limpiarErrorEnCanvas(ctx);
 
         try {
             let mensualFiltrado = data.mensual;
@@ -3868,6 +3945,7 @@ window.ModuloDashboard = (function () {
             });
         } catch (e) {
             console.error(`[renderChartMonthlyPerformance] Error en canvas '${containerId}':`, e);
+            mostrarErrorEnCanvas(ctx, 'No se pudo renderizar el gráfico comparativo anual.');
         }
     }
 
@@ -3939,9 +4017,24 @@ window.ModuloDashboard = (function () {
                         timer: 3000,
                         showConfirmButton: false
                     });
+                } else {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'No se pudo solicitar la sincronización',
+                        text: `El servidor respondió con un error (HTTP ${response.status}). Los datos mostrados no se actualizarán.`,
+                        timer: 4000,
+                        showConfirmButton: false
+                    });
                 }
             } catch (error) {
                 console.error("Error al solicitar sincronización:", error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Fallo de conexión',
+                    text: 'No se pudo contactar al servidor para solicitar la sincronización.',
+                    timer: 4000,
+                    showConfirmButton: false
+                });
             }
             // Ejecutamos también la recarga visual del Dashboard
             cargarDatos(true);
