@@ -523,6 +523,7 @@ const ModuloPulido = {
             return;
         }
 
+        mostrarLoading(true, 'Cambiando de tarea...');
         try {
             // Ejecutar el SWAP (Pausa automática de lo actual y activación de lo nuevo)
             const res = await fetch('/api/pulido/swap_task', {
@@ -531,14 +532,19 @@ const ModuloPulido = {
                 body: JSON.stringify({ responsable, id_pulido: idReal })
             });
             const data = await res.json();
-            
+
             if (data.success) {
                 // Rehidratar UI con la nueva tarea activa de forma instantánea
                 // Pasamos el ID real como String para evitar [object Object]
                 this.verificarTrabajoActivo(idReal);
+            } else {
+                Swal.fire('No se pudo cambiar de tarea', data.error || 'El servidor rechazó el cambio.', 'error');
             }
         } catch (e) {
             console.error("[Pulido] Error en el intercambio de tareas:", e);
+            Swal.fire('Error de conexión', 'No se pudo comunicar con el servidor para cambiar de tarea.', 'error');
+        } finally {
+            mostrarLoading(false);
         }
     },
 
@@ -731,45 +737,62 @@ const ModuloPulido = {
             hour: '2-digit',
             minute: '2-digit'
         });
+        const estabaEnPausa = this.enPausa;
 
-        if (!this.enPausa) {
-            console.log(`⏸️ [Pulido] Pausando a las ${horaPausa}...`);
+        mostrarLoading(true, estabaEnPausa ? 'Reanudando...' : 'Pausando...');
+        try {
+            if (!this.enPausa) {
+                console.log(`⏸️ [Pulido] Pausando a las ${horaPausa}...`);
 
-            // 2. Ejecutar la pausa en el servidor
-            const res = await fetch('/api/pulido/pausar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id_pulido: this.sessionId,
-                    hora_pausa: horaPausa
-                })
-            });
-            if (res.ok) {
-                this.enPausa = true;
-                btn.innerHTML = '<i class="fas fa-play me-2"></i> Reanudar';
-                btn.className = 'btn btn-info btn-lg p-3 shadow';
-                document.getElementById('pulido-pausa-msg').style.display = 'block';
+                // 2. Ejecutar la pausa en el servidor
+                const res = await fetch('/api/pulido/pausar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id_pulido: this.sessionId,
+                        hora_pausa: horaPausa
+                    })
+                });
+                if (res.ok) {
+                    this.enPausa = true;
+                    btn.innerHTML = '<i class="fas fa-play me-2"></i> Reanudar';
+                    btn.className = 'btn btn-info btn-lg p-3 shadow';
+                    document.getElementById('pulido-pausa-msg').style.display = 'block';
+                } else {
+                    throw new Error(`El servidor respondió ${res.status}`);
+                }
+            } else {
+                console.log(`▶️ [Pulido] Reanudando a las ${horaPausa}...`);
+                const res = await fetch('/api/pulido/reanudar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id_pulido: this.sessionId,
+                        hora_reanudar: horaPausa
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.enPausa = false;
+                    this.totalPausaMs = (data.acumulado || 0) * 1000;
+                    btn.innerHTML = '<i class="fas fa-pause me-2"></i> Pausar';
+                    btn.className = 'btn btn-warning btn-lg p-3 shadow';
+                    document.getElementById('pulido-pausa-msg').style.display = 'none';
+                } else {
+                    throw new Error(data.error || `El servidor respondió ${res.status}`);
+                }
             }
-        } else {
-            console.log(`▶️ [Pulido] Reanudando a las ${horaPausa}...`);
-            const res = await fetch('/api/pulido/reanudar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id_pulido: this.sessionId,
-                    hora_reanudar: horaPausa
-                })
+            this.guardarEstadoLocal();
+        } catch (error) {
+            console.error('❌ [Pulido] Error en pausarCiclo:', error);
+            Swal.fire({
+                icon: 'error',
+                title: estabaEnPausa ? 'No se pudo reanudar' : 'No se pudo pausar',
+                text: 'No se pudo comunicar con el servidor. El botón sigue mostrando el estado anterior porque el cambio no quedó confirmado -- verifica tu conexión e intenta de nuevo.'
             });
-            const data = await res.json();
-            if (data.success) {
-                this.enPausa = false;
-                this.totalPausaMs = (data.acumulado || 0) * 1000;
-                btn.innerHTML = '<i class="fas fa-pause me-2"></i> Pausar';
-                btn.className = 'btn btn-warning btn-lg p-3 shadow';
-                document.getElementById('pulido-pausa-msg').style.display = 'none';
-            }
+        } finally {
+            mostrarLoading(false);
         }
-        this.guardarEstadoLocal();
     },
 
     /**
@@ -908,6 +931,7 @@ const ModuloPulido = {
         const s = this.sesionesEnPausa[index];
         const responsable = document.getElementById('responsable-pulido-input')?.value;
 
+        mostrarLoading(true, 'Retomando trabajo...');
         try {
             // Ejecutar el SWAP (Pausa automática de lo actual y activación de lo nuevo)
             const res = await fetch('/api/pulido/swap_task', {
@@ -916,14 +940,19 @@ const ModuloPulido = {
                 body: JSON.stringify({ responsable, id_pulido: s.sessionId })
             });
             const data = await res.json();
-            
+
             if (data.success) {
                 // Quitar de la cola local y rehidratar UI
                 this.sesionesEnPausa.splice(index, 1);
                 this.verificarTrabajoActivo(s.sessionId);
+            } else {
+                Swal.fire('No se pudo retomar', data.error || 'El servidor rechazó el cambio.', 'error');
             }
         } catch (e) {
             console.error("[Pulido] Error en el intercambio de tareas:", e);
+            Swal.fire('Error de conexión', 'No se pudo comunicar con el servidor para retomar el trabajo.', 'error');
+        } finally {
+            mostrarLoading(false);
         }
     },
 
