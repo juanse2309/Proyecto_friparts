@@ -70,7 +70,7 @@ def importar_inventario_fisico():
         file_path = 'Existencias 20260528.csv'
         if not os.path.exists(file_path):
             db.session.rollback()
-            return jsonify({"status": "error", "message": f"Archivo maestro no encontrado en raíz: {file_path}"}), 404
+            return jsonify({"status": "error", "success": False, "message": f"Archivo maestro no encontrado en raíz: {file_path}"}), 404
             
         omitidos_no_encontrados = []
         total_exitosos = 0
@@ -82,7 +82,7 @@ def importar_inventario_fisico():
 
         if not lineas_limpias:
             db.session.rollback()
-            return jsonify({"status": "error", "message": "El archivo CSV está vacío o es ilegible"}), 400
+            return jsonify({"status": "error", "success": False, "message": "El archivo CSV está vacío o es ilegible"}), 400
 
         primer_linea = lineas_limpias[0]
         delimitador = ';' if primer_linea.count(';') > primer_linea.count(',') else ','
@@ -159,7 +159,7 @@ def importar_inventario_fisico():
         db.session.commit()
         
         return jsonify({
-            "status": "success",
+            "status": "success", "success": True,
             "productos_actualizados": total_exitosos,
             "total_omitidos": len(omitidos_no_encontrados),
             "lista_omitidos": omitidos_no_encontrados
@@ -168,6 +168,6 @@ def importar_inventario_fisico():
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Fallo crítico en carga masiva de inventario físico: {e}\n{traceback.format_exc()}")
-        return jsonify({"status": "error", "message": "Fallo en la transacción. Se ha hecho rollback de seguridad.", "detalle": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": "Fallo en la transacción. Se ha hecho rollback de seguridad.", "detalle": str(e)}), 500
 
 

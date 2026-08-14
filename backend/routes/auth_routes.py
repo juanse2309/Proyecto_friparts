@@ -59,10 +59,10 @@ def get_metals_responsables():
     """Obtiene lista de responsables de Metales."""
     try:
         resultado = AuthService.obtener_responsables_metals()
-        return jsonify({'status': 'success', 'data': resultado})
+        return jsonify({'status': 'success', 'success': True, 'data': resultado})
     except Exception as e:
         logger.error(f"Error fetching metals responsables SQL: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible obtener los responsables de Metales.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible obtener los responsables de Metales.'}), 500
 
 
 @auth_bp.route('/api/auth/metals/login', methods=['POST'])

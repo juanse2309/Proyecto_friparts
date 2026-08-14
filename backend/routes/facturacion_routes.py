@@ -282,9 +282,9 @@ def handle_facturacion():
     data = request.get_json()
     try:
         resultado = FacturacionService.registrar(data)
-        return jsonify({"status": "success", "message": resultado['mensaje']}), 200
+        return jsonify({"status": "success", "success": True, "message": resultado['mensaje']}), 200
     except FacturacionDatosInvalidosException as e:
-        return jsonify({"status": "error", "message": e.message}), 400
+        return jsonify({"status": "error", "success": False, "message": e.message}), 400
     except Exception as e:
         logger.error(f"ERROR en facturacion: {type(e).__name__}: {str(e)}")
-        return jsonify({"status": "error", "message": "Error interno al registrar la operación de facturación."}), 500
+        return jsonify({"status": "error", "success": False, "message": "Error interno al registrar la operación de facturación."}), 500

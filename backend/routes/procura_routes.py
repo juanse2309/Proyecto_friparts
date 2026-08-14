@@ -58,10 +58,10 @@ def listar_parametros():
                 "existencia_minima": float(r.stock_minimo or 0),
                 "existencia_ideal": float(r.stock_maximo or 0)
             })
-        return jsonify({"status": "success", "data": productos}), 200
+        return jsonify({"status": "success", "success": True, "data": productos}), 200
     except Exception as e:
         logger.error(f"Error listando parámetros SQL: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
 
 
 @procura_bp.route('/listar_proveedores', methods=['GET'])
@@ -84,10 +84,10 @@ def listar_proveedores():
                 "forma_pago": r.forma_de_pago,
                 "evaluacion": r.ultima_evaluacion
             })
-        return jsonify({"status": "success", "data": proveedores}), 200
+        return jsonify({"status": "success", "success": True, "data": proveedores}), 200
     except Exception as e:
         logger.error(f"Error listando proveedores SQL: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
 
 
 @procura_bp.route('/registrar_oc', methods=['POST'])
@@ -208,10 +208,10 @@ def alertas_abastecimiento():
                     "semaforo": "ROJO" if stock == 0 else "AMARILLO"
                 })
         alertas.sort(key=lambda x: x["diferencia"], reverse=True)
-        return jsonify({"status": "success", "total_alertas": len(alertas), "data": alertas}), 200
+        return jsonify({"status": "success", "success": True, "total_alertas": len(alertas), "data": alertas}), 200
     except Exception as e:
         logger.error(f"Error alertas SQL: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
 
 @procura_bp.route('/rotacion/prioridades', methods=['GET'])
 @cached_route(namespace='procura', ttl=600)
@@ -343,17 +343,17 @@ def rotacion_prioridades():
         
         logger.debug(f"[CONTEO DE MOTOR ABC] Universo procesado: {len(resultado)} productos. Limpios={total_limpios} Armados={total_armados}")
 
-        return jsonify({"status": "success", "data": resultado}), 200
+        return jsonify({"status": "success", "success": True, "data": resultado}), 200
     except Exception as e:
         logger.error(f"Error rotacion SQL: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
 
 @procura_bp.route('/recibir_ingreso', methods=['POST'])
 def recibir_ingreso():
     try:
         data = request.json
         if not data or not isinstance(data, list):
-            return jsonify({"status": "error", "message": "Payload inválido, se esperaba una lista de componentes."}), 400
+            return jsonify({"status": "error", "success": False, "message": "Payload inválido, se esperaba una lista de componentes."}), 400
             
         for item in data:
             id_orden = item.get('id_orden')
@@ -387,9 +387,9 @@ def recibir_ingreso():
                     
         db.session.commit()
         invalidate_cache('procura')
-        return jsonify({"status": "success", "message": "Ingreso registrado correctamente y stock actualizado."}), 200
+        return jsonify({"status": "success", "success": True, "message": "Ingreso registrado correctamente y stock actualizado."}), 200
         
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error en recibir_ingreso: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500

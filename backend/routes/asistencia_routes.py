@@ -165,14 +165,14 @@ def obtener_colaboradores():
             })
 
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'count': len(colaboradores),
             'colaboradores': colaboradores
         }), 200
         
     except Exception as e:
         logger.error(f"Error en personal_a_cargo (SQL-RBAC): {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible obtener la lista de colaboradores.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible obtener la lista de colaboradores.'}), 500
 
 @asistencia_bp.route('/guardar', methods=['POST'])
 @asistencia_bp.route('/registrar_masivo', methods=['POST'])
@@ -184,7 +184,7 @@ def guardar_asistencia():
     try:
         data = request.json
         if not data or 'registros' not in data:
-            return jsonify({'status': 'error', 'message': 'Datos inválidos o vacíos'}), 400
+            return jsonify({'status': 'error', 'success': False, 'message': 'Datos inválidos o vacíos'}), 400
 
         registros_recibidos = data['registros']
         usuario_registra = user
@@ -260,14 +260,14 @@ def guardar_asistencia():
         logger.info(f"💾 SQL: {conteo} registros de asistencia procesados exitosamente por usuario '{usuario_registra}'.")
         
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'message': f'Se procesaron {conteo} registros en SQL correctamente.'
         }), 200
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error guardando asistencia masiva: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible guardar los registros de asistencia.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible guardar los registros de asistencia.'}), 500
 
 @asistencia_bp.route('/guardar_ausencia', methods=['POST'])
 @require_role(ROL_ADMINS + ROL_JEFES)
@@ -278,7 +278,7 @@ def guardar_ausencia():
     try:
         data = request.json
         if not data or 'registro' not in data:
-            return jsonify({'status': 'error', 'message': 'Datos inválidos'}), 400
+            return jsonify({'status': 'error', 'success': False, 'message': 'Datos inválidos'}), 400
 
         reg = data['registro']
         from backend.models.sql_models import RegistroAsistencia
@@ -301,19 +301,19 @@ def guardar_ausencia():
         db.session.add(nueva_ausencia)
         db.session.commit()
 
-        return jsonify({'status': 'success', 'message': 'Ausencia registrada correctamente en SQL'}), 200
+        return jsonify({'status': 'success', 'success': True, 'message': 'Ausencia registrada correctamente en SQL'}), 200
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error guardando ausencia: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible guardar la ausencia.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible guardar la ausencia.'}), 500
 
 @asistencia_bp.route('/mis_horas', methods=['GET'])
 def obtener_mis_horas():
     """Obtiene el historial de asistencia del usuario logueado usando SQL crudo con blindaje total."""
     user, role = obtener_identidad_segura(request)
     if not user:
-        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+        return jsonify({'status': 'error', 'success': False, 'message': 'No autorizado'}), 401
 
     try:
         from sqlalchemy import text
@@ -370,7 +370,7 @@ def obtener_mis_horas():
             })
         
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'registros': mis_registros,
             'rol': user_role
         }), 200
@@ -380,7 +380,7 @@ def obtener_mis_horas():
         logging.error(f"FALLO CRÍTICO en obtener_mis_horas: {e}")
         # Blindaje: Devolver lista vacía para no romper el frontend
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'registros': [],
             'error_info': str(e)
         }), 200
@@ -390,10 +390,10 @@ def obtener_registros_dia():
     """Obtiene registros de una fecha específica desde SQL."""
     user, role = obtener_identidad_segura(request)
     if not user:
-        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+        return jsonify({'status': 'error', 'success': False, 'message': 'No autorizado'}), 401
 
     fecha = request.args.get('fecha')
-    if not fecha: return jsonify({'status': 'error', 'message': 'Fecha inválida'}), 400
+    if not fecha: return jsonify({'status': 'error', 'success': False, 'message': 'Fecha inválida'}), 400
         
     try:
         from backend.models.sql_models import RegistroAsistencia
@@ -408,10 +408,10 @@ def obtener_registros_dia():
                 'estado_pago': r.estado_pago
             })
         
-        return jsonify({'status': 'success', 'registros': res}), 200
+        return jsonify({'status': 'success', 'success': True, 'registros': res}), 200
     except Exception as e:
         logger.error(f"Error en obtener_registros_dia: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible obtener los registros del día.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible obtener los registros del día.'}), 500
 
 @asistencia_bp.route('/consolidado_pendiente', methods=['GET'])
 @require_role(ROL_ADMINS)
@@ -421,7 +421,7 @@ def obtener_consolidado_pendiente():
     user, role = obtener_identidad_segura(request)
     if not user:
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': 'Sesión inválida o nula. Debe autenticarse en el sistema.'
         }), 401
 
@@ -437,12 +437,12 @@ def obtener_consolidado_pendiente():
         if division == 'all':
             if not is_global_admin:
                 return jsonify({
-                    'status': 'error',
+                    'status': 'error', 'success': False,
                     'message': 'Acceso denegado: Se requiere rol administrativo global para consultar información consolidada unificada.'
                 }), 403
         elif division not in ('friparts', 'frimetals'):
             return jsonify({
-                'status': 'error',
+                'status': 'error', 'success': False,
                 'message': f'División inválida: {division!r}. Las opciones válidas son "friparts", "frimetals" o "all".'
             }), 400
 
@@ -455,7 +455,7 @@ def obtener_consolidado_pendiente():
         ultima_fecha_str = seguro_formatear_fecha(ultimo_corte.fecha_corte) if ultimo_corte else "Sin cortes previos"
 
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'ultima_fecha_corte': ultima_fecha_str,
             'fecha': ultima_fecha_str,
             'consolidado': consolidado_array,
@@ -466,7 +466,7 @@ def obtener_consolidado_pendiente():
     except Exception as e:
         logger.error(f"FALLO CRÍTICO CONSOLIDADO: {e}")
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': f'Error en el servidor al consolidar la nómina: {str(e)}',
             'consolidado': [],
             'detalle_diario': [],
@@ -483,7 +483,7 @@ def ejecutar_corte():
     user_name, role = obtener_identidad_segura(request)
     if not user_name:
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': 'Sesión inválida o nula. Debe autenticarse en el sistema.'
         }), 401
 
@@ -492,7 +492,7 @@ def ejecutar_corte():
         data = request.get_json(silent=True) or {}
     except Exception:
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': 'El cuerpo de la solicitud no es un JSON válido.'
         }), 400
 
@@ -505,19 +505,19 @@ def ejecutar_corte():
     if division == 'all':
         if not is_global_admin:
             return jsonify({
-                'status': 'error',
+                'status': 'error', 'success': False,
                 'message': 'Acceso denegado: Se requiere rol administrativo global para ejecutar cortes consolidados (ALL).'
             }), 403
     elif division not in ('friparts', 'frimetals'):
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': f'División inválida: {division!r}. Las opciones válidas son "friparts", "frimetals" o "all".'
         }), 400
 
     try:
         resultado = ejecutar_corte_db(division=division, usuario_auditoria=user_name)
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'periodo': (
                 f"{seguro_formatear_fecha(resultado['p_inicio'], '%d/%m')} "
                 f"a {seguro_formatear_fecha(resultado['p_fin'], '%d/%m')}"
@@ -526,11 +526,11 @@ def ejecutar_corte():
         }), 200
     except ValueError as e:
         # Sin datos pendientes
-        return jsonify({'status': 'error', 'message': str(e)}), 400
+        return jsonify({'status': 'error', 'success': False, 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error ejecución corte: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible ejecutar el corte de nómina.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible ejecutar el corte de nómina.'}), 500
 
 
 @asistencia_bp.route('/editar/<int:id>', methods=['PUT'])
@@ -539,21 +539,21 @@ def editar_asistencia(id):
     """Edita un registro existente de asistencia aplicando auditoría."""
     user, role = obtener_identidad_segura(request)
     if not user:
-        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
+        return jsonify({'status': 'error', 'success': False, 'message': 'No autorizado'}), 401
         
     from backend.services.nomina_service import actualizar_registro_asistencia
     
     try:
         data = request.get_json()
         if not data:
-            return jsonify({'status': 'error', 'message': 'Datos no proporcionados'}), 400
+            return jsonify({'status': 'error', 'success': False, 'message': 'Datos no proporcionados'}), 400
             
         ing_real = data.get('ingreso_real')
         sal_real = data.get('salida_real')
         motivo = data.get('motivo_edicion')
         
         if not motivo or not str(motivo).strip():
-            return jsonify({'status': 'error', 'message': 'El motivo de edición es obligatorio'}), 400
+            return jsonify({'status': 'error', 'success': False, 'message': 'El motivo de edición es obligatorio'}), 400
             
         usuario = user
         
@@ -566,13 +566,13 @@ def editar_asistencia(id):
         )
         
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'message': 'Registro actualizado exitosamente',
             'datos': resultado
         }), 200
         
     except ValueError as ve:
-        return jsonify({'status': 'error', 'message': str(ve)}), 400
+        return jsonify({'status': 'error', 'success': False, 'message': str(ve)}), 400
     except Exception as e:
         logger.error(f"Error al editar registro {id}: {e}")
-        return jsonify({'status': 'error', 'message': 'Error interno del servidor'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'Error interno del servidor'}), 500

@@ -34,7 +34,7 @@ def registrar_entrada():
         
         if not datos:
             return jsonify({
-                "status": "error",
+                "status": "error", "success": False,
                 "message": "No se recibieron datos"
             }), 400
         
@@ -46,7 +46,7 @@ def registrar_entrada():
     except Exception as e:
         logger.error(f"Error en entrada: {e}")
         return jsonify({
-            "status": "error",
+            "status": "error", "success": False,
             "message": "Error interno del servidor"
         }), 500
 
@@ -60,7 +60,7 @@ def registrar_salida():
         
         if not datos:
             return jsonify({
-                "status": "error",
+                "status": "error", "success": False,
                 "message": "No se recibieron datos"
             }), 400
         
@@ -72,7 +72,7 @@ def registrar_salida():
     except Exception as e:
         logger.error(f"Error en salida: {e}")
         return jsonify({
-            "status": "error",
+            "status": "error", "success": False,
             "message": "Error interno del servidor"
         }), 500
 
@@ -322,9 +322,9 @@ def invalidar_cache_endpoint():
     """Endpoint para forzar la invalidación del cache de productos."""
     try:
         InventarioService.invalidar_cache_productos()
-        return jsonify({'status': 'success', 'message': 'Cache de productos invalidado'}), 200
+        return jsonify({'status': 'success', 'success': True, 'message': 'Cache de productos invalidado'}), 200
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': str(e)}), 500
 
 
 @inventario_bp.route('/api/producto/historial/<codigo>', methods=['GET'])
@@ -333,10 +333,10 @@ def obtener_historial_producto(codigo):
     """Obtiene el historial de movimientos (Inyección + Pulido + Ventas) de un producto."""
     try:
         resultado = InventarioService.obtener_historial_producto(codigo)
-        return jsonify({'status': 'success', **resultado}), 200
+        return jsonify({'status': 'success', 'success': True, **resultado}), 200
     except Exception as e:
         logger.error(f"❌ Error en obtener_historial_producto SQL: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': str(e)}), 500
 
 
 @inventario_bp.route('/api/productos/buscar_alternativas/<interno>', methods=['GET'])

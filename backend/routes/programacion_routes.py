@@ -128,7 +128,7 @@ def mes_get_status_maquina(maquina):
         error_detail = traceback.format_exc()
         logger.error(f"Error en status_maquina: {e}\n{error_detail}")
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': str(e),
             'traceback': error_detail
         }), 500

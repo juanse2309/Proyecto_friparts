@@ -31,7 +31,7 @@ def obtener_dashboard():
         kpis = DashboardRepository.get_dashboard_kpis()
         
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'produccion': {'total': kpis.get('inyeccion_ok', 0) + kpis.get('pulido_ok', 0)},
             'ventas': {'total': kpis.get('ventas_totales', 0)},
             'stock_critico': [],
@@ -44,7 +44,7 @@ def obtener_dashboard():
         rollback_seguro()
         logger.error(f"Error en dashboard: {e}")
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': 'Error obteniendo datos'
         }), 500
 
@@ -140,8 +140,7 @@ def obtener_metricas_bi():
         # un fallo transitorio de DB ya no queda congelado en caché durante 10 minutos.
         # El detalle técnico queda en el log del servidor, no en la respuesta al cliente.
         return jsonify({
-            "status": "error",
-            "success": False,
+            "status": "error", "success": False,
             "error": "No fue posible calcular las métricas del dashboard.",
             "data": None
         }), 500
@@ -426,7 +425,7 @@ def indicador_inyeccion_sql():
         eficiencia = (ok / (ok + pnc) * 100) if (ok + pnc) > 0 else 100
 
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'ok': ok,
             'pnc': pnc,
             'total': ok + pnc,
@@ -435,7 +434,7 @@ def indicador_inyeccion_sql():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en indicador_inyeccion_sql: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible calcular el indicador de inyección.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible calcular el indicador de inyección.'}), 500
 
 
 @dashboard_bp.route('/avanzado/indicador_pulido', methods=['GET'])
@@ -449,7 +448,7 @@ def indicador_pulido():
         eficiencia = (ok / (ok + pnc) * 100) if (ok + pnc) > 0 else 100
 
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'ok': ok,
             'pnc': pnc,
             'total': ok + pnc,
@@ -458,7 +457,7 @@ def indicador_pulido():
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en indicador_pulido: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible calcular el indicador de pulido.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible calcular el indicador de pulido.'}), 500
 
 
 @dashboard_bp.route('/avanzado/produccion_maquina_avanzado', methods=['GET'])
@@ -466,11 +465,11 @@ def indicador_pulido():
 def produccion_maquina_avanzado():
     """Analiza la producción por máquina usando SQL-Native."""
     try:
-        return jsonify({'status': 'success', **DashboardRepository.get_produccion_por_maquina()}), 200
+        return jsonify({'status': 'success', 'success': True, **DashboardRepository.get_produccion_por_maquina()}), 200
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en produccion_maquina_avanzado: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible calcular la producción por máquina.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible calcular la producción por máquina.'}), 500
 
 
 @dashboard_bp.route('/avanzado/produccion_operario_ranking', methods=['GET'])
@@ -492,14 +491,14 @@ def produccion_operario_ranking():
         ranking_final = sorted(consolidado.items(), key=lambda x: x[1], reverse=True)
 
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'ranking': dict(ranking_final),
             'total_operarios': len(consolidado)
         }), 200
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en produccion_operario_ranking: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible calcular el ranking de operarios.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible calcular el ranking de operarios.'}), 500
 
 
 @dashboard_bp.route('/avanzado/ranking_inyeccion', methods=['GET'])
@@ -511,14 +510,14 @@ def ranking_inyeccion():
         resultado = {r['nombre']: r['valor'] for r in ranking}
 
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'ranking': resultado,
             'total': len(ranking)
         }), 200
     except Exception as e:
         rollback_seguro()
         logger.error(f"Error en ranking_inyeccion: {e}")
-        return jsonify({'status': 'error', 'message': 'No fue posible calcular el ranking de inyección.'}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': 'No fue posible calcular el ranking de inyección.'}), 500
 
 
 @dashboard_bp.route('/real', methods=['GET'])

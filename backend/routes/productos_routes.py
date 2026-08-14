@@ -107,13 +107,13 @@ def detalle_producto(codigo_sistema):
                 "precio": float(p_sql.precio or 0)
             }
 
-            return jsonify({"status": "success", "producto": res_data}), 200
+            return jsonify({"status": "success", "success": True, "producto": res_data}), 200
         else:
-            return jsonify({"status": "error", "message": f"Producto [{codigo_norm}] no encontrado"}), 200
+            return jsonify({"status": "error", "success": False, "message": f"Producto [{codigo_norm}] no encontrado"}), 200
             
     except Exception as e:
         logger.error(f"Error crítico en detalle producto SQL: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 200
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 200
 
 @productos_bp.route('/buscar/<query>', methods=['GET'])
 @require_login
@@ -150,7 +150,7 @@ def buscar_productos(query):
                     "descripcion": r.descripcion,
                     "precio": "{:.2f}".format(precio_val)
                 })
-            return jsonify({'status': 'success', 'items': resultado}), 200
+            return jsonify({'status': 'success', 'success': True, 'items': resultado}), 200
 
         PREFIX_PATTERN = "'^(FR-|CAR-|INT-|ENS-|CB-|DE-|HR-|KIT-|AL-)'"
         sql = f"""
@@ -239,14 +239,14 @@ def buscar_productos(query):
             })
             
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'resultados': resultado
         }), 200
         
     except Exception as e:
         logger.error(f"❌ Error en búsqueda SQL-JOIN: {e}")
         return jsonify({
-            'status': 'error',
+            'status': 'error', 'success': False,
             'message': str(e)
         }), 500
 
@@ -538,7 +538,7 @@ def historial_producto(codigo):
         paginados = eventos[start:end]
 
         return jsonify({
-            'status': 'success',
+            'status': 'success', 'success': True,
             'resultados': paginados,
             'kpis': kpis,
             'radar': radar,
@@ -548,7 +548,7 @@ def historial_producto(codigo):
 
     except Exception as e:
         logger.error(f"❌ Error crítico en Timeline 360 (SQL Final): {str(e)}")
-        return jsonify({'status': 'error', 'message': f"Error interno: {str(e)}"}), 500
+        return jsonify({'status': 'error', 'success': False, 'message': f"Error interno: {str(e)}"}), 500
 
 
 @productos_bp.route('/sincronizar_precios', methods=['POST'])

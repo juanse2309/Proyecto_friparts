@@ -318,9 +318,9 @@ def registrar_inyeccion():
 def obtener_config_cavidades():
     """Obtiene la configuración de cavidades disponibles."""
     try:
-        return jsonify({"status": "success", "config": InyeccionService.obtener_config_cavidades()}), 200
+        return jsonify({"status": "success", "success": True, "config": InyeccionService.obtener_config_cavidades()}), 200
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
 
 
 @inyeccion_bp.route('/api/inyeccion/calcular', methods=['POST'])
@@ -330,10 +330,10 @@ def calcular_inyeccion():
     data = request.get_json() or {}
     try:
         resultado = InyeccionService.calcular_produccion(data.get('cantidad'), data.get('cavidades'), data.get('pnc', 0))
-        return jsonify({"status": "success", "calculos": resultado}), 200
+        return jsonify({"status": "success", "success": True, "calculos": resultado}), 200
     except ValueError as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 400
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
 
 

@@ -237,29 +237,29 @@ def sincronizar_automatica():
 
     if token_esperado is None:
         logger.error("❌ Variable de entorno SYNC_TOKEN no configurada en el servidor (es None).")
-        return jsonify({"status": "error", "message": "Error de configuración de seguridad: SYNC_TOKEN es None"}), 500
+        return jsonify({"status": "error", "success": False, "message": "Error de configuración de seguridad: SYNC_TOKEN es None"}), 500
 
     if token_recibido != token_esperado:
         logger.warning(f"⚠️ Intento de sincronización automática no autorizado. Token recibido: {_mask_token(token_recibido)}")
-        return jsonify({"status": "error", "message": "No autorizado. Token de sincronización inválido."}), 403
+        return jsonify({"status": "error", "success": False, "message": "No autorizado. Token de sincronización inválido."}), 403
 
     try:
         resultado = WoSyncService.sincronizar_automatica()
         return jsonify({
-            "status": "success",
+            "status": "success", "success": True,
             "message": "Sincronización completada",
             "registros": resultado["registros"]
         }), 200
 
     except WoSyncConfigError as e:
         logger.error(f"❌ Error de configuración en sincronizar_automatica: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
     except WoSyncError as e:
         logger.error(f"❌ Error en sincronizar_automatica: {e}")
-        return jsonify({"status": "error", "message": f"Falla en sincronización: {str(e)}"}), 500
+        return jsonify({"status": "error", "success": False, "message": f"Falla en sincronización: {str(e)}"}), 500
     except Exception as e:
         logger.error(f"❌ Error en sincronizar_automatica: {e}")
-        return jsonify({"status": "error", "message": f"Falla en sincronización: {str(e)}"}), 500
+        return jsonify({"status": "error", "success": False, "message": f"Falla en sincronización: {str(e)}"}), 500
 
 
 # ====================================================================

@@ -78,7 +78,7 @@ class InventarioService:
             
             if exito:
                 return {
-                    "status": "success",
+                    "status": "success", "success": True,
                     "message": mensaje,
                     "producto": {
                         "codigo": producto.get("CODIGO SISTEMA"),
@@ -87,20 +87,20 @@ class InventarioService:
                 }
             else:
                 return {
-                    "status": "error",
+                    "status": "error", "success": False,
                     "message": mensaje
                 }
                 
         except (DatosInvalidos, ProductoNoEncontrado) as e:
             logger.error(f"Error en entrada: {e.mensaje}")
             return {
-                "status": "error",
+                "status": "error", "success": False,
                 "message": e.mensaje
             }
         except Exception as e:
             logger.error(f"Error inesperado: {e}")
             return {
-                "status": "error",
+                "status": "error", "success": False,
                 "message": "Error interno del servidor"
             }
     
@@ -152,7 +152,7 @@ class InventarioService:
             
             if exito:
                 return {
-                    "status": "success",
+                    "status": "success", "success": True,
                     "message": mensaje,
                     "producto": {
                         "codigo": producto.get("CODIGO SISTEMA"),
@@ -161,20 +161,20 @@ class InventarioService:
                 }
             else:
                 return {
-                    "status": "error",
+                    "status": "error", "success": False,
                     "message": mensaje
                 }
                 
         except (DatosInvalidos, ProductoNoEncontrado) as e:
             logger.error(f"Error en salida: {e.mensaje}")
             return {
-                "status": "error",
+                "status": "error", "success": False,
                 "message": e.mensaje
             }
         except Exception as e:
             logger.error(f"Error inesperado: {e}")
             return {
-                "status": "error",
+                "status": "error", "success": False,
                 "message": "Error interno del servidor"
             }
     
@@ -204,7 +204,7 @@ class InventarioService:
             stock_total = stock_por_pulir + stock_terminado + stock_ensamblado
             
             return {
-                "status": "success",
+                "status": "success", "success": True,
                 "producto": {
                     "codigo_sistema": producto.get("CODIGO SISTEMA"),
                     "id_codigo": producto.get("ID CODIGO"),
@@ -227,14 +227,14 @@ class InventarioService:
             
         except ProductoNoEncontrado as e:
             return {
-                "status": "error",
+                "status": "error", "success": False,
                 "message": e.mensaje
             }
         except Exception as e:
             logger.error(f"Error obteniendo detalle: {e}")
             msg = str(e) if "Servidor saturado" in str(e) else "Error interno del servidor"
             return {
-                "status": "error",
+                "status": "error", "success": False,
                 "message": msg
             }
 
