@@ -223,6 +223,10 @@ const ModuloAdminClientes = {
     },
 
     crearCuenta: async function () {
+        if (window.FormValidator && !FormValidator.validateForm('form-crear-cliente')) {
+            return;
+        }
+
         const nit = document.getElementById('crear-nit').value.trim();
         const nombreEmpresa = document.getElementById('crear-nombre-empresa').value.trim();
         const email = document.getElementById('crear-email').value.trim();
@@ -232,7 +236,7 @@ const ModuloAdminClientes = {
         const direccion = document.getElementById('crear-direccion').value.trim();
 
         if (!nit || !nombreEmpresa || !email) {
-            alert('Por favor complete los campos obligatorios (NIT, Nombre Empresa, Email)');
+            Swal.fire({ icon: 'warning', title: 'Campos incompletos', text: 'Por favor complete los campos obligatorios (NIT, Nombre Empresa, Email).' });
             return;
         }
 
@@ -267,11 +271,11 @@ const ModuloAdminClientes = {
                     window.AuthModule.mostrarNotificacion('Cuenta creada exitosamente', 'success');
                 }
             } else {
-                alert(`Error: ${data.message}`);
+                Swal.fire({ icon: 'error', title: 'Error', text: data.message });
             }
         } catch (e) {
             console.error(e);
-            alert('Error de conexión');
+            Swal.fire({ icon: 'error', title: 'Error de conexión', text: 'No se pudo conectar con el servidor. Intenta de nuevo.' });
         }
     },
 
@@ -323,7 +327,17 @@ const ModuloAdminClientes = {
     },
 
     resetearPassword: async function (email) {
-        if (!confirm(`¿Resetear contraseña para ${email}?\n\nSe generará una nueva contraseña temporal.`)) {
+        const confirmacion = await Swal.fire({
+            title: '¿Resetear contraseña?',
+            html: `Se generará una nueva contraseña temporal para <strong>${email}</strong>.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, resetear',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d'
+        });
+        if (!confirmacion.isConfirmed) {
             return;
         }
 
@@ -349,11 +363,11 @@ const ModuloAdminClientes = {
                     window.AuthModule.mostrarNotificacion('Contraseña reseteada', 'success');
                 }
             } else {
-                alert(`Error: ${data.message}`);
+                Swal.fire({ icon: 'error', title: 'Error', text: data.message });
             }
         } catch (e) {
             console.error(e);
-            alert('Error de conexión');
+            Swal.fire({ icon: 'error', title: 'Error de conexión', text: 'No se pudo conectar con el servidor. Intenta de nuevo.' });
         }
     },
 
@@ -361,7 +375,17 @@ const ModuloAdminClientes = {
         const nuevoEstado = estadoActual === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO';
         const accion = nuevoEstado === 'ACTIVO' ? 'activar' : 'desactivar';
 
-        if (!confirm(`¿Confirma ${accion} la cuenta de ${email}?`)) {
+        const confirmacion = await Swal.fire({
+            title: `¿${accion.charAt(0).toUpperCase() + accion.slice(1)} cuenta?`,
+            html: `¿Confirma ${accion} la cuenta de <strong>${email}</strong>?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: `Sí, ${accion}`,
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: nuevoEstado === 'ACTIVO' ? '#10b981' : '#dc3545',
+            cancelButtonColor: '#6c757d'
+        });
+        if (!confirmacion.isConfirmed) {
             return;
         }
 
@@ -381,11 +405,11 @@ const ModuloAdminClientes = {
                     window.AuthModule.mostrarNotificacion(`Cuenta ${accion}da`, 'success');
                 }
             } else {
-                alert(`Error: ${data.message}`);
+                Swal.fire({ icon: 'error', title: 'Error', text: data.message });
             }
         } catch (e) {
             console.error(e);
-            alert('Error de conexión');
+            Swal.fire({ icon: 'error', title: 'Error de conexión', text: 'No se pudo conectar con el servidor. Intenta de nuevo.' });
         }
     }
 };

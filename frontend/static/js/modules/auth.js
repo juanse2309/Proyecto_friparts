@@ -328,7 +328,10 @@ const AuthModule = {
         const password = document.getElementById('client-password').value;
         const btn = document.querySelector('#client-login-form button');
 
-        if (!email || !password) return alert("Complete los campos");
+        if (!email || !password) {
+            Swal.fire({ icon: 'warning', title: 'Campos incompletos', text: 'Complete los campos.' });
+            return;
+        }
 
         btn.disabled = true;
         const originalText = btn.innerHTML;
@@ -416,8 +419,14 @@ const AuthModule = {
             const p1 = document.getElementById('new-pass-1').value;
             const p2 = document.getElementById('new-pass-2').value;
 
-            if (p1 !== p2) return alert("Las contraseñas no coinciden");
-            if (p1.length < 6) return alert("La contraseña debe tener al menos 6 caracteres");
+            if (p1 !== p2) {
+                Swal.fire({ icon: 'warning', title: 'Contraseñas distintas', text: 'Las contraseñas no coinciden.' });
+                return;
+            }
+            if (p1.length < 6) {
+                Swal.fire({ icon: 'warning', title: 'Contraseña muy corta', text: 'La contraseña debe tener al menos 6 caracteres.' });
+                return;
+            }
 
             // Call API
             try {
@@ -453,14 +462,14 @@ const AuthModule = {
                         await window.ModuloPortal.init();
                     }
                 } else {
-                    alert(d.message || "Error al actualizar");
+                    Swal.fire({ icon: 'error', title: 'Error', text: d.message || 'Error al actualizar la contraseña.' });
                 }
                 btn.disabled = false;
                 btn.innerHTML = orig;
 
             } catch (err) {
                 console.error("Error changing password:", err);
-                alert("Error de conexión");
+                Swal.fire({ icon: 'error', title: 'Error de conexión', text: 'No se pudo conectar con el servidor. Intenta de nuevo.' });
             }
         };
     },
@@ -584,7 +593,7 @@ const AuthModule = {
             el.textContent = msg;
             el.style.display = 'block';
         } else {
-            alert(msg);
+            Swal.fire({ icon: 'error', title: 'Error', text: msg });
         }
     },
 

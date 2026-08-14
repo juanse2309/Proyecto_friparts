@@ -768,11 +768,12 @@ const ModuloPortal = {
         modal.style.display = 'flex';
     },
 
-    cambiarCantidad: function (idx, delta) {
+    cambiarCantidad: async function (idx, delta) {
         let item = this.carrito[idx];
         let nuevaCant = item.cantidad + delta;
         if (nuevaCant <= 0) {
-            if (confirm("¿Eliminar este producto del pedido?")) {
+            const confirmar = await this.mostrarConfirmacion("Eliminar producto", "¿Eliminar este producto del pedido?");
+            if (confirmar) {
                 this.eliminarItem(idx);
             }
         } else {
@@ -806,7 +807,7 @@ const ModuloPortal = {
         // 1. Validar Usuario
         const user = window.AuthModule?.currentUser;
         if (!user) {
-            alert("Error: No se ha identificado el usuario.");
+            this.mostrarConfirmacion("Error", "No se ha identificado el usuario.", true);
             return;
         }
 
@@ -908,13 +909,13 @@ const ModuloPortal = {
 
             } else {
                 this.toggleLoader(false);
-                alert("Error al registrar pedido: " + (result.error || "Desconocido"));
+                this.mostrarConfirmacion("Error", "Error al registrar pedido: " + (result.error || "Desconocido"), true);
             }
 
         } catch (e) {
             this.toggleLoader(false);
             console.error("Error enviando pedido:", e);
-            alert("Error de conexión al enviar el pedido.");
+            this.mostrarConfirmacion("Error", "Error de conexión al enviar el pedido.", true);
         }
     },
 
@@ -1035,7 +1036,7 @@ const ModuloPortal = {
 
         } catch (e) {
             console.error("Error PDF:", e);
-            alert("No se pudo generar el PDF. Verifica que no haya bloqueadores de popups.");
+            this.mostrarConfirmacion("Error", "No se pudo generar el PDF. Verifica que no haya bloqueadores de popups.", true);
         }
     },
 
@@ -1239,7 +1240,7 @@ const ModuloPortal = {
     // =================================================================
     exportarCatalogo: function () {
         if (this.productos.length === 0) {
-            alert('No hay productos para exportar');
+            this.mostrarConfirmacion("Sin productos", "No hay productos para exportar.", true);
             return;
         }
 
