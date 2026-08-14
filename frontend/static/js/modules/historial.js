@@ -583,7 +583,7 @@
 
                     <div class="edit-section mb-3">
                         <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
-                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" aria-label="Observaciones del registro" rows="2"
                             style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
                     </div>
                 `;
@@ -622,7 +622,7 @@
 
                     <div class="edit-section mb-3">
                         <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
-                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" aria-label="Observaciones del registro" rows="2"
                             style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
                     </div>
                 `;
@@ -662,7 +662,7 @@
 
                     <div class="edit-section mb-3">
                         <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
-                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" aria-label="Observaciones del registro" rows="2"
                             style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
                     </div>
                 `;
@@ -690,7 +690,7 @@
 
                     <div class="edit-section mb-3">
                         <h6 class="section-title"><i class="fas fa-comment-alt me-2"></i> Observaciones del Registro</h6>
-                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" rows="2" 
+                        <textarea class="form-control edit-input" data-col="OBSERVACIONES" aria-label="Observaciones del registro" rows="2"
                             style="border-radius: 10px; border: 1px solid #e2e8f0; padding: 10px; font-size: 0.9rem;">${formatVal(det.observaciones)}</textarea>
                     </div>
                 `;
@@ -716,7 +716,7 @@
             html += `
                 <div class="edit-section mb-3">
                     <h6 class="section-title text-primary"><i class="fas fa-comment-dots me-2"></i> Motivo de la Corrección</h6>
-                    <textarea class="form-control" id="edit-motivo" rows="3" 
+                    <textarea class="form-control" id="edit-motivo" rows="3" aria-label="Motivo de la Corrección"
                         placeholder="Describa brevemente por qué realiza este cambio..."
                         style="border-radius: 12px; border: 1px solid #cbd5e1; padding: 12px; font-size: 0.95rem;"></textarea>
                 </div>`;
@@ -730,10 +730,11 @@
     }
 
     function crearCampoEdicion(label, valor, tipo, colName) {
+        const inputId = 'edit-campo-' + colName.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
         return `
             <div class="form-group mb-1">
-                <label class="small fw-bold text-secondary text-uppercase mb-1 d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">${label}</label>
-                <input type="${tipo}" class="form-control edit-input" data-col="${colName}" value="${valor || ''}" 
+                <label for="${inputId}" class="small fw-bold text-secondary text-uppercase mb-1 d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">${label}</label>
+                <input type="${tipo}" id="${inputId}" class="form-control edit-input" data-col="${colName}" value="${valor || ''}"
                     style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; font-size: 0.95rem; background: #ffffff; transition: all 0.2s ease;">
             </div>
         `;
@@ -1036,7 +1037,7 @@
             </div>
             <div class="input-group mb-3 pb-2 border-bottom">
                 <span class="input-group-text bg-light border-end-0 text-muted"><i class="fas fa-search"></i></span>
-                <input type="text" id="swal-timeline-search" class="form-control border-start-0 bg-light" placeholder="Filtrar por operario, proceso, orden..." style="font-size: 0.85rem; box-shadow: none;" disabled>
+                <input type="text" id="swal-timeline-search" aria-label="Filtrar por operario, proceso, orden" class="form-control border-start-0 bg-light" placeholder="Filtrar por operario, proceso, orden..." style="font-size: 0.85rem; box-shadow: none;" disabled>
             </div>
         `;
         

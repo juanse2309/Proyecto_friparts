@@ -427,7 +427,6 @@ async function cargarDatosCompartidos() {
     if (datosCargados || isSharedDataLoading) return;
 
     isSharedDataLoading = true;
-    isSharedDataLoading = true;
     if (window.mostrarLoaderGlobal) {
         window.mostrarLoaderGlobal();
     } else {

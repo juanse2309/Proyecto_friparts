@@ -346,8 +346,9 @@ const ModuloFacturacion = {
             })
             .catch(error => {
                 console.error("Error descarga WO:", error);
-                if (typeof Swal !== 'undefined') Swal.fire('Error', error.message || error.error || 'Error en la exportación', 'error');
-                else alert('Error: ' + (error.message || error.error || 'Desconocido'));
+                const msgHumano = 'No se pudo completar la exportación a World Office. Intenta de nuevo.';
+                if (typeof Swal !== 'undefined') Swal.fire('Error', msgHumano, 'error');
+                else alert(msgHumano);
             })
             .finally(() => {
                 if (btn) {

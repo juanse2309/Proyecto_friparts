@@ -73,7 +73,7 @@ async function generarReporte() {
                         <div>
                             <strong>Reporte Generado con Éxito</strong><br>
                             Se han procesado los datos de ${tipo} para el rango ${rango}.
-                            <button class="btn btn-sm btn-success ms-3" onclick="alert('Descargando...')">
+                            <button class="btn btn-sm btn-success ms-3" onclick="alert('La descarga en Excel de este reporte todavía no está disponible.')">
                                 <i class="fas fa-download"></i> Descargar Excel
                             </button>
                         </div>

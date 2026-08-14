@@ -127,7 +127,7 @@ const ComercialHistoricoModule = (() => {
 
         } catch (error) {
             console.error('Error al descargar el Excel:', error);
-            alert('No se pudo generar el Excel: ' + error.message);
+            alert('No se pudo generar el Excel. Intenta de nuevo.');
         } finally {
             if (btn) {
                 btn.disabled = false;

@@ -109,7 +109,7 @@ async function cargarProductos(forceRefresh = false) {
         mostrarLoading(false);
     } catch (error) {
         console.error('Error cargando productos:', error);
-        mostrarNotificacion(`Error: ${error.message}`, 'error');
+        mostrarNotificacion('No se pudo cargar el inventario. Verifica tu conexión e intenta de nuevo.', 'error');
         mostrarLoading(false);
     }
 }
@@ -607,8 +607,12 @@ function configurarEventosInventario() {
     // Buscar y filtrar productos
     const searchInput = document.getElementById('buscar-producto');
     if (searchInput) {
+        let debounceTimerBusqueda;
         searchInput.addEventListener('input', (e) => {
+            clearTimeout(debounceTimerBusqueda);
             const query = e.target.value.toLowerCase();
+
+            debounceTimerBusqueda = setTimeout(() => {
             if (!window.AppState.productosData) return;
 
             const filtrados = window.AppState.productosData.filter(p =>
@@ -618,6 +622,7 @@ function configurarEventosInventario() {
             window.AppState.productosFiltrados = filtrados;
             renderizarTablaProductos(filtrados, true);
             console.log(`ðŸ” BÃºsqueda: "${query}" â†’ ${filtrados.length} resultados`);
+            }, 200);
         });
     }
 
