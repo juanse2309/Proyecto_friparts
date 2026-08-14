@@ -505,9 +505,17 @@ html {
 
 /* Limpiar tabla en modo móvil para que no parezca tabla */
 @media (max-width: 991px) {
+    /* El wrapper .table-container comparte regla de padding:25px con .pedidos-card/.metals-card
+       (ver styles.css). En modo tarjeta ese padding le roba casi 50px al contenido interno,
+       así que aquí se reduce solo cuando envuelve la tabla de Inventario. */
+    .table-container:has(.table-inventario.responsive-mobile) {
+        padding: 10px !important;
+    }
+
     .table-inventario.responsive-mobile {
         display: block !important;
         width: 100% !important;
+        min-width: 0 !important;
         border: none !important;
         background: transparent !important;
     }
@@ -526,6 +534,7 @@ html {
     .mobile-product-card-row {
         display: block !important;
         margin-bottom: 20px !important;
+        padding: 0 !important;
         border: none !important;
         background: transparent !important;
     }
@@ -535,6 +544,7 @@ html {
         padding: 0 !important;
         border: none !important;
         background: transparent !important;
+        white-space: normal !important;
     }
 
     /* La tarjeta real */
@@ -566,6 +576,15 @@ html {
         border-radius: 16px;
         overflow: hidden;
         box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.02);
+    }
+
+    /* En celulares angostos, el thumbnail de 90px le deja muy poco ancho
+       al grid de 7 estadísticas; se reduce para darle aire al contenido */
+    @media (max-width: 480px) {
+        .card-image-wrapper {
+            width: 64px;
+            height: 64px;
+        }
     }
 
     .card-img {
@@ -635,7 +654,7 @@ html {
     /* Grid de estadísticas PWA Style */
     .card-stats-grid {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         background: #f8fafc;
         border-radius: 12px;
         padding: 8px;
@@ -656,12 +675,14 @@ html {
         color: #94a3b8;
         margin-bottom: 2px;
         text-transform: uppercase;
+        overflow-wrap: anywhere;
     }
 
     .stat-value {
         font-size: 14px;
         font-weight: 800;
         color: #1e293b;
+        overflow-wrap: anywhere;
     }
 
     .stat-value.secondary {

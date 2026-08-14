@@ -849,12 +849,13 @@ class InventarioWO(db.Model):
     __tablename__ = 'inventario_wo'
     __table_args__ = {'extend_existing': True}
 
-    codigo_producto = db.Column(db.String(50), primary_key=True)
-    descripcion     = db.Column(db.String(500), nullable=True)
-    stock_wo        = db.Column(db.Numeric(18, 2), default=0)
-    precio_wo       = db.Column(db.Numeric(18, 2), default=0)
-    codigo_alterno  = db.Column(db.String(100), nullable=True)
-    referencia      = db.Column(db.String(100), nullable=True)
+    codigo_producto      = db.Column(db.String(50), primary_key=True)
+    descripcion          = db.Column(db.String(500), nullable=True)
+    stock_wo             = db.Column(db.Numeric(18, 2), default=0)
+    precio_wo            = db.Column(db.Numeric(18, 2), default=0)
+    codigo_alterno       = db.Column(db.String(100), nullable=True)
+    referencia           = db.Column(db.String(100), nullable=True)
+    fecha_sincronizacion = db.Column(db.DateTime, nullable=True)
 
 class SuscripcionesPush(db.Model):
     """

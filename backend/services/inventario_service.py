@@ -4,6 +4,7 @@ Contiene la lógica de negocio para operaciones de inventario.
 """
 import re
 import time
+from datetime import datetime
 from typing import Dict, Tuple, List
 from sqlalchemy import text
 from backend.core.sql_database import db
@@ -422,6 +423,30 @@ class InventarioService:
         return lista_final
 
     @staticmethod
+    def estado_sincronizacion_wo() -> Dict:
+        """
+        Antigüedad de los datos en inventario_wo SIN aplicarlos a db_productos.
+        Permite al frontend mostrar "estos datos son de hace X horas" antes de
+        que el usuario confirme el botón "Sincronizar Stock con World Office"
+        (ver unificar_inventario_wo, que hace el mismo cálculo pero ya
+        aplicando el UPSERT).
+        """
+        total = db.session.execute(text("SELECT COUNT(*) FROM inventario_wo")).scalar()
+        fecha_sincronizacion = db.session.execute(text(
+            "SELECT MIN(fecha_sincronizacion) FROM inventario_wo"
+        )).scalar()
+        antiguedad_horas = None
+        if fecha_sincronizacion:
+            antiguedad_horas = round((datetime.now() - fecha_sincronizacion).total_seconds() / 3600, 1)
+
+        return {
+            "success": True,
+            "registros": total or 0,
+            "fecha_sincronizacion": fecha_sincronizacion.isoformat() if fecha_sincronizacion else None,
+            "antiguedad_horas": antiguedad_horas
+        }
+
+    @staticmethod
     def unificar_inventario_wo() -> Dict:
         """
         Cruza inventario_wo (staging de la sincronización de World Office) con
@@ -458,12 +483,26 @@ class InventarioService:
         )).mappings().all()
         logger.info(f"[Unificar WO] Registros en inventario_wo antes del cruce: {len(filas_wo)}")
 
+        # Antigüedad de los datos que se van a aplicar: viene del timestamp
+        # que agente_wo.py deja sellado por fila (vía NOW() del servidor
+        # Postgres) al poblar inventario_wo. Se calcula ANTES del filtro de
+        # saldos válidos porque el usuario necesita saber qué tan vieja es
+        # la extracción sin importar si algunas filas se descartan después.
+        fecha_sincronizacion = db.session.execute(text(
+            "SELECT MIN(fecha_sincronizacion) FROM inventario_wo"
+        )).scalar()
+        antiguedad_horas = None
+        if fecha_sincronizacion:
+            antiguedad_horas = round((datetime.now() - fecha_sincronizacion).total_seconds() / 3600, 1)
+
         if not filas_wo:
             logger.warning("[Unificar WO] inventario_wo está vacía. Ejecuta primero la sincronización del agente.")
             return {
                 "success": False,
                 "message": "inventario_wo está vacía. Sincroniza primero con el agente WO.",
-                "actualizados": 0
+                "actualizados": 0,
+                "fecha_sincronizacion": None,
+                "antiguedad_horas": None
             }
 
         # Mismo filtro de saldo que el UPDATE original: solo saldos validos
@@ -498,7 +537,9 @@ class InventarioService:
         return {
             "success": True,
             "message": f"Sincronización masiva completada exitosamente. {actualizados} productos procesados.",
-            "actualizados": actualizados
+            "actualizados": actualizados,
+            "fecha_sincronizacion": fecha_sincronizacion.isoformat() if fecha_sincronizacion else None,
+            "antiguedad_horas": antiguedad_horas
         }
 
     @staticmethod

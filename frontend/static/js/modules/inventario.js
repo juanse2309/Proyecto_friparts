@@ -1147,11 +1147,48 @@ window.ModuloInventario = {
         URL.revokeObjectURL(url);
     },
 
+    // Umbral a partir del cual se considera que los datos recibidos del
+    // agente local (agente_wo.py) están desactualizados y hay que advertir
+    // al usuario antes de aplicarlos sobre db_productos.
+    UMBRAL_ANTIGUEDAD_WO_HORAS: 24,
+
+    formatearAntiguedadWO: function (antiguedadHoras) {
+        if (antiguedadHoras === null || antiguedadHoras === undefined) {
+            return 'Nunca se ha recibido una sincronización del agente WO.';
+        }
+        if (antiguedadHoras < 1) {
+            return `Datos extraídos hace ${Math.round(antiguedadHoras * 60)} minuto(s).`;
+        }
+        if (antiguedadHoras < 24) {
+            return `Datos extraídos hace ${antiguedadHoras} hora(s).`;
+        }
+        return `Datos extraídos hace ${Math.round(antiguedadHoras / 24)} día(s) — verifica que el agente WO haya corrido recientemente.`;
+    },
+
     sincronizarStockWO: async function () {
+        let antiguedadHoras = null;
+        let registrosDisponibles = 0;
+        try {
+            const estadoResp = await fetch('/api/wo/inventario/estado');
+            const estado = await estadoResp.json();
+            if (estado.success) {
+                antiguedadHoras = estado.antiguedad_horas;
+                registrosDisponibles = estado.registros || 0;
+            }
+        } catch (e) {
+            console.warn('[WO Stock Sync] No se pudo consultar la antigüedad de los datos:', e);
+        }
+
+        const esDesactualizado = registrosDisponibles === 0 ||
+            antiguedadHoras === null ||
+            antiguedadHoras > this.UMBRAL_ANTIGUEDAD_WO_HORAS;
+
         const confirmResult = await Swal.fire({
             title: '¿Sincronizar Stock con World Office?',
-            text: 'Esta acción sobrescribirá la columna de Producto Terminado en FriTech con el stock más reciente recibido de World Office.',
-            icon: 'question',
+            html: 'Esta acción sobrescribirá la columna de Producto Terminado en FriTech con el stock recibido de World Office.' +
+                `<br><br><strong>${this.formatearAntiguedadWO(antiguedadHoras)}</strong>` +
+                (esDesactualizado ? '<br><span style="color:#dc3545">Los datos pueden no coincidir con World Office ahora mismo. Si necesitas el stock actual, pide que corran primero el agente WO.</span>' : ''),
+            icon: esDesactualizado ? 'warning' : 'question',
             showCancelButton: true,
             confirmButtonText: 'Sí, unificar stock',
             cancelButtonText: 'Cancelar',
@@ -1186,14 +1223,15 @@ window.ModuloInventario = {
                 await Swal.fire({
                     icon: 'success',
                     title: '¡Stock Unificado!',
-                    text: `Se actualizaron con éxito ${result.actualizados} productos en el inventario real.`,
+                    html: `Se actualizaron con éxito ${result.actualizados} productos en el inventario real.` +
+                        `<br><small>${this.formatearAntiguedadWO(result.antiguedad_horas)}</small>`,
                     confirmButtonText: 'Excelente',
                     confirmButtonColor: '#10b981'
                 });
                 // Refrescar tabla de inventario
                 if (typeof cargarProductos === 'function') cargarProductos(true);
             } else {
-                Swal.fire('Error de Unificación', result.error || 'No se pudo sincronizar el stock.', 'error');
+                Swal.fire('Error de Unificación', result.message || result.error || 'No se pudo sincronizar el stock.', 'error');
             }
         } catch (e) {
             console.error('[WO Stock Sync] Error:', e);

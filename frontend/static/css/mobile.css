@@ -22,7 +22,7 @@ body {
         margin-bottom: 1rem;
     }
 
-    table {
+    table:not(.responsive-mobile) {
         min-width: 600px;
         /* Prevent table collapse */
         font-size: 0.85rem;

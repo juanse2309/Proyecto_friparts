@@ -98,6 +98,22 @@ def recibir_datos():
 # ENDPOINT: UNIFICAR INVENTARIO WO -> DB_PRODUCTOS
 # ====================================================================
 
+@wo_bp.route('/api/wo/inventario/estado', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'METALS_ADMIN'])
+def estado_sincronizacion_wo():
+    """
+    Antigüedad del último dato recibido en inventario_wo, sin aplicarlo.
+    Usado por el frontend para avisar ANTES de confirmar el botón de
+    unificación si el stock a aplicar viene desactualizado.
+    """
+    try:
+        from backend.services.inventario_service import InventarioService
+        return jsonify(InventarioService.estado_sincronizacion_wo()), 200
+    except Exception as e:
+        logger.error(f"❌ Error consultando estado de sincronización WO: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @wo_bp.route('/api/wo/unificar', methods=['POST'])
 @require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'METALS_ADMIN'])
 def unificar_inventario_wo():

@@ -250,7 +250,7 @@ class WoSyncService:
                     params[f"alt_{k}"]    = codigo_alterno
                     params[f"ref_{k}"]    = referencia
                     values_parts.append(
-                        f"(:cod_{k}, :desc_{k}, :stock_{k}, :precio_{k}, :alt_{k}, :ref_{k})"
+                        f"(:cod_{k}, :desc_{k}, :stock_{k}, :precio_{k}, :alt_{k}, :ref_{k}, NOW())"
                     )
 
                 if values_parts and ids_lote:
@@ -263,7 +263,7 @@ class WoSyncService:
                 if values_parts:
                     sql = text(
                         "INSERT INTO inventario_wo "
-                        "(codigo_producto, descripcion, stock_wo, precio_wo, codigo_alterno, referencia) "
+                        "(codigo_producto, descripcion, stock_wo, precio_wo, codigo_alterno, referencia, fecha_sincronizacion) "
                         f"VALUES {', '.join(values_parts)}"
                     )
                     db.session.execute(sql, params)

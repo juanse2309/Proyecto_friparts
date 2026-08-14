@@ -29,11 +29,16 @@ load_dotenv()
 # Configurar logging local para monitoreo
 # Forzar UTF-8 en la salida de consola (evita crash con emojis en Windows cp1252)
 import io
+_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agente_wo.log")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.StreamHandler(io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace'))
+        logging.StreamHandler(io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')),
+        # Log persistente en disco: sin esto, la única prueba de que el
+        # agente corrió (y cuándo) era la consola, que se pierde en cuanto
+        # se cierra la ventana o corre por tarea programada sin consola.
+        logging.FileHandler(_LOG_PATH, encoding='utf-8')
     ]
 )
 logger = logging.getLogger("AgenteWO")
