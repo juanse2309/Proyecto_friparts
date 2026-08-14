@@ -16,6 +16,8 @@ import json
 logger = logging.getLogger(__name__)
 pulido_bp = Blueprint('pulido_bp', __name__)
 
+ROLES_PULIDO = ROL_ADMINS + ['JEFE PULIDO', 'PULIDO']
+
 def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
     """
     Función privada auxiliar para encapsular la persistencia y la lógica de negocio
@@ -308,6 +310,7 @@ def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
     }
 
 @pulido_bp.route('/api/pulido', methods=['POST'])
+@require_role(ROLES_PULIDO)
 def registrar_pulido():
     try:
         data = request.get_json()
@@ -504,6 +507,7 @@ def get_pulido_tareas_pendientes():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pulido_bp.route('/api/pulido/pausar', methods=['POST'])
+@require_role(ROLES_PULIDO)
 def pausar_pulido():
     """Registra el inicio de la pausa en el servidor."""
     data = request.json
@@ -535,6 +539,7 @@ def pausar_pulido():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pulido_bp.route('/api/pulido/reanudar', methods=['POST'])
+@require_role(ROLES_PULIDO)
 def reanudar_pulido():
     """Calcula el tiempo de la pausa y lo suma al acumulador."""
     data = request.json
@@ -570,6 +575,7 @@ def reanudar_pulido():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pulido_bp.route('/api/pulido/swap_task', methods=['POST'])
+@require_role(ROLES_PULIDO)
 def swap_pulido_task():
     try:
         data = request.get_json()
@@ -618,6 +624,7 @@ def swap_pulido_task():
         logger.error(f"[Pulido-Swap] Error crítico: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 @pulido_bp.route('/api/pulido/historial', methods=['GET'])
+@require_role(ROLES_PULIDO)
 def get_pulido_historial():
     """
     Endpoint para el historial detallado de Pulido con filtros dinámicos.
@@ -736,13 +743,14 @@ def get_pulido_historial():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @pulido_bp.route('/api/pulido/stats', methods=['GET'])
-@require_role(ROL_ADMINS + ['JEFE PULIDO', 'PULIDO'])
+@require_role(ROLES_PULIDO)
 def get_pulido_stats():
     # Placeholder
     return jsonify({"success": True, "message": "Estadísticas de pulido (WIP)"})
 
 
 @pulido_bp.route('/api/pulido/exportar_excel', methods=['GET'])
+@require_role(ROLES_PULIDO)
 def exportar_excel_pulido():
     """
     Exportación profesional a Excel del historial de Pulido.
@@ -916,6 +924,7 @@ def exportar_excel_pulido():
 # simultáneamente sin colisiones (solo lectura).
 # =============================================================
 @pulido_bp.route('/api/pulido/lotes_activos', methods=['GET'])
+@require_role(ROLES_PULIDO)
 def get_lotes_activos():
     """
     Retorna los lotes de db_trazabilidad_lotes con estado ABIERTO_PRODUCCION.
@@ -964,6 +973,7 @@ def get_lotes_activos():
 
 
 @pulido_bp.route('/api/pulido/liquidar_lote', methods=['POST'])
+@require_role(ROLES_PULIDO)
 def liquidar_lote():
     try:
         data = request.get_json()
@@ -1007,6 +1017,7 @@ def liquidar_lote():
 
 @pulido_bp.route('/reporte_masivo', methods=['POST'])
 @pulido_bp.route('/api/pulido/reporte_masivo', methods=['POST'])
+@require_role(ROLES_PULIDO)
 def reporte_masivo():
     try:
         data = request.get_json()
@@ -1177,6 +1188,7 @@ def reporte_masivo():
 
 
 @pulido_bp.route('/api/pnc/registrar_pulido', methods=['POST'])
+@require_role(ROLES_PULIDO)
 def registrar_pnc_pulido():
     """
     Registra (o limpia) el desglose de PNC de Pulido en db_pnc_pulido

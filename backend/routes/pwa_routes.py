@@ -50,13 +50,10 @@ def suscribir():
 # ====================================================================
 
 @pwa_bp.route('/api/pwa/enviar-masivo', methods=['POST'])
+@require_role(ROL_ADMINS + ['MARKETING'])
 def enviar_masivo():
     """Recibe datos para enviar una notificación masiva. Protegido por rol."""
     try:
-        role = session.get('role', '')
-        if role not in ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION', 'MARKETING']:
-            return jsonify({"success": False, "message": "Acceso denegado"}), 403
-
         data = request.json
         titulo = data.get('title', data.get('titulo', 'Notificación FriTech'))
         mensaje = data.get('body', data.get('mensaje', ''))
@@ -291,12 +288,9 @@ def _worker_broadcast(app, titulo, cuerpo, url_destino, image_url, destino):
 
 
 @pwa_bp.route('/api/pwa/broadcast', methods=['POST'])
+@require_role(ROL_ADMINS + ['MARKETING'])
 def broadcast_clientes():
     """Broadcast masivo a todos los clientes B2B. Retorna 202 inmediatamente."""
-    role = session.get('role', '')
-    if role not in ['ADMIN', 'ADMINISTRADOR', 'ADMINISTRACION', 'MARKETING']:
-        return jsonify({"success": False, "message": "Acceso denegado"}), 403
-
     try:
         data = request.get_json(silent=True)
         if not data:

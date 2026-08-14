@@ -484,6 +484,7 @@ def _construir_movimientos_historial(f_desde, f_hasta, tipo_filtro):
 
 
 @historial_bp.route('/api/historial-global', methods=['GET'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
 def obtener_historial_global():
     """
     Historial Global v5.0 SQL-Limpio (Dict Mapping).
@@ -773,6 +774,7 @@ def actualizar_registro_historial():
 
 
 @historial_bp.route('/api/exportar-historial-global', methods=['GET'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
 def exportar_excel_historial_global():
     from flask import send_file
 

@@ -9,11 +9,13 @@ cartera_bp = Blueprint('cartera', __name__)
 
 
 @cartera_bp.route('/api/cartera/cliente/<identificacion>', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def obtener_cartera_cliente(identificacion):
     """
     Detalle de facturas con saldo pendiente de un cliente puntual (por NIT).
-    Informativo, sin bloqueos ni restriccion de rol: alimenta el modal de
-    Gestion Pedidos, visible para cualquiera que ya vea esa vista (Sofia/Andres).
+    Alimenta el modal de Gestion Pedidos. Antes sin restriccion de rol -- por
+    NIT expone facturas y saldos de terceros, se protege igual que el resto
+    del blueprint (ROL_ADMINS + ROL_COMERCIALES).
     """
     try:
         from backend.services.cartera_service import CarteraService

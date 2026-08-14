@@ -3,6 +3,7 @@ from backend.models.sql_models import db, MetalsProduccion, MetalsPersonal, Meta
 from backend.repositories.producto_repository import ProductoRepository
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 from backend.config.constants import FALLBACK_OPERARIO
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES
 import logging
 import uuid
 import json
@@ -12,11 +13,17 @@ from datetime import datetime, timedelta, timezone
 metals_bp = Blueprint('metals', __name__)
 logger = logging.getLogger(__name__)
 
+# Roles de Frimetals segun backend/core/tenant.py (_FRIMETALS_ROLES) + admins
+# globales y el set comercial ya existente (incluye 'STAFF FRIMETALS' y
+# 'COMERCIAL FRIMETALS').
+ROLES_METALS = ROL_ADMINS + ROL_COMERCIALES + ['ADMIN FRIMETALS', 'PRODUCCION FRIMETALS']
+
 # ====================================================================
 # PRODUCTOS
 # ====================================================================
 
 @metals_bp.route('/api/metals/productos/listar', methods=['GET'])
+@require_role(ROLES_METALS)
 def listar_productos_metals():
     """Lista productos de Frimetals usando el repositorio unificado (DRY)."""
     try:
@@ -26,7 +33,7 @@ def listar_productos_metals():
         return jsonify({"success": True, "productos": productos})
     except Exception as e:
         logger.error(f"Error listando productos metals: {e}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "No fue posible listar los productos de Frimetals."}), 500
 
 
 # ====================================================================
@@ -34,6 +41,7 @@ def listar_productos_metals():
 # ====================================================================
 
 @metals_bp.route('/api/metals/produccion/registrar', methods=['POST'])
+@require_role(ROLES_METALS)
 def registrar_produccion_metals():
     try:
         data = request.json
@@ -165,6 +173,7 @@ def registrar_produccion_metals():
 # ====================================================================
 
 @metals_bp.route('/api/metals/produccion/historial', methods=['GET'])
+@require_role(ROLES_METALS)
 def get_metals_historial():
     """Retorna el historial de producción de Metales desde SQL."""
     try:
@@ -214,6 +223,7 @@ def get_metals_historial():
         return jsonify({"success": False, "message": str(e)}), 500
 
 @metals_bp.route('/api/metals/dashboard/stats', methods=['GET'])
+@require_role(ROLES_METALS)
 def get_metals_dashboard_stats():
     """Endpoint para el Dashboard de Metales con manejo robusto de errores."""
     try:
