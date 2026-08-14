@@ -308,7 +308,7 @@ const ModuloEnsamble = {
 
             let html = `
                 <div class="table-responsive">
-                    <table class="table align-middle border shadow-sm rounded-3 overflow-hidden">
+                    <table class="table align-middle border shadow-sm rounded-3 overflow-hidden responsive-mobile">
                         <thead class="table-dark">
                             <tr>
                                 <th class="py-3 px-3">Componente</th>
@@ -327,10 +327,10 @@ const ModuloEnsamble = {
 
                 html += `
                     <tr class="${rowClass}">
-                        <td class="fw-bold ps-3">${c.componente}<br><small class="text-muted">${c.codigo_inventario}</small></td>
-                        <td class="text-center fw-bold fs-5 text-dark">${c.stock_almacen}</td>
-                        <td class="text-center fw-bold fs-5 text-primary">${c.alcanza_para} und</td>
-                        <td class="text-center">
+                        <td class="fw-bold ps-3" data-label="Componente">${c.componente}<br><small class="text-muted">${c.codigo_inventario}</small></td>
+                        <td class="text-center fw-bold fs-5 text-dark" data-label="Stock Actual">${c.stock_almacen}</td>
+                        <td class="text-center fw-bold fs-5 text-primary" data-label="Capacidad Máxima">${c.alcanza_para} und</td>
+                        <td class="text-center" data-label="Estado">
                             <span class="badge ${isShort ? 'bg-warning text-dark' : 'bg-success'}">
                                 ${isShort ? 'INSUFICIENTE' : 'OK'}
                             </span>
@@ -681,15 +681,15 @@ const ModuloEnsamble = {
                         </div>
                         <div class="row g-3">
                             <div class="col-6">
-                                <label class="form-label small fw-bold text-muted mb-1">Mal Ajuste / Pieza Suelta</label>
+                                <label for="pnc-ens-mal-ajuste" class="form-label small fw-bold text-muted mb-1">Mal Ajuste / Pieza Suelta</label>
                                 <input type="number" id="pnc-ens-mal-ajuste" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
                             </div>
                             <div class="col-6">
-                                <label class="form-label small fw-bold text-muted mb-1">Componente Faltante</label>
+                                <label for="pnc-ens-faltante" class="form-label small fw-bold text-muted mb-1">Componente Faltante</label>
                                 <input type="number" id="pnc-ens-faltante" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
                             </div>
                             <div class="col-12">
-                                <label class="form-label small fw-bold text-muted mb-1">Daño en Empaque / Fisura</label>
+                                <label for="pnc-ens-dano" class="form-label small fw-bold text-muted mb-1">Daño en Empaque / Fisura</label>
                                 <input type="number" id="pnc-ens-dano" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
                             </div>
                         </div>

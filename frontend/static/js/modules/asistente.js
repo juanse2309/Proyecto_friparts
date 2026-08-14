@@ -271,10 +271,10 @@ window.ModuloAsistente = (function () {
     function construirTablaDesdeLista(lista) {
         const columnas = Object.keys(lista[0]);
         const filas = lista.slice(0, 50).map(fila => `
-            <tr>${columnas.map(c => `<td class="px-2 py-1 border-bottom">${escapeHtml(fila[c])}</td>`).join('')}</tr>
+            <tr>${columnas.map(c => `<td class="px-2 py-1 border-bottom" data-label="${escapeHtml(c)}">${escapeHtml(fila[c])}</td>`).join('')}</tr>
         `).join('');
         return `
-            <table class="table table-sm mb-0" style="font-size:0.8rem;">
+            <table class="table table-sm mb-0 responsive-mobile" style="font-size:0.8rem;">
                 <thead><tr>${columnas.map(c => `<th class="px-2 py-1 text-muted text-uppercase" style="font-size:0.7rem;">${escapeHtml(c)}</th>`).join('')}</tr></thead>
                 <tbody>${filas}</tbody>
             </table>

@@ -153,10 +153,15 @@ textarea.is-valid {
 
 @media (max-width: 768px) {
 
-    /* Convertir tablas a cards en móvil */
+    /* Convertir tablas a cards en móvil. min-width anula la regla genérica
+       ".table-inventario, .table { min-width: 800px; }" de styles.css, que
+       aplica a CUALQUIER tabla Bootstrap con clase .table -- sin esto, una
+       tabla .table.responsive-mobile queda forzada a 800px y el layout de
+       tarjetas nunca se ve, aunque display:block sí se aplique. */
     table.responsive-mobile {
-        display: block;
-        width: 100%;
+        display: block !important;
+        width: 100% !important;
+        min-width: 0 !important;
     }
 
     table.responsive-mobile thead {
@@ -202,6 +207,18 @@ textarea.is-valid {
     /* Botones de acción en cards */
     table.responsive-mobile td .btn-icon {
         margin: 0 2px;
+    }
+
+    /* Fila de detalle anidado (ej. facturas de un cliente en Cartera): es un
+       contenedor de ancho completo para OTRA tabla, no un par etiqueta/valor
+       -- se excluye del layout flex + ::before de las celdas normales. */
+    table.responsive-mobile td.td-detalle-anidado {
+        display: block;
+        text-align: left;
+        padding: 0;
+    }
+    table.responsive-mobile td.td-detalle-anidado::before {
+        content: none;
     }
 }
 

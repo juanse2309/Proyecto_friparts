@@ -1786,11 +1786,11 @@ window.ModuloMes = {
 
         const filas = pedidos.map(p => `
             <tr class="align-middle">
-                <td class="fw-bold text-primary small">#${p.id_pedido}</td>
-                <td class="small text-truncate" style="max-width: 140px;" title="${p.cliente}">${p.cliente}</td>
-                <td class="text-center small">${p.cantidad_solicitada}</td>
-                <td class="text-center small fw-bold text-secondary">${p.cantidad_pendiente}</td>
-                <td style="width: 100px;">
+                <td class="fw-bold text-primary small" data-label="Pedido">#${p.id_pedido}</td>
+                <td class="small text-truncate" style="max-width: 140px;" title="${p.cliente}" data-label="Cliente">${p.cliente}</td>
+                <td class="text-center small" data-label="Solicitado">${p.cantidad_solicitada}</td>
+                <td class="text-center small fw-bold text-secondary" data-label="Pendiente">${p.cantidad_pendiente}</td>
+                <td style="width: 100px;" data-label="Asignar">
                     <input type="number" 
                            class="form-control form-control-sm text-center fw-bold input-cant-asignada border-0 bg-light"
                            style="border-radius: 8px;"
@@ -1816,7 +1816,7 @@ window.ModuloMes = {
                 </div>
                 <div class="card-body px-3 py-2">
                     <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
-                        <table class="table table-sm table-hover border-0 mb-2" style="font-size: 0.85rem;">
+                        <table class="table table-sm table-hover border-0 mb-2 responsive-mobile" style="font-size: 0.85rem;">
                             <thead>
                                 <tr class="text-muted" style="font-size: 0.75rem; border-bottom: 2px solid #f1f5f9;">
                                     <th>Pedido</th>

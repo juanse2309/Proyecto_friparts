@@ -112,18 +112,18 @@ const ModuloCartera = {
 
         tbody.innerHTML = filtrados.map((c, idx) => `
             <tr style="cursor:pointer;" onclick="ModuloCartera.toggleDetalle('${c.identificacion}', ${idx})">
-                <td class="fw-bold" style="color:#1e293b;"><i class="fas fa-chevron-right me-2 text-muted" id="cartera-chevron-${idx}" style="font-size:0.7rem;"></i>${c.nombre}</td>
-                <td>${c.identificacion}</td>
-                <td><span style="display:inline-block; max-width:170px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle;" title="${c.vendedor || ''}">${c.vendedor || 'N/A'}</span></td>
-                <td class="text-end">${this.fmt.format(c.corriente)}</td>
-                <td class="text-end ${c.d1_30 > 0 ? 'text-warning fw-bold' : ''}">${this.fmt.format(c.d1_30)}</td>
-                <td class="text-end ${c.d31_60 > 0 ? 'text-warning fw-bold' : ''}">${this.fmt.format(c.d31_60)}</td>
-                <td class="text-end ${c.d61_90 > 0 ? 'text-danger fw-bold' : ''}">${this.fmt.format(c.d61_90)}</td>
-                <td class="text-end ${c.mas_90 > 0 ? 'text-danger fw-bold' : ''}">${this.fmt.format(c.mas_90)}</td>
-                <td class="text-end fw-bold">${this.fmt.format(c.saldo_total)}</td>
+                <td class="fw-bold" data-label="Cliente" style="color:#1e293b;"><i class="fas fa-chevron-right me-2 text-muted" id="cartera-chevron-${idx}" style="font-size:0.7rem;"></i>${c.nombre}</td>
+                <td data-label="NIT">${c.identificacion}</td>
+                <td data-label="Vendedor"><span style="display:inline-block; max-width:170px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle;" title="${c.vendedor || ''}">${c.vendedor || 'N/A'}</span></td>
+                <td class="text-end" data-label="Corriente">${this.fmt.format(c.corriente)}</td>
+                <td class="text-end ${c.d1_30 > 0 ? 'text-warning fw-bold' : ''}" data-label="1-30 días">${this.fmt.format(c.d1_30)}</td>
+                <td class="text-end ${c.d31_60 > 0 ? 'text-warning fw-bold' : ''}" data-label="31-60 días">${this.fmt.format(c.d31_60)}</td>
+                <td class="text-end ${c.d61_90 > 0 ? 'text-danger fw-bold' : ''}" data-label="61-90 días">${this.fmt.format(c.d61_90)}</td>
+                <td class="text-end ${c.mas_90 > 0 ? 'text-danger fw-bold' : ''}" data-label="+90 días">${this.fmt.format(c.mas_90)}</td>
+                <td class="text-end fw-bold" data-label="Total">${this.fmt.format(c.saldo_total)}</td>
             </tr>
             <tr id="cartera-detalle-fila-${idx}" style="display:none;">
-                <td colspan="9" class="p-0">
+                <td colspan="9" class="p-0 td-detalle-anidado">
                     <div id="cartera-detalle-${idx}" class="p-3 bg-light"></div>
                 </td>
             </tr>
