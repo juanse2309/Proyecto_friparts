@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 import os
 import logging
 import re
+import threading
 from sqlalchemy import text
-from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, ROL_COMERCIALES
 from backend.services.wo_sync_service import (
     WoSyncService,
     WoSyncError,
@@ -27,6 +28,41 @@ def _mask_token(token):
         return "(vacío)"
     token = str(token)
     return f"{token[:4]}***" if len(token) > 4 else "***"
+
+
+# Claves en app_config para la última sincronización EXITOSA (dato ya
+# aplicado, no solo aceptado por el endpoint) de cada agente WO -- hallazgo
+# e8 de la auditoría: los 4 agentes corren desatendidos cada 15 min en la
+# máquina de planta, y sin este sello, un fallo silencioso y persistente
+# (SQL Server caído, token vencido) podía pasar semanas sin que nadie lo
+# notara. Mismo patrón ya usado para inventario_wo.fecha_sincronizacion.
+SYNC_EXITOSA_CARTERA_KEY = 'ultima_sync_cartera_exitosa'
+SYNC_EXITOSA_CLIENTES_KEY = 'ultima_sync_clientes_exitosa'
+SYNC_EXITOSA_COMERCIAL_KEY = 'ultima_sync_comercial_exitosa'
+
+
+def _sellar_ultima_sync_exitosa(clave):
+    """
+    Registra AHORA (hora del servidor) como la última vez que este agente
+    completó una sincronización exitosa. Se llama SOLO en el camino de
+    éxito real (tras el UPSERT/commit, no solo tras aceptar el HTTP), para
+    que la marca refleje datos realmente aplicados.
+    """
+    from backend.core.sql_database import db
+    from backend.models.sql_models import AppConfig
+    from datetime import datetime
+
+    try:
+        registro = db.session.get(AppConfig, clave)
+        valor = datetime.now().isoformat()
+        if registro:
+            registro.valor = valor
+        else:
+            db.session.add(AppConfig(clave=clave, valor=valor))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"❌ No se pudo sellar '{clave}' en app_config: {e}")
 
 
 # ====================================================================
@@ -159,6 +195,13 @@ def recibir_comercial():
     try:
         payload = request.json or {}
         detalles = WoSyncService.recibir_comercial(payload)
+
+        # Solo el ULTIMO chunk certifica que la sincronización completa quedó
+        # aplicada -- sellar en un chunk intermedio marcaría como "exitosa"
+        # una extracción que se cortó a la mitad.
+        if detalles.get('lote_actual') == detalles.get('total_lotes'):
+            _sellar_ultima_sync_exitosa(SYNC_EXITOSA_COMERCIAL_KEY)
+
         return jsonify({
             "success": True,
             "message": f"Sincronización comercial del lote {detalles['lote_actual']}/{detalles['total_lotes']} exitosa",
@@ -329,32 +372,71 @@ def auditoria_mensual():
 # ENDPOINTS: FLAG DE SINCRONIZACIÓN COMERCIAL DESDE DASHBOARD
 # ====================================================================
 
+# Clave en app_config para el flag de sincronización comercial. Antes vivía
+# en data/sync_comercial_flag.json -- en Render el filesystem es efímero y
+# ese archivo se perdía en cada redeploy.
+SYNC_COMERCIAL_FLAG_KEY = 'sync_comercial_pendiente'
+
+
 @wo_bp.route('/api/wo/solicitar_sync', methods=['POST'])
 def solicitar_sync():
     """
     Endpoint para activar o desactivar el flag de sincronización comercial.
     """
     try:
-        import json
+        from backend.core.sql_database import db
+        from backend.models.sql_models import AppConfig
 
         payload = request.get_json() if request.is_json else {}
         # Por defecto, si no se especifica, se asume que se solicita la sync
         estado = payload.get("sync_pendiente", True)
 
-        # Guardar el flag en un archivo temporal o en el directorio base
-        data_dir = os.path.join(os.getcwd(), 'data')
-        os.makedirs(data_dir, exist_ok=True)
-        file_path = os.path.join(data_dir, 'sync_comercial_flag.json')
-
-        with open(file_path, 'w') as f:
-            json.dump({"sync_pendiente": estado}, f)
+        registro = db.session.get(AppConfig, SYNC_COMERCIAL_FLAG_KEY)
+        if registro:
+            registro.valor = 'true' if estado else 'false'
+        else:
+            db.session.add(AppConfig(clave=SYNC_COMERCIAL_FLAG_KEY, valor='true' if estado else 'false'))
+        db.session.commit()
 
         logger.info(f"Flag de sincronización actualizado: sync_pendiente={estado}")
         return jsonify({"success": True, "message": f"Sincronización {'solicitada' if estado else 'limpiada'} exitosamente"}), 200
 
     except Exception as e:
+        from backend.core.sql_database import db
+        db.session.rollback()
         logger.error(f"❌ Error al solicitar sincronización: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "No fue posible actualizar el flag de sincronización."}), 500
+
+
+@wo_bp.route('/api/wo/estado_sincronizaciones', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_JEFES + ROL_COMERCIALES)
+def estado_sincronizaciones():
+    """
+    Antigüedad de la última sincronización EXITOSA de cartera, clientes y
+    comercial (hallazgo e8 de la auditoría) -- para que un admin pueda ver
+    de un vistazo si alguno de los agentes de planta lleva mucho tiempo sin
+    reportarse, sin depender de revisar el log local de cada uno.
+    """
+    from backend.models.sql_models import AppConfig
+    from datetime import datetime
+
+    def _leer(clave):
+        registro = AppConfig.query.get(clave)
+        if not registro or not registro.valor:
+            return {"fecha": None, "antiguedad_horas": None}
+        try:
+            fecha = datetime.fromisoformat(registro.valor)
+        except ValueError:
+            return {"fecha": None, "antiguedad_horas": None}
+        antiguedad_horas = round((datetime.now() - fecha).total_seconds() / 3600, 1)
+        return {"fecha": fecha.isoformat(), "antiguedad_horas": antiguedad_horas}
+
+    return jsonify({
+        "success": True,
+        "cartera": _leer(SYNC_EXITOSA_CARTERA_KEY),
+        "clientes": _leer(SYNC_EXITOSA_CLIENTES_KEY),
+        "comercial": _leer(SYNC_EXITOSA_COMERCIAL_KEY),
+    }), 200
 
 @wo_bp.route('/api/wo/verificar_sync', methods=['GET'])
 def verificar_sync():
@@ -362,19 +444,14 @@ def verificar_sync():
     Ruta que el Agente Local consultará para saber si debe extraer los datos.
     """
     try:
-        import json
-        file_path = os.path.join(os.getcwd(), 'data', 'sync_comercial_flag.json')
+        from backend.models.sql_models import AppConfig
 
-        if not os.path.exists(file_path):
-            return jsonify({"sync_pendiente": False}), 200
-
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-
-        return jsonify(data), 200
+        registro = AppConfig.query.get(SYNC_COMERCIAL_FLAG_KEY)
+        sync_pendiente = bool(registro and registro.valor == 'true')
+        return jsonify({"sync_pendiente": sync_pendiente}), 200
     except Exception as e:
         logger.error(f"❌ Error al verificar flag de sincronización: {e}")
-        return jsonify({"sync_pendiente": False, "error": str(e)}), 500
+        return jsonify({"sync_pendiente": False, "error": "No fue posible verificar el flag de sincronización."}), 500
 
 # ====================================================================
 # ENDPOINT: SINCRONIZAR CARTERA DESDE WO
@@ -387,9 +464,51 @@ def verificar_sync():
 UMBRAL_CAIDA_ANOMALA_CARTERA = 0.5
 
 
+def _bg_procesar_sincronizar_cartera(app, datos_limpios, documentos_vigentes, caida_anomala):
+    """
+    Fase lenta (upsert por lotes + borrado de obsoletos) de sincronizar_cartera,
+    ejecutada en un hilo aparte para no ocupar el worker HTTP mientras dura.
+    Necesita su propio app_context: Flask no propaga el contexto del request
+    original a un hilo nuevo, y Flask-SQLAlchemy usa ese contexto para resolver
+    su sesión (thread-local) -- sin él, db.session apuntaría a nada.
+    """
+    with app.app_context():
+        try:
+            from backend.repositories.ventas_repository import VentasRepository
+
+            BATCH_SIZE = 500
+            procesados_totales = 0
+            for i in range(0, len(datos_limpios), BATCH_SIZE):
+                chunk = datos_limpios[i:i + BATCH_SIZE]
+                procesados = VentasRepository.upsert_cartera_wo(chunk)
+                procesados_totales += procesados
+                logger.info(f"[BG] Procesado chunk {i // BATCH_SIZE + 1} de Cartera: {procesados} registros")
+
+            eliminados = 0
+            if caida_anomala:
+                logger.critical(
+                    "❌ [CRÍTICO][BG] Caída anómala en la sincronización de cartera. "
+                    "Se omite el borrado de obsoletos."
+                )
+            else:
+                eliminados = VentasRepository.eliminar_cartera_wo_obsoleta(documentos_vigentes)
+                if eliminados:
+                    logger.info(f"[BG] Cartera: {eliminados} facturas obsoletas (pagadas/cruzadas) eliminadas de cartera_wo")
+
+            logger.info(f"[BG] Sincronización de cartera completa: {procesados_totales} procesados, {eliminados} eliminados.")
+            _sellar_ultima_sync_exitosa(SYNC_EXITOSA_CARTERA_KEY)
+        except Exception as e:
+            logger.error(f"❌ [BG] Error procesando sincronización de cartera: {e}")
+
+
 @wo_bp.route('/api/wo/sincronizar_cartera', methods=['POST'])
 def sincronizar_cartera():
-    """Recibe y procesa el estado de cartera desde el Agente WO con chunking."""
+    """
+    Recibe el estado de cartera desde el Agente WO. Valida token y hace el
+    circuit-breaker de caída anómala de forma síncrona (para que el agente
+    vea el rechazo inmediatamente); el upsert masivo y el borrado de
+    obsoletos corren en background para no bloquear el worker HTTP.
+    """
     api_key_header = request.headers.get('X-API-Key') or request.headers.get('X-Sync-Token')
     api_key_env = os.environ.get('SYNC_TOKEN') or os.environ.get('WO_SYNC_API_KEY')
 
@@ -406,7 +525,6 @@ def sincronizar_cartera():
             datos = [datos] if datos else []
 
         from backend.core.sql_database import db
-        from backend.repositories.ventas_repository import VentasRepository
 
         # Validar y limpiar datos
         datos_limpios = []
@@ -431,41 +549,31 @@ def sincronizar_cartera():
                 'saldo_documento': saldo_documento
             })
 
-        # Procesamiento por lotes (chunking) de 500 en 500
-        BATCH_SIZE = 500
-        procesados_totales = 0
-
-        for i in range(0, len(datos_limpios), BATCH_SIZE):
-            chunk = datos_limpios[i:i+BATCH_SIZE]
-            procesados = VentasRepository.upsert_cartera_wo(chunk)
-            procesados_totales += procesados
-            logger.info(f"Procesado chunk {i//BATCH_SIZE + 1} de Cartera: {procesados} registros")
-
-        # --- Limpieza de obsoletos ---
-        # WO solo extrae documentos con Saldo > 0: una factura que se paga/cruza
-        # deja de venir en el payload y el upsert nunca la toca, quedando huerfana
-        # con su saldo viejo. Aqui se borra todo lo que no vino en esta extraccion,
-        # protegido por un circuit breaker por si la extraccion vino incompleta.
+        # Circuit breaker de caída anómala: se decide YA (síncrono, query
+        # liviana) para no perder la visibilidad del rechazo, aunque el
+        # borrado en sí se ejecute después en background.
         documentos_vigentes = [d['documento'] for d in datos_limpios]
         count_actual = db.session.execute(text("SELECT COUNT(*) FROM cartera_wo")).scalar() or 0
-        eliminados = 0
-        if count_actual > 0 and len(documentos_vigentes) < count_actual * UMBRAL_CAIDA_ANOMALA_CARTERA:
+        caida_anomala = count_actual > 0 and len(documentos_vigentes) < count_actual * UMBRAL_CAIDA_ANOMALA_CARTERA
+        if caida_anomala:
             logger.critical(
                 f"❌ [CRÍTICO] Caída anómala en la sincronización de cartera: "
                 f"recibidos={len(documentos_vigentes)} vs actuales={count_actual} "
-                f"(umbral {UMBRAL_CAIDA_ANOMALA_CARTERA:.0%}). Se omite el borrado de obsoletos."
+                f"(umbral {UMBRAL_CAIDA_ANOMALA_CARTERA:.0%}). Se omitirá el borrado de obsoletos."
             )
-        else:
-            eliminados = VentasRepository.eliminar_cartera_wo_obsoleta(documentos_vigentes)
-            if eliminados:
-                logger.info(f"Cartera: {eliminados} facturas obsoletas (pagadas/cruzadas) eliminadas de cartera_wo")
+
+        app_obj = current_app._get_current_object()
+        threading.Thread(
+            target=_bg_procesar_sincronizar_cartera,
+            args=(app_obj, datos_limpios, documentos_vigentes, caida_anomala),
+            daemon=True
+        ).start()
 
         return jsonify({
             "success": True,
-            "message": "Cartera sincronizada correctamente",
-            "procesados": procesados_totales,
-            "eliminados_obsoletos": eliminados
-        }), 200
+            "message": f"Cartera aceptada ({len(datos_limpios)} documentos). Procesando en background.",
+            "aceptados": len(datos_limpios)
+        }), 202
 
     except Exception as e:
         logger.error(f"Error en sincronizar_cartera: {e}")
@@ -482,10 +590,25 @@ def sincronizar_cartera():
 UMBRAL_CAIDA_ANOMALA_CLIENTES = 0.5
 
 
+def _bg_upsert_clientes_wo(app, datos_limpios):
+    """Fase lenta (UPSERT masivo) de sincronizar_clientes, en background."""
+    with app.app_context():
+        try:
+            from backend.repositories.cliente_repository import ClienteRepository
+            procesados = ClienteRepository.upsert_clientes_wo(datos_limpios)
+            logger.info(f"[BG] Clientes sincronizados: {procesados} registros procesados.")
+            _sellar_ultima_sync_exitosa(SYNC_EXITOSA_CLIENTES_KEY)
+        except Exception as e:
+            logger.error(f"❌ [BG] Error sincronizando clientes: {e}")
+
+
 @wo_bp.route('/api/wo/sincronizar_clientes', methods=['POST'])
 def sincronizar_clientes():
-    """Recibe y procesa el catalogo de clientes/terceros desde el Agente WO.
-    Persiste vía ClienteRepository.upsert_clientes_wo (UPSERT por identificacion/NIT).
+    """
+    Recibe el catalogo de clientes/terceros desde el Agente WO. Valida token
+    y el circuit-breaker (catálogo vacío o caída anómala) de forma síncrona
+    -- el agente necesita ver el rechazo inmediatamente -- y solo el UPSERT
+    masivo (ClienteRepository.upsert_clientes_wo) corre en background.
     """
     api_key_header = request.headers.get('X-API-Key') or request.headers.get('X-Sync-Token')
     api_key_env = os.environ.get('SYNC_TOKEN') or os.environ.get('WO_SYNC_API_KEY')
@@ -505,7 +628,6 @@ def sincronizar_clientes():
 
         # --- Circuit Breaker: catálogo vacío o caída anómala frente al actual ---
         from backend.core.sql_database import db
-        from backend.repositories.cliente_repository import ClienteRepository
 
         if len(datos) == 0:
             logger.critical("❌ [CRÍTICO] El catálogo de clientes recibido de WO viene vacío. Se aborta la sincronización.")
@@ -551,13 +673,18 @@ def sincronizar_clientes():
                 'ciudad':          str(item.get('ciudad') or '').strip()[:100],
             })
 
-        procesados = ClienteRepository.upsert_clientes_wo(datos_limpios)
+        app_obj = current_app._get_current_object()
+        threading.Thread(
+            target=_bg_upsert_clientes_wo,
+            args=(app_obj, datos_limpios),
+            daemon=True
+        ).start()
 
         return jsonify({
             "success": True,
-            "message": "Clientes sincronizados correctamente",
-            "procesados": procesados
-        }), 200
+            "message": f"Clientes aceptados ({len(datos_limpios)} registros). Procesando en background.",
+            "aceptados": len(datos_limpios)
+        }), 202
 
     except Exception as e:
         logger.error(f"Error en sincronizar_clientes: {e}")

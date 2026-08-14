@@ -23,11 +23,28 @@ el tamaño de cada request contra el total acumulado en la tabla.
 """
 import os
 import sys
+import io
+import logging
 import pyodbc
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Log persistente en disco (mismo patrón que agente_wo.py): sin esto, la
+# única prueba de que este agente corrió -- y si falló -- era la consola de
+# la tarea programada, que nadie mira. Forzar UTF-8 evita crash con emojis
+# en la consola cp1252 de Windows.
+_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agente_wo_clientes.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')),
+        logging.FileHandler(_LOG_PATH, encoding='utf-8')
+    ]
+)
+logger = logging.getLogger("AgenteWOClientes")
 
 DB_DRIVER   = os.getenv("WO_DB_DRIVER",  "{ODBC Driver 17 for SQL Server}")
 DB_SERVER   = os.getenv("WO_SERVER",     r"SERVERWO\WORLDOFFICE17")
@@ -69,25 +86,25 @@ def enviar_datos(datos, url_api, headers):
     try:
         response = requests.post(url_api, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
-        print(f"[OK] {len(datos)} registros enviados correctamente.")
+        logger.info(f"[OK] {len(datos)} registros enviados correctamente.")
     except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Falló el envío: {e}")
+        logger.error(f"[ERROR] Falló el envío: {e}")
         if getattr(e, "response", None) is not None:
-            print(e.response.text)
+            logger.error(e.response.text)
         raise e
 
 
 def ejecutar_extraccion():
-    print("=" * 60)
-    print("[>>] INICIANDO EXTRACCION DE CLIENTES/DIRECCIONES DESDE WO")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("[>>] INICIANDO EXTRACCION DE CLIENTES/DIRECCIONES DESDE WO")
+    logger.info("=" * 60)
 
     conn = None
     try:
         conn = pyodbc.connect(conn_str, timeout=15)
         cursor = conn.cursor()
 
-        print(">> Ejecutando consulta sobre Vista_Tabla_Direcciones...")
+        logger.info(">> Ejecutando consulta sobre Vista_Tabla_Direcciones...")
         cursor.execute(SQL_DIRECCIONES)
         columnas = [column[0] for column in cursor.description]
 
@@ -111,13 +128,13 @@ def ejecutar_extraccion():
 
         conn.close()
 
-        print(f"[OK] Extraccion completada. {len(datos)} direcciones de clientes encontradas.")
+        logger.info(f"[OK] Extraccion completada. {len(datos)} direcciones de clientes encontradas.")
 
         if not datos:
-            print("[!] No se encontraron registros. Se aborta el envío (el backend además rechaza catálogos vacíos).")
+            logger.warning("[!] No se encontraron registros. Se aborta el envío (el backend además rechaza catálogos vacíos).")
             return
 
-        print("\n>> Enviando datos a Render...")
+        logger.info(">> Enviando datos a Render...")
         headers = {
             "Content-Type": "application/json",
             "X-API-Key": API_KEY,
@@ -125,17 +142,17 @@ def ejecutar_extraccion():
         }
 
         enviar_datos(datos, API_URL, headers)
-        print("[OK] Sincronización de clientes finalizada exitosamente.")
+        logger.info("[OK] Sincronización de clientes finalizada exitosamente.")
 
     except Exception as e:
-        print(f"[FATAL] Error fatal en el proceso: {e}")
+        logger.error(f"[FATAL] Error fatal en el proceso: {e}")
         sys.exit(1)
     finally:
         if conn:
             try:
                 conn.close()
             except Exception as close_err:
-                print(f"[INFO] La conexión a SQL Server ya estaba cerrada o no requiere cierre explícito: {close_err}")
+                logger.info(f"[INFO] La conexión a SQL Server ya estaba cerrada o no requiere cierre explícito: {close_err}")
 
 
 def main():

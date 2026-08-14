@@ -857,6 +857,22 @@ class InventarioWO(db.Model):
     referencia           = db.Column(db.String(100), nullable=True)
     fecha_sincronizacion = db.Column(db.DateTime, nullable=True)
 
+
+class AppConfig(db.Model):
+    """
+    Config clave/valor de propósito general. Primer uso: reemplaza el flag
+    de sincronización comercial (antes en data/sync_comercial_flag.json,
+    filesystem efímero en Render -- se perdía en cada redeploy). No pensada
+    para datos de negocio, solo banderas/config operativa liviana.
+    """
+    __tablename__ = 'app_config'
+    __table_args__ = {'extend_existing': True}
+
+    clave           = db.Column(db.String(100), primary_key=True)
+    valor           = db.Column(db.Text, nullable=True)
+    actualizado_en  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class SuscripcionesPush(db.Model):
     """
     Entidad plana (SQL-First) para almacenar los endpoints de Web Push de cada dispositivo/usuario.
