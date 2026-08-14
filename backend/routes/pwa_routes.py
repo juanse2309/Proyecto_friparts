@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request, session, render_template
 from backend.core.sql_database import db
 from backend.models.sql_models import SuscripcionesPush, Usuario
 from backend.services.notification_service import NotificationService
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 
 pwa_bp = Blueprint('pwa', __name__)
 logger = logging.getLogger(__name__)
@@ -121,8 +122,9 @@ def debug_pwa_info():
         return jsonify({"success": False, "message": str(e)}), 500
 
 @pwa_bp.route('/api/pwa/test-notificacion', methods=['POST'])
+@require_role(ROL_ADMINS + ['MARKETING'])
 def test_notificacion():
-    """Dispara un mensaje de prueba a la última suscripción registrada."""
+    """Dispara un mensaje de prueba a la última suscripción registrada. Solo Admin/Marketing."""
     try:
         from pywebpush import webpush, WebPushException
 

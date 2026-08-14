@@ -5,12 +5,14 @@ import traceback
 from backend.core.sql_database import db
 from backend.services.pnc_service import pnc_service
 from backend.utils.cache_manager import cached_route
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 
 gerencia_bp = Blueprint('gerencia_bp', __name__)
 logger = logging.getLogger(__name__)
 
 
 @gerencia_bp.route('/api/gerencia/metricas-pnc', methods=['GET'])
+@require_role(ROL_ADMINS)
 @cached_route(namespace='gerencia_pnc', ttl=600)
 def obtener_metricas_pnc():
     """
@@ -35,6 +37,7 @@ def obtener_metricas_pnc():
         return jsonify({"success": False, "error": "Error al calcular métricas de PNC"}), 500
 
 @gerencia_bp.route('/api/gerencia/importar-inventario-fisico', methods=['POST', 'GET'])
+@require_role(ROL_ADMINS)
 def importar_inventario_fisico():
     """
     Endpoint exclusivo de una sola ejecución para el cargue masivo del inventario físico final.

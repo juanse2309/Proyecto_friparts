@@ -1,6 +1,7 @@
 import os
 import jwt
 import logging
+import unicodedata
 from functools import wraps
 from flask import session, jsonify, request, current_app
 
@@ -14,6 +15,9 @@ ROL_OPERARIOS = ['INYECCION', 'PULIDO', 'ALISTAMIENTO', 'ENSAMBLE', 'AUXILIAR IN
 # Roles autorizados para omitir el Ownership Guard (ver AuditService._usuario_autenticado_puede_override).
 # Mantener sincronizado con los roles usados en @require_role de las rutas de validación.
 ROLES_VALIDACION_OVERRIDE = ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'INVENTARIO', 'CALIDAD', 'STAFF FRIMETALS', 'SUPERVISOR']
+# Precalculado una sola vez al importar el módulo: require_role lo reutiliza
+# en cada request en vez de reconstruirlo (ver "God Mode" más abajo).
+_ROL_ADMINS_SET = set(r.strip().upper() for r in ROL_ADMINS)
 
 def _obtener_jwt_secrets():
     """
@@ -151,6 +155,21 @@ def require_role(allowed_roles_input):
     explícitamente (patrón ya usado en la mayoría de rutas: ROL_ADMINS +
     ROL_JEFES + ROL_OPERARIOS).
     """
+    # 3. Handle input: Convert nested lists (from constants) a un set plano, exacto y en mayúsculas.
+    # allowed_roles_input es fijo por endpoint (se conoce al aplicar el decorador) -- se
+    # normaliza UNA vez aquí en vez de en cada request dentro de decorated_function.
+    allowed_roles = []
+    if isinstance(allowed_roles_input, list):
+        for r in allowed_roles_input:
+            if isinstance(r, list): # handle ROL_ADMINS + ['JEFE']
+                allowed_roles.extend([str(x).strip().upper() for x in r])
+            else:
+                allowed_roles.append(str(r).strip().upper())
+    else:
+        allowed_roles = [str(allowed_roles_input).strip().upper()]
+
+    allowed_roles_set = set(allowed_roles)
+
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -159,27 +178,12 @@ def require_role(allowed_roles_input):
             if not user or not raw_role:
                 return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
 
-            import unicodedata
-
             # 2. Extract user's role and normalize (Accents removed + UPPERCASE + strip)
             raw_role_str = str(raw_role).strip().upper() # ⚡ ALWAYS UPPERCASE
             user_role = ''.join((c for c in unicodedata.normalize('NFD', raw_role_str) if unicodedata.category(c) != 'Mn'))
 
-            # 3. Handle input: Convert nested lists (from constants) a un set plano, exacto y en mayúsculas
-            allowed_roles = []
-            if isinstance(allowed_roles_input, list):
-                for r in allowed_roles_input:
-                    if isinstance(r, list): # handle ROL_ADMINS + ['JEFE']
-                        allowed_roles.extend([str(x).strip().upper() for x in r])
-                    else:
-                        allowed_roles.append(str(r).strip().upper())
-            else:
-                allowed_roles = [str(allowed_roles_input).strip().upper()]
-
-            allowed_roles_set = set(allowed_roles)
-
             # 4. Global God Mode: Admins variation always matches (pertenencia exacta a ROL_ADMINS)
-            if user_role in set(r.strip().upper() for r in ROL_ADMINS):
+            if user_role in _ROL_ADMINS_SET:
                 return f(*args, **kwargs)
 
             # 5. Check specific access: pertenencia EXACTA al conjunto, nunca substring

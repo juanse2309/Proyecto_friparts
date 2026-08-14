@@ -7,9 +7,12 @@ from backend.services.programacion_service import (
     ProgramacionNoEncontradaException,
     MaquinaOcupadaException,
 )
+from backend.utils.auth_middleware import require_login, require_role, ROL_ADMINS, ROL_JEFES, ROL_OPERARIOS
 
 programacion_bp = Blueprint('programacion_bp', __name__)
 logger = logging.getLogger(__name__)
+
+ROLES_PLANTA = ROL_ADMINS + ROL_JEFES + ROL_OPERARIOS
 
 
 # ====================================================================
@@ -18,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 @programacion_bp.route('/api/obtener_maquinas', methods=['GET'])
 @programacion_bp.route('/api/maquinas', methods=['GET'])
+@require_login
 def obtener_maquinas():
     """Retorna lista de máquinas activas desde db_maquinas (SQL-Native)."""
     try:
@@ -32,6 +36,7 @@ def obtener_maquinas():
 # ====================================================================
 
 @programacion_bp.route('/api/mes/programar', methods=['POST'])
+@require_role(ROLES_PLANTA)
 def mes_programar():
     """Fase 1: el Jefe de Planta pone en cola uno o varios productos para una máquina."""
     data = request.json or {}
@@ -53,6 +58,7 @@ def mes_programar():
 
 
 @programacion_bp.route('/api/mes/cancelar/<int:id_target>', methods=['POST'])
+@require_role(ROLES_PLANTA)
 def mes_cancelar(id_target):
     """Fase 1b: libera máquina cancelando por ID (Programación o Producción activa)."""
     try:
@@ -66,6 +72,7 @@ def mes_cancelar(id_target):
 
 
 @programacion_bp.route('/api/mes/programaciones/<maquina>', methods=['GET'])
+@require_role(ROLES_PLANTA)
 def mes_get_programaciones(maquina):
     """Obtiene programaciones activas desde SQL (db_programacion)."""
     try:
@@ -76,6 +83,7 @@ def mes_get_programaciones(maquina):
 
 
 @programacion_bp.route('/api/mes/dashboard', methods=['GET'])
+@require_role(ROLES_PLANTA)
 def mes_dashboard():
     """Estado completo de las máquinas (MES)."""
     try:
@@ -86,6 +94,7 @@ def mes_dashboard():
 
 
 @programacion_bp.route('/api/mes/pendientes_calidad', methods=['GET'])
+@require_role(ROLES_PLANTA)
 def mes_get_pendientes_calidad():
     """Obtiene registros de inyección en estado PENDIENTE_CALIDAD."""
     try:
@@ -96,6 +105,7 @@ def mes_get_pendientes_calidad():
 
 
 @programacion_bp.route('/api/mes/programacion/<id_prog>/productos', methods=['GET'])
+@require_role(ROLES_PLANTA)
 def mes_get_productos_programacion(id_prog):
     """Obtiene productos vinculados a una programación."""
     try:
@@ -109,6 +119,7 @@ def mes_get_productos_programacion(id_prog):
 
 
 @programacion_bp.route('/api/mes/status/<maquina>', methods=['GET'])
+@require_role(ROLES_PLANTA)
 def mes_get_status_maquina(maquina):
     """Obtiene el estado actual de una máquina (Activo, Programado o Libre)."""
     try:
@@ -124,6 +135,7 @@ def mes_get_status_maquina(maquina):
 
 
 @programacion_bp.route('/api/mes/iniciar', methods=['POST'])
+@require_role(ROLES_PLANTA)
 def mes_iniciar():
     """Fase 2a: el operario inicia físicamente la máquina (Batch de todo lo programado)."""
     data = request.json or {}

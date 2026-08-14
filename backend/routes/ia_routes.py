@@ -5,6 +5,7 @@ from flask import Blueprint, request, jsonify
 import google.generativeai as genai
 import tempfile
 import time
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 
 ia_bp = Blueprint('ia_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ if API_KEY:
     genai.configure(api_key=API_KEY)
 
 @ia_bp.route('/api/ia/procesar-audio-ensamble', methods=['POST'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE'])
 def procesar_audio_ensamble():
     if not API_KEY:
         return jsonify({'success': False, 'error': 'GOOGLE_API_KEY no configurada en el servidor.'}), 500

@@ -2,12 +2,19 @@ from flask import Blueprint, jsonify, request
 import logging
 
 from backend.services.pnc_service import PncService, PncDatosInvalidosException
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, ROL_OPERARIOS
 
 pnc_bp = Blueprint('pnc_bp', __name__)
 logger = logging.getLogger(__name__)
 
+# Reportado desde inyeccion.js/pulido/mes_control.js/pnc.js -- cualquier rol
+# de planta puede registrar/consultar producto no conforme, no solo la
+# página "pnc" dedicada.
+ROLES_PNC = ROL_ADMINS + ROL_JEFES + ROL_OPERARIOS
+
 
 @pnc_bp.route('/api/pnc', methods=['POST'])
+@require_role(ROLES_PNC)
 def registrar_pnc():
     """Registra un evento PNC en la tabla db_pnc de SQL y descuenta inventario."""
     data = request.json
@@ -26,6 +33,7 @@ def registrar_pnc():
 
 
 @pnc_bp.route('/api/pnc/criterios', methods=['GET'])
+@require_role(ROLES_PNC)
 def obtener_criterios_pnc():
     """Catálogo canónico de criterios por área, para que el frontend no hardcodee el suyo."""
     try:
@@ -36,6 +44,7 @@ def obtener_criterios_pnc():
 
 
 @pnc_bp.route('/api/obtener_pnc', methods=['GET'])
+@require_role(ROLES_PNC)
 def obtener_pnc():
     """Obtiene todos los registros de PNC consolidados desde SQL."""
     try:
@@ -46,6 +55,7 @@ def obtener_pnc():
 
 
 @pnc_bp.route('/api/resolver_pnc/<id_pnc>', methods=['POST'])
+@require_role(ROLES_PNC)
 def resolver_pnc(id_pnc):
     """Marca un PNC como resuelto (simulado; no hay columna de estado oficial todavía)."""
     return jsonify({"success": True, "mensaje": PncService.resolver(id_pnc)}), 200

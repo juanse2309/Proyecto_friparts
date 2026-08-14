@@ -6,12 +6,16 @@ from flask import Blueprint, request, jsonify, session
 import logging
 
 from backend.services.simulador_service import SimuladorService
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 
 simulador_bp = Blueprint('simulador_bp', __name__)
 logger = logging.getLogger(__name__)
 
+ROLES_SIMULADOR = ROL_ADMINS + ['JEFE INYECCION']
+
 
 @simulador_bp.route('/api/simulador/snapshot', methods=['POST'])
+@require_role(ROLES_SIMULADOR)
 def cargar_snapshot():
     """Carga manual del Jefe de Planta: qué está montado ahora mismo.
     Body: {"asignaciones": [{"maquina", "codigo_molde", "codigo_portamolde", "codigo_referencia", "codigo_macho"?, "cavidades"?}, ...]}
@@ -31,6 +35,7 @@ def cargar_snapshot():
 
 
 @simulador_bp.route('/api/simulador/auto-detectar', methods=['POST'])
+@require_role(ROLES_SIMULADOR)
 def auto_detectar():
     """Lee db_inyeccion (EN_PROCESO) y auto-carga lo que pueda resolver sin
     ambigüedad. No requiere ningún dato del usuario."""
@@ -43,6 +48,7 @@ def auto_detectar():
 
 
 @simulador_bp.route('/api/simulador/estado', methods=['GET'])
+@require_role(ROLES_SIMULADOR)
 def estado_actual():
     try:
         return jsonify(SimuladorService.obtener_estado_actual()), 200
@@ -52,6 +58,7 @@ def estado_actual():
 
 
 @simulador_bp.route('/api/simulador/candidatos', methods=['GET'])
+@require_role(ROLES_SIMULADOR)
 def candidatos():
     limite = request.args.get('limite', 50, type=int)
     try:
@@ -62,6 +69,7 @@ def candidatos():
 
 
 @simulador_bp.route('/api/simulador/sugerir-combo', methods=['GET'])
+@require_role(ROLES_SIMULADOR)
 def sugerir_combo():
     """Sugiere referencias urgentes+compatibles por pared para llenar un
     molde combo. Query params: ancla (codigo_referencia opcional),
@@ -82,6 +90,7 @@ def sugerir_combo():
 
 
 @simulador_bp.route('/api/simulador/aceptar', methods=['POST'])
+@require_role(ROLES_SIMULADOR)
 def aceptar():
     data = request.json or {}
     try:
@@ -98,6 +107,7 @@ def aceptar():
 
 
 @simulador_bp.route('/api/simulador/liberar/<int:id_asignacion>', methods=['POST'])
+@require_role(ROLES_SIMULADOR)
 def liberar(id_asignacion):
     try:
         SimuladorService.liberar(id_asignacion)

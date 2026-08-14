@@ -2,6 +2,7 @@ from flask import Blueprint, Response, jsonify
 import requests
 from functools import lru_cache
 import logging
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 
 imagenes_bp = Blueprint('imagenes', __name__)
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ def proxy_imagen(file_id):
         return jsonify({'error': 'No se pudo obtener la imagen del servidor de Google'}), 502
 
 @imagenes_bp.route('/limpiar-cache', methods=['POST'])
+@require_role(ROL_ADMINS)
 def limpiar_cache():
     '''Endpoint para limpiar el caché manualmente.'''
     obtener_imagen_google_drive.cache_clear()

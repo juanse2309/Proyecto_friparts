@@ -12,6 +12,7 @@ import os
 from backend.utils.formatters import normalizar_codigo
 from backend.models.sql_models import Producto
 from backend.core.sql_database import db as sql_db
+from backend.utils.auth_middleware import require_login, require_role, ROL_ADMINS, ROL_JEFES
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ def resolver_ruta_imagen(imagen_db, codigo_sistema):
     return "/static/img/no-image.svg"
 
 @productos_bp.route('/detalle/<codigo_sistema>', methods=['GET'])
+@require_login
 def detalle_producto(codigo_sistema):
     """Obtiene el detalle completo de un producto con auditoría de stock detallada."""
     try:
@@ -113,6 +115,7 @@ def detalle_producto(codigo_sistema):
         return jsonify({"status": "error", "message": str(e)}), 200
 
 @productos_bp.route('/buscar/<query>', methods=['GET'])
+@require_login
 def buscar_productos(query):
     """
     Busca productos uniendo con la tabla de costos (SQL-Native).
@@ -247,6 +250,7 @@ def buscar_productos(query):
         }), 500
 
 @productos_bp.route('/listar', methods=['GET'])
+@require_login
 def listar_productos():
     """
     Lista todos los productos.
@@ -372,6 +376,7 @@ def listar_productos():
         return jsonify([]), 200
 
 @productos_bp.route('/historial/<codigo>', methods=['GET'])
+@require_login
 def historial_producto(codigo):
     """
     Obtiene la trazabilidad 360 de un producto 100% SQL-Native.
@@ -545,6 +550,7 @@ def historial_producto(codigo):
 
 
 @productos_bp.route('/sincronizar_precios', methods=['POST'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'METALS_ADMIN'])
 def sincronizar_precios_wo():
     """
     Fase 1 - Sincronización de Precios con World Office.

@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from backend.services.inventario_service import inventario_service, InventarioService
 from backend.core.base_repository import base_repository
 from backend.core.exceptions import AppException
+from backend.utils.auth_middleware import require_role, require_login, ROL_ADMINS, ROL_JEFES, ROL_COMERCIALES
 from datetime import datetime
 import logging
 
@@ -14,8 +15,18 @@ logger = logging.getLogger(__name__)
 # Crear blueprint
 inventario_bp = Blueprint('inventario', __name__)
 
+# Roles con acceso a la página "inventario" en el frontend (ver frontend/static/js/modules/auth.js)
+ROLES_INVENTARIO = ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'METALS_ADMIN']
+# crear_producto_dual también se dispara desde el formulario "crear producto
+# rápido" de pedidos.js, en la página "pedidos" -- accesible a roles
+# comerciales (COMERCIAL/COMERCIAL FRIMETALS/STAFF FRIMETALS) que no viven en
+# ROLES_INVENTARIO. Sin este set aparte, un comercial legítimo creando un
+# pedido con un producto nuevo recibiría 403.
+ROLES_CREACION_PRODUCTO = ROLES_INVENTARIO + ROL_COMERCIALES
+
 
 @inventario_bp.route('/api/entrada', methods=['POST'])
+@require_role(ROLES_INVENTARIO)
 def registrar_entrada():
     """Registra una entrada de inventario."""
     try:
@@ -41,6 +52,7 @@ def registrar_entrada():
 
 
 @inventario_bp.route('/api/salida', methods=['POST'])
+@require_role(ROLES_INVENTARIO)
 def registrar_salida():
     """Registra una salida de inventario."""
     try:
@@ -66,6 +78,7 @@ def registrar_salida():
 
 
 @inventario_bp.route('/api/conteo', methods=['POST'])
+@require_role(ROLES_INVENTARIO)
 def registrar_conteo():
     """Registra un conteo de inventario con validación doble."""
     try:
@@ -216,6 +229,7 @@ def registrar_conteo():
 # ====================================================================
 
 @inventario_bp.route('/api/producto/<codigo>', methods=['GET'])
+@require_login
 def obtener_producto(codigo):
     """Obtiene información resumida del producto (código sistema + código ensamble)."""
     try:
@@ -228,12 +242,14 @@ def obtener_producto(codigo):
 
 
 @inventario_bp.route('/api/obtener_ficha/<id_codigo>', methods=['GET'])
+@require_login
 def obtener_ficha(id_codigo):
     """Obtiene la ficha técnica (buje de origen y cantidad unitaria) de un producto."""
     return jsonify(InventarioService.obtener_ficha_tecnica(id_codigo)), 200
 
 
 @inventario_bp.route('/api/moldes', methods=['GET'])
+@require_login
 def obtener_moldes():
     """Obtiene la lista de moldes activos."""
     try:
@@ -244,6 +260,7 @@ def obtener_moldes():
 
 
 @inventario_bp.route('/api/moldes/validar', methods=['POST'])
+@require_login
 def validar_molde():
     """Valida si las cavidades solicitadas no superan el máximo del molde."""
     data = request.json or {}
@@ -257,6 +274,7 @@ def validar_molde():
 
 
 @inventario_bp.route('/api/obtener_fichas', methods=['GET'])
+@require_login
 def obtener_fichas():
     """Obtiene todas las fichas técnicas (nueva_ficha_maestra)."""
     try:
@@ -267,6 +285,7 @@ def obtener_fichas():
 
 
 @inventario_bp.route('/api/productos/listar_v2', methods=['GET'])
+@require_login
 def listar_productos_v2():
     """Endpoint optimizado para la tabla de inventario con semáforos."""
     try:
@@ -278,6 +297,7 @@ def listar_productos_v2():
 
 @inventario_bp.route('/api/productos/crear_dual', methods=['POST'])
 @inventario_bp.route('/api/productos/dual', methods=['POST'])
+@require_role(ROLES_CREACION_PRODUCTO)
 def crear_producto_dual():
     """Registra un nuevo producto en db_productos."""
     data = request.json or {}
@@ -297,6 +317,7 @@ def crear_producto_dual():
 
 
 @inventario_bp.route('/api/cache/invalidar', methods=['POST'])
+@require_role(ROLES_INVENTARIO)
 def invalidar_cache_endpoint():
     """Endpoint para forzar la invalidación del cache de productos."""
     try:
@@ -313,6 +334,7 @@ def estado_cache():
 
 
 @inventario_bp.route('/api/productos/limpiar_cache', methods=['POST'])
+@require_role(ROLES_INVENTARIO)
 def limpiar_cache_manual():
     """Fuerza la limpieza manual del cache de productos."""
     try:
@@ -323,6 +345,7 @@ def limpiar_cache_manual():
 
 
 @inventario_bp.route('/api/producto/historial/<codigo>', methods=['GET'])
+@require_login
 def obtener_historial_producto(codigo):
     """Obtiene el historial de movimientos (Inyección + Pulido + Ventas) de un producto."""
     try:
@@ -334,6 +357,7 @@ def obtener_historial_producto(codigo):
 
 
 @inventario_bp.route('/api/productos/buscar_alternativas/<interno>', methods=['GET'])
+@require_login
 def buscar_alternativas(interno):
     """Busca productos que comparten el mismo ID CODIGO (INTERNO)."""
     try:

@@ -412,6 +412,17 @@ window.AppState = {
 let datosCargados = false;
 let isSharedDataLoading = false;
 
+// Roles con acceso a /api/obtener_clientes en el backend (ver ROL_ADMINS +
+// ROL_COMERCIALES + ROL_JEFES en backend/utils/auth_middleware.py). Los demás
+// roles (operarios, CLIENTE, METALS_PROD) no consumen sharedData.clientes
+// (solo lo usa pedidos.js, página a la que tampoco tienen acceso) y desde que
+// el endpoint quedó protegido este fetch les devolvía 403 en cada carga.
+const ROLES_CON_ACCESO_CLIENTES = [
+    'ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA',
+    'JEFE ALMACEN', 'JEFE INYECCION', 'JEFE PULIDO', 'JEFE DE PLANTA', 'JEFE ALISTAMIENTO',
+    'COMERCIAL', 'COMERCIAL FRIMETALS', 'STAFF FRIMETALS'
+];
+
 async function cargarDatosCompartidos() {
     if (datosCargados || isSharedDataLoading) return;
 
@@ -430,11 +441,14 @@ async function cargarDatosCompartidos() {
         console.log('🔄 INICIANDO CARGA DE DATOS COMPARTIDOS...');
 
         const t = Date.now();
+        const rolActual = (window.AppState?.user?.rol || '').toString().trim().toUpperCase();
+        const puedeVerClientes = ROLES_CON_ACCESO_CLIENTES.includes(rolActual);
+
         const [resProd, resResp, resMaq, resCli] = await Promise.all([
             fetch(`/api/productos/listar?_t=${t}`),
             fetch(`/api/obtener_responsables?_t=${t}`),
             fetch(`/api/obtener_maquinas?_t=${t}`),
-            fetch(`/api/obtener_clientes?_t=${t}`)
+            puedeVerClientes ? fetch(`/api/obtener_clientes?_t=${t}`) : Promise.resolve(null)
         ]);
 
         // 1. Procesar productos
@@ -492,7 +506,7 @@ async function cargarDatosCompartidos() {
         }
 
         // 4. Procesar clientes (ahora incluye NIT)
-        if (resCli.ok) {
+        if (resCli && resCli.ok) {
             const clientesData = await resCli.json();
             window.AppState.sharedData.clientes = clientesData; // Array de {nombre, nit}
             console.log('  ✅ Clientes cargados:', window.AppState.sharedData.clientes.length);

@@ -16,7 +16,7 @@ class Settings:
     CACHE_ENABLED = os.getenv('CACHE_ENABLED', 'true').lower() == 'true'
     
     # Flask
-    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+    SECRET_KEY = os.getenv('SECRET_KEY')
     DEBUG = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
     ENV = os.getenv('FLASK_ENV', 'development')
     

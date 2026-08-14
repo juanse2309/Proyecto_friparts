@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request, session
 import logging
+from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.services.auth_service import (
     AuthService,
     UsuarioNoEncontradoException,
@@ -174,6 +175,7 @@ def get_session_status():
 # ====================================================================
 
 @auth_bp.route('/api/admin/clientes/crear', methods=['POST'])
+@require_role(ROL_ADMINS)
 def crear_cuenta_cliente():
     """ADMIN: Crea una cuenta de cliente."""
     data = request.json or {}
@@ -275,6 +277,7 @@ def change_password_client():
 
 
 @auth_bp.route('/api/admin/clientes/listar', methods=['GET'])
+@require_role(ROL_ADMINS)
 def listar_clientes():
     """ADMIN: Lista todos los clientes registrados."""
     try:
@@ -285,6 +288,7 @@ def listar_clientes():
 
 
 @auth_bp.route('/api/admin/clientes/reset-password', methods=['POST'])
+@require_role(ROL_ADMINS)
 def reset_password_admin():
     """ADMIN: Resetea la contraseña de un cliente (vuelve a su NIT)."""
     data = request.json or {}
@@ -303,6 +307,7 @@ def reset_password_admin():
 
 
 @auth_bp.route('/api/admin/clientes/toggle-estado', methods=['POST'])
+@require_role(ROL_ADMINS)
 def toggle_estado_cliente():
     """ADMIN: Activa/Desactiva una cuenta de cliente."""
     data = request.json or {}

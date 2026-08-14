@@ -8,12 +8,19 @@ from sqlalchemy import text
 from backend.services.audit_service import OwnershipMismatchException
 from backend.services.ensamble_service import EnsambleService, BomNoDisponibleException
 from backend.config.constants import FALLBACK_OPERARIO
-from backend.utils.auth_middleware import _obtener_usuario_activo
+from backend.utils.auth_middleware import _obtener_usuario_activo, require_role, ROL_ADMINS, ROL_JEFES, ROL_OPERARIOS
 
 ensamble_bp = Blueprint('ensamble_bp', __name__)
 logger = logging.getLogger(__name__)
 
+ROLES_ENSAMBLE = ROL_ADMINS + ['AUXILIAR INVENTARIO', 'ENSAMBLE']
+# '/api/inyeccion/ensamble_desde_producto' se consume desde inyeccion.js (página
+# 'inyeccion', con audiencia mucho más amplia que 'ensamble') -- usa el set
+# de planta completo en vez de ROLES_ENSAMBLE.
+ROLES_PLANTA = ROL_ADMINS + ROL_JEFES + ROL_OPERARIOS
+
 @ensamble_bp.route('/api/ensamble/programacion', methods=['GET'])
+@require_role(ROLES_ENSAMBLE)
 def listar_programacion():
     try:
         # Listar todas las programaciones no completadas primero
@@ -38,6 +45,7 @@ def listar_programacion():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ensamble_bp.route('/api/ensamble/session_active', methods=['GET'])
+@require_role(ROLES_ENSAMBLE)
 def get_active_ensamble_session():
     """Busca si el operario tiene un trabajo activo en db_ensambles."""
     responsable = request.args.get('responsable')
@@ -70,6 +78,7 @@ def get_active_ensamble_session():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @ensamble_bp.route('/api/ensamble/programacion', methods=['POST'])
+@require_role(ROLES_ENSAMBLE)
 def crear_programacion():
     try:
         data = request.get_json()
@@ -116,6 +125,7 @@ def crear_programacion():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ensamble_bp.route('/api/ensamble/bom_stock/<id_codigo>', methods=['GET'])
+@require_role(ROLES_ENSAMBLE)
 def obtener_bom_con_stock(id_codigo):
     try:
         # 1. Obtener la BOM
@@ -155,6 +165,7 @@ def obtener_bom_con_stock(id_codigo):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ensamble_bp.route('/api/ensamble/tareas_pendientes', methods=['GET'])
+@require_role(ROLES_ENSAMBLE)
 def tareas_pendientes():
     try:
         tareas = ProgramacionEnsamble.query.filter(
@@ -179,6 +190,7 @@ def tareas_pendientes():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ensamble_bp.route('/api/ensamble/reportar', methods=['POST'])
+@require_role(ROLES_ENSAMBLE)
 def reportar_ensamble_multi():
     """Controlador puro: delega el reporte multi-registro en EnsambleService."""
     data = request.get_json()
@@ -213,6 +225,7 @@ def reportar_ensamble_multi():
 # ====================================================================
 
 @ensamble_bp.route('/api/inyeccion/ensamble_desde_producto', methods=['GET'])
+@require_role(ROLES_PLANTA)
 def obtener_ensamble_desde_producto():
     """Dado un código de producto, retorna su BOM completo desde NUEVA_FICHA_MAESTRA."""
     codigo_entrada = request.args.get('codigo', '').strip()
@@ -227,6 +240,7 @@ def obtener_ensamble_desde_producto():
 
 
 @ensamble_bp.route('/api/ensamble/iniciar', methods=['POST'])
+@require_role(ROLES_ENSAMBLE)
 def iniciar_ensamble():
     """
     Persistencia inmediata al iniciar ensamble.
@@ -255,6 +269,7 @@ def iniciar_ensamble():
 
 
 @ensamble_bp.route('/api/ensamble/finalizar', methods=['POST'])
+@require_role(ROLES_ENSAMBLE)
 def finalizar_ensamble():
     """
     Finaliza un ensamble con explosión de materiales (BOM) y descarga de inventario (Fases 1-5).
