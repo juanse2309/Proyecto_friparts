@@ -2,16 +2,19 @@ import uuid
 import logging
 from flask import Blueprint, jsonify, request
 from backend.core.sql_database import db
-from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES, _obtener_usuario_activo
+from backend.utils.auth_middleware import require_role, require_login, ROL_ADMINS, ROL_JEFES, _obtener_usuario_activo
 from backend.services.audit_service import OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException
 from backend.services.inyeccion_service import InyeccionService, LoteInyeccionNoEncontradoException, ProgramacionNoEncontradaException
 
 logger = logging.getLogger(__name__)
 inyeccion_bp = Blueprint('inyeccion_bp', __name__)
 
+ROLES_INYECCION_ESCRITURA = ROL_ADMINS + ROL_JEFES + ['INYECCION', 'AUXILIAR INVENTARIO', 'INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD', 'SUPERVISOR']
+ROLES_MES_INYECCION = ROL_ADMINS + ROL_JEFES + ['INYECCION', 'ENSAMBLE']
+
 
 @inyeccion_bp.route('/api/inyeccion/lote', methods=['POST'])
-@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION', 'AUXILIAR INVENTARIO', 'INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD', 'SUPERVISOR'])
+@require_role(ROLES_INYECCION_ESCRITURA)
 def registrar_inyeccion_lote():
     """
     Registro de un lote de PRODUCCIÓN de Inyección (controller delgado).
@@ -64,6 +67,7 @@ def registrar_inyeccion_lote():
 
 
 @inyeccion_bp.route('/api/inyeccion/iniciar_turno', methods=['POST'])
+@require_role(ROLES_MES_INYECCION)
 def iniciar_turno_inyeccion():
     """
     [DEPRECATED] Lógica de lotes en vivo eliminada.
@@ -121,6 +125,7 @@ def get_inyeccion_stats():
 
 
 @inyeccion_bp.route('/api/programacion/guardar', methods=['POST'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['INYECCION'])
 def guardar_programacion_diaria():
     """
     Controller delgado: parsea el request, delega a InyeccionService.guardar_programacion
@@ -267,6 +272,7 @@ def mes_reportar():
 
 
 @inyeccion_bp.route('/api/pnc/registrar_inyeccion', methods=['POST'])
+@require_role(ROLES_MES_INYECCION)
 def registrar_pnc_inyeccion():
     """
     Controller delgado: parsea el request, delega a InyeccionService.registrar_pnc
@@ -293,6 +299,7 @@ def registrar_pnc_inyeccion():
 # ====================================================================
 
 @inyeccion_bp.route('/api/inyeccion', methods=['POST'])
+@require_role(ROLES_INYECCION_ESCRITURA)
 def registrar_inyeccion():
     """Registra una operación de inyección en SQL-Native con descuento de BOM (flujo legacy)."""
     data = request.get_json()
@@ -317,6 +324,7 @@ def obtener_config_cavidades():
 
 
 @inyeccion_bp.route('/api/inyeccion/calcular', methods=['POST'])
+@require_login
 def calcular_inyeccion():
     """Calcula la producción total basada en cantidad y cavidades."""
     data = request.get_json() or {}

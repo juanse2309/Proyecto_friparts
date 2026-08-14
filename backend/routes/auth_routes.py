@@ -62,7 +62,7 @@ def get_metals_responsables():
         return jsonify({'status': 'success', 'data': resultado})
     except Exception as e:
         logger.error(f"Error fetching metals responsables SQL: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'No fue posible obtener los responsables de Metales.'}), 500
 
 
 @auth_bp.route('/api/auth/metals/login', methods=['POST'])
@@ -88,7 +88,7 @@ def metals_login():
         return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in metals SQL login: {e}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Error interno al iniciar sesión."}), 500
 
 
 # ====================================================================
@@ -102,7 +102,7 @@ def get_responsables():
         return jsonify(AuthService.obtener_responsables_staff())
     except Exception as e:
         logger.error(f"Error fetching responsables from SQL: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "No fue posible obtener los responsables."}), 500
 
 
 @auth_bp.route('/api/obtener_responsables', methods=['GET'])
@@ -152,7 +152,7 @@ def login():
         return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in SQL login: {e}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Error interno al iniciar sesión."}), 500
 
 
 @auth_bp.route('/api/auth/logout', methods=['POST'])

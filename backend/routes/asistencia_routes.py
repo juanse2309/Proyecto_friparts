@@ -43,16 +43,10 @@ def seguro_formatear_fecha(valor, formato='%d/%m/%Y %H:%M'):
 
 @asistencia_bp.route('/colaboradores', methods=['GET'])
 @asistencia_bp.route('/personal_a_cargo', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO'])
 def obtener_colaboradores():
     """Obtiene lista de colaboradores filtrada por Áreas de Responsabilidad. Incluye al Jefe."""
     user, role = obtener_identidad_segura(request)
-    if not user:
-        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
-
-    roles_autorizados = [r.upper() for r in (ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO'])]
-    user_role = str(role).strip().upper() if role else ''
-    if not any(allowed in user_role for allowed in roles_autorizados):
-        return jsonify({'status': 'error', 'message': 'Acceso denegado: permisos insuficientes'}), 403
 
     try:
         from sqlalchemy import text
@@ -178,22 +172,14 @@ def obtener_colaboradores():
         
     except Exception as e:
         logger.error(f"Error en personal_a_cargo (SQL-RBAC): {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'No fue posible obtener la lista de colaboradores.'}), 500
 
 @asistencia_bp.route('/guardar', methods=['POST'])
 @asistencia_bp.route('/registrar_masivo', methods=['POST'])
+@require_role(ROL_ADMINS + ROL_JEFES)
 def guardar_asistencia():
     """Guarda los registros de asistencia masivos en PostgreSQL recalculando horas server-side."""
     user, role = obtener_identidad_segura(request)
-    if not user:
-        return jsonify({'status': 'error', 'message': 'Sesión no válida o expirada'}), 401
-
-    roles_autorizados = [r.upper() for r in ROL_ADMINS]
-    user_role = str(role).strip().upper() if role else ''
-    es_autorizado = any(allowed in user_role for allowed in roles_autorizados) or 'JEFE' in user_role
-    
-    if not es_autorizado:
-        return jsonify({'status': 'error', 'message': 'No tiene permisos para reportar asistencia'}), 403
 
     try:
         data = request.json
@@ -281,23 +267,15 @@ def guardar_asistencia():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error guardando asistencia masiva: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'No fue posible guardar los registros de asistencia.'}), 500
 
 @asistencia_bp.route('/guardar_ausencia', methods=['POST'])
+@require_role(ROL_ADMINS + ROL_JEFES)
 def guardar_ausencia():
     """Guarda un registro de ausencia en SQL."""
     user_name, user_role = obtener_identidad_segura(request)
-    if not user_name:
-        return jsonify({'status': 'error', 'message': 'No autorizado'}), 401
 
     try:
-        # Validación de Permisos
-        user_role = str(user_role or '').upper()
-        ADMS = ['ADMIN', 'GERENCIA', 'ADMINISTRACION', 'GERENCIA GLOBAL', 'ADMINISTRADOR']
-        es_autorizado = any(r in user_role for r in ADMS) or 'JEFE' in user_role
-
-        if not es_autorizado:
-            return jsonify({'status': 'error', 'message': 'No tiene permisos para reportar ausencias'}), 403
         data = request.json
         if not data or 'registro' not in data:
             return jsonify({'status': 'error', 'message': 'Datos inválidos'}), 400
@@ -328,7 +306,7 @@ def guardar_ausencia():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error guardando ausencia: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'No fue posible guardar la ausencia.'}), 500
 
 @asistencia_bp.route('/mis_horas', methods=['GET'])
 def obtener_mis_horas():
@@ -433,7 +411,7 @@ def obtener_registros_dia():
         return jsonify({'status': 'success', 'registros': res}), 200
     except Exception as e:
         logger.error(f"Error en obtener_registros_dia: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'No fue posible obtener los registros del día.'}), 500
 
 @asistencia_bp.route('/consolidado_pendiente', methods=['GET'])
 @require_role(ROL_ADMINS)
@@ -552,7 +530,7 @@ def ejecutar_corte():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error ejecución corte: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': 'No fue posible ejecutar el corte de nómina.'}), 500
 
 
 @asistencia_bp.route('/editar/<int:id>', methods=['PUT'])

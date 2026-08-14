@@ -276,6 +276,7 @@ def preview_world_office():
 # ====================================================================
 
 @facturacion_bp.route('/api/facturacion', methods=['POST'])
+@require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
 def handle_facturacion():
     """Endpoint para registrar operaciones de facturacion."""
     data = request.get_json()
@@ -286,4 +287,4 @@ def handle_facturacion():
         return jsonify({"status": "error", "message": e.message}), 400
     except Exception as e:
         logger.error(f"ERROR en facturacion: {type(e).__name__}: {str(e)}")
-        return jsonify({"status": "error", "message": f"Error interno: {str(e)}"}), 500
+        return jsonify({"status": "error", "message": "Error interno al registrar la operación de facturación."}), 500

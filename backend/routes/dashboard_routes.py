@@ -49,6 +49,7 @@ def obtener_dashboard():
         }), 500
 
 @dashboard_bp.route('/stats', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 @cached_route(namespace='dashboard', ttl=600)
 def obtener_metricas_bi():
     """
@@ -303,6 +304,7 @@ def exportar_cartera():
     )
 
 @dashboard_bp.route('/scrap-detalle', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def get_scrap_detalle():
     """
     Devuelve el desglose de scrap/mermas por fecha y máquina de origen para una referencia.
@@ -326,6 +328,7 @@ def get_scrap_detalle():
         return jsonify({"success": False, "error": "No fue posible obtener el detalle de scrap."}), 500
 
 @dashboard_bp.route('/sin-rotacion', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def get_sin_rotacion():
     """
     Devuelve la lista de productos activos de baja rotación en los últimos 12 meses.
@@ -343,6 +346,7 @@ def get_sin_rotacion():
         return jsonify({"success": False, "error": "No fue posible obtener los productos de baja rotación."}), 500
 
 @dashboard_bp.route('/drilldown/inyeccion', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def drilldown_inyeccion_fecha():
     """
     Endpoint estricto de Drill-Down por fecha exacta (ISO YYYY-MM-DD) para auditoría de producción de inyección.
@@ -412,6 +416,7 @@ def drilldown_inyeccion_operador():
 # ====================================================================
 
 @dashboard_bp.route('/avanzado/indicador_inyeccion_sql', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def indicador_inyeccion_sql():
     """Calcula indicador de eficiencia de inyección usando SQL."""
     try:
@@ -429,10 +434,12 @@ def indicador_inyeccion_sql():
         }), 200
     except Exception as e:
         rollback_seguro()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"Error en indicador_inyeccion_sql: {e}")
+        return jsonify({'status': 'error', 'message': 'No fue posible calcular el indicador de inyección.'}), 500
 
 
 @dashboard_bp.route('/avanzado/indicador_pulido', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def indicador_pulido():
     """Calcula indicador de eficiencia de pulido usando SQL."""
     try:
@@ -450,20 +457,24 @@ def indicador_pulido():
         }), 200
     except Exception as e:
         rollback_seguro()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"Error en indicador_pulido: {e}")
+        return jsonify({'status': 'error', 'message': 'No fue posible calcular el indicador de pulido.'}), 500
 
 
 @dashboard_bp.route('/avanzado/produccion_maquina_avanzado', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def produccion_maquina_avanzado():
     """Analiza la producción por máquina usando SQL-Native."""
     try:
         return jsonify({'status': 'success', **DashboardRepository.get_produccion_por_maquina()}), 200
     except Exception as e:
         rollback_seguro()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"Error en produccion_maquina_avanzado: {e}")
+        return jsonify({'status': 'error', 'message': 'No fue posible calcular la producción por máquina.'}), 500
 
 
 @dashboard_bp.route('/avanzado/produccion_operario_ranking', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def produccion_operario_ranking():
     """Ranking consolidado de operarios (Inyección + Pulido) vía SQL."""
     try:
@@ -487,10 +498,12 @@ def produccion_operario_ranking():
         }), 200
     except Exception as e:
         rollback_seguro()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"Error en produccion_operario_ranking: {e}")
+        return jsonify({'status': 'error', 'message': 'No fue posible calcular el ranking de operarios.'}), 500
 
 
 @dashboard_bp.route('/avanzado/ranking_inyeccion', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES)
 def ranking_inyeccion():
     """Ranking específico de inyectores vía SQL."""
     try:
@@ -504,10 +517,11 @@ def ranking_inyeccion():
         }), 200
     except Exception as e:
         rollback_seguro()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"Error en ranking_inyeccion: {e}")
+        return jsonify({'status': 'error', 'message': 'No fue posible calcular el ranking de inyección.'}), 500
 
 
 @dashboard_bp.route('/real', methods=['GET'])
 def dashboard_real_redirect():
     from flask import redirect
-    return redirect('/api/dashboard/stats')
+    return redirect('/api/dashboard/stats')
