@@ -37,6 +37,21 @@ _cors_origins_env = os.environ.get(
 _cors_origins = [o.strip() for o in _cors_origins_env.split(',') if o.strip()]
 CORS(app, origins=_cors_origins, supports_credentials=True)
 
+# Rate limiting: antes NINGÚN endpoint tenía límite (dashboard, reportes,
+# sync WO incluidos). Límite global generoso por defecto (no bloquea uso
+# interactivo normal); storage en memoria porque gunicorn corre con
+# workers=1 (ver gunicorn.conf.py) -- un solo proceso, sin inconsistencia
+# entre workers como la que tenían las cachés antes de ese cambio.
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["60 per minute"],
+    storage_uri="memory://",
+)
+
 # Compresion de respuestas (gzip/brotli) para reducir ancho de banda en Render
 app.config['COMPRESS_MIMETYPES'] = ['application/json', 'text/html']
 Compress(app)
@@ -119,6 +134,16 @@ if not DATABASE_URL:
     )
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Antes sin configurar (defaults de SQLAlchemy: pool_size=5, max_overflow=10).
+# Con gunicorn en 1 worker + threads=4 (ver gunicorn.conf.py) el techo real de
+# conexiones concurrentes de la app es el número de threads, así que se fija
+# explícito en vez de depender de un default que ya no documenta la relación
+# real workers×pool <= límite de conexiones de Postgres.
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 8,
+    'max_overflow': 4,
+    'pool_pre_ping': True,
+}
 db.init_app(app)
 logger.debug("📡 [DB] SQLAlchemy inicializado con éxito")
 
@@ -217,6 +242,11 @@ app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
 app.register_blueprint(ensamble_bp)
 app.register_blueprint(ia_bp)
 app.register_blueprint(gerencia_bp)
+# Límite más estricto que el global: los agentes locales (agente_wo*.py)
+# sincronizan cada ~15 minutos según confirmó el usuario -- 20/min sigue
+# dejando margen amplio (300x) sin abrir la puerta a un agente en loop
+# descontrolado o un intento de fuerza bruta contra el token de sync.
+limiter.limit("20 per minute")(wo_bp)
 app.register_blueprint(wo_bp)
 app.register_blueprint(cartera_bp)
 
@@ -421,6 +451,24 @@ def health_check():
 def serve_static(path):
     """Sirve archivos estáticos."""
     return send_from_directory(app.static_folder, path)
+
+
+@app.errorhandler(Exception)
+def manejar_error_no_capturado(e):
+    """
+    Red de seguridad final: si una ruta no envuelve su lógica en try/except
+    (o una excepción se escapa antes de llegar a uno), esto evita que Flask
+    devuelva el detalle interno de la excepción al cliente. No reemplaza los
+    try/except ya existentes en cada ruta -- Flask siempre prioriza el
+    manejador más específico (el try/except dentro de la vista) sobre este;
+    solo se activa para excepciones que de verdad se escapan sin capturar.
+    """
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    logger.error(f"❌ [UNCAUGHT] {request.method} {request.path}: {e}", exc_info=True)
+    return jsonify({"success": False, "error": "Ocurrió un error interno inesperado."}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5005))

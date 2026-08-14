@@ -327,23 +327,6 @@ def invalidar_cache_endpoint():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-@inventario_bp.route('/api/cache/estado', methods=['GET'])
-def estado_cache():
-    """Obtiene el estado actual del cache de productos."""
-    return jsonify({'status': 'success', 'cache': InventarioService.obtener_estado_cache()}), 200
-
-
-@inventario_bp.route('/api/productos/limpiar_cache', methods=['POST'])
-@require_role(ROLES_INVENTARIO)
-def limpiar_cache_manual():
-    """Fuerza la limpieza manual del cache de productos."""
-    try:
-        InventarioService.limpiar_cache_productos()
-        return jsonify({"status": "success", "message": "Inventario actualizado"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
 @inventario_bp.route('/api/producto/historial/<codigo>', methods=['GET'])
 @require_login
 def obtener_historial_producto(codigo):

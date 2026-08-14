@@ -14,22 +14,16 @@ from backend.repositories.inventario_repository import inventario_repo
 from backend.core.exceptions import ProductoNoEncontrado, DatosInvalidos, MoldeNoEncontrado, CavidadesExcedidas
 from backend.utils.validators import Validator
 from backend.utils.formatters import to_int, normalizar_codigo, preservar_o_normalizar_prefijo
+from backend.utils.cache_manager import invalidate_cache
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Caches de lectura de catálogo de productos, migrados desde app.py tal cual.
-# NOTA (hallazgo de migración): `PRODUCTOS_CACHE` y `PRODUCTOS_LISTAR_CACHE` no
-# tienen ningún productor que los llene con datos reales en el código actual
-# — /api/productos/listar (productos_routes.py) no las usa y crear_producto()
-# tampoco invalida nada en la práctica — así que hoy son "caches de mentira"
-# (mismo patrón que _mes_cache en el dominio de Programación). Se preservan
-# íntegros para no cambiar comportamiento; PRODUCTOS_V2_CACHE sí es real y la
-# usa activamente listar_productos_v2().
+# Cache de lectura del catálogo de productos usada por listar_productos_v2().
+# /api/productos/listar (productos_routes.py) usa su propio cache separado,
+# el namespace 'productos_listar' de cache_manager.cached_route.
 PRODUCTOS_CACHE_TTL = 300  # igual al CACHE_TTL_MEDIUM que usaba app.py
 
-PRODUCTOS_CACHE = {"data": None, "timestamp": 0}
-PRODUCTOS_LISTAR_CACHE = {"data": None, "timestamp": 0}
 PRODUCTOS_V2_CACHE = {"data": None, "timestamp": 0}
 
 
@@ -526,11 +520,12 @@ class InventarioService:
 
         actualizados = producto_repo.upsert_productos_wo(lote)
 
-        # Invalida el cache real de listar_productos_v2() para que los
+        # Invalida ambos caches de lectura de catálogo para que los
         # productos nuevos/actualizados aparezcan de inmediato en vez de
-        # esperar el TTL de PRODUCTOS_CACHE_TTL segundos.
+        # esperar su TTL respectivo.
         PRODUCTOS_V2_CACHE["data"] = None
         PRODUCTOS_V2_CACHE["timestamp"] = 0
+        invalidate_cache('productos_listar')
 
         logger.info(f"📊 [Unificar WO] UPSERT completado. Filas procesadas: {actualizados}")
 
@@ -561,6 +556,7 @@ class InventarioService:
                 p_terminado=stock_inicial
             ))
             db.session.commit()
+            InventarioService.invalidar_cache_productos()
         except Exception as e:
             db.session.rollback()
             if not isinstance(e, ValueError):
@@ -569,31 +565,9 @@ class InventarioService:
 
     @staticmethod
     def invalidar_cache_productos() -> None:
-        """Limpia el cache de /api/productos/listar (comportamiento heredado: solo PRODUCTOS_LISTAR_CACHE)."""
-        PRODUCTOS_LISTAR_CACHE["data"] = None
-        PRODUCTOS_LISTAR_CACHE["timestamp"] = 0
+        """Limpia el cache de /api/productos/listar (namespace 'productos_listar')."""
+        invalidate_cache('productos_listar')
         logger.info("♻️ Cache de productos invalidado.")
-
-    @staticmethod
-    def obtener_estado_cache() -> Dict:
-        """Estado de PRODUCTOS_CACHE (nunca poblada por ningún productor real — ver nota de módulo)."""
-        ahora = time.time()
-        tiempo_transcurrido = ahora - PRODUCTOS_CACHE["timestamp"]
-        restante = max(0, PRODUCTOS_CACHE_TTL - tiempo_transcurrido)
-        return {
-            'data_presente': PRODUCTOS_CACHE["data"] is not None,
-            'timestamp': PRODUCTOS_CACHE["timestamp"],
-            'tiempo_transcurrido': round(tiempo_transcurrido, 1),
-            'ttl_restante': round(restante, 1),
-            'ttl_total': PRODUCTOS_CACHE_TTL,
-            'vencido': tiempo_transcurrido > PRODUCTOS_CACHE_TTL
-        }
-
-    @staticmethod
-    def limpiar_cache_productos() -> None:
-        """Limpia PRODUCTOS_CACHE manualmente."""
-        PRODUCTOS_CACHE["data"] = None
-        PRODUCTOS_CACHE["timestamp"] = 0
 
     @staticmethod
     def obtener_historial_producto(codigo: str) -> Dict:

@@ -150,7 +150,10 @@ class AsistenteService:
                 system_instruction=SYSTEM_INSTRUCTION + contexto_txt,
             )
             chat = model.start_chat()
-            response = chat.send_message(pregunta)
+            # Timeout explícito: sin él, una respuesta lenta/colgada de Gemini
+            # inmoviliza uno de los threads del worker gunicorn indefinidamente
+            # (ver gunicorn.conf.py -- worker_class='gthread', threads=4).
+            response = chat.send_message(pregunta, request_options={"timeout": 30})
         except Exception as e:
             logger.error(f"[Asistente] Error llamando a Gemini: {e}")
             return {'success': False, 'error': 'No fue posible contactar al asistente en este momento.'}

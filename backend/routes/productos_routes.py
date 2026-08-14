@@ -13,6 +13,7 @@ from backend.utils.formatters import normalizar_codigo
 from backend.models.sql_models import Producto
 from backend.core.sql_database import db as sql_db
 from backend.utils.auth_middleware import require_login, require_role, ROL_ADMINS, ROL_JEFES
+from backend.utils.cache_manager import cached_route
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +252,7 @@ def buscar_productos(query):
 
 @productos_bp.route('/listar', methods=['GET'])
 @require_login
+@cached_route(namespace='productos_listar', ttl=120)
 def listar_productos():
     """
     Lista todos los productos.
