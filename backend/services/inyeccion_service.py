@@ -203,6 +203,230 @@ class InyeccionService:
         )
 
     @staticmethod
+    def _sincronizar_campos_registro(registro, item, turno, fecha_dt, id_cod, maquina, responsable, usuario_activo):
+        """
+        Copia los campos de `item`/`turno` a los atributos del `registro`
+        (ProduccionInyeccion), incluyendo el estado inicial 'PENDIENTE' del
+        lote. Extraído de registrar_lote (hallazgo p5 de la auditoría) sin
+        cambiar el orden ni las fuentes de cada campo -- caracterizado por
+        tests/test_registrar_lote_campos_tiempos_pnc.py::TestSincronizacionCampos.
+
+        Devuelve (cant_real, pnc_val): valores que el resto de registrar_lote
+        (cálculo de tiempos y PNC) necesita después de esta sincronización.
+        """
+        from backend.utils.formatters import to_float, to_int
+        from backend.services.pnc_service import pnc_service
+
+        # El lote de producción siempre nace 'PENDIENTE' de auditoría.
+        # `responsable` se asigna también al crear (antes solo se asignaba al
+        # actualizar, y los lotes nuevos quedaban con responsable NULL — sin
+        # dueño al que atribuir después la merma).
+        registro.responsable    = responsable
+        registro.finalizado_por = usuario_activo or 'SISTEMA'
+        registro.estado         = 'PENDIENTE'
+        registro.id_codigo      = id_cod
+        registro.maquina        = maquina
+        registro.fecha_inicia   = datetime.combine(fecha_dt, datetime.min.time())
+        registro.departamento   = 'Inyeccion'
+
+        num_cavidades = to_int(item.get('no_cavidades') or item.get('cavidades') or 1)
+        cant_real     = to_int(item.get('cantidad_real') or 0)
+
+        registro.cantidad_real = cant_real
+        registro.cavidades     = num_cavidades
+        registro.molde         = to_int(item.get('molde') or 0)
+
+        disparos = to_float(item.get('cant_contador') or item.get('disparos') or 0)
+        registro.cant_contador      = to_int(disparos)
+        registro.produccion_teorica = to_float(item.get('produccion_teorica') or (disparos * num_cavidades))
+        registro.peso_bujes         = to_float(item.get('peso_bujes') or 0)
+        registro.peso_lote          = str(round(cant_real * registro.peso_bujes, 4))
+
+        registro.observaciones   = item.get('observaciones') or ''
+        registro.hora_llegada    = item.get('hora_llegada') or item.get('horaLlegada') or turno.get('hora_llegada')
+        registro.hora_inicio     = item.get('hora_inicio') or turno.get('hora_inicio')
+        registro.hora_termina    = item.get('hora_fin') or item.get('hora_termina') or turno.get('hora_fin') or turno.get('hora_termina')
+        registro.almacen_destino = item.get('almacen_destino') or turno.get('almacen_destino', 'POR PULIR')
+        registro.codigo_ensamble = item.get('codigo_ensamble')
+        registro.orden_produccion = item.get('orden_produccion') or turno.get('orden_produccion')
+
+        pnc_val = to_int(item.get('pnc') or item.get('pnc_total') or 0)
+        registro.pnc_total   = pnc_val
+        pnc_det = item.get('criterio_pnc') or item.get('pnc_detalle')
+        registro.pnc_detalle = pnc_service.normalizar_criterio(pnc_det, "inyeccion") if pnc_det else None
+
+        registro.entrada = str(to_float(item.get('entrada') or turno.get('entrada_manual') or 0))
+        registro.salida  = str(to_float(item.get('salida') or turno.get('salida_manual') or 0))
+
+        return cant_real, pnc_val
+
+    @staticmethod
+    def _calcular_tiempos_lote(registro, fecha_dt, cant_real):
+        """
+        Calcula duración neta, descuento de pausas programadas y métricas de
+        tiempo del `registro` a partir de sus horas ya sincronizadas
+        (registro.hora_inicio / registro.hora_termina). Si no hay ambas horas,
+        no hace nada (el registro queda con los defaults de la columna).
+
+        Extraído de registrar_lote (hallazgo p5) sin cambiar comportamiento --
+        caracterizado por tests/test_registrar_lote_campos_tiempos_pnc.py::
+        TestCalculoTiemposYPausas, incluido el guard de duración imposible
+        (TurnoInvalidoException, que SIEMPRE se re-lanza) y el resto de
+        errores de parseo, que solo se loguean (best-effort, no aborta el lote).
+        """
+        from backend.utils.formatters import calcular_metricas_inyeccion
+        from backend.services.pausas_service import PausasService
+
+        h_inicio = registro.hora_inicio
+        h_fin = registro.hora_termina
+        if not (h_inicio and h_fin):
+            return
+
+        try:
+            hi_h, hi_m = h_inicio.split(':')
+            hf_h, hf_m = h_fin.split(':')
+
+            dt_inicio = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day, int(hi_h), int(hi_m), 0)
+            dt_fin = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day, int(hf_h), int(hf_m), 0)
+
+            diff = dt_fin - dt_inicio
+            segundos = int(diff.total_seconds())
+            if segundos < 0:
+                segundos += 86400  # Cruce medianoche
+
+            # Barrera arquitectónica: rechaza duraciones imposibles (típico
+            # error de digitar 6:50 en vez de 18:50) antes de persistir nada.
+            InyeccionService.validar_duracion_turno(segundos)
+
+            descuento_info = PausasService.calcular_descuento_pausas_programadas(dt_inicio, dt_fin)
+            segundos_descuento = descuento_info['segundos_descuento']
+            segundos_netos = max(0, segundos - segundos_descuento)
+
+            registro.duracion_segundos = segundos_netos
+            registro.tiempo_total_minutos, registro.segundos_por_unidad = calcular_metricas_inyeccion(segundos_netos, cant_real)
+
+            if descuento_info['detalle']:
+                payload = {
+                    "descuento_programado_min": round(segundos_descuento / 60.0, 2),
+                    "detalle": descuento_info['detalle']
+                }
+                tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
+                obs = (registro.observaciones or "")
+                if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
+                    pre = obs.split("[AUTO_BREAK]")[0]
+                    post = obs.split("[/AUTO_BREAK]")[-1]
+                    registro.observaciones = (pre + tag + post).strip()
+                else:
+                    registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
+
+            registro.fecha_inicia = dt_inicio
+            registro.fecha_fin = dt_fin
+        except TurnoInvalidoException:
+            raise
+        except Exception as e_time:
+            logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
+
+    @staticmethod
+    def _procesar_pnc_item(registro, item, id_iny, id_cod, codigo_raw, pnc_val, pnc_list_global, responsable):
+        """
+        Reemplaza (delete + insert) la fila PncInyeccion de este item con el
+        desglose tipado de `pnc_list_global` que le corresponde por código; si
+        no hay desglose detallado, cae al fallback de `pnc_val` crudo
+        clasificado como deformacion_rechupado.
+
+        Extraído de registrar_lote (hallazgo p5) sin cambiar comportamiento --
+        caracterizado por tests/test_registrar_lote_campos_tiempos_pnc.py::TestLogicaPnc.
+        """
+        from backend.utils.formatters import normalizar_codigo
+
+        # Registro de PNC detallado. db_pnc_inyeccion.id_codigo se persiste
+        # SIN prefijo (blindaje @validates en el modelo), así que el filtro/
+        # comparación debe hacerse contra la forma normalizada, no id_cod crudo.
+        id_cod_sin_prefijo = normalizar_codigo(id_cod)
+        db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod_sin_prefijo).delete()
+
+        pnc_items_para_este_codigo = [
+            p for p in pnc_list_global
+            if p.get('codigo') == codigo_raw or normalizar_codigo(p.get('codigo')) == id_cod_sin_prefijo
+        ]
+
+        tipado, total_pnc_detallado = InyeccionService._clasificar_pnc_tipado(pnc_items_para_este_codigo)
+
+        # `responsable` es el operario que produjo la merma; `validado_por`
+        # queda NULL a propósito: este lote todavía no ha sido auditado.
+        if total_pnc_detallado > 0:
+            nuevo_pnc = PncInyeccion(
+                id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                id_inyeccion=id_iny,
+                id_codigo=id_cod,
+                cantidad=total_pnc_detallado,
+                criterio=InyeccionService._criterio_texto_tipado(tipado),
+                codigo_ensamble=registro.codigo_ensamble,
+                responsable=responsable,
+                **tipado
+            )
+            db.session.add(nuevo_pnc)
+            registro.pnc_total = int(round(total_pnc_detallado))
+            registro.pnc_detalle = nuevo_pnc.criterio
+        elif pnc_val > 0:
+            nuevo_pnc = PncInyeccion(
+                id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                id_inyeccion=id_iny,
+                id_codigo=id_cod,
+                cantidad=float(pnc_val),
+                criterio=registro.pnc_detalle or 'Otro',
+                codigo_ensamble=registro.codigo_ensamble,
+                responsable=responsable,
+                deformacion_rechupado=float(pnc_val)
+            )
+            db.session.add(nuevo_pnc)
+
+    @staticmethod
+    def _procesar_pnc_huerfanas(items, pnc_list, id_iny_lote):
+        """
+        PNC "huérfanas" del modal de cierre: entradas de pnc_list cuyo código
+        no corresponde a ningún item de este lote (p.ej. PNC de una referencia
+        distinta a las que se están inyectando). _procesar_pnc_item ya procesó
+        y clasificó todo lo que sí coincide con algún item del lote --
+        reprocesarlo aquí lo duplicaría, por eso se filtra explícitamente por
+        código.
+
+        Extraído de registrar_lote (hallazgo p5) sin cambiar comportamiento --
+        caracterizado por tests/test_registrar_lote_campos_tiempos_pnc.py::
+        TestLogicaPnc::test_pnc_huerfana_con_codigo_fuera_del_lote_se_guarda_bajo_id_inyeccion_del_lote.
+        """
+        from backend.utils.formatters import normalizar_codigo
+
+        codigos_items_lote = {
+            normalizar_codigo(it.get('codigo_producto') or it.get('id_codigo'))
+            for it in items
+        }
+        pnc_huerfanos_por_codigo = {}
+        for p in pnc_list:
+            cod_norm = normalizar_codigo(p.get('codigo'))
+            if cod_norm and cod_norm not in codigos_items_lote:
+                pnc_huerfanos_por_codigo.setdefault(cod_norm, []).append(p)
+
+        if not pnc_huerfanos_por_codigo:
+            return
+
+        logger.info(f" 🚩 Procesando PNC huérfanas (código fuera del lote) para {id_iny_lote}: {list(pnc_huerfanos_por_codigo.keys())}")
+
+        for cod_norm, defs in pnc_huerfanos_por_codigo.items():
+            db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny_lote, id_codigo=cod_norm).delete()
+
+            tipado_h, total_h = InyeccionService._clasificar_pnc_tipado(defs)
+            if total_h > 0:
+                db.session.add(PncInyeccion(
+                    id_pnc_inyeccion=uuid.uuid4().hex[:8],
+                    id_inyeccion=id_iny_lote,
+                    id_codigo=cod_norm,
+                    cantidad=total_h,
+                    criterio=InyeccionService._criterio_texto_tipado(tipado_h),
+                    **tipado_h
+                ))
+
+    @staticmethod
     def _generar_pdf_lote(turno, items):
         """
         Genera el PDF del lote y lo deja en disco local (subida a Drive deshabilitada).
@@ -264,12 +488,9 @@ class InyeccionService:
         sesión de SQLAlchemy colgada (pool Postgres).
         """
         from backend.utils.formatters import (
-            normalizar_codigo, preservar_o_normalizar_prefijo, to_float, to_int,
-            resolver_operario, calcular_metricas_inyeccion,
+            preservar_o_normalizar_prefijo, resolver_operario,
             normalizar_codigo_sin_prefijo, sql_expr_codigo_sin_prefijo_fr,
         )
-        from backend.services.pnc_service import pnc_service
-        from backend.services.pausas_service import PausasService
 
         turno = data.get('turno', {})
         items = data.get('items', [])
@@ -293,6 +514,33 @@ class InyeccionService:
         registros_procesados = []
 
         try:
+            # --- Resolución batch del registro existente por item (hallazgo p6
+            # de auditoría: antes eran hasta 3 queries POR ITEM -- 10-60 queries
+            # en un lote de 10-20 códigos). Se resuelven los 3 niveles de
+            # prioridad (id_sql -> id_inyeccion+código -> máquina+responsable+
+            # código+fecha+estado) en 3 queries TOTALES para todo el lote, no
+            # por item. Comportamiento caracterizado y protegido por
+            # tests/test_registrar_lote.py y tests/test_normalizacion_codigo_
+            # sql_vs_python.py -- cualquier cambio aquí debe seguir pasando esos
+            # tests, en particular:
+            #   - la prioridad tier1 > tier2 > tier3 no se invierte;
+            #   - el desempate de tier3 es "la fila EN_PROCESO más reciente";
+            #   - dos items del MISMO lote que resuelven a la misma fila se
+            #     autodeduplican (el código original lo lograba por el
+            #     autoflush de SQLAlchemy antes de cada query en vivo; aquí se
+            #     replica registrando cada fila resuelta/creada en los mapas
+            #     ANTES de procesar el siguiente item);
+            #   - la normalización SQL de código (quita 'FR-' en cualquier
+            #     posición) y la de Python (solo como prefijo) NO son
+            #     intercambiables, por eso el valor normalizado se pide como
+            #     columna calculada (expr_cod.label('cod_norm')) en vez de
+            #     re-derivarlo en Python sobre el código crudo de cada fila.
+            expr_cod = sql_expr_codigo_sin_prefijo_fr(ProduccionInyeccion.id_codigo)
+            responsable_busqueda = resolver_operario(turno.get('responsable'))
+
+            claves_por_item = []
+            ids_sql = set()
+            ids_iny_tier2 = set()
             for item in items:
                 id_sql = item.get('id_sql') or item.get('id')
                 id_iny = item.get('id_inyeccion') or id_iny_lote
@@ -306,28 +554,64 @@ class InyeccionService:
                 # como 'FR-9843' y las nuevas como '9843'. Comparar en crudo crearía
                 # una fila duplicada en vez de cerrar el lote ya abierto.
                 cod_lookup = normalizar_codigo_sin_prefijo(id_cod)
-                expr_cod = sql_expr_codigo_sin_prefijo_fr(ProduccionInyeccion.id_codigo)
+                claves_por_item.append({
+                    'item': item, 'id_sql': id_sql, 'id_iny': id_iny,
+                    'id_cod': id_cod, 'cod_lookup': cod_lookup,
+                })
+                if id_sql:
+                    ids_sql.add(id_sql)
+                if id_iny:
+                    ids_iny_tier2.add(id_iny)
 
-                # 1. Búsqueda robusta del registro existente (evitar duplicados)
+            mapa_tier1 = {}
+            if ids_sql:
+                for fila in db.session.query(ProduccionInyeccion).filter(
+                    ProduccionInyeccion.id.in_(ids_sql)
+                ).all():
+                    mapa_tier1[fila.id] = fila
+
+            mapa_tier2 = {}
+            if ids_iny_tier2:
+                for fila, cod_norm in db.session.query(
+                    ProduccionInyeccion, expr_cod.label('cod_norm')
+                ).filter(
+                    ProduccionInyeccion.id_inyeccion.in_(ids_iny_tier2)
+                ).all():
+                    mapa_tier2.setdefault((fila.id_inyeccion, cod_norm), fila)
+
+            codigos_tier3 = {c['cod_lookup'] for c in claves_por_item if not c['id_sql']}
+            mapa_tier3 = {}
+            if codigos_tier3:
+                filas_tier3 = db.session.query(
+                    ProduccionInyeccion, expr_cod.label('cod_norm')
+                ).filter(
+                    ProduccionInyeccion.maquina == maquina,
+                    ProduccionInyeccion.responsable == responsable_busqueda,
+                    expr_cod.in_(codigos_tier3),
+                    db.func.date(ProduccionInyeccion.fecha_inicia) == fecha_dt,
+                    ProduccionInyeccion.estado == 'EN_PROCESO'
+                ).order_by(ProduccionInyeccion.id.desc()).all()
+                for fila, cod_norm in filas_tier3:
+                    mapa_tier3.setdefault(cod_norm, fila)
+
+            for clave in claves_por_item:
+                item = clave['item']
+                id_sql = clave['id_sql']
+                id_iny = clave['id_iny']
+                id_cod = clave['id_cod']
+                cod_lookup = clave['cod_lookup']
+
+                # 1. Búsqueda robusta del registro existente (evitar duplicados),
+                # resuelta contra los mapas precargados arriba.
                 registro = None
                 if id_sql:
-                    registro = db.session.get(ProduccionInyeccion, id_sql)
+                    registro = mapa_tier1.get(id_sql)
 
                 if not registro and id_iny:
-                    registro = db.session.query(ProduccionInyeccion).filter(
-                        ProduccionInyeccion.id_inyeccion == id_iny,
-                        expr_cod == cod_lookup
-                    ).first()
+                    registro = mapa_tier2.get((id_iny, cod_lookup))
 
                 if not registro and not id_sql:
-                    responsable_busqueda = resolver_operario(turno.get('responsable'))
-                    registro = db.session.query(ProduccionInyeccion).filter(
-                        ProduccionInyeccion.maquina == maquina,
-                        ProduccionInyeccion.responsable == responsable_busqueda,
-                        expr_cod == cod_lookup,
-                        db.func.date(ProduccionInyeccion.fecha_inicia) == fecha_dt,
-                        ProduccionInyeccion.estado == 'EN_PROCESO'
-                    ).order_by(ProduccionInyeccion.id.desc()).first()
+                    registro = mapa_tier3.get(cod_lookup)
 
                 # Guard de ownership y asignación de autoría. usuario_activo proviene
                 # exclusivamente de la identidad autenticada (JWT/sesión) — nunca se
@@ -343,139 +627,29 @@ class InyeccionService:
                 else:
                     logger.debug(f"🔄 [Inyeccion] Actualizando registro existente (ID SQL: {registro.id})")
 
-                # --- Sincronización de campos ---
-                # El lote de producción siempre nace 'PENDIENTE' de auditoría.
-                # `responsable` se asigna también al crear (antes solo se
-                # asignaba al actualizar, y los lotes nuevos quedaban con
-                # responsable NULL — sin dueño al que atribuir después la merma).
-                registro.responsable    = responsable
-                registro.finalizado_por = usuario_activo or 'SISTEMA'
-                registro.estado         = 'PENDIENTE'
-                registro.id_codigo      = id_cod
-                registro.maquina        = maquina
-                registro.fecha_inicia   = datetime.combine(fecha_dt, datetime.min.time())
-                registro.departamento   = 'Inyeccion'
+                # Autodeduplicación dentro del MISMO lote: si otro item más
+                # adelante en este mismo `items` comparte id_iny+cod_lookup,
+                # debe encontrar esta fila (recién creada o recién resuelta) en
+                # vez de crear una segunda. El código pre-batch lo lograba vía
+                # autoflush de SQLAlchemy antes de cada query en vivo; con los
+                # mapas precargados hay que registrar la fila explícitamente
+                # (ver tests/test_registrar_lote.py::test_dos_items_del_mismo_lote_...).
+                # Solo tier2 aplica: tier3 exige estado=='EN_PROCESO', y unas
+                # líneas más abajo este registro pasa a 'PENDIENTE'.
+                if id_iny:
+                    mapa_tier2[(id_iny, cod_lookup)] = registro
 
-                num_cavidades = to_int(item.get('no_cavidades') or item.get('cavidades') or 1)
-                cant_real     = to_int(item.get('cantidad_real') or 0)
-
-                registro.cantidad_real = cant_real
-                registro.cavidades     = num_cavidades
-                registro.molde         = to_int(item.get('molde') or 0)
-
-                disparos = to_float(item.get('cant_contador') or item.get('disparos') or 0)
-                registro.cant_contador      = to_int(disparos)
-                registro.produccion_teorica = to_float(item.get('produccion_teorica') or (disparos * num_cavidades))
-                registro.peso_bujes         = to_float(item.get('peso_bujes') or 0)
-                registro.peso_lote          = str(round(cant_real * registro.peso_bujes, 4))
-
-                registro.observaciones   = item.get('observaciones') or ''
-                registro.hora_llegada    = item.get('hora_llegada') or item.get('horaLlegada') or turno.get('hora_llegada')
-                registro.hora_inicio     = item.get('hora_inicio') or turno.get('hora_inicio')
-                registro.hora_termina    = item.get('hora_fin') or item.get('hora_termina') or turno.get('hora_fin') or turno.get('hora_termina')
-                registro.almacen_destino = item.get('almacen_destino') or turno.get('almacen_destino', 'POR PULIR')
-                registro.codigo_ensamble = item.get('codigo_ensamble')
-                registro.orden_produccion = item.get('orden_produccion') or turno.get('orden_produccion')
-
-                pnc_val = to_int(item.get('pnc') or item.get('pnc_total') or 0)
-                registro.pnc_total   = pnc_val
-                pnc_det = item.get('criterio_pnc') or item.get('pnc_detalle')
-                registro.pnc_detalle = pnc_service.normalizar_criterio(pnc_det, "inyeccion") if pnc_det else None
-
-                registro.entrada = str(to_float(item.get('entrada') or turno.get('entrada_manual') or 0))
-                registro.salida  = str(to_float(item.get('salida') or turno.get('salida_manual') or 0))
-
-                # --- Cálculo de tiempos y métricas ---
-                h_inicio = registro.hora_inicio
-                h_fin = registro.hora_termina
-
-                if h_inicio and h_fin:
-                    try:
-                        hi_h, hi_m = h_inicio.split(':')
-                        hf_h, hf_m = h_fin.split(':')
-
-                        dt_inicio = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day, int(hi_h), int(hi_m), 0)
-                        dt_fin = datetime(fecha_dt.year, fecha_dt.month, fecha_dt.day, int(hf_h), int(hf_m), 0)
-
-                        diff = dt_fin - dt_inicio
-                        segundos = int(diff.total_seconds())
-                        if segundos < 0:
-                            segundos += 86400  # Cruce medianoche
-
-                        # Barrera arquitectónica: rechaza duraciones imposibles (típico
-                        # error de digitar 6:50 en vez de 18:50) antes de persistir nada.
-                        InyeccionService.validar_duracion_turno(segundos)
-
-                        descuento_info = PausasService.calcular_descuento_pausas_programadas(dt_inicio, dt_fin)
-                        segundos_descuento = descuento_info['segundos_descuento']
-                        segundos_netos = max(0, segundos - segundos_descuento)
-
-                        registro.duracion_segundos = segundos_netos
-                        registro.tiempo_total_minutos, registro.segundos_por_unidad = calcular_metricas_inyeccion(segundos_netos, cant_real)
-
-                        if descuento_info['detalle']:
-                            payload = {
-                                "descuento_programado_min": round(segundos_descuento / 60.0, 2),
-                                "detalle": descuento_info['detalle']
-                            }
-                            tag = f"[AUTO_BREAK]{json.dumps(payload, ensure_ascii=False)}[/AUTO_BREAK]"
-                            obs = (registro.observaciones or "")
-                            if "[AUTO_BREAK]" in obs and "[/AUTO_BREAK]" in obs:
-                                pre = obs.split("[AUTO_BREAK]")[0]
-                                post = obs.split("[/AUTO_BREAK]")[-1]
-                                registro.observaciones = (pre + tag + post).strip()
-                            else:
-                                registro.observaciones = (obs + "\n" + tag).strip() if obs else tag
-
-                        registro.fecha_inicia = dt_inicio
-                        registro.fecha_fin = dt_fin
-                    except TurnoInvalidoException:
-                        raise
-                    except Exception as e_time:
-                        logger.warning(f"Error calculando tiempos inyeccion: {e_time}")
-
-                # Registro de PNC detallado. db_pnc_inyeccion.id_codigo se persiste
-                # SIN prefijo (blindaje @validates en el modelo), así que el filtro/
-                # comparación debe hacerse contra la forma normalizada, no id_cod crudo.
-                id_cod_sin_prefijo = normalizar_codigo(id_cod)
-                db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny, id_codigo=id_cod_sin_prefijo).delete()
-
-                pnc_list_global = data.get('pnc_list', [])
-                pnc_items_para_este_codigo = [
-                    p for p in pnc_list_global
-                    if p.get('codigo') == codigo_raw or normalizar_codigo(p.get('codigo')) == id_cod_sin_prefijo
-                ]
-
-                tipado, total_pnc_detallado = InyeccionService._clasificar_pnc_tipado(pnc_items_para_este_codigo)
-
-                # `responsable` es el operario que produjo la merma; `validado_por`
-                # queda NULL a propósito: este lote todavía no ha sido auditado.
-                if total_pnc_detallado > 0:
-                    nuevo_pnc = PncInyeccion(
-                        id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                        id_inyeccion=id_iny,
-                        id_codigo=id_cod,
-                        cantidad=total_pnc_detallado,
-                        criterio=InyeccionService._criterio_texto_tipado(tipado),
-                        codigo_ensamble=registro.codigo_ensamble,
-                        responsable=responsable,
-                        **tipado
-                    )
-                    db.session.add(nuevo_pnc)
-                    registro.pnc_total = int(round(total_pnc_detallado))
-                    registro.pnc_detalle = nuevo_pnc.criterio
-                elif pnc_val > 0:
-                    nuevo_pnc = PncInyeccion(
-                        id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                        id_inyeccion=id_iny,
-                        id_codigo=id_cod,
-                        cantidad=float(pnc_val),
-                        criterio=registro.pnc_detalle or 'Otro',
-                        codigo_ensamble=registro.codigo_ensamble,
-                        responsable=responsable,
-                        deformacion_rechupado=float(pnc_val)
-                    )
-                    db.session.add(nuevo_pnc)
+                # --- Sincronización de campos, cálculo de tiempos y PNC del item ---
+                # (extraído a helpers propios -- hallazgo p5 de la auditoría; ver
+                # tests/test_registrar_lote_campos_tiempos_pnc.py)
+                cant_real, pnc_val = InyeccionService._sincronizar_campos_registro(
+                    registro, item, turno, fecha_dt, id_cod, maquina, responsable, usuario_activo
+                )
+                InyeccionService._calcular_tiempos_lote(registro, fecha_dt, cant_real)
+                InyeccionService._procesar_pnc_item(
+                    registro, item, id_iny, id_cod, codigo_raw, pnc_val,
+                    data.get('pnc_list', []), responsable
+                )
 
                 registros_procesados.append(registro)
 
@@ -484,38 +658,7 @@ class InyeccionService:
             if id_prog and id_prog != 'LEGACY':
                 db.session.query(ProgramacionInyeccion).filter_by(id=id_prog).update({'estado': 'COMPLETADO'})
 
-            # PNC "huérfanas" del modal de cierre: entradas de pnc_list cuyo código
-            # no corresponde a ningún item de este lote (p.ej. PNC de una referencia
-            # distinta a las que se están inyectando). El loop de arriba ya procesó
-            # y clasificó todo lo que sí coincide con algún item — reprocesarlo aquí
-            # lo duplicaría, por eso se filtra explícitamente por código.
-            codigos_items_lote = {
-                normalizar_codigo(it.get('codigo_producto') or it.get('id_codigo'))
-                for it in items
-            }
-            pnc_list = data.get('pnc_list', [])
-            pnc_huerfanos_por_codigo = {}
-            for p in pnc_list:
-                cod_norm = normalizar_codigo(p.get('codigo'))
-                if cod_norm and cod_norm not in codigos_items_lote:
-                    pnc_huerfanos_por_codigo.setdefault(cod_norm, []).append(p)
-
-            if pnc_huerfanos_por_codigo:
-                logger.info(f" 🚩 Procesando PNC huérfanas (código fuera del lote) para {id_iny_lote}: {list(pnc_huerfanos_por_codigo.keys())}")
-
-                for cod_norm, defs in pnc_huerfanos_por_codigo.items():
-                    db.session.query(PncInyeccion).filter_by(id_inyeccion=id_iny_lote, id_codigo=cod_norm).delete()
-
-                    tipado_h, total_h = InyeccionService._clasificar_pnc_tipado(defs)
-                    if total_h > 0:
-                        db.session.add(PncInyeccion(
-                            id_pnc_inyeccion=uuid.uuid4().hex[:8],
-                            id_inyeccion=id_iny_lote,
-                            id_codigo=cod_norm,
-                            cantidad=total_h,
-                            criterio=InyeccionService._criterio_texto_tipado(tipado_h),
-                            **tipado_h
-                        ))
+            InyeccionService._procesar_pnc_huerfanas(items, data.get('pnc_list', []), id_iny_lote)
 
             db.session.commit()
             logger.info(f" ✅ Lote {id_iny_lote} (PENDIENTE) procesado con {len(items)} items.")
