@@ -37,6 +37,57 @@ class SubprocesoEnsambleController {
         this.limpiarCampos = config.limpiarCampos || (() => {});
 
         this.sesion = null; // Objeto de sesión activa (o null)
+
+        // Dispara la carga del catálogo compartido (idempotente: un solo fetch
+        // real sin importar cuántas instancias de este controller se creen).
+        this.constructor.cargarCatalogoReferencias();
+    }
+
+    // ============================================
+    // CATÁLOGO COMPARTIDO DE REFERENCIAS (Pintura/Rayada/Hornos)
+    // Single fetch + caché en memoria + <datalist> compartido. Vive a nivel
+    // de CLASE (no de instancia) para que los 3 submódulos consuman el mismo
+    // catálogo sin triplicar la petición ni la lógica.
+    // ============================================
+    static _catalogoPromise = null;
+    static _referenciasValidas = new Set();
+
+    static cargarCatalogoReferencias() {
+        if (!SubprocesoEnsambleController._catalogoPromise) {
+            SubprocesoEnsambleController._catalogoPromise = (async () => {
+                try {
+                    const res = await fetch('/api/productos/listar');
+                    const data = await res.json();
+                    const items = Array.isArray(data) ? data : (data.items || []);
+
+                    const datalist = document.getElementById('lista-referencias-ensamble');
+                    const frag = document.createDocumentFragment();
+
+                    items.forEach(p => {
+                        const codigo = p.id_codigo || p.codigo_sistema || p.codigo;
+                        if (!codigo) return;
+
+                        SubprocesoEnsambleController._referenciasValidas.add(String(codigo).trim().toUpperCase());
+
+                        if (datalist) {
+                            const opt = document.createElement('option');
+                            opt.value = codigo;
+                            frag.appendChild(opt);
+                        }
+                    });
+
+                    if (datalist) datalist.appendChild(frag);
+                } catch (e) {
+                    console.error('[SubprocesoEnsamble] Error cargando catálogo de referencias:', e);
+                }
+            })();
+        }
+        return SubprocesoEnsambleController._catalogoPromise;
+    }
+
+    static esReferenciaValida(codigo) {
+        if (!codigo) return false;
+        return SubprocesoEnsambleController._referenciasValidas.has(String(codigo).trim().toUpperCase());
     }
 
     obtenerResponsable() {
@@ -124,6 +175,21 @@ class SubprocesoEnsambleController {
                 Swal.fire('Datos incompletos', errorValidacion, 'warning');
             } else {
                 mostrarNotificacion(errorValidacion, 'warning');
+            }
+            return;
+        }
+
+        // --- Guard de Integridad (Strict Match): la referencia debe existir
+        // TAL CUAL en el catálogo cargado de /api/productos/listar. Se espera
+        // a que el catálogo termine de cargar (normalmente ya está resuelto
+        // para cuando el operario alcanza a llenar el formulario). ---
+        await this.constructor.cargarCatalogoReferencias();
+        if (!this.constructor.esReferenciaValida(payload.id_codigo)) {
+            const mensaje = `"${payload.id_codigo}" no existe en el catálogo de productos. Selecciónala de la lista.`;
+            if (window.Swal) {
+                Swal.fire('Referencia inválida', 'Referencia inválida o no existe en el catálogo.', 'error');
+            } else {
+                mostrarNotificacion(mensaje, 'error');
             }
             return;
         }

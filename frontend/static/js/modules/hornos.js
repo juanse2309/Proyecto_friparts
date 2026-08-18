@@ -24,7 +24,6 @@ const ModuloHornos = {
 
                 construirPayloadIniciar: () => ({
                     id_codigo: (document.getElementById('hornos-id-codigo')?.value || '').trim(),
-                    horno_numero: (document.getElementById('hornos-numero')?.value || '').trim(),
                     cantidad: parseInt(document.getElementById('hornos-cantidad')?.value, 10) || 0,
                     temperatura_ingreso_c: parseFloat(document.getElementById('hornos-temp-ingreso')?.value),
                     op_numero: (document.getElementById('hornos-op')?.value || '').trim(),
@@ -34,7 +33,6 @@ const ModuloHornos = {
                 // --- Guard Clauses: se ejecutan ANTES de cualquier fetch ---
                 validarIniciar: (payload) => {
                     if (!payload.id_codigo) return 'Ingresa la referencia o código del lote.';
-                    if (!payload.horno_numero) return 'Indica en qué horno se está ingresando el lote.';
                     if (!Number.isFinite(payload.cantidad) || payload.cantidad <= 0) {
                         return 'La cantidad del lote debe ser mayor a cero.';
                     }
@@ -51,6 +49,8 @@ const ModuloHornos = {
                 construirPayloadFinalizar: (idSesion) => ({
                     id_horno_registro: idSesion,
                     temperatura_salida_c: parseFloat(document.getElementById('hornos-temp-salida')?.value),
+                    hora_inicio: document.getElementById('hornos-hora-inicio')?.value || null,
+                    hora_fin: document.getElementById('hornos-hora-fin')?.value || null,
                     pnc_cantidad: parseInt(document.getElementById('hornos-pnc')?.value, 10) || 0,
                     observaciones: (document.getElementById('hornos-observaciones')?.value || '').trim(),
                     responsable: this.controller.obtenerResponsable()
@@ -62,6 +62,9 @@ const ModuloHornos = {
                     }
                     if (payload.temperatura_salida_c < this.TEMP_MIN || payload.temperatura_salida_c > this.TEMP_MAX) {
                         return `La temperatura de salida debe estar entre ${this.TEMP_MIN}°C y ${this.TEMP_MAX}°C.`;
+                    }
+                    if (payload.hora_inicio && payload.hora_fin && payload.hora_fin <= payload.hora_inicio) {
+                        return 'La Hora Fin debe ser posterior a la Hora Inicio.';
                     }
                     if (payload.pnc_cantidad < 0) {
                         return 'La merma (PNC) no puede ser negativa.';
@@ -99,15 +102,14 @@ const ModuloHornos = {
         if (cardFinalizar) cardFinalizar.style.display = activa ? 'block' : 'none';
 
         if (info) {
-            info.textContent = activa && sesion
-                ? `${sesion.id_codigo || ''} · ${sesion.horno_numero || ''}`.trim()
-                : '';
+            info.textContent = activa && sesion ? (sesion.id_codigo || '') : '';
         }
     },
 
     limpiarFormulario: function () {
-        ['hornos-id-codigo', 'hornos-numero', 'hornos-cantidad', 'hornos-temp-ingreso',
-            'hornos-op', 'hornos-temp-salida', 'hornos-observaciones'].forEach(id => {
+        ['hornos-id-codigo', 'hornos-cantidad', 'hornos-temp-ingreso', 'hornos-op',
+            'hornos-temp-salida', 'hornos-hora-inicio', 'hornos-hora-fin',
+            'hornos-observaciones'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = '';
             });

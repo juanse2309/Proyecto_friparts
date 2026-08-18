@@ -18,7 +18,6 @@ const ModuloRayada = {
 
                 construirPayloadIniciar: () => ({
                     id_codigo: (document.getElementById('rayada-id-codigo')?.value || '').trim(),
-                    op_numero: (document.getElementById('rayada-op')?.value || '').trim(),
                     responsable: this.controller.obtenerResponsable()
                 }),
 
@@ -32,6 +31,8 @@ const ModuloRayada = {
                 construirPayloadFinalizar: (idSesion) => ({
                     id_rayada: idSesion,
                     cantidad: parseInt(document.getElementById('rayada-cantidad')?.value, 10) || 0,
+                    hora_inicio: document.getElementById('rayada-hora-inicio')?.value || null,
+                    hora_fin: document.getElementById('rayada-hora-fin')?.value || null,
                     pnc_cantidad: parseInt(document.getElementById('rayada-pnc')?.value, 10) || 0,
                     observaciones: (document.getElementById('rayada-observaciones')?.value || '').trim(),
                     responsable: this.controller.obtenerResponsable()
@@ -40,6 +41,9 @@ const ModuloRayada = {
                 validarFinalizar: (payload) => {
                     if (!Number.isFinite(payload.cantidad) || payload.cantidad <= 0) {
                         return 'La cantidad rayada debe ser mayor a cero.';
+                    }
+                    if (payload.hora_inicio && payload.hora_fin && payload.hora_fin <= payload.hora_inicio) {
+                        return 'La Hora Fin debe ser posterior a la Hora Inicio.';
                     }
                     if (payload.pnc_cantidad < 0) {
                         return 'La merma (PNC) no puede ser negativa.';
@@ -81,7 +85,8 @@ const ModuloRayada = {
     },
 
     limpiarFormulario: function () {
-        ['rayada-id-codigo', 'rayada-op', 'rayada-cantidad', 'rayada-observaciones'].forEach(id => {
+        ['rayada-id-codigo', 'rayada-cantidad', 'rayada-hora-inicio', 'rayada-hora-fin',
+            'rayada-observaciones'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });

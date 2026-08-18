@@ -34,6 +34,8 @@ const ModuloPintura = {
                     id_pintura: idSesion,
                     cantidad: parseInt(document.getElementById('pintura-cantidad')?.value, 10) || 0,
                     ml_insumo_utilizado: parseFloat(document.getElementById('pintura-ml-insumo')?.value) || 0,
+                    hora_inicio: document.getElementById('pintura-hora-inicio')?.value || null,
+                    hora_fin: document.getElementById('pintura-hora-fin')?.value || null,
                     pnc_cantidad: parseInt(document.getElementById('pintura-pnc')?.value, 10) || 0,
                     observaciones: (document.getElementById('pintura-observaciones')?.value || '').trim(),
                     responsable: this.controller.obtenerResponsable()
@@ -45,6 +47,9 @@ const ModuloPintura = {
                     }
                     if (payload.ml_insumo_utilizado < 0) {
                         return 'Los ML de insumo no pueden ser negativos.';
+                    }
+                    if (payload.hora_inicio && payload.hora_fin && payload.hora_fin <= payload.hora_inicio) {
+                        return 'La Hora Fin debe ser posterior a la Hora Inicio.';
                     }
                     if (payload.pnc_cantidad < 0) {
                         return 'La merma (PNC) no puede ser negativa.';
@@ -89,7 +94,8 @@ const ModuloPintura = {
 
     limpiarFormulario: function () {
         ['pintura-id-codigo', 'pintura-insumo', 'pintura-op', 'pintura-cantidad',
-            'pintura-ml-insumo', 'pintura-observaciones'].forEach(id => {
+            'pintura-ml-insumo', 'pintura-hora-inicio', 'pintura-hora-fin',
+            'pintura-observaciones'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = '';
             });
