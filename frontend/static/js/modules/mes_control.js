@@ -376,7 +376,7 @@ window.ModuloMes = {
                     Swal.fire({
                         icon: 'success',
                         title: '¡Trabajo Iniciado!',
-                        text: res.message || 'El lote está activo y las cubetas de pedidos han sido despertadas.',
+                        text: res.data?.message || 'El lote está activo y las cubetas de pedidos han sido despertadas.',
                         timer: 2500,
                         showConfirmButton: false
                     });
@@ -600,7 +600,7 @@ window.ModuloMes = {
                     Swal.fire({
                         icon: 'success',
                         title: 'Turno Reportado',
-                        text: `Producci\u00f3n te\u00f3rica: ${res.teorica?.toLocaleString()} piezas. Pasa a Control de Calidad.`,
+                        text: `Producci\u00f3n te\u00f3rica: ${res.data?.teorica?.toLocaleString()} piezas. Pasa a Control de Calidad.`,
                         timer: 3500, showConfirmButton: false
                     });
                     await this.cargarDashboard();
@@ -861,7 +861,7 @@ window.ModuloMes = {
                 try {
                     const checkRes = await fetchData(`/api/produccion/verificar_demanda/${p.codigo_sistema || p.id_codigo || codigo}`);
                     if (checkRes && checkRes.success) {
-                        const { unidades_pedidas_b2b, stock_actual_disponible, stock_terminado, stock_bodega } = checkRes;
+                        const { unidades_pedidas_b2b, stock_actual_disponible, stock_terminado, stock_bodega } = checkRes.data;
                         // Diseño UX/UI: Cuadrícula limpia de 3 Indicadores Clave
                         const disponible_calc = stock_terminado - unidades_pedidas_b2b;
                         
@@ -1197,7 +1197,7 @@ window.ModuloMes = {
             try {
                 const checkRes = await fetchData(`/api/produccion/verificar_demanda/${p.codigo}`);
                 if (checkRes && checkRes.success) {
-                    const { unidades_pedidas_b2b, stock_actual_disponible } = checkRes;
+                    const { unidades_pedidas_b2b, stock_actual_disponible } = checkRes.data;
                     if (stock_actual_disponible > 0 && unidades_pedidas_b2b === 0) {
                         warnings.push(`La referencia <strong>${p.codigo}</strong> tiene suficiente stock (${stock_actual_disponible} piezas) y <strong>0 pedidos B2B activos</strong>.`);
                     }
@@ -1293,9 +1293,13 @@ window.ModuloMes = {
             mostrarLoading(false);
 
             if (res && res.success) {
+                // '/api/mes/programar' (endpoint legacy, sin refactorizar) sigue
+                // devolviendo 'message' en la raíz; '/api/programacion/guardar' ya
+                // lo anida en 'data'. Se prueban ambas rutas sin tocar el legacy.
+                // TODO: Remover fallback cuando el backend migre 100%.
                 Swal.fire(
                     '¡Programado!',
-                    res.message || 'Programación diaria guardada correctamente.',
+                    res.data?.message || res.message || 'Programación diaria guardada correctamente.',
                     'success'
                 );
 
@@ -1761,9 +1765,9 @@ window.ModuloMes = {
                 </div>`;
 
             const res = await fetchData(`/api/pedidos/pendientes/${codigo}`);
-            
-            if (res && res.success && res.pedidos && res.pedidos.length > 0) {
-                this.renderizarTablaPedidos(res.pedidos, codigo);
+
+            if (res && res.success && res.data?.pedidos && res.data.pedidos.length > 0) {
+                this.renderizarTablaPedidos(res.data.pedidos, codigo);
             } else {
                 // Eliminado a petición de UX: No mostrar alert-info cuando la demanda es 0
                 contenedor.innerHTML = '';

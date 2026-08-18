@@ -323,7 +323,7 @@ const ModuloInyeccion = {
             if (res && res.success && res.data) {
                 this.pendientesData = res.data;
                 console.log(`📋 [Inyeccion] ${res.data.length} pendientes cargados:`, res.data);
-                
+
                 // Agrupar por id_inyeccion para mostrar un solo lote por cada montaje mixto
                 const grupos = {};
                 res.data.forEach(lote => {
@@ -535,7 +535,7 @@ const ModuloInyeccion = {
                 mostrarLoading(false);
 
                 if (res && res.success) {
-                    Swal.fire('¡Validado!', res.message, 'success');
+                    Swal.fire('¡Validado!', res.data?.message, 'success');
                     if (window.FormHelpers) window.FormHelpers.limpiarPersistencia('form-inyeccion');
                     this.limpiarFormularioValidacion(true);
                     if (window.ModuloHistorial && typeof window.ModuloHistorial.cargarHistorial === 'function') {
@@ -1637,7 +1637,7 @@ const ModuloInyeccion = {
                 // si el operario reabre esta fila en vez de resetear, cualquier
                 // edición posterior debe apuntar (UPDATE) al registro real ya
                 // creado, no crear uno nuevo por no conocer su id_sql.
-                this._sincronizarItemsConRespuestaServidor(resultado.items);
+                this._sincronizarItemsConRespuestaServidor(resultado.data.items);
 
                 // Ocultar el loading YA (la confirmación visual que sigue no debe
                 // quedar detrás del overlay de carga).

@@ -1,7 +1,8 @@
 import uuid
 import logging
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request
 from backend.core.sql_database import db
+from backend.core.responses import api_success, api_error
 from backend.utils.auth_middleware import require_role, require_login, ROL_ADMINS, ROL_JEFES, _obtener_usuario_activo
 from backend.services.audit_service import OwnershipMismatchException, ValidadorRequeridoException, TurnoInvalidoException
 from backend.services.inyeccion_service import InyeccionService, LoteInyeccionNoEncontradoException, ProgramacionNoEncontradaException
@@ -35,26 +36,19 @@ def registrar_inyeccion_lote():
 
     try:
         resultado = InyeccionService.registrar_lote(data, usuario_activo)
-        return jsonify(resultado), 200
+        return api_success(data=resultado)
 
     except OwnershipMismatchException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-            "responsable_db": e.responsable_db,
-            "responsable_in": e.responsable_in
-        }), 409
+        return api_error(
+            e.message, status_code=409, code="INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            responsable_db=e.responsable_db, responsable_in=e.responsable_in
+        )
 
     except TurnoInvalidoException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "TURNO_DURACION_INVALIDA"
-        }), 400
+        return api_error(e.message, status_code=400, code="TURNO_DURACION_INVALIDA")
 
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
 
     except Exception as e:
         # Red de seguridad: InyeccionService.registrar_lote ya hace rollback
@@ -63,7 +57,7 @@ def registrar_inyeccion_lote():
         # en el pool de Postgres.
         db.session.rollback()
         logger.error(f" ❌ Error en registrar_inyeccion_lote: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @inyeccion_bp.route('/api/inyeccion/iniciar_turno', methods=['POST'])
@@ -73,11 +67,11 @@ def iniciar_turno_inyeccion():
     [DEPRECATED] Lógica de lotes en vivo eliminada.
     Se mantiene ruta como dummy para retrocompatibilidad segura.
     """
-    return jsonify({
-        "success": True,
-        "message": "Turno iniciado (Flujo Directo)",
-        "id_inyeccion": f"INY-DUMMY-{uuid.uuid4().hex[:4].upper()}"
-    }), 201
+    return api_success(
+        data={"id_inyeccion": f"INY-DUMMY-{uuid.uuid4().hex[:4].upper()}"},
+        message="Turno iniciado (Flujo Directo)",
+        status_code=201
+    )
 
 @inyeccion_bp.route('/api/inyeccion/validar/<id_inyeccion>', methods=['POST'])
 @require_role(ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'INVENTARIO', 'STAFF FRIMETALS', 'CALIDAD', 'SUPERVISOR'])
@@ -91,37 +85,34 @@ def validar_lote_inyeccion(id_inyeccion):
 
     try:
         resultado = InyeccionService.validar_lote(id_inyeccion, data, usuario_activo)
-        return jsonify(resultado), 200
+        return api_success(data=resultado)
 
     except LoteInyeccionNoEncontradoException as e:
-        return jsonify({"success": False, "error": e.message}), 404
+        return api_error(e.message, status_code=404)
 
     except OwnershipMismatchException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-            "responsable_db": e.responsable_db,
-            "responsable_in": e.responsable_in
-        }), 409
+        return api_error(
+            e.message, status_code=409, code="INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            responsable_db=e.responsable_db, responsable_in=e.responsable_in
+        )
 
     except ValidadorRequeridoException as e:
-        return jsonify({"success": False, "error": e.message, "code": "VALIDADOR_REQUERIDO"}), 400
+        return api_error(e.message, status_code=400, code="VALIDADOR_REQUERIDO")
 
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error validando lote {id_inyeccion}: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @inyeccion_bp.route('/api/inyeccion/dashboard_stats', methods=['GET'])
 @require_role(ROL_ADMINS + ['JEFE INYECCION', 'INYECCION'])
 def get_inyeccion_stats():
     # Placeholder
-    return jsonify({"success": True, "message": "Estadísticas de inyección (WIP)"})
+    return api_success(message="Estadísticas de inyección (WIP)")
 
 
 @inyeccion_bp.route('/api/programacion/guardar', methods=['POST'])
@@ -135,16 +126,16 @@ def guardar_programacion_diaria():
 
     try:
         resultado = InyeccionService.guardar_programacion(data)
-        return jsonify(resultado), 201
+        return api_success(data=resultado, status_code=201)
 
     except ValueError as val_err:
         logger.warning(f"⚠️ Error de validación en guardar_programacion_diaria: {val_err}")
-        return jsonify({"success": False, "error": str(val_err)}), 400
+        return api_error(str(val_err), status_code=400)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error crítico en guardar_programacion_diaria: {e}")
-        return jsonify({"success": False, "error": "Error interno del servidor al guardar la programación"}), 500
+        return api_error("Error interno del servidor al guardar la programación", status_code=500)
 
 
 @inyeccion_bp.route('/api/pedidos/pendientes/<codigo>', methods=['GET'])
@@ -155,15 +146,15 @@ def obtener_pedidos_pendientes(codigo):
     """
     try:
         resultado = InyeccionService.obtener_pedidos_pendientes(codigo)
-        return jsonify(resultado), 200
+        return api_success(data=resultado)
 
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error en obtener_pedidos_pendientes para el código {codigo}: {e}")
-        return jsonify({"success": False, "error": "Error interno del servidor al consultar pedidos"}), 500
+        return api_error("Error interno del servidor al consultar pedidos", status_code=500)
 
 
 @inyeccion_bp.route('/api/produccion/verificar_demanda/<codigo>', methods=['GET'])
@@ -174,15 +165,15 @@ def verificar_demanda_b2b(codigo):
     """
     try:
         resultado = InyeccionService.obtener_demanda_b2b(codigo)
-        return jsonify(resultado), 200
+        return api_success(data=resultado)
 
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error en verificar_demanda para {codigo}: {e}")
-        return jsonify({"success": False, "error": "Error interno al verificar la demanda"}), 500
+        return api_error("Error interno al verificar la demanda", status_code=500)
 
 
 
@@ -190,8 +181,9 @@ def verificar_demanda_b2b(codigo):
 def mes_pendientes_validacion():
     """Obtiene todos los lotes en estado PENDIENTE/FINALIZADO para validación."""
     resultado = InyeccionService.obtener_pendientes_validacion()
-    status_code = 200 if resultado.get('success') else 500
-    return jsonify(resultado), status_code
+    if resultado.get('success'):
+        return api_success(data=resultado.get('data'))
+    return api_error(resultado.get('error', 'Error obteniendo pendientes de validación'), status_code=500)
 
 
 @inyeccion_bp.route('/api/mes/iniciar_trabajo', methods=['POST'])
@@ -206,27 +198,24 @@ def mes_iniciar_trabajo():
 
     try:
         resultado = InyeccionService.iniciar_trabajo(data, usuario_activo)
-        return jsonify(resultado), 200
+        return api_success(data=resultado)
 
     except ProgramacionNoEncontradaException as e:
-        return jsonify({"success": False, "error": e.message}), 404
+        return api_error(e.message, status_code=404)
 
     except OwnershipMismatchException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-            "responsable_db": e.responsable_db,
-            "responsable_in": e.responsable_in
-        }), 409
+        return api_error(
+            e.message, status_code=409, code="INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            responsable_db=e.responsable_db, responsable_in=e.responsable_in
+        )
 
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error al iniciar trabajo en el MES: {e}")
-        return jsonify({"success": False, "error": "Error interno al iniciar el trabajo"}), 500
+        return api_error("Error interno al iniciar el trabajo", status_code=500)
 
 
 @inyeccion_bp.route('/api/mes/reportar', methods=['POST'])
@@ -241,34 +230,27 @@ def mes_reportar():
 
     try:
         resultado = InyeccionService.reportar_trabajo(data, usuario_activo)
-        return jsonify(resultado), 200
+        return api_success(data=resultado)
 
     except LoteInyeccionNoEncontradoException as e:
-        return jsonify({"success": False, "error": e.message}), 404
+        return api_error(e.message, status_code=404)
 
     except OwnershipMismatchException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "INYECCION_SESSION_OWNERSHIP_MISMATCH",
-            "responsable_db": e.responsable_db,
-            "responsable_in": e.responsable_in
-        }), 409
+        return api_error(
+            e.message, status_code=409, code="INYECCION_SESSION_OWNERSHIP_MISMATCH",
+            responsable_db=e.responsable_db, responsable_in=e.responsable_in
+        )
 
     except TurnoInvalidoException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "TURNO_DURACION_INVALIDA"
-        }), 400
+        return api_error(e.message, status_code=400, code="TURNO_DURACION_INVALIDA")
 
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error al reportar turno en el MES: {e}")
-        return jsonify({"success": False, "error": "Error interno al finalizar el turno"}), 500
+        return api_error("Error interno al finalizar el turno", status_code=500)
 
 
 @inyeccion_bp.route('/api/pnc/registrar_inyeccion', methods=['POST'])
@@ -282,15 +264,15 @@ def registrar_pnc_inyeccion():
 
     try:
         resultado = InyeccionService.registrar_pnc(data)
-        return jsonify(resultado), 200
+        return api_success(data=resultado)
 
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error en registrar_pnc_inyeccion: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 # ====================================================================
@@ -305,22 +287,22 @@ def registrar_inyeccion():
     data = request.get_json()
     try:
         resultado = InyeccionService.registrar_directa(data)
-        return jsonify({'success': True, 'id': resultado['id'], 'message': 'Inyección registrada en SQL con BOM'}), 201
+        return api_success(data={'id': resultado['id']}, message='Inyección registrada en SQL con BOM', status_code=201)
     except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return api_error(str(e), status_code=400)
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error en registrar_inyeccion SQL: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @inyeccion_bp.route('/api/cavidades/config', methods=['GET'])
 def obtener_config_cavidades():
     """Obtiene la configuración de cavidades disponibles."""
     try:
-        return jsonify({"status": "success", "success": True, "config": InyeccionService.obtener_config_cavidades()}), 200
+        return api_success(data=InyeccionService.obtener_config_cavidades())
     except Exception as e:
-        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @inyeccion_bp.route('/api/inyeccion/calcular', methods=['POST'])
@@ -330,10 +312,10 @@ def calcular_inyeccion():
     data = request.get_json() or {}
     try:
         resultado = InyeccionService.calcular_produccion(data.get('cantidad'), data.get('cavidades'), data.get('pnc', 0))
-        return jsonify({"status": "success", "success": True, "calculos": resultado}), 200
+        return api_success(data=resultado)
     except ValueError as e:
-        return jsonify({"status": "error", "success": False, "message": str(e)}), 400
+        return api_error(str(e), status_code=400)
     except Exception as e:
-        return jsonify({"status": "error", "success": False, "message": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
