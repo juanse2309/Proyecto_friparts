@@ -207,8 +207,8 @@ const AlmacenModule = {
             const data = await response.json();
 
             // LOG DE DEPURACIÓN CRÍTICO PARA OBSERVACIONES
-            if (data.success && data.pedidos && data.pedidos.length > 0) {
-                const sample = data.pedidos[0];
+            if (data.success && data.data?.pedidos && data.data.pedidos.length > 0) {
+                const sample = data.data.pedidos[0];
                 console.log('📦 [Almacen] ESTRUCTURA DE PEDIDO RECIBIDA:', {
                     id: sample.id_pedido,
                     cliente: sample.cliente,
@@ -219,13 +219,13 @@ const AlmacenModule = {
 
             console.log('📦 [Almacen] Datos recibidos:', {
                 success: data.success,
-                pedidosCount: data.pedidos?.length || 0
+                pedidosCount: data.data?.pedidos?.length || 0
             });
 
             if (data.success) {
                 // DETECTAR NUEVOS PEDIDOS (Notificación auditiva global para planta)
                 if (this.pedidosPendientes && this.pedidosPendientes.length > 0) {
-                    const nuevosCount = data.pedidos.length;
+                    const nuevosCount = data.data.pedidos.length;
                     const anterioresCount = this.pedidosPendientes.length;
 
                     if (nuevosCount > anterioresCount) {
@@ -241,7 +241,7 @@ const AlmacenModule = {
                     }
                 }
 
-                this.pedidosPendientes = data.pedidos;
+                this.pedidosPendientes = data.data.pedidos;
                 console.log('📦 [Almacen] Pedidos asignados, llamando renderizarTarjetas()...');
                 this.renderizarTarjetas();
                 console.log('✅ [Almacen] renderizarTarjetas() completado');
@@ -1095,10 +1095,10 @@ const AlmacenModule = {
             const data = await response.json();
 
             if (data.success) {
-                mostrarNotificacion(data.message, 'success');
+                mostrarNotificacion(data.data?.message, 'success');
 
                 // Si el pedido quedó vacío, cerrar modal y recargar
-                if (data.pedido_vacio) {
+                if (data.data?.pedido_vacio) {
                     this.cerrarModal();
                     this.cargarPedidos();
                 } else {

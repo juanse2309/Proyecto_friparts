@@ -131,13 +131,8 @@
             // LOG DE AUDITORÍA (Juan Sebastian Request)
             console.log('📡 [Historial] Respuesta recibida:', res);
 
-            // v4.1: /api/historial-global responde un ARRAY directo. /api/pulido/historial
-            // (proceso === 'PULIDO') ya migró al contrato {success, data, error} -- se acepta
-            // cualquiera de las dos formas mientras el resto de endpoints de historial no migre.
-            // TODO: Remover fallback cuando /api/historial-global también migre.
-            const esRespuestaEnvuelta = res && typeof res === 'object' && !Array.isArray(res) && Array.isArray(res.data);
-            if (Array.isArray(res) || esRespuestaEnvuelta) {
-                let rawData = esRespuestaEnvuelta ? res.data : res;
+            if (res && res.success && Array.isArray(res.data)) {
+                let rawData = res.data;
 
                 // Filtrado estricto por división
                 const division = window.AppState.user?.division || 'FRIPARTS';

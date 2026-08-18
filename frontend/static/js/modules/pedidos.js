@@ -492,7 +492,7 @@ const ModuloPedidos = {
             const result = await response.json();
 
             if (result.success) {
-                this.poblarFormularioConPedido(result.pedido);
+                this.poblarFormularioConPedido(result.data.pedido);
                 if (inputId) inputId.value = '';
 
                 // Si fue proactivo (desde Almacen), dar bienvenida visual
@@ -591,7 +591,7 @@ const ModuloPedidos = {
                 }
             }
 
-            if (!data.success || !data.despachos || data.despachos.length === 0) {
+            if (!data.success || !data.data?.despachos || data.data.despachos.length === 0) {
                 contenedorPadre.innerHTML = `
                     <div class="card bg-light mt-3 border-0 shadow-sm" id="seccion-historial-despachos">
                         <div class="card-body text-center text-muted">
@@ -603,7 +603,7 @@ const ModuloPedidos = {
                 return;
             }
 
-            const filasTabla = data.despachos.map(d => `
+            const filasTabla = data.data.despachos.map(d => `
                 <tr>
                     <td><span class="badge bg-secondary">${d.fecha}</span></td>
                     <td class="fw-bold">${d.id_codigo}</td>
@@ -617,7 +617,7 @@ const ModuloPedidos = {
                 <div class="card mt-4 border-0 shadow-sm" id="seccion-historial-despachos">
                     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
                         <h6 class="mb-0"><i class="fas fa-truck-loading me-2"></i>Historial de Despachos</h6>
-                        <span class="badge bg-primary rounded-pill">${data.despachos.length} envíos</span>
+                        <span class="badge bg-primary rounded-pill">${data.data.despachos.length} envíos</span>
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -1040,9 +1040,9 @@ const ModuloPedidos = {
             console.log("Datos de respuesta:", result);
 
             if (result.success) {
-                console.log("✅ Pedido registrado exitosamente:", result.id_pedido);
-                this.ultimoIdRegistrado = result.id_pedido;
-                mostrarNotificacion(`✓ Pedido ${result.id_pedido} registrado con ${result.total_productos} productos`, 'success');
+                console.log("✅ Pedido registrado exitosamente:", result.data.id_pedido);
+                this.ultimoIdRegistrado = result.data.id_pedido;
+                mostrarNotificacion(`✓ Pedido ${result.data.id_pedido} registrado con ${result.data.total_productos} productos`, 'success');
 
                 // Limpiar formulario y lista SOLO después de éxito
                 limpiarFormulario('form-pedidos');
@@ -1069,7 +1069,7 @@ const ModuloPedidos = {
                 // --- Preguntar por PDF tras registro ---
                 // Capturamos datos antes de la confirmación porque es async y el estado podría cambiar
                 const dataParaPDF = {
-                    id_pedido: result.id_pedido,
+                    id_pedido: result.data.id_pedido,
                     fecha: pedidoData.fecha,
                     vendedor: pedidoData.vendedor,
                     cliente: {
@@ -1773,7 +1773,7 @@ const ModuloPedidos = {
             const data = await res.json();
 
             if (data.success) {
-                this.pedidosMetalsCache = data.pedidos || [];
+                this.pedidosMetalsCache = data.data.pedidos || [];
                 this.renderizarPedidosMetals(this.pedidosMetalsCache);
             } else {
                 throw new Error(data.error || 'Error desconocido');
@@ -2114,7 +2114,7 @@ if (!window.initPedidos) {
                                 throw new Error(data.error || 'Error al obtener historial');
                             }
 
-                            const pedidosCargados = data.pedidos || [];
+                            const pedidosCargados = data.data.pedidos || [];
 
                             const enviados = pedidosCargados.filter(p => {
                                 const estadoNormalizado = (p.estado || '').toUpperCase();

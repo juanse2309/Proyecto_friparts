@@ -1,5 +1,6 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request
 from sqlalchemy import text
+from backend.core.responses import api_success, api_error
 from datetime import datetime
 import logging
 import psycopg2.extensions
@@ -502,11 +503,11 @@ def obtener_historial_global():
 
         logger.debug(f"🔍 [Historial] Consulta v5.0 SQL-Limpio ({f_desde} -> {f_hasta})")
         movimientos = _construir_movimientos_historial(f_desde, f_hasta, tipo_filtro)
-        return jsonify(movimientos)
+        return api_success(data=movimientos)
 
     except Exception as e:
         logger.error(f"Error crítico Historial v4.2: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @historial_bp.route('/api/historial/detalle', methods=['GET'])
@@ -522,8 +523,8 @@ def obtener_detalle_historial():
         fila = request.args.get('fila')
         
         if not hoja or not fila:
-            return jsonify({'success': False, 'error': 'Faltan parámetros hoja o fila'}), 400
-            
+            return api_error('Faltan parámetros hoja o fila', status_code=400)
+
         # Determinar modelo
         model = None
         if hoja == 'db_inyeccion':
@@ -537,11 +538,11 @@ def obtener_detalle_historial():
         elif hoja == 'db_ventas':
             model = RawVentas
         else:
-            return jsonify({'success': False, 'error': f'Hoja no soportada: {hoja}'}), 400
-            
+            return api_error(f'Hoja no soportada: {hoja}', status_code=400)
+
         registro = model.query.get(fila)
         if not registro:
-            return jsonify({'success': False, 'error': 'Registro no encontrado'}), 404
+            return api_error('Registro no encontrado', status_code=404)
             
         # Convertir a dict serializable
         datos = {}
@@ -557,11 +558,11 @@ def obtener_detalle_historial():
             else:
                 datos[col.name] = val
                 
-        return jsonify({'success': True, 'data': datos})
-        
+        return api_success(data=datos)
+
     except Exception as e:
         logger.error(f"Error obteniendo detalle de registro: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @historial_bp.route('/api/historial/actualizar', methods=['POST'])
@@ -579,8 +580,8 @@ def actualizar_registro_historial():
         usuario = data.get('usuario', 'SISTEMA')
         
         if not hoja or not fila:
-            return jsonify({'success': False, 'error': 'Faltan datos de hoja o fila'}), 400
-            
+            return api_error('Faltan datos de hoja o fila', status_code=400)
+
         # Determinar modelo
         model = None
         if hoja == 'db_inyeccion':
@@ -594,11 +595,11 @@ def actualizar_registro_historial():
         elif hoja == 'db_ventas':
             model = RawVentas
         else:
-            return jsonify({'success': False, 'error': f'Hoja no soportada: {hoja}'}), 400
-            
+            return api_error(f'Hoja no soportada: {hoja}', status_code=400)
+
         registro = model.query.get(fila)
         if not registro:
-            return jsonify({'success': False, 'error': 'Registro no encontrado en la base de datos'}), 404
+            return api_error('Registro no encontrado en la base de datos', status_code=404)
             
         # Mapeo estricto a las columnas actuales (Blindaje ante cambios recientes)
         MAPEO = {
@@ -765,12 +766,12 @@ def actualizar_registro_historial():
                     
         db.session.commit()
         logger.info(f"✅ [Historial] Registro ID {fila} en {hoja} modificado correctamente por {usuario}")
-        return jsonify({'success': True, 'mensaje': 'Registro actualizado correctamente'})
-        
+        return api_success(message='Registro actualizado correctamente')
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error actualizando registro desde historial: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @historial_bp.route('/api/exportar-historial-global', methods=['GET'])
@@ -813,4 +814,4 @@ def exportar_excel_historial_global():
         logger.error(f"Error exportando Excel Historial Global: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)

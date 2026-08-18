@@ -876,13 +876,13 @@ const ModuloPortal = {
 
                     const descargar = await this.mostrarConfirmacion(
                         '¡Pedido Registrado!',
-                        `Tu pedido <strong>${result.id_pedido}</strong> ha sido recibido.<br>¿Deseas descargar el comprobante PDF?`
+                        `Tu pedido <strong>${result.data.id_pedido}</strong> ha sido recibido.<br>¿Deseas descargar el comprobante PDF?`
                     );
 
                     if (descargar) {
                         // Preparar datos para PDF
                         const dataPDF = {
-                            id_pedido: result.id_pedido,
+                            id_pedido: result.data.id_pedido,
                             fecha: fechaHoy,
                             vendedor: 'Portal Web',
                             cliente: {
@@ -1104,9 +1104,9 @@ const ModuloPortal = {
             const res = await fetch(`/api/pedidos/cliente?nit=${user.nit}`);
             const data = await res.json();
 
-            if (!data.success) throw new Error(data.message);
+            if (!data.success) throw new Error(data.error);
 
-            this.pedidos = data.pedidos || [];
+            this.pedidos = data.data.pedidos || [];
 
             if (this.pedidos.length === 0) {
                 container.innerHTML = '<div class="text-center py-5 text-muted">No tienes pedidos registrados.</div>';
@@ -1173,7 +1173,7 @@ const ModuloPortal = {
 
             if (!data.success) throw new Error(data.error);
 
-            const p = data.pedido;
+            const p = data.data.pedido;
             // Mapear productos al formato del carrito
             this.carrito = p.productos.map(prod => ({
                 codigo: String(prod.codigo),

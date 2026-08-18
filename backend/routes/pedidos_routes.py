@@ -1,5 +1,6 @@
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_JEFES, _obtener_usuario_activo
-from flask import Blueprint, jsonify, request, make_response, current_app
+from flask import Blueprint, request, make_response, current_app
+from backend.core.responses import api_success, api_error
 from backend.models.sql_models import db, Pedido, MetalsPedido, DespachoPedido
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 from backend.config.constants import FALLBACK_OPERARIO
@@ -74,13 +75,13 @@ def _validar_ownership_cliente(nit_pedido):
 
     user, role = obtener_identidad_segura(request)
     if not user:
-        return jsonify({"success": False, "error": "No autorizado"}), 401
+        return api_error("No autorizado", status_code=401)
 
     if str(role or '').strip().upper() == 'CLIENTE':
         cuenta = Usuario.query.filter_by(username=user, rol='cliente').first()
         nit_propio = str(getattr(cuenta, 'nit_empresa', '') or '').strip()
         if not nit_propio or nit_propio != str(nit_pedido or '').strip():
-            return jsonify({"success": False, "error": "No autorizado para consultar este pedido"}), 403
+            return api_error("No autorizado para consultar este pedido", status_code=403)
 
     return None
 
@@ -102,7 +103,7 @@ def registrar_pedido():
         logger.debug("🛒 ===== INICIO REGISTRO DE PEDIDO (UPSERT-MODE) =====")
         data = request.json
         if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
+            return api_error("No data provided", status_code=400)
 
         # 1. Extracción y Validación
         fecha_str = data.get('fecha')
@@ -117,7 +118,7 @@ def registrar_pedido():
         productos = data.get('productos', [])
         
         if not all([fecha_str, vendedor, cliente]):
-            return jsonify({"success": False, "error": "Faltan campos obligatorios: fecha, vendedor, cliente"}), 400
+            return api_error("Faltan campos obligatorios: fecha, vendedor, cliente", status_code=400)
             
         # 2. Determinar ID de Pedido (Nuevo o Existente)
         id_pedido_final = data.get('id_pedido')
@@ -127,11 +128,10 @@ def registrar_pedido():
                 id_pedido_final = generar_siguiente_id_pedido(db.session)
             except GeneracionIdPedidoError as e:
                 logger.error(f"❌ Fallo generando id_pedido: {e}")
-                return jsonify({
-                    "success": False,
-                    "error": "No fue posible generar un identificador de pedido único. Intente nuevamente.",
-                    "code": "ID_PEDIDO_CONFLICT"
-                }), 409
+                return api_error(
+                    "No fue posible generar un identificador de pedido único. Intente nuevamente.",
+                    status_code=409, code="ID_PEDIDO_CONFLICT"
+                )
             logger.debug(f"🆔 Nuevo ID Pedido Generado: {id_pedido_final}")
         else:
             id_pedido_final = str(id_pedido_final).strip().upper()
@@ -144,22 +144,18 @@ def registrar_pedido():
         candidato_vendedor = vendedor or usuario_activo
 
         if not candidato_vendedor or str(candidato_vendedor).strip().upper() in ['', 'SISTEMA']:
-            return jsonify({
-                "success": False,
-                "error": "Se requiere la identidad del vendedor o usuario activo para crear/editar el pedido",
-                "code": "RESPONSABLE_REQUERIDO"
-            }), 400
+            return api_error(
+                "Se requiere la identidad del vendedor o usuario activo para crear/editar el pedido",
+                status_code=400, code="RESPONSABLE_REQUERIDO"
+            )
 
         try:
             vendedor = AuditService.resolver_y_validar_propietario(registro_previo, candidato_vendedor)
         except OwnershipMismatchException as e:
-            return jsonify({
-                "success": False,
-                "error": e.message,
-                "code": "PEDIDOS_SESSION_OWNERSHIP_MISMATCH",
-                "responsable_db": e.responsable_db,
-                "responsable_in": e.responsable_in
-            }), 409
+            return api_error(
+                e.message, status_code=409, code="PEDIDOS_SESSION_OWNERSHIP_MISMATCH",
+                responsable_db=e.responsable_db, responsable_in=e.responsable_in
+            )
 
         # Convertir fecha
         try:
@@ -175,7 +171,7 @@ def registrar_pedido():
 
         # 3. Guardar cada ítem con Lógica UPSERT
         if not productos:
-             return jsonify({"success": False, "error": "Debe incluir al menos un producto"}), 400
+             return api_error("Debe incluir al menos un producto", status_code=400)
 
         # Sincronización de eliminaciones: Si es edición, borrar lo que ya no viene en el payload
         if es_edicion:
@@ -281,26 +277,25 @@ def registrar_pedido():
         except Exception as e:
             db.session.rollback()
             logger.error(f"❌ Error en commit de Pedidos: {e}")
-            return jsonify({"success": False, "error": f"Error de persistencia: {str(e)}"}), 500
+            return api_error(f"Error de persistencia: {str(e)}", status_code=500)
 
         # Invalidad caché
         try:
             from backend.app import invalidar_cache_pedidos
             invalidar_cache_pedidos()
         except: pass
-        
-        return jsonify({
-            "success": True, 
-            "message": f"Pedido {id_pedido_final} procesado correctamente",
-            "id_pedido": id_pedido_final
-        })
+
+        return api_success(
+            data={"id_pedido": id_pedido_final},
+            message=f"Pedido {id_pedido_final} procesado correctamente"
+        )
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"💥 Error crítico en registrar_pedido: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"success": False, "error": f"Error interno: {str(e)}"}), 500
+        return api_error(f"Error interno: {str(e)}", status_code=500)
 
         # Invalidad caché de pedidos
         try:
@@ -309,21 +304,22 @@ def registrar_pedido():
         except:
             pass
 
-        return jsonify({
-            "success": True, 
-            "status": "success",
-            "message": f"Pedido {id_pedido} registrado exitosamente",
-            "id_pedido": id_pedido,
-            "total_productos": len(productos),
-            "productos_guardados": items_agregados
-        }), 201
+        return api_success(
+            data={
+                "id_pedido": id_pedido,
+                "total_productos": len(productos),
+                "productos_guardados": items_agregados
+            },
+            message=f"Pedido {id_pedido} registrado exitosamente",
+            status_code=201
+        )
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ ERROR registrando pedido SQL: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pedidos_bp.route('/api/pedidos/detalle/<id_pedido>', methods=['GET'])
 def obtener_detalle_pedido(id_pedido):
@@ -334,19 +330,16 @@ def obtener_detalle_pedido(id_pedido):
     from backend.models.sql_models import Pedido
     try:
         if not id_pedido:
-             return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
+             return api_error("ID Pedido requerido", status_code=400)
 
         id_pedido_buscado = str(id_pedido).strip().upper()
         logger.debug(f"🔍 [SQL-DETALLE] Consultando pedido: {id_pedido_buscado}")
-        
+
         # 1. Buscar todos los items en SQL
         items_sql = Pedido.query.filter_by(id_pedido=id_pedido_buscado).all()
-        
+
         if not items_sql:
-            return jsonify({
-                "success": False, 
-                "error": f"Pedido {id_pedido} no encontrado en SQL"
-            }), 404
+            return api_error(f"Pedido {id_pedido} no encontrado en SQL", status_code=404)
             
         # 2. Construir cabecera (usando el primer item)
         cab = items_sql[0]
@@ -400,10 +393,7 @@ def obtener_detalle_pedido(id_pedido):
                 "progreso": item.progreso or "0%"
             })
         
-        response = make_response(jsonify({
-            "success": True,
-            "pedido": pedido
-        }))
+        response = make_response(api_success(data={"pedido": pedido}))
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
@@ -413,7 +403,7 @@ def obtener_detalle_pedido(id_pedido):
         logger.error(f"❌ ERROR obteniendo detalle pedido SQL: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pedidos_bp.route('/api/pedidos/pendientes', methods=['GET'])
 @require_role(ROLES_PEDIDOS_INTERNOS)
@@ -479,17 +469,14 @@ def obtener_pedidos_pendientes():
         # 4. DEBUG EN TERMINAL (Solicitado por el usuario)
         logger.debug(f"DEBUG ALMACEN: Rol detectado: {rol_session}, Usuario normalizado: {username_user} ({nombre_completo_user}), Pedidos totales SQL: {len(pedidos)}, Pedidos filtrados: {len(filtrados)}")
 
-        response = make_response(jsonify({
-            "success": True, 
-            "pedidos": filtrados
-        }))
+        response = make_response(api_success(data={"pedidos": filtrados}))
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
     except Exception as e:
         logger.error(f"Error cargando pedidos pendientes (SQL): {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pedidos_bp.route('/api/pedidos/delegar', methods=['POST'])
@@ -501,14 +488,14 @@ def delegar_pedido():
         id_p = data.get("id_pedido")
         colab = data.get("colaboradora")
         
-        if not id_p: return jsonify({"error": "ID requerido"}), 400
-        
+        if not id_p: return api_error("ID requerido", status_code=400)
+
         Pedido.query.filter_by(id_pedido=id_p).update({"delegado_a": colab})
         db.session.commit()
-        return jsonify({"success": True, "message": f"Pedido {id_p} delegado a {colab}"})
+        return api_success(message=f"Pedido {id_p} delegado a {colab}")
     except Exception as e:
         db.session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pedidos_bp.route('/api/pedidos/<id_pedido>/reasignar_cliente', methods=['PUT'])
 @require_role(ROL_ADMINS)
@@ -539,15 +526,14 @@ def reasignar_cliente_pedido_route(id_pedido):
         confirmar_desacople_wo = bool(data.get('confirmar_desacople_wo', False))
 
         if not all([nuevo_cliente, nuevo_nit, motivo]):
-            return jsonify({
-                "success": False,
-                "error": "Faltan campos obligatorios: nuevo_cliente, nuevo_nit, motivo",
-                "code": "CAMPOS_REQUERIDOS"
-            }), 400
+            return api_error(
+                "Faltan campos obligatorios: nuevo_cliente, nuevo_nit, motivo",
+                status_code=400, code="CAMPOS_REQUERIDOS"
+            )
 
         usuario_activo = _obtener_usuario_activo()
         if not usuario_activo:
-            return jsonify({"success": False, "error": "No fue posible identificar al usuario autenticado"}), 401
+            return api_error("No fue posible identificar al usuario autenticado", status_code=401)
 
         try:
             estado_anterior, estado_nuevo, id_pedido_real = reasignar_cliente_pedido(
@@ -563,16 +549,16 @@ def reasignar_cliente_pedido_route(id_pedido):
             )
         except ValidacionReasignacionError as e:
             db.session.rollback()
-            return jsonify({"success": False, "error": str(e), "code": "VALIDACION_INVALIDA"}), 400
+            return api_error(str(e), status_code=400, code="VALIDACION_INVALIDA")
         except PedidoNoEncontradoError as e:
             db.session.rollback()
-            return jsonify({"success": False, "error": str(e), "code": "PEDIDO_NO_ENCONTRADO"}), 404
+            return api_error(str(e), status_code=404, code="PEDIDO_NO_ENCONTRADO")
         except DesacopleWoNoAutorizadoError as e:
             db.session.rollback()
-            return jsonify({"success": False, "error": str(e), "code": "DESACOPLE_WO_NO_AUTORIZADO"}), 403
+            return api_error(str(e), status_code=403, code="DESACOPLE_WO_NO_AUTORIZADO")
         except PedidoEstadoInmutableError as e:
             db.session.rollback()
-            return jsonify({"success": False, "error": str(e), "code": "ESTADO_INMUTABLE"}), 409
+            return api_error(str(e), status_code=409, code="ESTADO_INMUTABLE")
 
         db.session.commit()
         logger.info(f"✅ [REASIGNACION_CLIENTE] Pedido {id_pedido_real} reasignado por {usuario_activo}")
@@ -582,18 +568,16 @@ def reasignar_cliente_pedido_route(id_pedido):
             invalidar_cache_pedidos()
         except: pass
 
-        return jsonify({
-            "success": True,
-            "message": f"Pedido {id_pedido_real} reasignado correctamente",
+        return api_success(data={
             "id_pedido": id_pedido_real,
             "estado_anterior": estado_anterior,
             "estado_nuevo": estado_nuevo
-        }), 200
+        }, message=f"Pedido {id_pedido_real} reasignado correctamente")
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error reasignando cliente del pedido {id_pedido}: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pedidos_bp.route('/api/pedidos/eliminar-producto', methods=['POST'])
@@ -604,9 +588,9 @@ def eliminar_producto_pedido():
         data = request.json
         id_p = data.get("id_pedido")
         cod = data.get("codigo")
-        
+
         item = Pedido.query.filter_by(id_pedido=id_p, id_codigo=cod).first()
-        if not item: return jsonify({"error": "No hallado"}), 404
+        if not item: return api_error("No hallado", status_code=404)
         
         # Restaurar stock
         from backend.services.stock_service import StockService
@@ -622,10 +606,10 @@ def eliminar_producto_pedido():
         
         db.session.delete(item)
         db.session.commit()
-        return jsonify({"success": True})
+        return api_success()
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pedidos_bp.route('/api/pedidos/actualizar-alistamiento', methods=['POST'])
 @require_role(ROLES_PEDIDOS_INTERNOS)
@@ -649,7 +633,7 @@ def actualizar_alistamiento():
         detalles = data.get("detalles", [])  # [{codigo, cant_lista, despachado, no_disponible}, ...]
 
         if not id_pedido:
-            return jsonify({"success": False, "error": "ID Pedido requerido"}), 400
+            return api_error("ID Pedido requerido", status_code=400)
 
         logger.debug(f"📦 [SQL-ALISTAMIENTO] Actualizando pedido: {id_pedido}")
 
@@ -670,19 +654,18 @@ def actualizar_alistamiento():
             invalidar_cache_pedidos()
         except: pass
 
-        return jsonify({
-            "success": True,
-            "message": f"Progreso actualizado en SQL para {resultado['items_actualizados']} productos",
-            "movimientos_inventario": resultado['movimientos_inventario']
-        })
+        return api_success(
+            data={"movimientos_inventario": resultado['movimientos_inventario']},
+            message=f"Progreso actualizado en SQL para {resultado['items_actualizados']} productos"
+        )
 
     except PedidoNoEncontradoError as e:
         db.session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 404
+        return api_error(str(e), status_code=404)
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error alistamiento SQL: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pedidos_bp.route('/api/pedidos/cliente', methods=['GET'])
@@ -690,7 +673,7 @@ def obtener_pedidos_cliente():
     """Historial de pedidos por NIT desde SQL (db_pedidos)."""
     try:
         nit = request.args.get('nit')
-        if not nit: return jsonify({"error": "NIT requerido"}), 400
+        if not nit: return api_error("NIT requerido", status_code=400)
 
         bloqueo = _validar_ownership_cliente(nit)
         if bloqueo:
@@ -722,9 +705,9 @@ def obtener_pedidos_cliente():
             ped_map[id_p]["total"] += float(r.total or 0)
             
         final = sorted(list(ped_map.values()), key=lambda x: x['id'], reverse=True)
-        return jsonify({"success": True, "pedidos": final})
+        return api_success(data={"pedidos": final})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pedidos_bp.route('/api/pedidos/listar', methods=['GET'])
 @require_role(ROLES_PEDIDOS_INTERNOS)
@@ -787,11 +770,10 @@ def listar_pedidos():
                 })
             
             # Devolver lista de pedidos agrupados
-            return jsonify({
-                "success": True, 
+            return api_success(data={
                 "pedidos": sorted(list(ped_map.values()), key=lambda x: x['id_pedido'], reverse=True)
-            }), 200
-            
+            })
+
         else:
             # Lógica estándar FriParts (db_pedidos)
             if search:
@@ -867,18 +849,13 @@ def listar_pedidos():
                     "total": float(r.total or 0)
                 })
             
-            return jsonify({
-                "success": True, 
+            return api_success(data={
                 "pedidos": sorted(list(ped_map.values()), key=lambda x: x['id_pedido'], reverse=True)
-            }), 200
+            })
 
     except Exception as e:
         logger.error(f"❌ Error crítico en listar_pedidos: {e}")
-        return jsonify({
-            "success": False, 
-            "error": "Error interno del servidor", 
-            "detail": str(e)
-        }), 500
+        return api_error("Error interno del servidor", status_code=500, detail=str(e))
 
 @pedidos_bp.route('/api/pedidos/actualizar-progreso', methods=['POST'])
 @require_role(ROLES_PEDIDOS_INTERNOS)
@@ -891,7 +868,7 @@ def actualizar_progreso_pedido():
         nuevo_estado = data.get('estado')
 
         if not id_pedido:
-            return jsonify({"success": False, "error": "ID de pedido faltante"}), 400
+            return api_error("ID de pedido faltante", status_code=400)
 
         # Actualizar todas las filas que compartan el mismo id_pedido
         pedidos = MetalsPedido.query.filter_by(id_pedido=id_pedido).all()
@@ -902,12 +879,12 @@ def actualizar_progreso_pedido():
                 p.estado = nuevo_estado
         
         db.session.commit()
-        return jsonify({"success": True, "message": f"Pedido {id_pedido} actualizado correctamente"}), 200
+        return api_success(message=f"Pedido {id_pedido} actualizado correctamente")
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error actualizando progreso: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pedidos_bp.route('/api/pedidos/despacho', methods=['POST'])
 @require_role(ROLES_PEDIDOS_INTERNOS)
@@ -918,7 +895,7 @@ def registrar_despacho():
     try:
         data = request.json
         if not data:
-            return jsonify({"success": False, "error": "No se recibieron datos"}), 400
+            return api_error("No se recibieron datos", status_code=400)
 
         id_pedido = data.get('id_pedido')
         # Guard de ownership centralizado con AuditService e identificación desacoplada HTTP
@@ -926,28 +903,24 @@ def registrar_despacho():
         candidato_responsable = data.get('responsable') or usuario_activo
 
         if not candidato_responsable or str(candidato_responsable).strip().upper() in ['', 'SISTEMA']:
-            return jsonify({
-                "success": False,
-                "error": "Se requiere la identidad del usuario o responsable para registrar el despacho",
-                "code": "RESPONSABLE_REQUERIDO"
-            }), 400
+            return api_error(
+                "Se requiere la identidad del usuario o responsable para registrar el despacho",
+                status_code=400, code="RESPONSABLE_REQUERIDO"
+            )
 
         try:
             responsable = AuditService.resolver_y_validar_propietario(None, candidato_responsable)
         except OwnershipMismatchException as e:
-            return jsonify({
-                "success": False,
-                "error": e.message,
-                "code": "PEDIDOS_SESSION_OWNERSHIP_MISMATCH",
-                "responsable_db": e.responsable_db,
-                "responsable_in": e.responsable_in
-            }), 409
+            return api_error(
+                e.message, status_code=409, code="PEDIDOS_SESSION_OWNERSHIP_MISMATCH",
+                responsable_db=e.responsable_db, responsable_in=e.responsable_in
+            )
         transportadora = data.get('transportadora')
         guia = data.get('guia')
         items = data.get('items', [])
 
         if not id_pedido or not items:
-            return jsonify({"success": False, "error": "ID de pedido e items son requeridos"}), 400
+            return api_error("ID de pedido e items son requeridos", status_code=400)
 
         despachos_creados = 0
         fecha_actual = get_colombia_time()
@@ -985,7 +958,7 @@ def registrar_despacho():
                 despachos_creados += 1
 
         if despachos_creados == 0:
-            return jsonify({"success": False, "error": "No hay cantidades válidas para despachar"}), 400
+            return api_error("No hay cantidades válidas para despachar", status_code=400)
 
         # Opcional: Actualizar el progreso/estado del Pedido
         pedidos_filas = Pedido.query.filter_by(id_pedido=id_pedido).all()
@@ -1022,16 +995,16 @@ def registrar_despacho():
         except:
             pass
 
-        return jsonify({
-            "success": True, 
-            "message": f"Se registraron {despachos_creados} despachos exitosamente",
-            "id_pedido": id_pedido
-        }), 201
+        return api_success(
+            data={"id_pedido": id_pedido},
+            message=f"Se registraron {despachos_creados} despachos exitosamente",
+            status_code=201
+        )
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error registrando despacho: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pedidos_bp.route('/api/pedidos/<id_pedido>/despachos', methods=['GET'])
@@ -1055,11 +1028,8 @@ def obtener_despachos_pedido(id_pedido):
                 "responsable": d.responsable or ''
             })
 
-        return jsonify({
-            "success": True,
-            "despachos": resultado
-        }), 200
+        return api_success(data={"despachos": resultado})
 
     except Exception as e:
         logger.error(f"❌ Error obteniendo despachos del pedido {id_pedido}: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
