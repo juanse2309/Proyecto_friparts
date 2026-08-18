@@ -394,51 +394,52 @@ const ModuloPulido = {
             
             const res = await fetch(url);
             const data = await res.json();
-            
-            if (data.success && data.session) {
+            const session = data.data?.session;
+
+            if (data.success && session) {
                 // BLINDAJE hora_inicio nula: No arrancar cronómetro sin hora válida
-                if (!data.session.hora_inicio_dt) {
+                if (!session.hora_inicio_dt) {
                     console.log('🚫 [Pulido] Sesión activa sin hora_inicio — ignorando.');
                     return;
                 }
 
-                console.log("✅ [Pulido] Sesión activa confirmada en SQL:", data.session);
+                console.log("✅ [Pulido] Sesión activa confirmada en SQL:", session);
                 this.sesionActiva = true;
-                this.sessionId = data.session.id_pulido;
-                this.startTime = new Date(data.session.hora_inicio_dt);
+                this.sessionId = session.id_pulido;
+                this.startTime = new Date(session.hora_inicio_dt);
                 // Convertir acumulado de segundos a ms para el timer local
-                this.totalPausaMs = (data.session.tiempo_pausa_acumulado || 0) * 1000;
-                this.enPausa = (data.session.estado === 'PAUSADO');
-                
+                this.totalPausaMs = (session.tiempo_pausa_acumulado || 0) * 1000;
+                this.enPausa = (session.estado === 'PAUSADO');
+
                 // Poblar UI
                 const rInput = document.getElementById('responsable-pulido-input');
                 if (rInput) rInput.value = resp;
                 const p = document.getElementById('buscador-productos');
                 const o = document.getElementById('orden-produccion-pulido');
                 const l = document.getElementById('lote-pulido');
-                if(p) p.value = data.session.codigo;
-                if(o) o.value = data.session.orden_produccion;
-                if(l) l.value = data.session.lote;
+                if(p) p.value = session.codigo;
+                if(o) o.value = session.orden_produccion;
+                if(l) l.value = session.lote;
 
                 this.continuarUIActiva();
-                
+
                 // --- ACTUALIZAR BANNER Y UI ---
-                const prod = data.session.codigo || '---';
-                const lote = data.session.lote || '---';
+                const prod = session.codigo || '---';
+                const lote = session.lote || '---';
                 const display = document.getElementById('current-pulido-job');
                 if (display) display.innerText = `${prod} | Lote: ${lote}`;
 
                 this.renderCola(); // Refrescar cola (ahora filtrará la activa)
-                
+
                 // --- ACTUALIZAR IMAGEN (Blindaje contra TypeError) ---
                 try {
-                    if (data.session.codigo) {
-                        this.cargarImagenProducto(data.session.codigo);
+                    if (session.codigo) {
+                        this.cargarImagenProducto(session.codigo);
                     }
                 } catch (imgErr) {
                     console.warn("[Pulido] No se pudo cargar la imagen del producto:", imgErr);
                 }
-                
+
                 if (this.timerInterval) clearInterval(this.timerInterval);
                 this.timerInterval = setInterval(() => this.actualizarTimer(), 1000);
             } else {
@@ -464,11 +465,11 @@ const ModuloPulido = {
             const res = await fetch(`/api/pulido/tareas_pendientes?responsable=${encodeURIComponent(responsable)}`);
             const data = await res.json();
 
-            if (data.success && data.tareas.length > 0) {
+            if (data.success && data.data?.tareas.length > 0) {
                 container.style.display = 'block';
-                
+
                 // FILTRAR: Excluir la que ya está trabajando
-                const tareasFiltradas = data.tareas.filter(t => t.id_pulido !== this.sessionId);
+                const tareasFiltradas = data.data.tareas.filter(t => t.id_pulido !== this.sessionId);
                 
                 if (tareasFiltradas.length === 0) {
                     container.style.display = 'none';
@@ -774,7 +775,7 @@ const ModuloPulido = {
                 const data = await res.json();
                 if (data.success) {
                     this.enPausa = false;
-                    this.totalPausaMs = (data.acumulado || 0) * 1000;
+                    this.totalPausaMs = (data.data?.acumulado || 0) * 1000;
                     btn.innerHTML = '<i class="fas fa-pause me-2"></i> Pausar';
                     btn.className = 'btn btn-warning btn-lg p-3 shadow';
                     document.getElementById('pulido-pausa-msg').style.display = 'none';
@@ -896,9 +897,9 @@ const ModuloPulido = {
             const res = await fetch(`/api/pulido/tareas_pendientes?responsable=${encodeURIComponent(responsable)}`);
             const data = await res.json();
 
-            if (data.success && data.tareas.length > 0) {
+            if (data.success && data.data?.tareas.length > 0) {
                 container.style.display = 'block';
-                list.innerHTML = data.tareas.map(t => {
+                list.innerHTML = data.data.tareas.map(t => {
                     const isPausada = t.estado === 'PAUSADO_COLA';
                     return `
                         <div class="card mb-2 border-start border-4 ${isPausada ? 'border-warning shadow-sm' : 'border-secondary'}">
@@ -1335,14 +1336,14 @@ const ModuloPulido = {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
 
-            if (!data.success || !data.registro) {
+            if (!data.success || !data.data?.registro) {
                 // Sin registros previos: ocultar banner silenciosamente
                 banner.style.display = 'none';
                 return;
             }
 
             // Pintar — con programación defensiva
-            const registro = data.registro || {};
+            const registro = data.data.registro || {};
             const codigo_producto = registro.codigo_producto || '—';
             const cantidad = registro.cantidad !== undefined && registro.cantidad !== null ? registro.cantidad : (registro.piezas || registro.cantidad_aprobada || 0);
             const fecha_hora = registro.fecha_hora || '—';
@@ -1839,7 +1840,7 @@ const ModuloPulido = {
 
             if (spinnerLotes) spinnerLotes.style.display = 'none';
 
-            if (!data.success || data.lotes.length === 0) {
+            if (!data.success || data.data?.lotes.length === 0) {
                 contenedor.innerHTML = `
                     <div class="text-center text-muted py-5">
                         <i class="fas fa-layer-group mb-3 d-block" style="font-size:2.5rem;opacity:0.35"></i>
@@ -1851,10 +1852,10 @@ const ModuloPulido = {
                 return;
             }
 
-            this.lotesActivosData = data.lotes;
+            this.lotesActivosData = data.data.lotes;
 
             const grupos = [];
-            data.lotes.forEach(l => {
+            data.data.lotes.forEach(l => {
                 if (!l || !l.id_lote) {
                     console.warn('[Pulido] Entrada de lote nula/incompleta recibida del servidor — ignorada:', l);
                     return;
@@ -2496,7 +2497,7 @@ const ModuloPulido = {
             if (data.success) {
                 Swal.fire({
                     title: '¡Registro Exitoso!',
-                    text: data.message || 'Se registraron con éxito los reportes del lote.',
+                    text: data.data?.message || 'Se registraron con éxito los reportes del lote.',
                     icon: 'success',
                     confirmButtonColor: '#10b981'
                 });

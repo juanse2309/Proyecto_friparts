@@ -1,7 +1,8 @@
-from flask import Blueprint, request, jsonify, session, current_app
+from flask import Blueprint, request, session, current_app
 from datetime import datetime
 import logging
 from backend.core.sql_database import db
+from backend.core.responses import api_success, api_error
 from backend.models.sql_models import ProgramacionEnsamble, Ensamble, Producto
 from backend.services.bom_service import calcular_descuentos_ensamble
 from sqlalchemy import text
@@ -39,10 +40,10 @@ def listar_programacion():
                 'fecha_programada': s.fecha_programada.strftime('%Y-%m-%d') if s.fecha_programada else '',
                 'estado': s.estado
             })
-        return jsonify({'success': True, 'data': res})
+        return api_success(data=res)
     except Exception as e:
         logger.error(f"Error al listar programación ensamble: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @ensamble_bp.route('/api/ensamble/session_active', methods=['GET'])
 @require_role(ROLES_ENSAMBLE)
@@ -50,18 +51,17 @@ def get_active_ensamble_session():
     """Busca si el operario tiene un trabajo activo en db_ensambles."""
     responsable = request.args.get('responsable')
     if not responsable:
-        return jsonify({"success": False, "error": "Responsable requerido"}), 400
-    
+        return api_error("Responsable requerido", status_code=400)
+
     try:
         # Buscar en db_ensambles (plural como exige DBeaver)
         sesion = Ensamble.query.filter(
             Ensamble.responsable == responsable,
             Ensamble.estado.in_(['EN_PROCESO', 'PAUSADO', 'TRABAJANDO'])
         ).order_by(Ensamble.id.desc()).first()
-        
+
         if sesion:
-            return jsonify({
-                "success": True,
+            return api_success(data={
                 "session": {
                     "id_ensamble": sesion.id_ensamble,
                     "id_codigo": sesion.id_codigo,
@@ -73,9 +73,9 @@ def get_active_ensamble_session():
                     "hora_pausa": sesion.hora_pausa.isoformat() if sesion.hora_pausa else None
                 }
             })
-        return jsonify({"success": True, "session": None})
+        return api_success(data={"session": None})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @ensamble_bp.route('/api/ensamble/programacion', methods=['POST'])
 @require_role(ROLES_ENSAMBLE)
@@ -83,14 +83,14 @@ def crear_programacion():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({'success': False, 'error': 'No data provided'}), 400
-        
+            return api_error("No data provided", status_code=400)
+
         id_codigo = data.get('id_codigo')
         cantidad_objetivo = int(data.get('cantidad_objetivo', 0))
         fecha_str = data.get('fecha_programada')
-        
+
         if not id_codigo or cantidad_objetivo <= 0 or not fecha_str:
-            return jsonify({'success': False, 'error': 'Datos incompletos'}), 400
+            return api_error("Datos incompletos", status_code=400)
         
         fecha_prog = datetime.strptime(fecha_str, '%Y-%m-%d').date()
         
@@ -118,11 +118,11 @@ def crear_programacion():
         db.session.commit()
         
         id_prog_val = res[0] if res else None
-        return jsonify({'success': True, 'id_prog': id_prog_val})
+        return api_success(data={'id_prog': id_prog_val})
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error al crear programación ensamble: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @ensamble_bp.route('/api/ensamble/bom_stock/<id_codigo>', methods=['GET'])
 @require_role(ROLES_ENSAMBLE)
@@ -130,9 +130,9 @@ def obtener_bom_con_stock(id_codigo):
     try:
         # 1. Obtener la BOM
         bom_res = calcular_descuentos_ensamble(id_codigo, 1) # Cantidad 1 para ver el ratio
-        
+
         if not bom_res.get('success'):
-            return jsonify(bom_res), 404
+            return api_error(bom_res.get('error') or 'BOM no disponible', status_code=404)
         
         componentes = bom_res.get('componentes', [])
         resultado = []
@@ -155,14 +155,13 @@ def obtener_bom_con_stock(id_codigo):
                 'alcanza_para': alcanza
             })
             
-        return jsonify({
-            'success': True,
+        return api_success(data={
             'id_codigo': id_codigo,
             'componentes': resultado
         })
     except Exception as e:
         logger.error(f"Error al obtener BOM con stock: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @ensamble_bp.route('/api/ensamble/tareas_pendientes', methods=['GET'])
 @require_role(ROLES_ENSAMBLE)
@@ -171,7 +170,7 @@ def tareas_pendientes():
         tareas = ProgramacionEnsamble.query.filter(
             ProgramacionEnsamble.estado != 'COMPLETADO'
         ).order_by(ProgramacionEnsamble.fecha_programada.asc()).all()
-        
+
         res = []
         for t in tareas:
             faltante = max(0, t.cantidad_objetivo - t.cantidad_realizada)
@@ -184,10 +183,10 @@ def tareas_pendientes():
                 'fecha_programada': t.fecha_programada.strftime('%Y-%m-%d') if t.fecha_programada else '',
                 'estado': t.estado
             })
-        return jsonify({'success': True, 'data': res})
+        return api_success(data=res)
     except Exception as e:
         logger.error(f"Error al listar tareas pendientes: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @ensamble_bp.route('/api/ensamble/reportar', methods=['POST'])
 @require_role(ROLES_ENSAMBLE)
@@ -197,26 +196,24 @@ def reportar_ensamble_multi():
     try:
         usuario_activo = _obtener_usuario_activo()
         resultado = EnsambleService.reportar_multi(data, usuario_activo)
-        return jsonify({
-            'success': True,
-            'message': f"Se procesaron {resultado['registros_procesados']} registros con éxito.",
-            'id_ensamble': resultado['id_ensamble'],
-            'movimientos_inventario': resultado['movimientos_inventario']
-        })
+        return api_success(
+            data={
+                'id_ensamble': resultado['id_ensamble'],
+                'movimientos_inventario': resultado['movimientos_inventario']
+            },
+            message=f"Se procesaron {resultado['registros_procesados']} registros con éxito."
+        )
     except OwnershipMismatchException as e:
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "ENSAMBLE_SESSION_OWNERSHIP_MISMATCH",
-            "responsable_db": e.responsable_db,
-            "responsable_in": e.responsable_in
-        }), 409
+        return api_error(
+            e.message, status_code=409, code="ENSAMBLE_SESSION_OWNERSHIP_MISMATCH",
+            responsable_db=e.responsable_db, responsable_in=e.responsable_in
+        )
     except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return api_error(str(e), status_code=400)
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ ERROR REPORTE MULTI-ENSAMBLE: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 # ====================================================================
@@ -231,12 +228,12 @@ def obtener_ensamble_desde_producto():
     codigo_entrada = request.args.get('codigo', '').strip()
     try:
         resultado = EnsambleService.obtener_bom_desde_producto(codigo_entrada)
-        return jsonify({'success': True, **resultado}), 200
+        return api_success(data=resultado)
     except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return api_error(str(e), status_code=400)
     except Exception as e:
         logger.error(f" Error en obtener_ensamble_desde_producto: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @ensamble_bp.route('/api/ensamble/iniciar', methods=['POST'])
@@ -251,21 +248,17 @@ def iniciar_ensamble():
     try:
         resultado = EnsambleService.iniciar(data)
         if resultado['ya_registrado']:
-            return jsonify({
-                "success": True,
-                "message": "Ensamble ya registrado",
-                "id_ensamble": resultado['id_ensamble']
-            }), 200
-        return jsonify({
-            "success": True,
-            "message": "Ensamble iniciado y persistido en SQL",
-            "id_ensamble": resultado['id_ensamble']
-        }), 201
+            return api_success(data={'id_ensamble': resultado['id_ensamble']}, message="Ensamble ya registrado")
+        return api_success(
+            data={'id_ensamble': resultado['id_ensamble']},
+            message="Ensamble iniciado y persistido en SQL",
+            status_code=201
+        )
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return api_error(str(e), status_code=400)
     except Exception as e:
         logger.error(f"❌ Error en iniciar_ensamble: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @ensamble_bp.route('/api/ensamble/finalizar', methods=['POST'])
@@ -277,11 +270,11 @@ def finalizar_ensamble():
     data = request.json
     try:
         resultado = EnsambleService.finalizar(data)
-        return jsonify({'success': True, 'id_ensamble': resultado['id_ensamble']}), 200
+        return api_success(data={'id_ensamble': resultado['id_ensamble']})
     except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return api_error(str(e), status_code=400)
     except BomNoDisponibleException as e:
-        return jsonify({'success': False, 'error': e.message}), 400
+        return api_error(e.message, status_code=400)
     except Exception as e:
         logger.error(f"❌ Error en finalizar_ensamble: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)

@@ -746,8 +746,8 @@ const ModuloInyeccion = {
             const response = await fetch(`/api/inyeccion/ensamble_desde_producto?codigo=${encodeURIComponent(codigoProducto)}`);
             const data = await response.json();
 
-            if (data.success && data.codigo_ensamble) {
-                codigoEnsambleField.value = data.codigo_ensamble;
+            if (data.success && data.data?.codigo_ensamble) {
+                codigoEnsambleField.value = data.data.codigo_ensamble;
             } else {
                 codigoEnsambleField.value = '';
             }

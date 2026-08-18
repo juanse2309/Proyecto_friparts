@@ -1,6 +1,7 @@
-from flask import Blueprint, jsonify, request, send_file, session, current_app
+from flask import Blueprint, request, send_file, session, current_app
 from sqlalchemy import text
 from io import BytesIO
+from backend.core.responses import api_success, api_error
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usuario_activo
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
@@ -315,7 +316,7 @@ def registrar_pulido():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
+            return api_error("No data provided", status_code=400)
 
         ahora = get_colombia_time()
 
@@ -328,57 +329,43 @@ def registrar_pulido():
         candidato_responsable = data.get('responsable') or usuario_activo
 
         if not candidato_responsable or str(candidato_responsable).strip().upper() in ['', 'SISTEMA']:
-            return jsonify({
-                "success": False,
-                "error": "Se requiere una identidad de operario o responsable válida para registrar el proceso de pulido",
-                "code": "RESPONSABLE_REQUERIDO"
-            }), 400
+            return api_error(
+                "Se requiere una identidad de operario o responsable válida para registrar el proceso de pulido",
+                status_code=400, code="RESPONSABLE_REQUERIDO"
+            )
 
         try:
             responsable = AuditService.resolver_y_validar_propietario(registro, candidato_responsable)
         except OwnershipMismatchException as e:
-            return jsonify({
-                "success": False,
-                "error": e.message,
-                "code": "PULIDO_SESSION_OWNERSHIP_MISMATCH",
-                "id_pulido": id_pulido,
-                "responsable_db": e.responsable_db,
-                "responsable_in": e.responsable_in
-            }), 409
+            return api_error(
+                e.message, status_code=409, code="PULIDO_SESSION_OWNERSHIP_MISMATCH",
+                id_pulido=id_pulido, responsable_db=e.responsable_db, responsable_in=e.responsable_in
+            )
 
         # Delegar la persistencia compleja a la función privada
         res = _ejecutar_persistencia_pulido(registro, data, responsable, ahora)
-        return jsonify(res), 201
+        return api_success(data=res, status_code=201)
 
     except TurnoInvalidoException as e:
         db.session.rollback()
-        return jsonify({
-            "success": False,
-            "error": e.message,
-            "code": "TURNO_DURACION_INVALIDA"
-        }), 400
+        return api_error(e.message, status_code=400, code="TURNO_DURACION_INVALIDA")
 
     except ValueError as e:
         # Incluye la falta de operaria responsable para atribuir la merma
         # (PulidoService.resolver_operaria_responsable): es un error del
         # cliente, no un fallo interno.
         db.session.rollback()
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "code": "RESPONSABLE_REQUERIDO"
-        }), 400
+        return api_error(str(e), status_code=400, code="RESPONSABLE_REQUERIDO")
 
     except Exception as e:
         db.session.rollback()
         import traceback
         error_trace = traceback.format_exc()
         logger.error(f"❌ [PULIDO-ERROR] Error crítico al registrar: {str(e)}\n{error_trace}")
-        return jsonify({
-            "success": False, 
-            "error": str(e),
-            "detail": "Error interno al procesar el reporte de pulido (Revisa logs del servidor)"
-        }), 500
+        return api_error(
+            str(e), status_code=500,
+            detail="Error interno al procesar el reporte de pulido (Revisa logs del servidor)"
+        )
 
 
 
@@ -392,7 +379,7 @@ def get_ultimo_registro_pulido():
     """
     responsable = request.args.get('responsable', '').strip()
     if not responsable:
-        return jsonify({"success": False, "error": "Falta parámetro 'responsable'"}), 400
+        return api_error("Falta parámetro 'responsable'", status_code=400)
 
     try:
         registro = (
@@ -403,7 +390,7 @@ def get_ultimo_registro_pulido():
         )
 
         if not registro:
-            return jsonify({"success": True, "registro": None}), 200
+            return api_success(data={"registro": None})
 
         # Construir la fecha_hora combinando fecha + hora_fin (o hora_inicio como fallback)
         hora_ref = registro.hora_fin or registro.hora_inicio
@@ -415,8 +402,7 @@ def get_ultimo_registro_pulido():
         else:
             fecha_hora_str = registro.fecha.strftime('%d/%m/%Y') if registro.fecha else '—'
 
-        return jsonify({
-            "success": True,
+        return api_success(data={
             "registro": {
                 "fecha_hora": fecha_hora_str,
                 "codigo_producto": registro.codigo or '—',
@@ -424,11 +410,11 @@ def get_ultimo_registro_pulido():
                 "cantidad_aprobada": float(registro.cantidad_real or 0),
                 "piezas": float(registro.cantidad_real or 0)
             }
-        }), 200
+        })
 
     except Exception as e:
         logger.error(f"[ultimo_registro] Error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pulido_bp.route('/api/pulido/session_active', methods=['GET'])
@@ -438,11 +424,11 @@ def get_active_pulido_session():
         db.session.remove()
         
         if request.args.get('ping') == 'true':
-            return jsonify({"success": True, "ping": "pong"}), 200
+            return api_success(data={"ping": "pong"})
 
         responsable = request.args.get('responsable')
         if not responsable:
-            return jsonify({"success": False, "error": "Falta responsable"}), 400
+            return api_error("Falta responsable", status_code=400)
 
         # TTL Garbage Collector: autocierra sesiones zombi (>14h en TRABAJANDO/
         # EN_PROCESO/PAUSADO) antes de evaluar si hay una sesión activa, para
@@ -462,8 +448,7 @@ def get_active_pulido_session():
         sesion = query.order_by(ProduccionPulido.id.desc()).first()
 
         if sesion:
-            return jsonify({
-                "success": True,
+            return api_success(data={
                 "session": {
                     "id_pulido": sesion.id_pulido,
                     "codigo": sesion.codigo,
@@ -476,25 +461,24 @@ def get_active_pulido_session():
                     "hora_pausa": sesion.hora_pausa.isoformat() if (sesion.estado == 'PAUSADO' and sesion.hora_pausa) else None
                 }
             })
-        
-        return jsonify({"success": True, "session": None})
+
+        return api_success(data={"session": None})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pulido_bp.route('/api/pulido/tareas_pendientes', methods=['GET'])
 def get_pulido_tareas_pendientes():
     try:
         responsable = request.args.get('responsable')
         if not responsable:
-            return jsonify({"success": False, "error": "Falta responsable"}), 400
-        
+            return api_error("Falta responsable", status_code=400)
+
         tareas = ProduccionPulido.query.filter(
             ProduccionPulido.responsable == responsable,
             ProduccionPulido.estado.in_(['PENDIENTE', 'PAUSADO_COLA'])
         ).order_by(ProduccionPulido.id.desc()).all()
-        
-        return jsonify({
-            "success": True,
+
+        return api_success(data={
             "tareas": [{
                 "id_pulido": t.id_pulido,
                 "codigo": t.codigo,
@@ -504,7 +488,7 @@ def get_pulido_tareas_pendientes():
             } for t in tareas]
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pulido_bp.route('/api/pulido/pausar', methods=['POST'])
 @require_role(ROLES_PULIDO)
@@ -514,8 +498,8 @@ def pausar_pulido():
     id_pulido = data.get('id_pulido')
     try:
         registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first()
-        if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
-        
+        if not registro: return api_error("No encontrado", status_code=404)
+
         # Blindaje: Forzar timestamp de Colombia (Bogotá)
         ahora = get_colombia_time()
 
@@ -531,12 +515,12 @@ def pausar_pulido():
         registro.hora_pausa = ahora.replace(tzinfo=None) # Guardar como naive Bogota
         db.session.add(registro)
         db.session.commit()
-        
+
         logger.debug(f" [PAUSA] Actividad {id_pulido} pausada a las {registro.hora_pausa}")
-        return jsonify({"success": True})
+        return api_success()
     except Exception as e:
         db.session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pulido_bp.route('/api/pulido/reanudar', methods=['POST'])
 @require_role(ROLES_PULIDO)
@@ -546,8 +530,8 @@ def reanudar_pulido():
     id_pulido = data.get('id_pulido')
     try:
         registro = ProduccionPulido.query.filter_by(id_pulido=id_pulido).first()
-        if not registro: return jsonify({"success": False, "error": "No encontrado"}), 404
-        
+        if not registro: return api_error("No encontrado", status_code=404)
+
         if registro.hora_pausa:
             ahora = get_colombia_time()
 
@@ -565,14 +549,14 @@ def reanudar_pulido():
             if segundos_pausa < 0: segundos_pausa = 0 # Evitar pausas negativas por drift
             
             registro.tiempo_pausa_acumulado = (registro.tiempo_pausa_acumulado or 0) + segundos_pausa
-            
+
         registro.estado = 'TRABAJANDO'
         registro.hora_pausa = None
         db.session.commit()
-        return jsonify({"success": True, "acumulado": registro.tiempo_pausa_acumulado})
+        return api_success(data={"acumulado": registro.tiempo_pausa_acumulado})
     except Exception as e:
         db.session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pulido_bp.route('/api/pulido/swap_task', methods=['POST'])
 @require_role(ROLES_PULIDO)
@@ -590,12 +574,12 @@ def swap_pulido_task():
             id_nuevo = str(id_raw.get('id_pulido') or "")
         elif str(id_raw) == "[object Object]":
             logger.error(" [SWAP-ERROR] El frontend envió un string '[object Object]'")
-            return jsonify({"success": False, "error": "ID de tarea inválido (object)"}), 400
+            return api_error("ID de tarea inválido (object)", status_code=400)
         else:
             id_nuevo = str(id_raw or "")
-        
+
         if not responsable or not id_nuevo or id_nuevo == "None":
-            return jsonify({"success": False, "error": "Datos incompletos o ID nulo"}), 400
+            return api_error("Datos incompletos o ID nulo", status_code=400)
 
         # 1. Pausar TODO lo que esté TRABAJANDO para este operario
         # Usamos la hora de Colombia para asegurar consistencia en el registro de pausa
@@ -618,11 +602,11 @@ def swap_pulido_task():
             db.session.add(nueva_tarea)
             
         db.session.commit()
-        return jsonify({"success": True, "message": "Intercambio realizado con éxito"})
+        return api_success(message="Intercambio realizado con éxito")
     except Exception as e:
         db.session.rollback()
         logger.error(f"[Pulido-Swap] Error crítico: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 @pulido_bp.route('/api/pulido/historial', methods=['GET'])
 @require_role(ROLES_PULIDO)
 def get_pulido_historial():
@@ -735,18 +719,18 @@ def get_pulido_historial():
                 'pnc_pulido': int(r['pnc_pulido'] or 0)
             })
 
-        return jsonify(data)
+        return api_success(data=data)
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error en api/pulido/historial: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 @pulido_bp.route('/api/pulido/stats', methods=['GET'])
 @require_role(ROLES_PULIDO)
 def get_pulido_stats():
     # Placeholder
-    return jsonify({"success": True, "message": "Estadísticas de pulido (WIP)"})
+    return api_success(message="Estadísticas de pulido (WIP)")
 
 
 @pulido_bp.route('/api/pulido/exportar_excel', methods=['GET'])
@@ -915,7 +899,7 @@ def exportar_excel_pulido():
         logger.error(f"Error exportando Excel Pulido: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 # =============================================================
 # NUEVO: Endpoint GET — Lotes Activos para Modo Lotes en Vivo
@@ -965,11 +949,11 @@ def get_lotes_activos():
             'por_pulir'        : l.por_pulir or 0
         } for l in lotes]
 
-        return jsonify({'success': True, 'lotes': resultado}), 200
+        return api_success(data={'lotes': resultado})
 
     except Exception as e:
         logger.error(f'❌ [Lotes Activos] Error: {e}')
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pulido_bp.route('/api/pulido/liquidar_lote', methods=['POST'])
@@ -978,24 +962,24 @@ def liquidar_lote():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
+            return api_error("No data provided", status_code=400)
 
         id_lote = data.get('id_lote')
         from backend.utils.formatters import resolver_operario
         responsable = resolver_operario(data.get('responsable')) or 'Supervisor'
 
         if not id_lote:
-            return jsonify({"success": False, "error": "Falta id_lote"}), 400
+            return api_error("Falta id_lote", status_code=400)
 
         # Buscamos todos los lotes de trazabilidad que coincidan con id_lote
         # Puede ser un ID de lote específico (con sufijo) o el prefijo base del lote
         lotes_traz = TrazabilidadLote.query.filter(
-            (TrazabilidadLote.id_lote == id_lote) | 
+            (TrazabilidadLote.id_lote == id_lote) |
             (TrazabilidadLote.id_lote.like(f"{id_lote}-%"))
         ).all()
 
         if not lotes_traz:
-            return jsonify({"success": False, "error": f"Lote {id_lote} no encontrado"}), 404
+            return api_error(f"Lote {id_lote} no encontrado", status_code=404)
 
         lotes_procesados = 0
 
@@ -1007,12 +991,12 @@ def liquidar_lote():
 
         db.session.commit()
         logger.info(f"⚡ [Liquidar Lote] Se liquidaron/cerraron {lotes_procesados} referencia(s) de {id_lote} por {responsable} (por_pulir establecido en 0 y estado -> PENDIENTE_VALIDACION).")
-        return jsonify({"success": True, "message": f"Lote {id_lote} cerrado administrativamente correctamente."}), 200
+        return api_success(message=f"Lote {id_lote} cerrado administrativamente correctamente.")
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error liquidando lote: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pulido_bp.route('/reporte_masivo', methods=['POST'])
@@ -1022,7 +1006,7 @@ def reporte_masivo():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
+            return api_error("No data provided", status_code=400)
 
         hora_inicio_str = data.get('hora_inicio')
         hora_fin_str = data.get('hora_fin')
@@ -1031,10 +1015,10 @@ def reporte_masivo():
         items = data.get('items', [])
 
         if not responsable or responsable == 'SISTEMA':
-            return jsonify({"success": False, "error": "Falta el responsable"}), 400
+            return api_error("Falta el responsable", status_code=400)
 
         if not items:
-            return jsonify({"success": False, "error": "No hay items para registrar"}), 400
+            return api_error("No hay items para registrar", status_code=400)
 
         ahora = get_colombia_time()
         fecha_actual = ahora.date()
@@ -1179,12 +1163,12 @@ def reporte_masivo():
                             piezas_por_repartir = 0
 
         db.session.commit()
-        return jsonify({"success": True, "message": f"Se registraron con éxito {len(items)} reportes del lote."}), 200
+        return api_success(message=f"Se registraron con éxito {len(items)} reportes del lote.")
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error en reporte_masivo: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 
 @pulido_bp.route('/api/pnc/registrar_pulido', methods=['POST'])
@@ -1210,7 +1194,7 @@ def registrar_pnc_pulido():
         defectos  = data.get('defectos', {})
 
         if not id_pulido or not id_codigo:
-            return jsonify({"success": False, "error": "id_pulido e id_codigo son obligatorios"}), 400
+            return api_error("id_pulido e id_codigo son obligatorios", status_code=400)
 
         id_cod = normalizar_codigo(id_codigo)
 
@@ -1233,11 +1217,7 @@ def registrar_pnc_pulido():
             try:
                 operaria_responsable = PulidoService.resolver_operaria_responsable(prod_pul)
             except ValueError as ve:
-                return jsonify({
-                    "success": False,
-                    "error": str(ve),
-                    "code": "RESPONSABLE_REQUERIDO"
-                }), 400
+                return api_error(str(ve), status_code=400, code="RESPONSABLE_REQUERIDO")
 
             criterio_str = (
                 f"Porosidad/Burbujas: {int(porosidad)}, "
@@ -1263,26 +1243,18 @@ def registrar_pnc_pulido():
 
             db.session.commit()
             logger.info(f"✅ PNC Pulido registrado para {id_cod} en {id_pulido}: Total={total_pnc}")
-            return jsonify({
-                "success": True,
-                "message": "PNC de Pulido registrado en db_pnc_pulido",
-                "total_pnc": total_pnc
-            }), 200
+            return api_success(data={"total_pnc": total_pnc}, message="PNC de Pulido registrado en db_pnc_pulido")
         else:
             if prod_pul:
                 prod_pul.pnc_pulido = 0
                 prod_pul.criterio_pnc_pulido = ""
             db.session.commit()
-            return jsonify({
-                "success": True,
-                "message": "Sin defectos de PNC para Pulido",
-                "total_pnc": 0
-            }), 200
+            return api_success(data={"total_pnc": 0}, message="Sin defectos de PNC para Pulido")
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"❌ Error registrando PNC Pulido: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error(str(e), status_code=500)
 
 # Eliminado endpoint duplicado /api/pulido/liquidar_lote
 
@@ -1312,7 +1284,7 @@ def get_ultimo_registro_pulido_legacy(responsable):
         )
 
         if not registro:
-            return jsonify({'success': True, 'registro': None})
+            return api_success(data={'registro': None})
 
         hora_ref = registro.hora_fin or registro.hora_inicio
         if registro.fecha and hora_ref:
@@ -1323,8 +1295,7 @@ def get_ultimo_registro_pulido_legacy(responsable):
         else:
             fecha_hora_str = registro.fecha.strftime('%d/%m/%Y') if registro.fecha else '—'
 
-        return jsonify({
-            'success': True,
+        return api_success(data={
             'registro': {
                 'fecha_hora': fecha_hora_str,
                 'codigo_producto': registro.codigo or '—',
@@ -1332,8 +1303,8 @@ def get_ultimo_registro_pulido_legacy(responsable):
                 'cantidad_aprobada': float(registro.cantidad_real or 0),
                 'piezas': float(registro.cantidad_real or 0)
             }
-        }), 200
+        })
 
     except Exception as e:
         logger.error(f"Error en get_ultimo_registro_pulido_legacy: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return api_error(str(e), status_code=500)

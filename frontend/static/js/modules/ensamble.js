@@ -55,33 +55,34 @@ const ModuloEnsamble = {
             console.log(`📡 [Ensamble] Buscando sesión activa para: ${responsable}...`);
             const res = await fetch(`/api/ensamble/session_active?responsable=${encodeURIComponent(responsable)}`);
             const data = await res.json();
+            const session = data.data?.session;
 
-            if (data.success && data.session) {
-                console.log("✅ [Ensamble] Sesión recuperada de DB:", data.session);
-                this.sessionId = data.session.id_ensamble;
+            if (data.success && session) {
+                console.log("✅ [Ensamble] Sesión recuperada de DB:", session);
+                this.sessionId = session.id_ensamble;
                 this.sesionActiva = true;
-                this.enPausa = (data.session.estado === 'PAUSADO');
-                this.startTime = new Date(data.session.hora_inicio_dt);
-                this.totalPausaMs = (data.session.tiempo_pausa_acumulado || 0) * 1000;
+                this.enPausa = (session.estado === 'PAUSADO');
+                this.startTime = new Date(session.hora_inicio_dt);
+                this.totalPausaMs = (session.tiempo_pausa_acumulado || 0) * 1000;
 
                 // Poblar UI y Bloquear
                 const prodInput = document.getElementById('reporte-producto-manual');
                 const prodDisplay = document.getElementById('reporte-producto-display');
-                if (prodInput) prodInput.value = data.session.id_codigo;
+                if (prodInput) prodInput.value = session.id_codigo;
                 if (prodDisplay) {
-                    prodDisplay.textContent = data.session.id_codigo;
+                    prodDisplay.textContent = session.id_codigo;
                     prodDisplay.style.display = 'block';
                 }
                 const opInput = document.getElementById('reporte-op');
-                if (opInput) opInput.value = data.session.orden_produccion || '';
+                if (opInput) opInput.value = session.orden_produccion || '';
                 const cantInput = document.getElementById('reporte-cantidad');
-                if (cantInput) cantInput.value = data.session.cantidad;
+                if (cantInput) cantInput.value = session.cantidad;
 
                 const bujeOrigen = document.getElementById('reporte-buje-origen');
-                if (bujeOrigen) bujeOrigen.value = data.session.id_codigo;
+                if (bujeOrigen) bujeOrigen.value = session.id_codigo;
 
                 // --- REHIDRATACIÓN BOM ---
-                this.renderBOMCheckboxes(data.session.id_codigo, 'reporte-bom-check-container');
+                this.renderBOMCheckboxes(session.id_codigo, 'reporte-bom-check-container');
 
                 document.getElementById('form-reporte-ensamble-container').style.display = 'block';
                 this.bloquearFormulario(true);
@@ -320,7 +321,7 @@ const ModuloEnsamble = {
                         <tbody>
             `;
 
-            res.componentes.forEach(c => {
+            res.data.componentes.forEach(c => {
                 const isShort = c.alcanza_para < meta && meta > 0;
                 if (isShort) stockInsuficiente = true;
                 const rowClass = isShort ? 'table-warning bg-warning bg-opacity-25' : 'table-success bg-success bg-opacity-10';
@@ -366,9 +367,9 @@ const ModuloEnsamble = {
                 return;
             }
 
-            this.currentBOM = res.componentes || []; // Guardar para el envío multiregistro
+            this.currentBOM = res.data.componentes || []; // Guardar para el envío multiregistro
             let html = '';
-            res.componentes.forEach((c, index) => {
+            res.data.componentes.forEach((c, index) => {
                 html += `
                     <div class="col-md-4">
                         <div class="card border shadow-sm p-3 rounded-3 h-100">
@@ -783,7 +784,7 @@ const ModuloEnsamble = {
         }
         mostrarLoading(false);
 
-        if (!bomData || !bomData.success || !bomData.componentes || bomData.componentes.length === 0) {
+        if (!bomData || !bomData.success || !bomData.data.componentes || bomData.data.componentes.length === 0) {
             mostrarNotificacion('No se encontró BOM para este producto. Agregue manualmente.', 'warning');
             return;
         }
@@ -791,7 +792,7 @@ const ModuloEnsamble = {
         // 3. Inyectar dinámicamente HTML por componente
         let htmlFilas = '<div class="table-responsive"><table class="table table-sm align-middle text-start"><thead><tr><th>Componente</th><th style="width: 100px;">Cantidad</th><th>Motivo de Rechazo</th></tr></thead><tbody>';
 
-        bomData.componentes.forEach(c => {
+        bomData.data.componentes.forEach(c => {
             htmlFilas += `
                 <tr>
                     <td class="fw-bold small">${c.componente}<br><span class="text-muted" style="font-size:0.75rem">${c.codigo_inventario}</span></td>
@@ -822,7 +823,7 @@ const ModuloEnsamble = {
                 const resultados = [];
                 let totalPnc = 0;
 
-                bomData.componentes.forEach(c => {
+                bomData.data.componentes.forEach(c => {
                     const cantInput = document.querySelector(`.pnc-bom-cantidad[data-codigo="${c.codigo_inventario}"]`);
                     const critSelect = document.querySelector(`.pnc-bom-criterio[data-codigo="${c.codigo_inventario}"]`);
 
