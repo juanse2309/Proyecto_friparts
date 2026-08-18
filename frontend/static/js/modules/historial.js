@@ -805,6 +805,8 @@
     /**
      * Exportar los datos actuales a Excel (vía Backend)
      */
+    let exportandoHistorial = false;
+
     function exportarHistorialExcel() {
         if (!h_datos || h_datos.length === 0) {
             mostrarNotificacion('No hay datos para exportar', 'warning');
@@ -812,9 +814,15 @@
         }
 
         // Si estamos en vista PULIDO, usar el endpoint específico de Pulido
+        // (sigue siendo descarga síncrona -- fuera de alcance de este cambio)
         const proceso = document.getElementById('tipoProceso')?.value || '';
         if (proceso === 'PULIDO') {
             return descargarExcelPulido();
+        }
+
+        if (exportandoHistorial) {
+            mostrarNotificacion('Ya hay una exportación en curso, espera a que termine.', 'warning');
+            return;
         }
 
         const desde = document.getElementById('fechaDesde')?.value || '';
@@ -822,12 +830,70 @@
         const tipo_filtro = proceso;
 
         const url = `/api/exportar-historial-global?desde=${desde}&hasta=${hasta}&tipo=${tipo_filtro}`;
+        console.log('📊 [Excel Historial] Solicitando generación en background:', url);
+        iniciarExportacionAsincrona(url);
+    }
 
-        console.log('📊 [Excel Historial] Descargando desde backend:', url);
-        mostrarNotificacion('Generando Excel profesional del Historial...', 'info');
+    /**
+     * Dispara una exportación en background (task_id + polling) y descarga el
+     * archivo cuando el backend termina de generarlo.
+     *
+     * Reemplaza la descarga directa por window.location.href: armar el Excel
+     * completo (consulta + Workbook) bloqueaba el único worker gunicorn de la
+     * app (ver gunicorn.conf.py) hasta terminar, tumbando el resto de
+     * requests concurrentes en rangos de fecha grandes.
+     */
+    async function iniciarExportacionAsincrona(url) {
+        exportandoHistorial = true;
+        try {
+            const res = await fetchData(url);
+            if (!res) return; // fetchData ya notificó el error de red/HTTP
 
-        // Descarga directa via navegación
-        window.location.href = url;
+            if (!res.success || !res.data?.task_id) {
+                mostrarNotificacion(res.error || 'No se pudo iniciar la exportación', 'error');
+                return;
+            }
+
+            mostrarNotificacion('Generando Excel del Historial... esto puede tardar unos segundos.', 'info');
+            await sondearEstadoExportacion(res.data.task_id);
+        } catch (error) {
+            console.error('❌ Error en exportación asíncrona del Historial:', error);
+            mostrarNotificacion('Error de conexión al exportar', 'error');
+        } finally {
+            exportandoHistorial = false;
+        }
+    }
+
+    const EXPORT_POLL_MS = 2000;
+    const EXPORT_MAX_INTENTOS = 150; // ~5 min de margen
+
+    async function sondearEstadoExportacion(taskId, intentos = 0) {
+        if (intentos >= EXPORT_MAX_INTENTOS) {
+            mostrarNotificacion('La exportación está tardando demasiado. Intenta de nuevo más tarde.', 'error');
+            return;
+        }
+
+        const estado = await fetchData(`/api/tasks/status/${taskId}`);
+        if (!estado) return; // fetchData ya notificó el error
+        if (!estado.success) {
+            mostrarNotificacion(estado.error || 'Error consultando el estado de la exportación', 'error');
+            return;
+        }
+
+        const { status, download_url, error } = estado.data;
+        if (status === 'COMPLETED') {
+            mostrarNotificacion('¡Excel listo! Descargando...', 'success');
+            window.location.href = download_url;
+            return;
+        }
+        if (status === 'FAILED') {
+            mostrarNotificacion(error || 'Error generando el Excel', 'error');
+            return;
+        }
+
+        // PENDING/RUNNING: seguir esperando
+        await new Promise(resolve => setTimeout(resolve, EXPORT_POLL_MS));
+        await sondearEstadoExportacion(taskId, intentos + 1);
     }
 
     /**

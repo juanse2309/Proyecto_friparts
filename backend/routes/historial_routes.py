@@ -1,8 +1,11 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, current_app
 from sqlalchemy import text
 from backend.core.responses import api_success, api_error
+from backend.core import task_runner
 from datetime import datetime
 import logging
+import os
+import tempfile
 import psycopg2.extensions
 # Registrar OID 25 (TEXT) como UNICODE para evitar errores de mapeo
 psycopg2.extensions.register_type(psycopg2.extensions.UNICODE)
@@ -774,23 +777,14 @@ def actualizar_registro_historial():
         return api_error(str(e), status_code=500)
 
 
-@historial_bp.route('/api/exportar-historial-global', methods=['GET'])
-@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
-def exportar_excel_historial_global():
-    from flask import send_file
-
+def _generar_excel_historial_task(task_id, f_desde, f_hasta, tipo_filtro):
+    """
+    Trabajo de fondo de exportar_excel_historial_global: arma el Excel completo
+    (consulta + normalizacion + Workbook) fuera del hilo HTTP. Corre dentro del
+    app_context que le da task_runner.run_in_background -- db.session y demas
+    dependen de ese contexto para resolver correctamente en el hilo nuevo.
+    """
     try:
-        desde_str = request.args.get('desde', '')
-        hasta_str = request.args.get('hasta', '')
-        tipo_filtro = request.args.get('tipo', '')
-
-        hoy = datetime.now().date()
-        f_desde = datetime.strptime(desde_str, '%Y-%m-%d').date() if desde_str else hoy
-        f_hasta = datetime.strptime(hasta_str, '%Y-%m-%d').date() if hasta_str else hoy
-
-        # Se llama directo al constructor de datos (no al endpoint JSON): evita
-        # el round-trip jsonify()->get_json() que duplicaba la lista completa
-        # en memoria y fue la causa del OOM del servidor con rangos grandes.
         resultados = _construir_movimientos_historial(f_desde, f_hasta, tipo_filtro)
         logger.debug(f"📊 [Historial-Excel] Exportando {len(resultados)} movimientos ({f_desde} -> {f_hasta})")
 
@@ -800,18 +794,55 @@ def exportar_excel_historial_global():
         # Construcción del Workbook delegada al servicio (arquitectura: rutas sin lógica de negocio)
         output = generar_excel_historial_global(resultados)
 
+        # El BytesIO en memoria no sobrevive a este hilo: el endpoint de
+        # descarga es un request HTTP aparte (y con gthread, posiblemente en
+        # otro hilo), asi que se vuelca a un archivo temporal real en disco
+        # para que send_file lo pueda abrir despues.
+        fd, tmp_path = tempfile.mkstemp(suffix='.xlsx', prefix='historial_')
+        with os.fdopen(fd, 'wb') as f:
+            f.write(output.getvalue())
+
         fecha_archivo = datetime.now().strftime('%Y-%m-%d')
         filename = f"Historial_Global_{fecha_archivo}.xlsx"
 
-        return send_file(
-            output,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=filename
+        task_runner.set_completed(
+            task_id, file_path=tmp_path, filename=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-
     except Exception as e:
-        logger.error(f"Error exportando Excel Historial Global: {e}")
+        logger.error(f"Error exportando Excel Historial Global (task {task_id}): {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return api_error(str(e), status_code=500)
+        task_runner.set_failed(task_id, str(e))
+
+
+@historial_bp.route('/api/exportar-historial-global', methods=['GET'])
+@require_role(ROL_ADMINS + ['AUXILIAR INVENTARIO'])
+def exportar_excel_historial_global():
+    """
+    Controller delgado: valida el rango de fechas, delega la generación
+    completa del Excel a un hilo de fondo (ver _generar_excel_historial_task)
+    y responde de inmediato con el task_id para que el frontend haga polling.
+    Antes esto bloqueaba el único worker gunicorn de la app hasta terminar de
+    armar el libro completo, tumbando el resto de requests concurrentes en
+    rangos de fecha grandes.
+    """
+    desde_str = request.args.get('desde', '')
+    hasta_str = request.args.get('hasta', '')
+    tipo_filtro = request.args.get('tipo', '')
+
+    hoy = datetime.now().date()
+    try:
+        f_desde = datetime.strptime(desde_str, '%Y-%m-%d').date() if desde_str else hoy
+        f_hasta = datetime.strptime(hasta_str, '%Y-%m-%d').date() if hasta_str else hoy
+    except ValueError:
+        return api_error("Formato de fecha inválido, se espera YYYY-MM-DD", status_code=400)
+
+    task_id = task_runner.create_task()
+    app_obj = current_app._get_current_object()
+    task_runner.run_in_background(
+        task_id, app_obj, _generar_excel_historial_task,
+        f_desde, f_hasta, tipo_filtro
+    )
+
+    return api_success(data={"task_id": task_id}, status_code=202)

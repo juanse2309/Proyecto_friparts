@@ -216,8 +216,10 @@ from backend.routes.pnc_routes import pnc_bp
 from backend.routes.simulador_routes import simulador_bp
 from backend.routes.asistente_routes import asistente_bp
 from backend.routes.cartera_routes import cartera_bp
+from backend.routes.tasks_routes import tasks_bp
 
 app.register_blueprint(auth_bp)
+app.register_blueprint(tasks_bp)
 app.register_blueprint(simulador_bp)
 app.register_blueprint(programacion_bp)
 app.register_blueprint(materia_prima_bp)
