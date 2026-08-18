@@ -506,6 +506,14 @@ class ReglasAsistencia:
         extra_end_mins = max(0, t_out_mins - w_end_mins)
         extra_mins = extra_start_mins + extra_end_mins
 
+        # Candado aritmético: las horas extra solo son válidas si la jornada
+        # ordinaria oficial del día fue efectivamente completada. Un retiro
+        # anticipado (salida_real < fin oficial) purga cualquier extra,
+        # incluida la generada por llegada anticipada (extra_start_mins).
+        jornada_oficial_mins = w_end_mins - w_start_mins - deduccion_mins
+        if t_out_mins < w_end_mins or ord_mins < jornada_oficial_mins:
+            extra_mins = 0
+
         return {
             "horas_ordinarias": round(ord_mins / 60.0, 2),
             "horas_extras": round(extra_mins / 60.0, 2)
