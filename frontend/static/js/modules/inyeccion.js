@@ -2,13 +2,76 @@
 // inyeccion.js - Lógica de Inyección (SMART SEARCH) - NAMESPACED
 // ============================================
 
+// ============================================================
+// ESTADO REACTIVO DE LA TABLA DE ITEMS (renderTablaItems)
+// ------------------------------------------------------------
+// Antes: this.items se mutaba en ~9 sitios distintos (agregarItem,
+// removerItem, editarItem, calculos, _sincronizarItemsConRespuestaServidor,
+// _restaurarItemsDraft, limpiarFormularioValidacion, confirmarRegistroFinal,
+// seleccionarLoteValidacion) y cada uno tenia que acordarse de llamar
+// this.renderTablaItems() a mano -- el origen tipico de "estado zombi"
+// (se muta pero no se repinta a tiempo, o se repinta antes de que la
+// mutacion termine).
+//
+// Ahora this.items es un getter/setter (ver ModuloInyeccion.items mas
+// abajo) que delega en TablaInyeccionState.items, un array envuelto en
+// Proxy: cualquier mutacion (incluidos push/splice, que internamente
+// son sets sobre indices y length) programa un render en el siguiente
+// microtask. Varias mutaciones sincronas seguidas (ej. splice, que
+// dispara varios sets) colapsan en un unico render.
+// ============================================================
+let _renderTablaProgramado = false;
+function _programarRenderTablaInyeccion() {
+    if (_renderTablaProgramado) return;
+    _renderTablaProgramado = true;
+    queueMicrotask(() => {
+        _renderTablaProgramado = false;
+        ModuloInyeccion.renderUI();
+    });
+}
+
+function _envolverArrayReactivo(arr) {
+    return new Proxy(arr, {
+        set(target, prop, value) {
+            target[prop] = value;
+            _programarRenderTablaInyeccion();
+            return true;
+        },
+        deleteProperty(target, prop) {
+            delete target[prop];
+            _programarRenderTablaInyeccion();
+            return true;
+        }
+    });
+}
+
+// status: 'ready' | 'loading'. El unico gap de carga real de esta tabla
+// es el await de responsablesPulido dentro de seleccionarLoteValidacion
+// (ver mas abajo) -- ahi es donde se usa 'loading'.
+const TablaInyeccionState = new Proxy(
+    { items: _envolverArrayReactivo([]), status: 'ready' },
+    {
+        set(target, prop, value) {
+            target[prop] = (prop === 'items' && Array.isArray(value)) ? _envolverArrayReactivo(value) : value;
+            _programarRenderTablaInyeccion();
+            return true;
+        }
+    }
+);
+
 const ModuloInyeccion = {
     productosData: [],
     responsablesData: [],
     responsablesPulido: [], // Personal de PULIDO (filtrado server-side vía ?rol=PULIDO), para el selector de Operaria Pulido
     _responsablesPulidoPromise: null, // Memoiza el fetch para que cualquier caller pueda hacer 'await' sin duplicar la petición
     criteriosPnc: null,      // Catálogo canónico servido por el backend (/api/pnc/criterios)
-    items: [],
+    // Getter/setter: this.items sigue comportandose como un array normal
+    // para todo el resto del archivo (push/splice/reasignacion completa
+    // this.items = [...] funcionan igual), pero delega en
+    // TablaInyeccionState.items para que quede reactivo. Ver el bloque
+    // de estado reactivo arriba de esta declaracion.
+    get items() { return TablaInyeccionState.items; },
+    set items(v) { TablaInyeccionState.items = v; },
     isInitialized: false,
     isFetching: false,
     pncRows: [], // Lista de PNC dinámicos para el cierre
@@ -373,7 +436,9 @@ const ModuloInyeccion = {
         // antes de que ModuloInyeccion.init()/cargarDatos() termine. Esperar aquí
         // garantiza que this.responsablesPulido ya esté poblado antes de que
         // renderTablaItems() construya los <select> de Operaria Pulido más abajo.
+        TablaInyeccionState.status = 'loading';
         await this._cargarResponsablesPulido();
+        TablaInyeccionState.status = 'ready';
 
         const registrosDelLote = this.pendientesData.filter(l => l.id_inyeccion === idValidacion);
         if (registrosDelLote.length === 0) {
@@ -798,6 +863,41 @@ const ModuloInyeccion = {
         ['cantidad-inyeccion', 'cavidades-inyeccion', 'pnc-inyeccion', 'cantidad-real-inyeccion', 'inyeccion-entrada', 'inyeccion-salida'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', (e) => this.calculos(e.target.id));
         });
+
+        // Delegación única de eventos para la tabla de items: un solo
+        // listener en el <tbody>, adjuntado una vez, en vez de
+        // onchange/onclick inline recreados en cada fila/render. Usa
+        // data-item-id (id_item, estable) en vez de índice posicional,
+        // así que borrar una fila del medio no desincroniza los
+        // handlers de las filas siguientes.
+        const tbodyItems = document.getElementById('lista-inyeccion-body');
+        if (tbodyItems) {
+            tbodyItems.addEventListener('change', (e) => {
+                const tr = e.target.closest('tr[data-item-id]');
+                const campo = e.target.dataset.campo;
+                if (!tr || !campo) return;
+                const index = this._indexPorItemId(tr.dataset.itemId);
+                if (index === -1) return;
+
+                if (campo === 'operaria_pulido') {
+                    this.setOperariaPulido(index, e.target.value);
+                } else {
+                    this.editarItem(index, campo, e.target.value);
+                }
+            });
+
+            tbodyItems.addEventListener('click', (e) => {
+                const tr = e.target.closest('tr[data-item-id]');
+                if (!tr) return;
+                const index = this._indexPorItemId(tr.dataset.itemId);
+                if (index === -1) return;
+
+                const accion = e.target.closest('[data-accion]')?.dataset.accion;
+                if (accion === 'eliminar') this.removerItem(index);
+                else if (accion === 'pnc-inyeccion') this.editarPNCLista(index);
+                else if (accion === 'pnc-pulido') this.editarPNCPulidoLista(index);
+            });
+        }
     },
 
     calculos: function (triggerId) {
@@ -1113,18 +1213,17 @@ const ModuloInyeccion = {
         document.getElementById('codigo-producto-inyeccion').focus();
     },
 
-    renderSelectOperariaPulido: function (item, index) {
-        // Siempre un <select> interactivo y habilitado, poblado con
-        // this.responsablesPulido (catálogo filtrado server-side vía
-        // ?rol=PULIDO en /api/obtener_responsables, cargado con
-        // _cargarResponsablesPulido para evitar la condición de carrera con
-        // seleccionarLoteValidacion). Antes esta celda caía a un guion
-        // estático ('—') fuera del submódulo de Validación; y antes de eso,
-        // usar el catálogo general (this.responsablesData) exponía
-        // comerciales y administradores en un selector que debe ser solo de
-        // personal de pulido. Un <select> (en vez de texto libre) evita además
-        // variaciones tipográficas del mismo nombre, protegiendo la integridad
-        // del Leaderboard de pulido.
+    // Actualiza el <select> de operaria de pulido dentro de una fila ya
+    // existente (this.responsablesPulido: catálogo filtrado server-side
+    // vía ?rol=PULIDO en /api/obtener_responsables, cargado con
+    // _cargarResponsablesPulido para evitar la condición de carrera con
+    // seleccionarLoteValidacion). El catálogo general (this.responsablesData)
+    // no debe usarse aquí: exponía comerciales y administradores en un
+    // selector que debe ser solo de personal de pulido. Se reconstruye
+    // completo (no es un input de texto, no hay cursor/estado de edición
+    // que preservar).
+    _actualizarSelectOperariaPulido: function (select, item) {
+        if (!select) return;
         const seleccionada = item.operaria_pulido || '';
         const requiere = (item.pnc_pulido || 0) > 0;
 
@@ -1132,12 +1231,8 @@ const ModuloInyeccion = {
             `<option value="${nombre}" ${nombre === seleccionada ? 'selected' : ''}>${nombre}</option>`
         ).join('');
 
-        return `
-            <select id="iny-operaria-${index}" class="form-select form-select-sm select-operaria-pulido ${requiere && !seleccionada ? 'border-danger' : ''}"
-                    style="width: 150px;" onchange="ModuloInyeccion.setOperariaPulido(${index}, this.value)">
-                <option value="">-- Seleccionar --</option>
-                ${opciones}
-            </select>`;
+        select.innerHTML = `<option value="">-- Seleccionar --</option>${opciones}`;
+        select.classList.toggle('border-danger', requiere && !seleccionada);
     },
 
     _sincronizarItemsConRespuestaServidor: function (items_resultado) {
@@ -1180,149 +1275,230 @@ const ModuloInyeccion = {
         console.log('[Inyeccion] Items sincronizados con respuesta del servidor:', this.items);
     },
 
+    // Alias público retro-compatible: los ~9 call-sites existentes que
+    // llaman this.renderTablaItems() tras mutar this.items siguen
+    // funcionando (ya no es estrictamente necesario -- el Proxy de
+    // TablaInyeccionState programa el render solo ante push/splice/
+    // reasignación completa -- pero esta llamada extra queda coalesada
+    // en el mismo microtask por _programarRenderTablaInyeccion, así que
+    // no hace falta tocar esos sitios).
     renderTablaItems: function () {
+        _programarRenderTablaInyeccion();
+    },
+
+    // Función pura del estado: decide qué rama visual pintar. Solo la
+    // dispara el scheduler de TablaInyeccionState (_programarRenderTablaInyeccion),
+    // nunca se llama directamente desde otro punto del módulo.
+    renderUI: function () {
         const tbody = document.getElementById('lista-inyeccion-body');
         const tfoot = document.getElementById('inyeccion-tfoot');
-
         if (!tbody) return;
 
-        // renderTablaItems reconstruye <tbody> completo en cada edición
-        // (onchange de cualquier celda), lo que recrea todos los <input>/<select>
-        // de la tabla. Sin esto, un operario que va tabulando por la fila pierde
-        // el foco y la posición del cursor cada vez que confirma un campo.
-        const activeEl = document.activeElement;
-        let focoAGuardar = null;
-        if (activeEl && activeEl.id && tbody.contains(activeEl)) {
-            focoAGuardar = {
-                id: activeEl.id,
-                selStart: typeof activeEl.selectionStart === 'number' ? activeEl.selectionStart : null,
-                selEnd: typeof activeEl.selectionEnd === 'number' ? activeEl.selectionEnd : null
-            };
-        }
-        const restaurarFoco = () => {
-            if (!focoAGuardar) return;
-            const el = document.getElementById(focoAGuardar.id);
-            if (!el) return;
-            el.focus();
-            if (focoAGuardar.selStart !== null && typeof el.setSelectionRange === 'function') {
-                try { el.setSelectionRange(focoAGuardar.selStart, focoAGuardar.selEnd); } catch (e) { /* input type sin soporte de selección */ }
-            }
-        };
-
-        if (this.items.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="11" class="text-center text-muted py-5">
-                        <i class="fas fa-box-open mb-3" style="font-size: 2rem; color: #cbd5e1;"></i>
-                        <p class="mb-0">No hay productos en la lista.</p>
-                        <small>Llena la sección de Agregar Producto y presiona "+ Agregar Producto".</small>
-                    </td>
-                </tr>
-            `;
-            if (tfoot) tfoot.style.display = 'none';
-            this._guardarItemsDraft();
+        if (TablaInyeccionState.status === 'loading') {
+            this._pintarEstadoCarga(tbody, tfoot);
             return;
         }
+        if (TablaInyeccionState.items.length === 0) {
+            this._pintarEstadoVacio(tbody, tfoot);
+            return;
+        }
+        this.pintarFilas(tbody, tfoot, TablaInyeccionState.items);
+    },
 
-        let totalBuenas = 0;
-        let totalPNC = 0;
-        let totalPNCPulido = 0;
-        let totalBruto = 0;
-        let totalPeso = 0;
+    _pintarEstadoCarga: function (tbody, tfoot) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="11" class="text-center text-muted py-5">
+                    <i class="fas fa-spinner fa-spin mb-3" style="font-size: 2rem; color: #cbd5e1;"></i>
+                    <p class="mb-0">Cargando lote...</p>
+                </td>
+            </tr>
+        `;
+        if (tfoot) tfoot.style.display = 'none';
+    },
 
+    _pintarEstadoVacio: function (tbody, tfoot) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="11" class="text-center text-muted py-5">
+                    <i class="fas fa-box-open mb-3" style="font-size: 2rem; color: #cbd5e1;"></i>
+                    <p class="mb-0">No hay productos en la lista.</p>
+                    <small>Llena la sección de Agregar Producto y presiona "+ Agregar Producto".</small>
+                </td>
+            </tr>
+        `;
+        if (tfoot) tfoot.style.display = 'none';
+        this._guardarItemsDraft();
+    },
+
+    // Reconciliación por clave (id_item): actualiza in-place las filas
+    // que ya existen en el DOM y solo crea/borra las que cambiaron de
+    // presencia. Reemplaza el innerHTML completo de antes -- que
+    // destruía y recreaba cada <input>/<select> en CADA edición de
+    // CUALQUIER celda, obligando al hack de guardar/restaurar foco
+    // (activeEl/focoAGuardar/restaurarFoco) que existía solo para
+    // compensar esa pérdida de foco/cursor. Ese hack ya no existe: al
+    // no destruir los nodos, el foco nunca se pierde.
+    pintarFilas: function (tbody, tfoot, items) {
         try {
-            tbody.innerHTML = this.items.map((item, index) => {
+            const vivos = new Set(items.map(i => i.id_item));
+            Array.from(tbody.children).forEach(tr => {
+                if (!vivos.has(tr.dataset.itemId)) tr.remove();
+            });
+
+            let anterior = null;
+            items.forEach(item => {
+                let tr = tbody.querySelector(`tr[data-item-id="${item.id_item}"]`);
+                if (!tr) {
+                    tr = this._crearFilaVacia(item.id_item);
+                    tbody.insertBefore(tr, anterior ? anterior.nextSibling : tbody.firstChild);
+                } else if (anterior && tr.previousElementSibling !== anterior) {
+                    tbody.insertBefore(tr, anterior.nextSibling);
+                }
+                this.actualizarCeldasFila(tr, item);
+                anterior = tr;
+            });
+
+            this._actualizarTotales(tfoot, items);
+        } catch (error) {
+            console.error("Error en pintarFilas:", error);
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger py-3">Error al renderizar los datos. Verifica la consola.</td></tr>`;
+        }
+
+        this._guardarItemsDraft();
+    },
+
+    _actualizarTotales: function (tfoot, items) {
+        if (!tfoot) return;
+
+        let totalBuenas = 0, totalPNC = 0, totalPNCPulido = 0, totalBruto = 0, totalPeso = 0;
+        items.forEach(item => {
             totalBuenas += item.piezasBuenas;
             totalPNC += item.pnc;
             totalPNCPulido += (item.pnc_pulido || 0);
             totalBruto += item.cantidad_real;
             totalPeso += (parseFloat(item.peso_bujes) || 0);
+        });
 
-            const iconoGuardado = item._guardado_en_bd ?
-                '<i class="fas fa-check-circle" style="color: #28a745; font-size: 1.2rem;" title="Guardado en BD"></i>' :
-                '';
-
-            return `
-            <tr style="${item._guardado_en_bd ? 'background-color: #f0fff4;' : ''}">
-                <td class="text-center align-middle" style="min-width: 40px;">${iconoGuardado}</td>
-                <td class="fw-bold align-middle">${item.codigo_producto}</td>
-                <td class="text-center align-middle">
-                    <input id="iny-cav-${index}" type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 60px;" value="${item.no_cavidades}" onchange="ModuloInyeccion.editarItem(${index}, 'no_cavidades', this.value)">
-                </td>
-                <td class="text-center align-middle">
-                    <input id="iny-disparos-${index}" type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 70px;" value="${item.disparos}" onchange="ModuloInyeccion.editarItem(${index}, 'disparos', this.value)">
-                </td>
-                <td class="text-center align-middle">
-                    <div class="d-flex flex-column align-items-center">
-                        <small class="text-muted" style="font-size: 0.65rem;">Cant. Real</small>
-                        <input id="iny-buenas-${index}" type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 85px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas}" onchange="ModuloInyeccion.editarItem(${index}, 'manual_buenas', this.value)">
-                    </div>
-                </td>
-                <td class="text-center align-middle">
-                    <div class="d-flex flex-column align-items-center">
-                        <small class="text-muted" style="font-size: 0.65rem;">PNC Iny</small>
-                        <div class="d-flex justify-content-center align-items-center gap-1">
-                            <input id="iny-pnc-${index}" type="number" min="0" class="form-control form-control-sm text-center" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" value="${item.pnc}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc', this.value)">
-                            <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" onclick="ModuloInyeccion.editarPNCLista(${index})"><i class="fas fa-list-ul"></i></button>
-                        </div>
-                    </div>
-                </td>
-                <td class="text-center align-middle">
-                    <div class="d-flex flex-column align-items-center">
-                        <small class="text-muted" style="font-size: 0.65rem;">PNC Pul</small>
-                        <div class="d-flex justify-content-center align-items-center gap-1">
-                            <input id="iny-pncpul-${index}" type="number" min="0" class="form-control form-control-sm text-center border-warning" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important;" value="${item.pnc_pulido || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'pnc_pulido', this.value)">
-                            <button type="button" class="btn btn-sm btn-outline-warning px-2 py-1" onclick="ModuloInyeccion.editarPNCPulidoLista(${index})"><i class="fas fa-list-ul"></i></button>
-                        </div>
-                    </div>
-                </td>
-                <td class="text-center align-middle">
-                    <div class="d-flex flex-column align-items-center">
-                        <small class="text-muted" style="font-size: 0.65rem;">Operaria Pul.</small>
-                        ${this.renderSelectOperariaPulido(item, index)}
-                    </div>
-                </td>
-                <td class="text-center align-middle">
-                    <div class="d-flex flex-column align-items-center">
-                        <small class="text-muted" style="font-size: 0.65rem;">Peso (kg)</small>
-                        <input id="iny-peso-${index}" type="number" step="0.01" min="0" class="form-control form-control-sm text-center mx-auto border-primary" style="width: 80px;" value="${item.peso_bujes || 0}" onchange="ModuloInyeccion.editarItem(${index}, 'peso_bujes', this.value)">
-                    </div>
-                </td>
-                <td class="text-center align-middle">
-                    <span class="badge bg-secondary fs-6">${(item.cantidad_real || 0).toLocaleString()}</span>
-                </td>
-                <td class="text-center align-middle">
-                    <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="ModuloInyeccion.removerItem(${index})" title="Eliminar">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </td>
-            </tr>
-            `;
-        }).join('');
-
-        if (tfoot) {
-            tfoot.style.display = 'table-footer-group';
-            document.getElementById('inyeccion-total-buenas').textContent = totalBuenas.toLocaleString();
-            document.getElementById('inyeccion-total-pnc').textContent = totalPNC.toLocaleString();
-            // El id real del tfoot es 'inyeccion-total-pnc-pul' (index.html); el JS
-            // buscaba 'inyeccion-total-pnc-pulido' y el total nunca se pintaba.
-            if (document.getElementById('inyeccion-total-pnc-pul')) {
-                document.getElementById('inyeccion-total-pnc-pul').textContent = totalPNCPulido.toLocaleString();
-            }
-            
-            const pesoFooter = document.getElementById('inyeccion-total-peso');
-            if (pesoFooter) pesoFooter.textContent = totalPeso.toFixed(2);
-
-            const brutoFooter = document.getElementById('inyeccion-total-bruto');
-            if (brutoFooter) brutoFooter.textContent = totalBruto.toLocaleString();
-        }
-        } catch (error) {
-            console.error("Error en renderTablaItems:", error);
-            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger py-3">Error al renderizar los datos. Verifica la consola.</td></tr>`;
+        tfoot.style.display = 'table-footer-group';
+        document.getElementById('inyeccion-total-buenas').textContent = totalBuenas.toLocaleString();
+        document.getElementById('inyeccion-total-pnc').textContent = totalPNC.toLocaleString();
+        // El id real del tfoot es 'inyeccion-total-pnc-pul' (index.html); el JS
+        // buscaba 'inyeccion-total-pnc-pulido' y el total nunca se pintaba.
+        if (document.getElementById('inyeccion-total-pnc-pul')) {
+            document.getElementById('inyeccion-total-pnc-pul').textContent = totalPNCPulido.toLocaleString();
         }
 
-        restaurarFoco();
-        this._guardarItemsDraft();
+        const pesoFooter = document.getElementById('inyeccion-total-peso');
+        if (pesoFooter) pesoFooter.textContent = totalPeso.toFixed(2);
+
+        const brutoFooter = document.getElementById('inyeccion-total-bruto');
+        if (brutoFooter) brutoFooter.textContent = totalBruto.toLocaleString();
+    },
+
+    // Esqueleto estático de una fila: se crea UNA sola vez por id_item y
+    // sobrevive a los repintados siguientes (actualizarCeldasFila solo
+    // le escribe valores encima). Los onchange/onclick inline de antes
+    // se reemplazan por data-campo/data-accion + la delegación única en
+    // el <tbody> (ver configurarEventos).
+    _crearFilaVacia: function (idItem) {
+        const tr = document.createElement('tr');
+        tr.dataset.itemId = idItem;
+        tr.innerHTML = `
+            <td class="text-center align-middle js-icono-guardado" style="min-width: 40px;"></td>
+            <td class="fw-bold align-middle js-codigo-producto"></td>
+            <td class="text-center align-middle">
+                <input id="iny-cav-${idItem}" type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 60px;" data-campo="no_cavidades">
+            </td>
+            <td class="text-center align-middle">
+                <input id="iny-disparos-${idItem}" type="number" min="1" class="form-control form-control-sm text-center mx-auto" style="width: 70px;" data-campo="disparos">
+            </td>
+            <td class="text-center align-middle">
+                <div class="d-flex flex-column align-items-center">
+                    <small class="text-muted" style="font-size: 0.65rem;">Cant. Real</small>
+                    <input id="iny-buenas-${idItem}" type="number" min="0" class="form-control form-control-sm text-center mx-auto" style="width: 85px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" data-campo="manual_buenas">
+                </div>
+            </td>
+            <td class="text-center align-middle">
+                <div class="d-flex flex-column align-items-center">
+                    <small class="text-muted" style="font-size: 0.65rem;">PNC Iny</small>
+                    <div class="d-flex justify-content-center align-items-center gap-1">
+                        <input id="iny-pnc-${idItem}" type="number" min="0" class="form-control form-control-sm text-center" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important; border: 1px solid #6c757d;" data-campo="pnc">
+                        <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1" data-accion="pnc-inyeccion"><i class="fas fa-list-ul"></i></button>
+                    </div>
+                </div>
+            </td>
+            <td class="text-center align-middle">
+                <div class="d-flex flex-column align-items-center">
+                    <small class="text-muted" style="font-size: 0.65rem;">PNC Pul</small>
+                    <div class="d-flex justify-content-center align-items-center gap-1">
+                        <input id="iny-pncpul-${idItem}" type="number" min="0" class="form-control form-control-sm text-center border-warning" style="width: 65px; color: #000000 !important; background-color: #ffffff !important; font-weight: bold !important; font-size: 1.1rem !important;" data-campo="pnc_pulido">
+                        <button type="button" class="btn btn-sm btn-outline-warning px-2 py-1" data-accion="pnc-pulido"><i class="fas fa-list-ul"></i></button>
+                    </div>
+                </div>
+            </td>
+            <td class="text-center align-middle">
+                <div class="d-flex flex-column align-items-center">
+                    <small class="text-muted" style="font-size: 0.65rem;">Operaria Pul.</small>
+                    <select id="iny-operaria-${idItem}" class="form-select form-select-sm select-operaria-pulido" style="width: 150px;" data-campo="operaria_pulido"></select>
+                </div>
+            </td>
+            <td class="text-center align-middle">
+                <div class="d-flex flex-column align-items-center">
+                    <small class="text-muted" style="font-size: 0.65rem;">Peso (kg)</small>
+                    <input id="iny-peso-${idItem}" type="number" step="0.01" min="0" class="form-control form-control-sm text-center mx-auto border-primary" style="width: 80px;" data-campo="peso_bujes">
+                </div>
+            </td>
+            <td class="text-center align-middle">
+                <span class="badge bg-secondary fs-6 js-cantidad-real"></span>
+            </td>
+            <td class="text-center align-middle">
+                <button type="button" class="btn btn-sm btn-outline-danger border-0" data-accion="eliminar" title="Eliminar">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+        return tr;
+    },
+
+    // Único punto que escribe valores dentro de una fila ya existente.
+    // Solo toca .value/.textContent si cambió respecto al DOM actual --
+    // eso es lo que preserva el foco y la posición del cursor sin
+    // necesidad de guardarlos/restaurarlos a mano.
+    actualizarCeldasFila: function (tr, item) {
+        tr.style.backgroundColor = item._guardado_en_bd ? '#f0fff4' : '';
+
+        const icono = tr.querySelector('.js-icono-guardado');
+        icono.innerHTML = item._guardado_en_bd
+            ? '<i class="fas fa-check-circle" style="color: #28a745; font-size: 1.2rem;" title="Guardado en BD"></i>'
+            : '';
+
+        const codigo = tr.querySelector('.js-codigo-producto');
+        if (codigo.textContent !== item.codigo_producto) codigo.textContent = item.codigo_producto;
+
+        this._asignarSiCambio(tr, '[data-campo="no_cavidades"]', item.no_cavidades);
+        this._asignarSiCambio(tr, '[data-campo="disparos"]', item.disparos);
+        this._asignarSiCambio(tr, '[data-campo="manual_buenas"]', item.manual_buenas !== null ? item.manual_buenas : item.piezasBuenas);
+        this._asignarSiCambio(tr, '[data-campo="pnc"]', item.pnc);
+        this._asignarSiCambio(tr, '[data-campo="pnc_pulido"]', item.pnc_pulido || 0);
+        this._asignarSiCambio(tr, '[data-campo="peso_bujes"]', item.peso_bujes || 0);
+
+        this._actualizarSelectOperariaPulido(tr.querySelector('[data-campo="operaria_pulido"]'), item);
+
+        const badge = tr.querySelector('.js-cantidad-real');
+        const textoBadge = (item.cantidad_real || 0).toLocaleString();
+        if (badge.textContent !== textoBadge) badge.textContent = textoBadge;
+    },
+
+    _asignarSiCambio: function (tr, selector, valor) {
+        const el = tr.querySelector(selector);
+        if (!el) return;
+        const nuevo = String(valor);
+        if (el.value !== nuevo) el.value = nuevo;
+    },
+
+    _indexPorItemId: function (idItem) {
+        return this.items.findIndex(i => i.id_item === idItem);
     },
 
     registrar: async function () {
