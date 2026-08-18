@@ -20,7 +20,7 @@ import json
 logger = logging.getLogger(__name__)
 pulido_bp = Blueprint('pulido_bp', __name__)
 
-ROLES_PULIDO = ROL_ADMINS + ['JEFE PULIDO', 'PULIDO']
+ROLES_PULIDO = ROL_ADMINS + ['JEFE PULIDO', 'PULIDO', 'JEFE AUXILIAR INVENTARIO']
 
 def _ejecutar_persistencia_pulido(registro, data, responsable, ahora):
     """
