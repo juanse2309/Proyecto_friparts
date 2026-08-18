@@ -45,6 +45,14 @@ const ModuloEnsamble = {
 
         // --- VERIFICACIÓN DE SESIÓN ACTIVA (Evita Duplicados) ---
         await this.verificarSesionActiva();
+
+        // --- SUBPROCESOS DE ENSAMBLE (Pintura / Rayada / Hornos) ---
+        // Cada uno gestiona su propio ciclo iniciar/finalizar de forma
+        // independiente (ver SubprocesoEnsambleController); solo se
+        // bootstrapean aquí porque comparten la página 'ensamble'.
+        window.ModuloPintura?.inicializar();
+        window.ModuloRayada?.inicializar();
+        window.ModuloHornos?.inicializar();
     },
 
     verificarSesionActiva: async function () {

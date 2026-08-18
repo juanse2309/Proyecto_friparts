@@ -2779,6 +2779,21 @@
                             <i class="fas fa-clipboard-list me-2"></i> Reporte de Tareas
                         </button>
                     </li>
+                    <li class="nav-item">
+                        <button class="nav-link shadow-sm" data-tab="pintura">
+                            <i class="fas fa-paint-roller me-2"></i> Pintura
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link shadow-sm" data-tab="rayada">
+                            <i class="fas fa-ruler-combined me-2"></i> Rayada
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link shadow-sm" data-tab="hornos">
+                            <i class="fas fa-fire me-2"></i> Hornos
+                        </button>
+                    </li>
                 </ul>
 
                 <!-- TAB 1: PROGRAMACIÓN -->
@@ -3004,6 +3019,194 @@
                                     </div>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: PINTURA -->
+                <div id="ens-tab-pintura" class="ensamble-tab-content" style="display: none;">
+                    <div class="row justify-content-center">
+                        <div class="col-lg-7">
+                            <!-- Iniciar Pintura -->
+                            <div class="card border-0 shadow-sm rounded-4 mb-4" id="pintura-card-iniciar">
+                                <div class="card-header bg-white border-bottom py-3">
+                                    <h5 class="mb-0 fw-bold"><i class="fas fa-paint-roller text-primary me-2"></i>Iniciar Pintura</h5>
+                                </div>
+                                <div class="card-body p-4">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Referencia / Código</label>
+                                            <input type="text" id="pintura-id-codigo" class="form-control" placeholder="Ej: FR-9380">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Insumo de Pintura</label>
+                                            <input type="text" id="pintura-insumo" class="form-control" placeholder="Ej: Negro Mate">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Orden de Producción (OP)</label>
+                                            <input type="text" id="pintura-op" class="form-control" placeholder="OP-2026-000">
+                                        </div>
+                                    </div>
+                                    <button type="button" id="btn-pintura-iniciar" class="btn btn-primary btn-lg w-100 mt-4 shadow py-3 rounded-4">
+                                        <i class="fas fa-play me-2"></i> Iniciar Pintura
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Finalizar Pintura -->
+                            <div class="card border-0 shadow-lg rounded-4 overflow-hidden" id="pintura-card-finalizar" style="display: none;">
+                                <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0"><i class="fas fa-flag-checkered me-2"></i>Finalizar Pintura</h5>
+                                    <span id="pintura-session-info" class="badge bg-light text-dark"></span>
+                                </div>
+                                <div class="card-body p-4">
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Cantidad Pintada</label>
+                                            <input type="number" id="pintura-cantidad" class="form-control form-control-lg fw-bold text-success" min="1" placeholder="0">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">ML de Insumo Utilizado</label>
+                                            <input type="number" id="pintura-ml-insumo" class="form-control form-control-lg" min="0" step="0.01" placeholder="0">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold text-danger"><i class="fas fa-exclamation-circle me-1"></i> Merma / PNC</label>
+                                            <input type="number" id="pintura-pnc" class="form-control bg-danger bg-opacity-10 text-danger fw-bold" min="0" value="0">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Observaciones</label>
+                                        <textarea id="pintura-observaciones" class="form-control" rows="2" placeholder="Cualquier novedad..."></textarea>
+                                    </div>
+                                    <button type="button" id="btn-pintura-finalizar" class="btn btn-success btn-lg w-100 shadow py-3 rounded-4">
+                                        <i class="fas fa-check-double me-2"></i> Finalizar Pintura
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 4: RAYADA -->
+                <div id="ens-tab-rayada" class="ensamble-tab-content" style="display: none;">
+                    <div class="row justify-content-center">
+                        <div class="col-lg-7">
+                            <!-- Iniciar Rayada -->
+                            <div class="card border-0 shadow-sm rounded-4 mb-4" id="rayada-card-iniciar">
+                                <div class="card-header bg-white border-bottom py-3">
+                                    <h5 class="mb-0 fw-bold"><i class="fas fa-ruler-combined text-primary me-2"></i>Iniciar Rayada</h5>
+                                </div>
+                                <div class="card-body p-4">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Referencia de Carcaza</label>
+                                            <input type="text" id="rayada-id-codigo" class="form-control" placeholder="Ej: CAR-1234">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Orden de Producción (OP)</label>
+                                            <input type="text" id="rayada-op" class="form-control" placeholder="OP-2026-000">
+                                        </div>
+                                    </div>
+                                    <button type="button" id="btn-rayada-iniciar" class="btn btn-primary btn-lg w-100 mt-4 shadow py-3 rounded-4">
+                                        <i class="fas fa-play me-2"></i> Iniciar Rayada
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Finalizar Rayada -->
+                            <div class="card border-0 shadow-lg rounded-4 overflow-hidden" id="rayada-card-finalizar" style="display: none;">
+                                <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0"><i class="fas fa-flag-checkered me-2"></i>Finalizar Rayada</h5>
+                                    <span id="rayada-session-info" class="badge bg-light text-dark"></span>
+                                </div>
+                                <div class="card-body p-4">
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Cantidad Rayada</label>
+                                            <input type="number" id="rayada-cantidad" class="form-control form-control-lg fw-bold text-success" min="1" placeholder="0">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold text-danger"><i class="fas fa-exclamation-circle me-1"></i> Merma / PNC</label>
+                                            <input type="number" id="rayada-pnc" class="form-control bg-danger bg-opacity-10 text-danger fw-bold" min="0" value="0">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Observaciones</label>
+                                        <textarea id="rayada-observaciones" class="form-control" rows="2" placeholder="Cualquier novedad..."></textarea>
+                                    </div>
+                                    <button type="button" id="btn-rayada-finalizar" class="btn btn-success btn-lg w-100 shadow py-3 rounded-4">
+                                        <i class="fas fa-check-double me-2"></i> Finalizar Rayada
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 5: HORNOS -->
+                <div id="ens-tab-hornos" class="ensamble-tab-content" style="display: none;">
+                    <div class="row justify-content-center">
+                        <div class="col-lg-7">
+                            <!-- Ingreso a Horno -->
+                            <div class="card border-0 shadow-sm rounded-4 mb-4" id="hornos-card-iniciar">
+                                <div class="card-header bg-white border-bottom py-3">
+                                    <h5 class="mb-0 fw-bold"><i class="fas fa-fire text-primary me-2"></i>Ingreso a Horno</h5>
+                                </div>
+                                <div class="card-body p-4">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Referencia / Código</label>
+                                            <input type="text" id="hornos-id-codigo" class="form-control" placeholder="Ej: FR-9380">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Horno #</label>
+                                            <input type="text" id="hornos-numero" class="form-control" placeholder="Ej: HORNO-1">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Cantidad del Lote</label>
+                                            <input type="number" id="hornos-cantidad" class="form-control form-control-lg fw-bold" min="1" placeholder="0">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Temperatura de Ingreso (°C)</label>
+                                            <input type="number" id="hornos-temp-ingreso" class="form-control form-control-lg" step="0.1" placeholder="Ej: 180">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Orden de Producción (OP)</label>
+                                            <input type="text" id="hornos-op" class="form-control" placeholder="OP-2026-000">
+                                        </div>
+                                    </div>
+                                    <button type="button" id="btn-hornos-iniciar" class="btn btn-primary btn-lg w-100 mt-4 shadow py-3 rounded-4">
+                                        <i class="fas fa-play me-2"></i> Registrar Ingreso
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Salida de Horno -->
+                            <div class="card border-0 shadow-lg rounded-4 overflow-hidden" id="hornos-card-finalizar" style="display: none;">
+                                <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0"><i class="fas fa-flag-checkered me-2"></i>Registrar Salida de Horno</h5>
+                                    <span id="hornos-session-info" class="badge bg-light text-dark"></span>
+                                </div>
+                                <div class="card-body p-4">
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold">Temperatura de Salida (°C)</label>
+                                            <input type="number" id="hornos-temp-salida" class="form-control form-control-lg" step="0.1" placeholder="Ej: 25">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-bold text-danger"><i class="fas fa-exclamation-circle me-1"></i> Merma / PNC</label>
+                                            <input type="number" id="hornos-pnc" class="form-control bg-danger bg-opacity-10 text-danger fw-bold" min="0" value="0">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Observaciones</label>
+                                        <textarea id="hornos-observaciones" class="form-control" rows="2" placeholder="Cualquier novedad..."></textarea>
+                                    </div>
+                                    <button type="button" id="btn-hornos-finalizar" class="btn btn-success btn-lg w-100 shadow py-3 rounded-4">
+                                        <i class="fas fa-check-double me-2"></i> Registrar Salida
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -5214,6 +5417,10 @@
     <script src="/static/js/modules/simulador.js?v={{ RELEASE_VERSION }}"></script>
     <script src="/static/js/modules/pulido.js?v={{ RELEASE_VERSION }}"></script>
     <script src="/static/js/modules/ensamble.js?v={{ RELEASE_VERSION }}"></script>
+    <script src="/static/js/modules/subproceso_ensamble_base.js?v={{ RELEASE_VERSION }}" defer></script>
+    <script src="/static/js/modules/pintura.js?v={{ RELEASE_VERSION }}" defer></script>
+    <script src="/static/js/modules/rayada.js?v={{ RELEASE_VERSION }}" defer></script>
+    <script src="/static/js/modules/hornos.js?v={{ RELEASE_VERSION }}" defer></script>
     <script src="/static/js/modules/pnc.js?v={{ RELEASE_VERSION }}"></script>
     <script src="/static/js/modules/facturacion.js?v={{ RELEASE_VERSION }}"></script>
     <script src="/static/js/modules/reportes.js?v={{ RELEASE_VERSION }}"></script>

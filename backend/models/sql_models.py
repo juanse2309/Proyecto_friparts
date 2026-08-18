@@ -361,6 +361,102 @@ class Ensamble(db.Model):
     tiempo_pausa_acumulado = db.Column(db.Integer,     default=0)
 
 
+class ProduccionPintura(db.Model):
+    """Subproceso de Ensamble: registra insumo (ml) consumido y rendimiento
+    por unidad. Sin FK -- se ancla al padre solo por id_ensamble (texto),
+    mismo patrón que PncEnsamble."""
+    __tablename__ = 'db_pintura'
+    __table_args__ = {'extend_existing': True}
+
+    id                     = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    id_pintura             = db.Column(db.String(80), index=True, default=lambda: uuid.uuid4().hex[:8])
+    id_ensamble            = db.Column(db.Text, index=True, nullable=True)
+    id_codigo              = db.Column(db.Text, index=True, nullable=True)
+    responsable            = db.Column(db.Text, nullable=True)
+    insumo_pintura         = db.Column(db.String(100), nullable=True)  # color/tipo de insumo
+    cantidad               = db.Column(db.Integer, default=0)          # unidades pintadas
+    ml_insumo_utilizado    = db.Column(db.Numeric(18, 2), default=0)
+    rendimiento_ml_unidad  = db.Column(db.Numeric(10, 4), default=0)   # calculado en PinturaService.finalizar
+    op_numero              = db.Column(db.Text, nullable=True)
+    fecha                  = db.Column(db.DateTime, index=True, nullable=True)
+    hora_inicio            = db.Column(db.DateTime, nullable=True)
+    hora_fin               = db.Column(db.DateTime, nullable=True)
+    hora_pausa             = db.Column(db.DateTime, nullable=True)
+    tiempo_pausa_acumulado = db.Column(db.Integer, default=0)
+    duracion_segundos      = db.Column(db.Integer, default=0)
+    tiempo_total_minutos   = db.Column(db.Numeric(10, 2), default=0)
+    segundos_por_unidad    = db.Column(db.Numeric(10, 2), default=0)
+    pnc_cantidad           = db.Column(db.Integer, default=0)
+    observaciones          = db.Column(db.Text, nullable=True)
+    estado                 = db.Column(db.String(50), default='EN_PROCESO')  # EN_PROCESO, PAUSADO, FINALIZADO
+    departamento           = db.Column(db.String(100), default='Pintura')
+
+    @validates('id_codigo')
+    def _sanitizar_id_codigo(self, key, value):
+        return preservar_o_normalizar_prefijo(value) if value else value
+
+
+class ProduccionRayada(db.Model):
+    """Subproceso de Ensamble: control de tiempos por referencia de carcaza."""
+    __tablename__ = 'db_rayada'
+    __table_args__ = {'extend_existing': True}
+
+    id                     = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    id_rayada              = db.Column(db.String(80), index=True, default=lambda: uuid.uuid4().hex[:8])
+    id_ensamble            = db.Column(db.Text, index=True, nullable=True)
+    id_codigo              = db.Column(db.Text, index=True, nullable=True)  # referencia de carcaza (CAR-)
+    responsable            = db.Column(db.Text, nullable=True)
+    cantidad               = db.Column(db.Integer, default=0)
+    op_numero              = db.Column(db.Text, nullable=True)
+    fecha                  = db.Column(db.DateTime, index=True, nullable=True)
+    hora_inicio            = db.Column(db.DateTime, nullable=True)
+    hora_fin               = db.Column(db.DateTime, nullable=True)
+    hora_pausa             = db.Column(db.DateTime, nullable=True)
+    tiempo_pausa_acumulado = db.Column(db.Integer, default=0)
+    duracion_segundos      = db.Column(db.Integer, default=0)
+    tiempo_total_minutos   = db.Column(db.Numeric(10, 2), default=0)
+    segundos_por_unidad    = db.Column(db.Numeric(10, 2), default=0)
+    pnc_cantidad           = db.Column(db.Integer, default=0)
+    observaciones          = db.Column(db.Text, nullable=True)
+    estado                 = db.Column(db.String(50), default='EN_PROCESO')  # EN_PROCESO, PAUSADO, FINALIZADO
+    departamento           = db.Column(db.String(100), default='Rayada')
+
+    @validates('id_codigo')
+    def _sanitizar_id_codigo(self, key, value):
+        return preservar_o_normalizar_prefijo(value) if value else value
+
+
+class ProduccionHorno(db.Model):
+    """Subproceso de Ensamble: registro de temperatura de ingreso/salida y
+    tiempo de curado por lote en horno."""
+    __tablename__ = 'db_hornos'
+    __table_args__ = {'extend_existing': True}
+
+    id                     = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    id_horno_registro      = db.Column(db.String(80), index=True, default=lambda: uuid.uuid4().hex[:8])
+    id_ensamble            = db.Column(db.Text, index=True, nullable=True)
+    id_codigo              = db.Column(db.Text, index=True, nullable=True)
+    horno_numero           = db.Column(db.String(50), nullable=True)  # identificador del horno físico
+    responsable            = db.Column(db.Text, nullable=True)
+    cantidad               = db.Column(db.Integer, default=0)
+    temperatura_ingreso_c  = db.Column(db.Numeric(6, 2), nullable=True)
+    temperatura_salida_c   = db.Column(db.Numeric(6, 2), nullable=True)
+    op_numero              = db.Column(db.Text, nullable=True)
+    fecha                  = db.Column(db.DateTime, index=True, nullable=True)
+    hora_inicio            = db.Column(db.DateTime, nullable=True)
+    hora_fin               = db.Column(db.DateTime, nullable=True)
+    duracion_segundos      = db.Column(db.Integer, default=0)
+    tiempo_total_minutos   = db.Column(db.Numeric(10, 2), default=0)
+    pnc_cantidad           = db.Column(db.Integer, default=0)
+    observaciones          = db.Column(db.Text, nullable=True)
+    estado                 = db.Column(db.String(50), default='EN_HORNO')  # EN_HORNO, FINALIZADO
+    departamento           = db.Column(db.String(100), default='Hornos')
+
+    @validates('id_codigo')
+    def _sanitizar_id_codigo(self, key, value):
+        return preservar_o_normalizar_prefijo(value) if value else value
+
+
 class Pnc(db.Model):
     __tablename__ = 'db_pnc'
     __table_args__ = {'extend_existing': True}

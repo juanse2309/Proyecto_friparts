@@ -205,6 +205,9 @@ from backend.routes.asistencia_routes import asistencia_bp
 from backend.routes.productos_routes import productos_bp
 from backend.routes.historial_routes import historial_bp
 from backend.routes.ensamble_routes import ensamble_bp
+from backend.routes.pintura_routes import pintura_bp
+from backend.routes.rayada_routes import rayada_bp
+from backend.routes.hornos_routes import hornos_bp
 from backend.routes.ia_routes import ia_bp
 from backend.routes.gerencia_routes import gerencia_bp
 from backend.routes.wo_routes import wo_bp
@@ -242,6 +245,9 @@ app.register_blueprint(inyeccion_bp)
 app.register_blueprint(pulido_bp)
 app.register_blueprint(asistencia_bp, url_prefix='/api/asistencia')
 app.register_blueprint(ensamble_bp)
+app.register_blueprint(pintura_bp)
+app.register_blueprint(rayada_bp)
+app.register_blueprint(hornos_bp)
 app.register_blueprint(ia_bp)
 app.register_blueprint(gerencia_bp)
 # Límite más estricto que el global: los agentes locales (agente_wo*.py)
@@ -283,7 +289,7 @@ def serve_manifest():
 # (cache-busting de CSS/JS en index.html, footer, loader). Distinta de
 # _APP_VERSION de abajo, que es el hash del deploy activo para detectar
 # frontend desactualizado -- no confundir ambas.
-RELEASE_VERSION = "1.7.3"
+RELEASE_VERSION = "1.8.0"
 
 # --- VERSION DEL DEPLOY ACTIVO ---
 # RENDER_GIT_COMMIT la puebla Render automaticamente en cada deploy (no hay
