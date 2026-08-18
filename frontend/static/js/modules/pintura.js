@@ -1,6 +1,7 @@
 // ============================================
 // pintura.js - Subproceso de Ensamble: Pintura
-// Captura insumo (ml) y calcula rendimiento por unidad en el backend.
+// Formulario de un solo paso: captura insumo (ml o L, convertido a ml antes
+// de enviar) y calcula rendimiento por unidad en el backend.
 // ============================================
 
 const ModuloPintura = {
@@ -12,8 +13,7 @@ const ModuloPintura = {
                 nombre: 'Pintura',
                 apiBase: '/api/pintura',
                 idSesionKey: 'id_pintura',
-                btnIniciarId: 'btn-pintura-iniciar',
-                btnFinalizarId: 'btn-pintura-finalizar',
+                btnRegistrarId: 'btn-pintura-registrar',
 
                 construirPayloadIniciar: () => ({
                     id_codigo: (document.getElementById('pintura-id-codigo')?.value || '').trim(),
@@ -31,24 +31,31 @@ const ModuloPintura = {
                     return null;
                 },
 
-                construirPayloadFinalizar: (idSesion) => ({
-                    id_pintura: idSesion,
-                    cantidad: parseInt(document.getElementById('pintura-cantidad')?.value, 10) || 0,
-                    ml_insumo_utilizado: parseFloat(document.getElementById('pintura-ml-insumo')?.value) || 0,
-                    hora_fin: document.getElementById('pintura-hora-fin')?.value || null,
-                    pnc_cantidad: parseInt(document.getElementById('pintura-pnc')?.value, 10) || 0,
-                    observaciones: (document.getElementById('pintura-observaciones')?.value || '').trim(),
-                    responsable: this.controller.obtenerResponsable()
-                }),
+                construirPayloadFinalizar: (idSesion) => {
+                    const cantidadInsumo = parseFloat(document.getElementById('pintura-ml-insumo')?.value) || 0;
+                    const unidad = document.getElementById('pintura-unidad-insumo')?.value || 'ml';
+                    return {
+                        id_pintura: idSesion,
+                        cantidad: parseInt(document.getElementById('pintura-cantidad')?.value, 10) || 0,
+                        // Conversión a ml SIEMPRE antes de enviar -- el backend/columna
+                        // ml_insumo_utilizado asume mililitros. 1 L = 1000 ml.
+                        ml_insumo_utilizado: unidad === 'L' ? cantidadInsumo * 1000 : cantidadInsumo,
+                        hora_fin: document.getElementById('pintura-hora-fin')?.value || null,
+                        pnc_cantidad: parseInt(document.getElementById('pintura-pnc')?.value, 10) || 0,
+                        observaciones: (document.getElementById('pintura-observaciones')?.value || '').trim(),
+                        responsable: this.controller.obtenerResponsable()
+                    };
+                },
 
                 validarFinalizar: (payload) => {
                     if (!Number.isFinite(payload.cantidad) || payload.cantidad <= 0) {
                         return 'La cantidad pintada debe ser mayor a cero.';
                     }
                     if (payload.ml_insumo_utilizado < 0) {
-                        return 'Los ML de insumo no pueden ser negativos.';
+                        return 'La cantidad de insumo no puede ser negativa.';
                     }
-                    if (!SubprocesoEnsambleController.horaFinEsPosterior(this.controller.sesion?.hora_inicio, payload.hora_fin)) {
+                    const horaInicio = document.getElementById('pintura-hora-inicio')?.value || null;
+                    if (!SubprocesoEnsambleController.horaFinEsPosterior(horaInicio, payload.hora_fin)) {
                         return 'La Hora Fin debe ser posterior a la Hora Inicio.';
                     }
                     if (payload.pnc_cantidad < 0) {
@@ -60,12 +67,10 @@ const ModuloPintura = {
                     return null;
                 },
 
-                onSesionCambia: (activa, sesion) => this.actualizarUI(activa, sesion),
                 limpiarCampos: () => this.limpiarFormulario()
             });
         }
 
-        this.controller.verificarSesionActiva();
         this.configurarEventos();
     },
 
@@ -73,23 +78,7 @@ const ModuloPintura = {
         if (this._eventosConfigurados) return;
         this._eventosConfigurados = true;
 
-        document.getElementById('btn-pintura-iniciar')?.addEventListener('click', () => this.controller.iniciar());
-        document.getElementById('btn-pintura-finalizar')?.addEventListener('click', () => this.controller.finalizar());
-    },
-
-    actualizarUI: function (activa, sesion) {
-        const cardIniciar = document.getElementById('pintura-card-iniciar');
-        const cardFinalizar = document.getElementById('pintura-card-finalizar');
-        const info = document.getElementById('pintura-session-info');
-
-        if (cardIniciar) cardIniciar.style.display = activa ? 'none' : 'block';
-        if (cardFinalizar) cardFinalizar.style.display = activa ? 'block' : 'none';
-
-        if (info) {
-            info.textContent = activa && sesion
-                ? `${sesion.id_codigo || ''} · ${sesion.insumo_pintura || ''}`.trim()
-                : '';
-        }
+        document.getElementById('btn-pintura-registrar')?.addEventListener('click', () => this.controller.registrar());
     },
 
     limpiarFormulario: function () {
@@ -101,6 +90,8 @@ const ModuloPintura = {
             });
         const pnc = document.getElementById('pintura-pnc');
         if (pnc) pnc.value = '0';
+        const unidad = document.getElementById('pintura-unidad-insumo');
+        if (unidad) unidad.value = 'ml';
     }
 };
 

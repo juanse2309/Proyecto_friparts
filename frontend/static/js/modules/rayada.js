@@ -1,7 +1,7 @@
 // ============================================
 // rayada.js - Subproceso de Ensamble: Rayada
-// Control de tiempos de proceso por referencia de carcaza (el tiempo lo
-// calcula el backend a partir de los timestamps reales de iniciar/finalizar).
+// Formulario de un solo paso. El tiempo de proceso lo calcula el backend a
+// partir de hora_inicio/hora_fin capturadas en el mismo registro.
 // ============================================
 
 const ModuloRayada = {
@@ -13,8 +13,7 @@ const ModuloRayada = {
                 nombre: 'Rayada',
                 apiBase: '/api/rayada',
                 idSesionKey: 'id_rayada',
-                btnIniciarId: 'btn-rayada-iniciar',
-                btnFinalizarId: 'btn-rayada-finalizar',
+                btnRegistrarId: 'btn-rayada-registrar',
 
                 construirPayloadIniciar: () => ({
                     id_codigo: (document.getElementById('rayada-id-codigo')?.value || '').trim(),
@@ -42,7 +41,8 @@ const ModuloRayada = {
                     if (!Number.isFinite(payload.cantidad) || payload.cantidad <= 0) {
                         return 'La cantidad rayada debe ser mayor a cero.';
                     }
-                    if (!SubprocesoEnsambleController.horaFinEsPosterior(this.controller.sesion?.hora_inicio, payload.hora_fin)) {
+                    const horaInicio = document.getElementById('rayada-hora-inicio')?.value || null;
+                    if (!SubprocesoEnsambleController.horaFinEsPosterior(horaInicio, payload.hora_fin)) {
                         return 'La Hora Fin debe ser posterior a la Hora Inicio.';
                     }
                     if (payload.pnc_cantidad < 0) {
@@ -54,12 +54,10 @@ const ModuloRayada = {
                     return null;
                 },
 
-                onSesionCambia: (activa, sesion) => this.actualizarUI(activa, sesion),
                 limpiarCampos: () => this.limpiarFormulario()
             });
         }
 
-        this.controller.verificarSesionActiva();
         this.configurarEventos();
     },
 
@@ -67,21 +65,7 @@ const ModuloRayada = {
         if (this._eventosConfigurados) return;
         this._eventosConfigurados = true;
 
-        document.getElementById('btn-rayada-iniciar')?.addEventListener('click', () => this.controller.iniciar());
-        document.getElementById('btn-rayada-finalizar')?.addEventListener('click', () => this.controller.finalizar());
-    },
-
-    actualizarUI: function (activa, sesion) {
-        const cardIniciar = document.getElementById('rayada-card-iniciar');
-        const cardFinalizar = document.getElementById('rayada-card-finalizar');
-        const info = document.getElementById('rayada-session-info');
-
-        if (cardIniciar) cardIniciar.style.display = activa ? 'none' : 'block';
-        if (cardFinalizar) cardFinalizar.style.display = activa ? 'block' : 'none';
-
-        if (info) {
-            info.textContent = activa && sesion ? (sesion.id_codigo || '') : '';
-        }
+        document.getElementById('btn-rayada-registrar')?.addEventListener('click', () => this.controller.registrar());
     },
 
     limpiarFormulario: function () {

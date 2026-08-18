@@ -1,8 +1,7 @@
 // ============================================
 // hornos.js - Subproceso de Ensamble: Hornos
-// Registro de temperatura de ingreso/salida y tiempo de curado por lote.
-// A diferencia de Pintura/Rayada, la cantidad y la temperatura de ingreso
-// se capturan al INICIAR (momento real en que el lote entra al horno).
+// Formulario de un solo paso. Registro de temperatura de ingreso/salida y
+// tiempo de curado por lote (solo existe un horno físico en planta).
 // ============================================
 
 const ModuloHornos = {
@@ -19,8 +18,7 @@ const ModuloHornos = {
                 nombre: 'Registro de Horno',
                 apiBase: '/api/hornos',
                 idSesionKey: 'id_horno_registro',
-                btnIniciarId: 'btn-hornos-iniciar',
-                btnFinalizarId: 'btn-hornos-finalizar',
+                btnRegistrarId: 'btn-hornos-registrar',
 
                 construirPayloadIniciar: () => ({
                     id_codigo: (document.getElementById('hornos-id-codigo')?.value || '').trim(),
@@ -63,25 +61,24 @@ const ModuloHornos = {
                     if (payload.temperatura_salida_c < this.TEMP_MIN || payload.temperatura_salida_c > this.TEMP_MAX) {
                         return `La temperatura de salida debe estar entre ${this.TEMP_MIN}°C y ${this.TEMP_MAX}°C.`;
                     }
-                    if (!SubprocesoEnsambleController.horaFinEsPosterior(this.controller.sesion?.hora_inicio, payload.hora_fin)) {
+                    const horaInicio = document.getElementById('hornos-hora-inicio')?.value || null;
+                    if (!SubprocesoEnsambleController.horaFinEsPosterior(horaInicio, payload.hora_fin)) {
                         return 'La Hora Fin debe ser posterior a la Hora Inicio.';
                     }
                     if (payload.pnc_cantidad < 0) {
                         return 'La merma (PNC) no puede ser negativa.';
                     }
-                    const cantidadLote = this.controller.sesion?.cantidad;
+                    const cantidadLote = parseInt(document.getElementById('hornos-cantidad')?.value, 10) || 0;
                     if (cantidadLote && payload.pnc_cantidad > cantidadLote) {
                         return 'La merma (PNC) no puede ser mayor que la cantidad del lote.';
                     }
                     return null;
                 },
 
-                onSesionCambia: (activa, sesion) => this.actualizarUI(activa, sesion),
                 limpiarCampos: () => this.limpiarFormulario()
             });
         }
 
-        this.controller.verificarSesionActiva();
         this.configurarEventos();
     },
 
@@ -89,21 +86,7 @@ const ModuloHornos = {
         if (this._eventosConfigurados) return;
         this._eventosConfigurados = true;
 
-        document.getElementById('btn-hornos-iniciar')?.addEventListener('click', () => this.controller.iniciar());
-        document.getElementById('btn-hornos-finalizar')?.addEventListener('click', () => this.controller.finalizar());
-    },
-
-    actualizarUI: function (activa, sesion) {
-        const cardIniciar = document.getElementById('hornos-card-iniciar');
-        const cardFinalizar = document.getElementById('hornos-card-finalizar');
-        const info = document.getElementById('hornos-session-info');
-
-        if (cardIniciar) cardIniciar.style.display = activa ? 'none' : 'block';
-        if (cardFinalizar) cardFinalizar.style.display = activa ? 'block' : 'none';
-
-        if (info) {
-            info.textContent = activa && sesion ? (sesion.id_codigo || '') : '';
-        }
+        document.getElementById('btn-hornos-registrar')?.addEventListener('click', () => this.controller.registrar());
     },
 
     limpiarFormulario: function () {
