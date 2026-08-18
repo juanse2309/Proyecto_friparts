@@ -27,6 +27,7 @@ const ModuloHornos = {
                     cantidad: parseInt(document.getElementById('hornos-cantidad')?.value, 10) || 0,
                     temperatura_ingreso_c: parseFloat(document.getElementById('hornos-temp-ingreso')?.value),
                     op_numero: (document.getElementById('hornos-op')?.value || '').trim(),
+                    hora_inicio: document.getElementById('hornos-hora-inicio')?.value || null,
                     responsable: this.controller.obtenerResponsable()
                 }),
 
@@ -49,7 +50,6 @@ const ModuloHornos = {
                 construirPayloadFinalizar: (idSesion) => ({
                     id_horno_registro: idSesion,
                     temperatura_salida_c: parseFloat(document.getElementById('hornos-temp-salida')?.value),
-                    hora_inicio: document.getElementById('hornos-hora-inicio')?.value || null,
                     hora_fin: document.getElementById('hornos-hora-fin')?.value || null,
                     pnc_cantidad: parseInt(document.getElementById('hornos-pnc')?.value, 10) || 0,
                     observaciones: (document.getElementById('hornos-observaciones')?.value || '').trim(),
@@ -63,7 +63,7 @@ const ModuloHornos = {
                     if (payload.temperatura_salida_c < this.TEMP_MIN || payload.temperatura_salida_c > this.TEMP_MAX) {
                         return `La temperatura de salida debe estar entre ${this.TEMP_MIN}°C y ${this.TEMP_MAX}°C.`;
                     }
-                    if (payload.hora_inicio && payload.hora_fin && payload.hora_fin <= payload.hora_inicio) {
+                    if (!SubprocesoEnsambleController.horaFinEsPosterior(this.controller.sesion?.hora_inicio, payload.hora_fin)) {
                         return 'La Hora Fin debe ser posterior a la Hora Inicio.';
                     }
                     if (payload.pnc_cantidad < 0) {
@@ -108,7 +108,7 @@ const ModuloHornos = {
 
     limpiarFormulario: function () {
         ['hornos-id-codigo', 'hornos-cantidad', 'hornos-temp-ingreso', 'hornos-op',
-            'hornos-temp-salida', 'hornos-hora-inicio', 'hornos-hora-fin',
+            'hornos-hora-inicio', 'hornos-temp-salida', 'hornos-hora-fin',
             'hornos-observaciones'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = '';

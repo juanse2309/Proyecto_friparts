@@ -90,6 +90,20 @@ class SubprocesoEnsambleController {
         return SubprocesoEnsambleController._referenciasValidas.has(String(codigo).trim().toUpperCase());
     }
 
+    /**
+     * Valida que hora_fin sea posterior a hora_inicio cuando ambas son
+     * comparables directamente (formato "HH:MM", como llega recién tecleado
+     * en la misma sesión de navegador). Si hora_inicio viene de una sesión
+     * recuperada tras recargar la página (timestamp ISO), no se puede
+     * comparar de forma confiable aquí y se omite -- el backend sigue siendo
+     * la fuente de verdad para el cálculo real de duración.
+     */
+    static horaFinEsPosterior(horaInicioStr, horaFinStr) {
+        if (!horaInicioStr || !horaFinStr) return true;
+        if (!/^\d{2}:\d{2}$/.test(horaInicioStr)) return true;
+        return horaFinStr > horaInicioStr;
+    }
+
     obtenerResponsable() {
         return (document.getElementById('current_user_fullname')?.value
             || document.getElementById('responsable')?.value

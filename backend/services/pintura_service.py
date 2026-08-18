@@ -35,6 +35,18 @@ class PinturaService:
 
             responsable = AuditService.resolver_y_validar_propietario(None, data.get('responsable'))
 
+            # Hora de inicio real capturada por el operario (registro retroactivo
+            # permitido); si no la manda, se usa la hora del servidor.
+            h_inicio = data.get('hora_inicio')
+            if h_inicio:
+                try:
+                    hi_h, hi_m = h_inicio.split(':')
+                    dt_inicio = ahora.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0).replace(tzinfo=None)
+                except Exception:
+                    dt_inicio = ahora.replace(tzinfo=None)
+            else:
+                dt_inicio = ahora.replace(tzinfo=None)
+
             nuevo = ProduccionPintura(
                 id_pintura=id_pintura,
                 id_ensamble=data.get('id_ensamble'),
@@ -43,7 +55,7 @@ class PinturaService:
                 insumo_pintura=data.get('insumo_pintura'),
                 op_numero=data.get('op_numero', ''),
                 fecha=ahora.date(),
-                hora_inicio=ahora.replace(tzinfo=None),
+                hora_inicio=dt_inicio,
                 estado='EN_PROCESO'
             )
             db.session.add(nuevo)
@@ -89,18 +101,19 @@ class PinturaService:
             # Guarda obligatoria: rendimiento solo es calculable si hay unidades pintadas.
             registro.rendimiento_ml_unidad = round(ml_insumo_utilizado / cantidad, 4) if cantidad > 0 else 0.0
 
+            # dt_inicio SIEMPRE viene del registro persistido en iniciar() (ya
+            # sea la hora real del servidor o la que el operario haya
+            # registrado ahí) -- hora_fin es independiente y no requiere que
+            # el payload de finalizar reenvíe hora_inicio.
             dt_inicio = registro.hora_inicio or ahora.replace(tzinfo=None)
             dt_fin = ahora.replace(tzinfo=None)
-            h_ini = data.get('hora_inicio')
             h_fin = data.get('hora_fin')
-            if h_ini and h_fin:
+            if h_fin:
                 try:
-                    hi_h, hi_m = h_ini.split(':')
                     hf_h, hf_m = h_fin.split(':')
-                    dt_inicio = ahora.replace(hour=int(hi_h), minute=int(hi_m), second=0, microsecond=0).replace(tzinfo=None)
                     dt_fin = ahora.replace(hour=int(hf_h), minute=int(hf_m), second=0, microsecond=0).replace(tzinfo=None)
                 except Exception as e_time:
-                    logger.warning(f"Error calculando tiempos pintura: {e_time}")
+                    logger.warning(f"Error calculando hora_fin pintura: {e_time}")
 
             duracion_s = int((dt_fin - dt_inicio).total_seconds())
             if duracion_s < 0:
