@@ -90,7 +90,12 @@ const ComercialHistoricoModule = (() => {
     };
 
     // El endpoint exige Authorization: Bearer <token>, por lo que no se puede usar
-    // un <a href> plano — se pide como blob y se dispara la descarga manualmente.
+    // un <a href> plano ni window.location.href en ningún paso -- ni para iniciar
+    // la exportación ni para la descarga final -- se piden todos por fetch() con
+    // el header manual y la descarga se dispara como blob. Esta página no carga
+    // utils.js (es una plantilla standalone, ver comercial_historico.html), así
+    // que no hay fetchData disponible aquí; se sigue el mismo patrón fetch()
+    // manual que ya usa el resto del módulo.
     const descargarExcel = async () => {
         const btn = document.getElementById('btn-export-excel');
         const { startYear, endYear } = getFiltrosAnio();
@@ -104,15 +109,26 @@ const ComercialHistoricoModule = (() => {
         try {
             const { headers, token } = getAuthHeaders();
             const params = new URLSearchParams({ start_year: startYear, end_year: endYear, token });
-            const response = await fetch(`/api/comercial/historico/excel?${params.toString()}`, { headers });
+            const startRes = await fetch(`/api/comercial/historico/excel?${params.toString()}`, { headers });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `Error HTTP ${response.status}`);
+            if (!startRes.ok) {
+                const errorData = await startRes.json().catch(() => ({}));
+                throw new Error(errorData.error || `Error HTTP ${startRes.status}`);
             }
 
-            const blob = await response.blob();
-            const disposition = response.headers.get('Content-Disposition') || '';
+            const startData = await startRes.json();
+            if (!startData.success || !startData.data?.task_id) {
+                throw new Error(startData.error || 'No se pudo iniciar la exportación');
+            }
+
+            if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generando... esto puede tardar unos segundos';
+            const downloadUrl = await sondearExportacionComercial(startData.data.task_id, headers);
+
+            const fileRes = await fetch(downloadUrl, { headers });
+            if (!fileRes.ok) throw new Error(`Error HTTP ${fileRes.status} al descargar el archivo`);
+
+            const blob = await fileRes.blob();
+            const disposition = fileRes.headers.get('Content-Disposition') || '';
             const match = disposition.match(/filename="?([^"]+)"?/);
             const nombreArchivo = match ? match[1] : `Comercial_YTD_${startYear}-${endYear}.xlsx`;
 
@@ -127,13 +143,39 @@ const ComercialHistoricoModule = (() => {
 
         } catch (error) {
             console.error('Error al descargar el Excel:', error);
-            alert('No se pudo generar el Excel. Intenta de nuevo.');
+            alert(error.message || 'No se pudo generar el Excel. Intenta de nuevo.');
         } finally {
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = iconoOriginal;
             }
         }
+    };
+
+    /**
+     * Sondea /api/tasks/status/<task_id> (con el mismo header de auth que
+     * inició la tarea) hasta COMPLETED/FAILED. Devuelve download_url o lanza.
+     */
+    const sondearExportacionComercial = async (taskId, headers, intentos = 0) => {
+        const POLL_MS = 2000;
+        const MAX_INTENTOS = 150; // ~5 min de margen
+
+        if (intentos >= MAX_INTENTOS) {
+            throw new Error('La exportación está tardando demasiado. Intenta de nuevo más tarde.');
+        }
+
+        const res = await fetch(`/api/tasks/status/${taskId}`, { headers });
+        if (!res.ok) throw new Error(`Error HTTP ${res.status} consultando el estado de la exportación`);
+        const estado = await res.json();
+        if (!estado.success) throw new Error(estado.error || 'Error consultando el estado de la exportación');
+
+        const { status, download_url, error } = estado.data;
+        if (status === 'COMPLETED') return download_url;
+        if (status === 'FAILED') throw new Error(error || 'Error generando el Excel');
+
+        // PENDING/RUNNING: seguir esperando
+        await new Promise(resolve => setTimeout(resolve, POLL_MS));
+        return sondearExportacionComercial(taskId, headers, intentos + 1);
     };
 
     const getAuthHeaders = () => {

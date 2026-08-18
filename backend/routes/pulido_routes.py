@@ -1,7 +1,10 @@
-from flask import Blueprint, request, send_file, session, current_app
+from flask import Blueprint, request, session, current_app
 from sqlalchemy import text
 from io import BytesIO
+import os
+import tempfile
 from backend.core.responses import api_success, api_error
+from backend.core import task_runner
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, _obtener_usuario_activo
 from backend.models.sql_models import db, ProduccionPulido, PncInyeccion, PncPulido, PncEnsamble, BujeRevuelto, Producto, TrazabilidadLote
 from backend.utils.formatters import normalizar_codigo, preservar_o_normalizar_prefijo, normalizar_codigo_sin_prefijo
@@ -733,24 +736,17 @@ def get_pulido_stats():
     return api_success(message="Estadísticas de pulido (WIP)")
 
 
-@pulido_bp.route('/api/pulido/exportar_excel', methods=['GET'])
-@require_role(ROLES_PULIDO)
-def exportar_excel_pulido():
+def _generar_excel_pulido_task(task_id, f_inicio, f_fin, operario, id_codigo):
     """
-    Exportación profesional a Excel del historial de Pulido.
-    Usa openpyxl para estilos avanzados (cabecera, cebreado, alertas PNC).
+    Trabajo de fondo de exportar_excel_pulido: arma el Excel completo (consulta
+    + estilos openpyxl) fuera del hilo HTTP. Corre dentro del app_context que
+    le da task_runner.run_in_background.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
     try:
-        # 1. Parámetros (mismos filtros que el historial)
-        f_inicio = request.args.get('fecha_inicio', '')
-        f_fin = request.args.get('fecha_fin', '')
-        operario = request.args.get('operario', '')
-        id_codigo = request.args.get('id_codigo', '')
-
         # 2. Query con casts
         sql = """
             SELECT
@@ -877,7 +873,8 @@ def exportar_excel_pulido():
         # Inmovilizar primera fila
         ws.freeze_panes = 'A2'
 
-        # 4. Generar archivo en memoria
+        # 4. Generar archivo en memoria y volcarlo a disco: el BytesIO no
+        # sobrevive a este hilo -- la descarga es un request HTTP aparte.
         output = BytesIO()
         wb.save(output)
         output.seek(0)
@@ -885,21 +882,45 @@ def exportar_excel_pulido():
         fecha_archivo = datetime.now().strftime('%Y-%m-%d')
         filename = f"Historial_Pulido_{fecha_archivo}.xlsx"
 
+        fd, tmp_path = tempfile.mkstemp(suffix='.xlsx', prefix='pulido_')
+        with os.fdopen(fd, 'wb') as f:
+            f.write(output.getvalue())
+
         logger.debug(f"📊 [Excel] Exportando {len(resultados)} registros de Pulido")
 
-        return send_file(
-            output,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=filename
+        task_runner.set_completed(
+            task_id, file_path=tmp_path, filename=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error exportando Excel Pulido: {e}")
+        logger.error(f"Error exportando Excel Pulido (task {task_id}): {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return api_error(str(e), status_code=500)
+        task_runner.set_failed(task_id, str(e))
+
+
+@pulido_bp.route('/api/pulido/exportar_excel', methods=['GET'])
+@require_role(ROLES_PULIDO)
+def exportar_excel_pulido():
+    """
+    Controller delgado: valida parámetros y delega la generación completa del
+    Excel a un hilo de fondo (ver _generar_excel_pulido_task).
+    """
+    f_inicio = request.args.get('fecha_inicio', '')
+    f_fin = request.args.get('fecha_fin', '')
+    operario = request.args.get('operario', '')
+    id_codigo = request.args.get('id_codigo', '')
+
+    task_id = task_runner.create_task()
+    app_obj = current_app._get_current_object()
+    task_runner.run_in_background(
+        task_id, app_obj, _generar_excel_pulido_task,
+        f_inicio, f_fin, operario, id_codigo
+    )
+
+    return api_success(data={"task_id": task_id}, status_code=202)
 
 # =============================================================
 # NUEVO: Endpoint GET — Lotes Activos para Modo Lotes en Vivo

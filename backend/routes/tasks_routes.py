@@ -17,6 +17,8 @@ def obtener_estado_tarea(task_id):
     data = {"status": task.status}
     if task.status == task_runner.COMPLETED:
         data["download_url"] = f"/api/tasks/download/{task_id}"
+        if task.result_meta:
+            data["result_meta"] = task.result_meta
     elif task.status == task_runner.FAILED:
         data["error"] = task.error
 

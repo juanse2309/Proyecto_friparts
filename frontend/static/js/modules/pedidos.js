@@ -1713,7 +1713,7 @@ const ModuloPedidos = {
         }
     },
 
-    descargarExcelWO: function () {
+    descargarExcelWO: async function () {
         const btn = document.getElementById('btn-confirmar-exportar-wo');
         if (!btn) return;
 
@@ -1721,35 +1721,61 @@ const ModuloPedidos = {
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
         btn.disabled = true;
 
-        fetch('/api/exportar/world-office', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        })
-            .then(response => {
-                if (response.ok) return response.blob();
-                return response.json().then(err => Promise.reject(err));
-            })
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = `Export_WO_${new Date().toISOString().slice(0, 10)}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                this.showToast('✅ Archivo generado correctamente.', 'success');
-                this.cerrarPreviewWO();
-            })
-            .catch(error => {
-                console.error("Error descarga WO:", error);
-                this.showToast(`Error: ${error.error || error.message}`, 'error');
-            })
-            .finally(() => {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
+        try {
+            const res = await fetchData('/api/exportar/world-office', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
             });
+            if (!res) return; // fetchData ya notificó el error de red/HTTP
+            if (!res.success || !res.data?.task_id) {
+                throw new Error(res.error || 'No se pudo iniciar la exportación');
+            }
+
+            this.showToast('Generando Excel de World Office... esto puede tardar unos segundos.', 'info');
+            const downloadUrl = await this._sondearExportacionWO(res.data.task_id);
+
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = downloadUrl;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            this.showToast('✅ Archivo generado correctamente.', 'success');
+            this.cerrarPreviewWO();
+        } catch (error) {
+            console.error("Error descarga WO:", error);
+            this.showToast(`Error: ${error.message}`, 'error');
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    },
+
+    /**
+     * Sondea /api/tasks/status/<task_id> hasta COMPLETED/FAILED. Devuelve la
+     * download_url o lanza si falla/expira.
+     */
+    _sondearExportacionWO: async function (taskId, intentos = 0) {
+        const POLL_MS = 2000;
+        const MAX_INTENTOS = 150; // ~5 min de margen
+
+        if (intentos >= MAX_INTENTOS) {
+            throw new Error('La exportación está tardando demasiado. Intenta de nuevo más tarde.');
+        }
+
+        const estado = await fetchData(`/api/tasks/status/${taskId}`);
+        if (!estado) throw new Error('Error de conexión consultando el estado de la exportación');
+        if (!estado.success) throw new Error(estado.error || 'Error consultando el estado de la exportación');
+
+        const { status, download_url, error } = estado.data;
+        if (status === 'COMPLETED') return download_url;
+        if (status === 'FAILED') throw new Error(error || 'Error generando el Excel de World Office');
+
+        // PENDING/RUNNING: seguir esperando
+        await new Promise(resolve => setTimeout(resolve, POLL_MS));
+        return this._sondearExportacionWO(taskId, intentos + 1);
     },
 
     // Estado de la pestaña actual para metales

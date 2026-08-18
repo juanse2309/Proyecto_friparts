@@ -1,8 +1,12 @@
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, current_app
 from backend.utils.auth_middleware import require_role, ROL_ADMINS
 from backend.services.facturacion_service import FacturacionService, FacturacionDatosInvalidosException
+from backend.core.responses import api_success, api_error
+from backend.core import task_runner
 import pandas as pd
 import io
+import os
+import tempfile
 import re
 from datetime import datetime
 import logging
@@ -208,19 +212,24 @@ def obtener_pedidos_pendientes():
         logger.error(f"Error en obtener_pedidos_pendientes SQL: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@facturacion_bp.route('/api/exportar/world-office', methods=['POST'])
-@require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
-def exportar_world_office():
-    """Genera Excel y Actualiza SQL simultáneamente."""
+def _generar_excel_wo_task(task_id, ids_filter, consecutivo_inicial):
+    """
+    Trabajo de fondo de exportar_world_office: genera el DataFrame (que ya
+    persiste el consecutivo WO y el estado EXPORTADO_WO vía procesar_datos_wo)
+    y arma el .xlsx fuera del hilo HTTP. Corre dentro del app_context que le
+    da task_runner.run_in_background -- db.session depende de ese contexto.
+
+    El conteo de items actualizados (antes viajaba en el header HTTP
+    X-Pedidos-Actualizados de la respuesta síncrona) ahora se expone como
+    result_meta.actualizados en /api/tasks/status/<task_id>.
+    """
     try:
-        data = request.get_json(silent=True) or {}
-        ids_filter = data.get('ids', None)
-        consecutivo_inicial = data.get('consecutivo_inicial', None)
-        
         df, cnt = procesar_datos_wo(ids_filter, consecutivo_inicial)
-        
+
         if df.empty:
-            return jsonify({'success': False, 'error': 'No hay datos para exportar.'}), 400
+            db.session.rollback()
+            task_runner.set_failed(task_id, 'No hay datos para exportar.')
+            return
 
         # PERSISTENCIA EN SQL
         db.session.commit()
@@ -231,18 +240,44 @@ def exportar_world_office():
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='ImportarWO')
         output.seek(0)
-        
-        response = send_file(
-            output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True, download_name=f'PEDIDOS_WO_{datetime.now().strftime("%Y%m%d")}.xlsx'
+
+        filename = f'PEDIDOS_WO_{datetime.now().strftime("%Y%m%d")}.xlsx'
+        fd, tmp_path = tempfile.mkstemp(suffix='.xlsx', prefix='wo_')
+        with os.fdopen(fd, 'wb') as f:
+            f.write(output.getvalue())
+
+        task_runner.set_completed(
+            task_id, file_path=tmp_path, filename=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            result_meta={"actualizados": cnt}
         )
-        response.headers['X-Pedidos-Actualizados'] = str(cnt)
-        response.headers['Access-Control-Expose-Headers'] = 'X-Pedidos-Actualizados'
-        return response
     except Exception as e:
         db.session.rollback()
-        logger.error(f"❌ Error en exportación WO: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        logger.error(f"❌ Error en exportación WO (task {task_id}): {e}")
+        task_runner.set_failed(task_id, str(e))
+
+
+@facturacion_bp.route('/api/exportar/world-office', methods=['POST'])
+@require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
+def exportar_world_office():
+    """
+    Controller delgado: dispara la generación (que incluye la persistencia
+    SQL del consecutivo WO) en un hilo de fondo y responde de inmediato con
+    el task_id. Antes esto bloqueaba el único worker gunicorn de la app hasta
+    terminar de armar el libro completo.
+    """
+    data = request.get_json(silent=True) or {}
+    ids_filter = data.get('ids', None)
+    consecutivo_inicial = data.get('consecutivo_inicial', None)
+
+    task_id = task_runner.create_task()
+    app_obj = current_app._get_current_object()
+    task_runner.run_in_background(
+        task_id, app_obj, _generar_excel_wo_task,
+        ids_filter, consecutivo_inicial
+    )
+
+    return api_success(data={"task_id": task_id}, status_code=202)
 
 @facturacion_bp.route('/api/exportar/world-office/preview', methods=['GET', 'POST'])
 @require_role(ROL_ADMINS + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])

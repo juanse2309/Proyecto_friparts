@@ -41,6 +41,12 @@ class Task:
     filename: Optional[str] = None
     mimetype: Optional[str] = None
     error: Optional[str] = None
+    # Metadatos de negocio devueltos junto al resultado (ej. cuantos registros
+    # se actualizaron durante la exportacion). Antes viajaban en un header
+    # HTTP de la respuesta sincrona (X-Pedidos-Actualizados); con la tarea en
+    # background ya no hay una unica response que los cargue, asi que el
+    # status endpoint los expone en data.result_meta.
+    result_meta: Optional[dict] = None
     created_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
 
@@ -83,7 +89,7 @@ def run_in_background(task_id: str, app, target: Callable, *args, **kwargs) -> N
     threading.Thread(target=_wrapper, daemon=True).start()
 
 
-def set_completed(task_id: str, file_path: str, filename: str, mimetype: str) -> None:
+def set_completed(task_id: str, file_path: str, filename: str, mimetype: str, result_meta: Optional[dict] = None) -> None:
     with _lock:
         t = _tasks.get(task_id)
         if t:
@@ -91,6 +97,7 @@ def set_completed(task_id: str, file_path: str, filename: str, mimetype: str) ->
             t.file_path = file_path
             t.filename = filename
             t.mimetype = mimetype
+            t.result_meta = result_meta
             t.finished_at = time.time()
 
 

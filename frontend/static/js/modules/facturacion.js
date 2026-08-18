@@ -285,7 +285,7 @@ const ModuloFacturacion = {
         }
     },
 
-    descargarExcelWO: function () {
+    descargarExcelWO: async function () {
         const modal = document.getElementById('modal-preview-wo');
         const ids = modal ? JSON.parse(modal.dataset.idsToExport || '[]') : [];
         const consecutivoInicial = modal ? modal.dataset.consecutivoInicial : '';
@@ -298,64 +298,89 @@ const ModuloFacturacion = {
             btn.disabled = true;
         }
 
-        let actualizadosCount = 0;
-
-        fetch('/api/exportar/world-office', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                ids: ids,
-                consecutivo_inicial: consecutivoInicial
-            })
-        })
-            .then(response => {
-                if (response.ok) {
-                    actualizadosCount = parseInt(response.headers.get('X-Pedidos-Actualizados')) || 0;
-                    return response.blob();
-                }
-                return response.json().then(err => Promise.reject(err));
-            })
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                // Generate dynamic filename (Pedidos_WO_YYYY-MM-DD.xlsx)
-                const today = new Date().toISOString().slice(0, 10);
-                a.download = `Pedidos_WO_${today}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-
-                let msg = `✅ Archivo descargado con éxito.`;
-                if (actualizadosCount > 0) {
-                    msg += ` Se marcaron ${actualizadosCount} pedidos como EXPORTADO_WO.`;
-                }
-
-                if (typeof Swal !== 'undefined') {
-                    Swal.fire('Exportación Exitosa', msg, 'success');
-                } else if (typeof mostrarNotificacion === 'function') {
-                    mostrarNotificacion(msg, 'success');
-                } else {
-                    alert(msg);
-                }
-
-                this.cerrarPreviewWO();
-                // Reload the table since the exported orders are now EXPORTADO_WO
-                this.cargarPedidosPendientes();
-            })
-            .catch(error => {
-                console.error("Error descarga WO:", error);
-                const msgHumano = 'No se pudo completar la exportación a World Office. Intenta de nuevo.';
-                if (typeof Swal !== 'undefined') Swal.fire('Error', msgHumano, 'error');
-                else alert(msgHumano);
-            })
-            .finally(() => {
-                if (btn) {
-                    btn.innerHTML = '<i class="fas fa-check"></i> Confirmar y Descargar';
-                    btn.disabled = false;
-                }
+        try {
+            const res = await fetchData('/api/exportar/world-office', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ids: ids,
+                    consecutivo_inicial: consecutivoInicial
+                })
             });
+            if (!res) return; // fetchData ya notificó el error de red/HTTP
+            if (!res.success || !res.data?.task_id) {
+                throw new Error(res.error || 'No se pudo iniciar la exportación');
+            }
+
+            if (typeof mostrarNotificacion === 'function') {
+                mostrarNotificacion('Generando Excel de World Office... esto puede tardar unos segundos.', 'info');
+            }
+
+            const { downloadUrl, actualizadosCount } = await this._sondearExportacionWO(res.data.task_id);
+
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = downloadUrl;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            let msg = `✅ Archivo descargado con éxito.`;
+            if (actualizadosCount > 0) {
+                msg += ` Se marcaron ${actualizadosCount} pedidos como EXPORTADO_WO.`;
+            }
+
+            if (typeof Swal !== 'undefined') {
+                Swal.fire('Exportación Exitosa', msg, 'success');
+            } else if (typeof mostrarNotificacion === 'function') {
+                mostrarNotificacion(msg, 'success');
+            } else {
+                alert(msg);
+            }
+
+            this.cerrarPreviewWO();
+            // Reload the table since the exported orders are now EXPORTADO_WO
+            this.cargarPedidosPendientes();
+        } catch (error) {
+            console.error("Error descarga WO:", error);
+            const msgHumano = error.message || 'No se pudo completar la exportación a World Office. Intenta de nuevo.';
+            if (typeof Swal !== 'undefined') Swal.fire('Error', msgHumano, 'error');
+            else alert(msgHumano);
+        } finally {
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-check"></i> Confirmar y Descargar';
+                btn.disabled = false;
+            }
+        }
+    },
+
+    /**
+     * Sondea /api/tasks/status/<task_id> hasta COMPLETED/FAILED. Devuelve
+     * {downloadUrl, actualizadosCount} o lanza si falla/expira.
+     */
+    _sondearExportacionWO: async function (taskId, intentos = 0) {
+        const POLL_MS = 2000;
+        const MAX_INTENTOS = 150; // ~5 min de margen
+
+        if (intentos >= MAX_INTENTOS) {
+            throw new Error('La exportación está tardando demasiado. Intenta de nuevo más tarde.');
+        }
+
+        const estado = await fetchData(`/api/tasks/status/${taskId}`);
+        if (!estado) throw new Error('Error de conexión consultando el estado de la exportación');
+        if (!estado.success) throw new Error(estado.error || 'Error consultando el estado de la exportación');
+
+        const { status, download_url, error, result_meta } = estado.data;
+        if (status === 'COMPLETED') {
+            return { downloadUrl: download_url, actualizadosCount: result_meta?.actualizados || 0 };
+        }
+        if (status === 'FAILED') {
+            throw new Error(error || 'Error generando el Excel de World Office');
+        }
+
+        // PENDING/RUNNING: seguir esperando
+        await new Promise(resolve => setTimeout(resolve, POLL_MS));
+        return this._sondearExportacionWO(taskId, intentos + 1);
     }
 };
 

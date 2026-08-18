@@ -1,7 +1,11 @@
 import logging
+import os
+import tempfile
 from datetime import datetime
-from flask import Blueprint, jsonify, request, render_template, session, send_file
+from flask import Blueprint, jsonify, request, render_template, session, current_app
 from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, obtener_identidad_segura
+from backend.core.responses import api_success, api_error
+from backend.core import task_runner
 from backend.services.comercial_service import ComercialHistoricoService
 
 logger = logging.getLogger(__name__)
@@ -127,12 +131,43 @@ def api_obtener_crecimiento_clientes():
         return jsonify({'success': False, 'error': 'Error interno calculando el crecimiento de clientes', 'detalle': str(e)}), 500
 
 
+def _generar_excel_comercial_task(task_id, user_id, username, user_role, start_year, end_year, vendedor_filtro, fecha_corte):
+    """
+    Trabajo de fondo de exportar_comercial_excel: genera el .xlsx (SQL +
+    pandas + openpyxl, todo delegado al servicio) fuera del hilo HTTP. Corre
+    dentro del app_context que le da task_runner.run_in_background.
+    """
+    try:
+        buffer, nombre_archivo = ComercialHistoricoService.generar_excel_ytd_stream(
+            user_id=user_id,
+            username=username,
+            user_role=user_role,
+            start_year=start_year,
+            end_year=end_year,
+            vendedor_filtro=vendedor_filtro,
+            fecha_corte=fecha_corte
+        )
+
+        fd, tmp_path = tempfile.mkstemp(suffix='.xlsx', prefix='comercial_')
+        with os.fdopen(fd, 'wb') as f:
+            f.write(buffer.getvalue())
+
+        task_runner.set_completed(
+            task_id, file_path=tmp_path, filename=nombre_archivo,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logger.error(f"[COMERCIAL_ROUTES] Error generando Excel comercial (task {task_id}): {e}")
+        task_runner.set_failed(task_id, str(e))
+
+
 @comercial_bp.route('/api/comercial/historico/excel', methods=['GET'])
 @require_role(ROLES_PERMITIDOS_COMERCIAL)
 def exportar_comercial_excel():
     """
-    Controlador delgado: solo captura parámetros de la request y delega toda
-    la generación (SQL, pandas, openpyxl) al servicio.
+    Controlador delgado: captura parámetros e identidad, y delega la
+    generación completa del Excel a un hilo de fondo
+    (ver _generar_excel_comercial_task).
     """
     try:
         user_name, user_role = obtener_identidad_segura(request)
@@ -143,23 +178,15 @@ def exportar_comercial_excel():
         vendedor_filtro = request.args.get('vendedor', default='', type=str)
         fecha_corte = request.args.get('corte', default=None, type=str)  # YYYY-MM-DD opcional
 
-        buffer, nombre_archivo = ComercialHistoricoService.generar_excel_ytd_stream(
-            user_id=user_id,
-            username=user_name,
-            user_role=user_role,
-            start_year=start_year,
-            end_year=end_year,
-            vendedor_filtro=vendedor_filtro,
-            fecha_corte=fecha_corte
+        task_id = task_runner.create_task()
+        app_obj = current_app._get_current_object()
+        task_runner.run_in_background(
+            task_id, app_obj, _generar_excel_comercial_task,
+            user_id, user_name, user_role, start_year, end_year, vendedor_filtro, fecha_corte
         )
 
-        return send_file(
-            buffer,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=nombre_archivo
-        )
+        return api_success(data={"task_id": task_id}, status_code=202)
 
     except Exception as e:
         logger.error(f"[COMERCIAL_ROUTES] Error en /api/comercial/historico/excel: {e}")
-        return jsonify({'success': False, 'error': 'Error interno generando el Excel', 'detalle': str(e)}), 500
+        return api_error("Error interno generando el Excel", status_code=500, detalle=str(e))

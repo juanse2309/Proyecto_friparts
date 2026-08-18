@@ -897,21 +897,25 @@
     }
 
     /**
-     * Descarga Excel profesional de Pulido desde el backend (openpyxl)
+     * Descarga Excel profesional de Pulido desde el backend (openpyxl).
+     * Reusa el mismo flujo task_id + polling que exportarHistorialExcel --
+     * ambos comparten el guard exportandoHistorial a propósito, para no
+     * disparar dos exportaciones pesadas en paralelo desde la misma pestaña.
      */
     function descargarExcelPulido() {
+        if (exportandoHistorial) {
+            mostrarNotificacion('Ya hay una exportación en curso, espera a que termine.', 'warning');
+            return;
+        }
+
         const desde = document.getElementById('fechaDesde')?.value || '';
         const hasta = document.getElementById('fechaHasta')?.value || '';
         const operario = document.getElementById('filtroOperario')?.value || '';
         const codigo = document.getElementById('filtroCodigo')?.value || '';
 
         const url = `/api/pulido/exportar_excel?fecha_inicio=${desde}&fecha_fin=${hasta}&operario=${encodeURIComponent(operario)}&id_codigo=${encodeURIComponent(codigo)}`;
-
-        console.log('📊 [Excel Pulido] Descargando desde backend:', url);
-        mostrarNotificacion('Generando Excel profesional de Pulido...', 'info');
-
-        // Descarga directa via navegación (el backend devuelve el archivo)
-        window.location.href = url;
+        console.log('📊 [Excel Pulido] Solicitando generación en background:', url);
+        iniciarExportacionAsincrona(url);
     }
 
     let swalTimelineState = {
