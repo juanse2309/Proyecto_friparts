@@ -3688,7 +3688,20 @@
                                 Unitario</label>
                             <input type="number" id="ped-precio" step="0.01" min="0">
                         </div>
-
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; margin: 0;">
+                                    <input type="checkbox" id="ped-es-usd" style="width: auto;">
+                                    Exportación (precio en USD)
+                                </label>
+                                <button type="button" id="btn-consultar-trm" class="btn"
+                                    style="display: none; padding: 6px 12px; font-size: 13px; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                    <i class="fas fa-sync"></i> Consultar TRM
+                                </button>
+                            </div>
+                            <small id="ped-trm-info" style="display: none; color: #555; margin-top: 4px;"></small>
+                        </div>
 
 
                         <!-- Botón Añadir Item con color distintivo -->

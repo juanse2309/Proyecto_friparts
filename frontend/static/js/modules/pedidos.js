@@ -8,6 +8,7 @@ const ModuloPedidos = {
     clienteSeleccionado: null, // {nombre, nit}
     ultimoIdRegistrado: null, // ID generado por el servidor
     idPedidoEdicion: null,   // ID del pedido que se está editando
+    usdConversionPendiente: null, // {precio_usd, trm_aplicada} tras "Consultar TRM", hasta que se añada el item
 
     _productosLoading: false,
     _productosReady: false,
@@ -54,6 +55,16 @@ const ModuloPedidos = {
         const btnAgregar = document.getElementById('btn-agregar-item');
         if (btnAgregar) {
             btnAgregar.addEventListener('click', () => this.agregarItemAlCarrito());
+        }
+
+        // 2.b Checkbox "Exportación (USD)" y botón "Consultar TRM"
+        const chkUsd = document.getElementById('ped-es-usd');
+        if (chkUsd) {
+            chkUsd.addEventListener('change', () => this.toggleModoUsd());
+        }
+        const btnTrm = document.getElementById('btn-consultar-trm');
+        if (btnTrm) {
+            btnTrm.addEventListener('click', () => this.consultarTRM());
         }
 
         // 3. Submit del formulario
@@ -542,6 +553,8 @@ const ModuloPedidos = {
             descripcion: p.descripcion,
             cantidad: p.cantidad,
             precio_unitario: p.precio_unitario,
+            precio_usd: p.precio_usd || null,
+            trm_aplicada: p.trm_aplicada || null,
             stock_disponible: 0
         }));
 
@@ -667,14 +680,67 @@ const ModuloPedidos = {
     },
 
 
+    toggleModoUsd: function () {
+        const esUsd = document.getElementById('ped-es-usd')?.checked;
+        const btnTrm = document.getElementById('btn-consultar-trm');
+        const infoEl = document.getElementById('ped-trm-info');
+
+        // Cambiar de modo invalida cualquier conversión ya calculada
+        this.usdConversionPendiente = null;
+        if (infoEl) infoEl.style.display = 'none';
+        if (btnTrm) btnTrm.style.display = esUsd ? 'inline-block' : 'none';
+    },
+
+    consultarTRM: async function () {
+        const precioInput = document.getElementById('ped-precio');
+        const usdValue = parseFloat(precioInput.value);
+        if (!usdValue || usdValue <= 0) {
+            mostrarNotificacion('Ingrese el precio en dólares antes de consultar la TRM', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('btn-consultar-trm');
+        const infoEl = document.getElementById('ped-trm-info');
+        const textoOriginal = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Consultando...';
+
+        try {
+            const response = await fetch('/api/pedidos/trm_actual');
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'No fue posible consultar la TRM');
+            }
+
+            const trm = parseFloat(result.data.trm);
+            const precioCop = Math.round(usdValue * trm * 100) / 100;
+
+            this.usdConversionPendiente = { precio_usd: usdValue, trm_aplicada: trm };
+            precioInput.value = precioCop.toFixed(2);
+
+            if (infoEl) {
+                infoEl.style.display = 'block';
+                infoEl.textContent = `USD $${usdValue.toFixed(2)} × TRM $${trm.toFixed(2)} = $${precioCop.toLocaleString('es-CO')} COP`;
+            }
+            mostrarNotificacion(`TRM aplicada: $${trm.toFixed(2)}`, 'success');
+        } catch (e) {
+            console.error('Error consultando TRM:', e);
+            mostrarNotificacion(e.message || 'Error consultando la TRM', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = textoOriginal;
+        }
+    },
+
     agregarItemAlCarrito: function () {
         console.log('🛒 agregarItemAlCarrito llamado');
 
         const productoInput = document.getElementById('ped-producto').value;
         const cantidad = parseInt(document.getElementById('ped-cantidad').value);
         const precioUnitario = parseFloat(document.getElementById('ped-precio').value);
+        const esUsd = document.getElementById('ped-es-usd')?.checked;
 
-        console.log('📦 Datos del formulario:', { productoInput, cantidad, precioUnitario });
+        console.log('📦 Datos del formulario:', { productoInput, cantidad, precioUnitario, esUsd });
 
         // Validaciones básicas SOLO de campos vacíos
         if (!productoInput || !cantidad || !precioUnitario) {
@@ -686,6 +752,11 @@ const ModuloPedidos = {
         if (cantidad <= 0 || precioUnitario <= 0) {
             console.warn('⚠️ Valores inválidos');
             mostrarNotificacion('Cantidad y precio deben ser mayores a 0', 'warning');
+            return;
+        }
+
+        if (esUsd && !this.usdConversionPendiente) {
+            mostrarNotificacion('Consulte la TRM antes de añadir un producto en dólares', 'warning');
             return;
         }
 
@@ -710,6 +781,8 @@ const ModuloPedidos = {
             descripcion: descripcion || 'Sin descripción',
             cantidad: cantidad,
             precio_unitario: precioUnitario,
+            precio_usd: esUsd ? this.usdConversionPendiente.precio_usd : null,
+            trm_aplicada: esUsd ? this.usdConversionPendiente.trm_aplicada : null,
             stock_disponible: (this.productoSeleccionado && this.productoSeleccionado.codigo_sistema === codigo)
                 ? this.productoSeleccionado.stock_disponible
                 : 0
@@ -722,6 +795,8 @@ const ModuloPedidos = {
         document.getElementById('ped-producto').value = '';
         document.getElementById('ped-cantidad').value = '';
         document.getElementById('ped-precio').value = '';
+        document.getElementById('ped-es-usd').checked = false;
+        this.toggleModoUsd();
 
         // Renderizar tabla y calcular total
         this.renderizarTablaItems();
@@ -760,7 +835,10 @@ const ModuloPedidos = {
                     <td data-label="Código" style="padding: 10px; border: 1px solid #dee2e6;">${item.codigo}</td>
                     <td data-label="Descripción" style="padding: 10px; border: 1px solid #dee2e6;">${item.descripcion}</td>
                     <td data-label="Cantidad" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${item.cantidad}</td>
-                    <td data-label="Precio Unit." style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${formatearMoneda(item.precio_unitario)}</td>
+                    <td data-label="Precio Unit." style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">
+                        ${formatearMoneda(item.precio_unitario)}
+                        ${item.precio_usd ? `<br><small style="color:#0ea5e9;">USD $${parseFloat(item.precio_usd).toFixed(2)} @ TRM ${parseFloat(item.trm_aplicada).toFixed(2)}</small>` : ''}
+                    </td>
                     <td data-label="Subtotal" style="padding: 10px; border: 1px solid #dee2e6; text-align: right;">${formatearMoneda(subtotal)}</td>
                     <td data-label="Acciones" style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">
                         <div class="d-flex justify-content-center gap-1">
@@ -919,6 +997,15 @@ const ModuloPedidos = {
             item.codigo = finalCodigo;
             item.descripcion = finalDesc;
             item.cantidad = cantNum;
+
+            // Si el precio cambió, la conversión USD/TRM que traía (si tenía)
+            // ya no corresponde al nuevo precio en COP -- se descarta para no
+            // guardar una trazabilidad falsa (ej. "USD $10 @ TRM X" pegada a
+            // un precio que en realidad se editó manualmente después).
+            if (precioNum !== item.precio_unitario) {
+                item.precio_usd = null;
+                item.trm_aplicada = null;
+            }
             item.precio_unitario = precioNum;
 
             this.renderizarTablaItems();
@@ -1016,7 +1103,9 @@ const ModuloPedidos = {
                     codigo: item.codigo,
                     descripcion: item.descripcion,
                     cantidad: item.cantidad,
-                    precio_unitario: item.precio_unitario
+                    precio_unitario: item.precio_unitario,
+                    precio_usd: item.precio_usd || null,
+                    trm_aplicada: item.trm_aplicada || null
                 }))
             };
 

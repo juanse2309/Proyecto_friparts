@@ -311,6 +311,11 @@ class Pedido(db.Model):
     descripcion     = db.Column(db.String(500), nullable=True)
     cantidad        = db.Column(db.Numeric(18, 2), default=0)
     precio_unitario = db.Column(db.Numeric(18, 2), default=0)
+    # Trazabilidad de conversión USD->COP para pedidos de exportación (botón
+    # "Consultar TRM" del frontend). NULL cuando el item se cotizó directo en
+    # COP -- ver backend/services/trm_service.py.
+    precio_usd      = db.Column(db.Numeric(18, 2), nullable=True)
+    trm_aplicada    = db.Column(db.Numeric(18, 4), nullable=True)
     total           = db.Column(db.Numeric(18, 2), default=0)
     estado          = db.Column(db.String(50),  nullable=True) # PENDIENTE, ALISTADO, etc.
     progreso        = db.Column(db.String(10),  default='0%')

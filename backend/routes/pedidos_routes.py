@@ -196,6 +196,14 @@ def registrar_pedido():
             precio = float(prod.get('precio_unitario', 0))
             descripcion = prod.get('descripcion', '')
             total_item = cantidad * precio
+
+            # Trazabilidad de conversión USD->COP (pedidos de exportación,
+            # ver botón "Consultar TRM" en el frontend). Ambos quedan en
+            # NULL si el item se cotizó directamente en COP.
+            precio_usd_raw = prod.get('precio_usd')
+            trm_aplicada_raw = prod.get('trm_aplicada')
+            precio_usd = float(precio_usd_raw) if precio_usd_raw not in (None, '', 0) else None
+            trm_aplicada = float(trm_aplicada_raw) if trm_aplicada_raw not in (None, '', 0) else None
             
             if not codigo or cantidad <= 0:
                 continue
@@ -240,7 +248,9 @@ def registrar_pedido():
                 registro_existente.ciudad = ciudad
                 registro_existente.id_codigo = codigo
                 registro_existente.descripcion = descripcion
-                registro_existente.precio_unitario = precio 
+                registro_existente.precio_unitario = precio
+                registro_existente.precio_usd = precio_usd
+                registro_existente.trm_aplicada = trm_aplicada
                 registro_existente.total = float(registro_existente.cantidad) * precio
                 registro_existente.observaciones = observaciones
                 registro_existente.forma_de_pago = forma_pago
@@ -260,6 +270,8 @@ def registrar_pedido():
                     descripcion=descripcion,
                     cantidad=cantidad,
                     precio_unitario=precio,
+                    precio_usd=precio_usd,
+                    trm_aplicada=trm_aplicada,
                     total=total_item,
                     estado='PENDIENTE',
                     observaciones=observaciones,
@@ -320,6 +332,21 @@ def registrar_pedido():
         import traceback
         logger.error(traceback.format_exc())
         return api_error(str(e), status_code=500)
+
+@pedidos_bp.route('/api/pedidos/trm_actual', methods=['GET'])
+@require_role(ROL_ADMINS + ROL_COMERCIALES + ['JEFE ALMACEN', 'JEFE ALISTAMIENTO'])
+def obtener_trm_actual():
+    """Consulta la TRM oficial vigente (datos.gov.co), usada para convertir a COP los precios que un vendedor ingresa en USD."""
+    from backend.services.trm_service import obtener_trm_oficial, TrmNoDisponibleError
+    try:
+        trm_info = obtener_trm_oficial()
+        return api_success(data=trm_info)
+    except TrmNoDisponibleError as e:
+        return api_error(str(e), status_code=502)
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo TRM: {e}")
+        return api_error("Error interno consultando la TRM", status_code=500)
+
 
 @pedidos_bp.route('/api/pedidos/detalle/<id_pedido>', methods=['GET'])
 def obtener_detalle_pedido(id_pedido):
@@ -388,6 +415,8 @@ def obtener_detalle_pedido(id_pedido):
                 "descripcion": item.descripcion or "Sin descripción",
                 "cantidad": cant_item,
                 "precio_unitario": precio_item,
+                "precio_usd": float(item.precio_usd) if item.precio_usd else None,
+                "trm_aplicada": float(item.trm_aplicada) if item.trm_aplicada else None,
                 "cant_alistada": ali_item,
                 "cant_lista": ali_item,
                 "progreso": item.progreso or "0%"
