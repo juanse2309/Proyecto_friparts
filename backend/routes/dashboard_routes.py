@@ -13,7 +13,7 @@ from backend.services.pulido_service import PulidoService
 from backend.utils.formatters import parsear_fecha_dashboard
 import logging
 from backend.utils.cache_manager import cached_route
-from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_COMERCIALES, ROL_DASHBOARD_OPERATIVO
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def obtener_dashboard():
         }), 500
 
 @dashboard_bp.route('/stats', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 @cached_route(namespace='dashboard', ttl=600)
 def obtener_metricas_bi():
     """
@@ -303,7 +303,7 @@ def exportar_cartera():
     )
 
 @dashboard_bp.route('/scrap-detalle', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def get_scrap_detalle():
     """
     Devuelve el desglose de scrap/mermas por fecha y máquina de origen para una referencia.
@@ -345,7 +345,7 @@ def get_sin_rotacion():
         return jsonify({"success": False, "error": "No fue posible obtener los productos de baja rotación."}), 500
 
 @dashboard_bp.route('/drilldown/inyeccion', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def drilldown_inyeccion_fecha():
     """
     Endpoint estricto de Drill-Down por fecha exacta (ISO YYYY-MM-DD) para auditoría de producción de inyección.
@@ -383,7 +383,7 @@ def drilldown_inyeccion_fecha():
         return jsonify({"success": False, "error": "No fue posible obtener el detalle de inyección."}), 500
 
 @dashboard_bp.route('/drilldown/inyeccion/operador', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def drilldown_inyeccion_operador():
     """
     Detalle atómico por lote de un operador para el modal 'Top Rendimiento Inyección'.
@@ -415,7 +415,7 @@ def drilldown_inyeccion_operador():
 # ====================================================================
 
 @dashboard_bp.route('/avanzado/indicador_inyeccion_sql', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def indicador_inyeccion_sql():
     """Calcula indicador de eficiencia de inyección usando SQL."""
     try:
@@ -438,7 +438,7 @@ def indicador_inyeccion_sql():
 
 
 @dashboard_bp.route('/avanzado/indicador_pulido', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def indicador_pulido():
     """Calcula indicador de eficiencia de pulido usando SQL."""
     try:
@@ -461,7 +461,7 @@ def indicador_pulido():
 
 
 @dashboard_bp.route('/avanzado/produccion_maquina_avanzado', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def produccion_maquina_avanzado():
     """Analiza la producción por máquina usando SQL-Native."""
     try:
@@ -473,7 +473,7 @@ def produccion_maquina_avanzado():
 
 
 @dashboard_bp.route('/avanzado/produccion_operario_ranking', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def produccion_operario_ranking():
     """Ranking consolidado de operarios (Inyección + Pulido) vía SQL."""
     try:
@@ -502,7 +502,7 @@ def produccion_operario_ranking():
 
 
 @dashboard_bp.route('/avanzado/ranking_inyeccion', methods=['GET'])
-@require_role(ROL_ADMINS + ROL_COMERCIALES)
+@require_role(ROL_DASHBOARD_OPERATIVO)
 def ranking_inyeccion():
     """Ranking específico de inyectores vía SQL."""
     try:

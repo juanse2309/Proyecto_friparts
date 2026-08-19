@@ -5,14 +5,14 @@ import traceback
 from backend.core.sql_database import db
 from backend.services.pnc_service import pnc_service
 from backend.utils.cache_manager import cached_route
-from backend.utils.auth_middleware import require_role, ROL_ADMINS
+from backend.utils.auth_middleware import require_role, ROL_ADMINS, ROL_JEFES
 
 gerencia_bp = Blueprint('gerencia_bp', __name__)
 logger = logging.getLogger(__name__)
 
 
 @gerencia_bp.route('/api/gerencia/metricas-pnc', methods=['GET'])
-@require_role(ROL_ADMINS)
+@require_role(ROL_ADMINS + ROL_JEFES)
 @cached_route(namespace='gerencia_pnc', ttl=600)
 def obtener_metricas_pnc():
     """

@@ -205,12 +205,25 @@ window.ModuloDashboard = (function () {
                 return headers;
             };
 
-            const responseStats = fetch(url, { 
+            const responseStats = fetch(url, {
                 headers: getAuthHeaders(),
-                credentials: 'include' 
+                credentials: 'include'
             }).then(async res => {
+                if (res.status === 403) {
+                    console.warn('⚠️ Sin permisos (403) para /api/dashboard/stats. Se omite el panel operativo.');
+                    return null;
+                }
                 if (!res.ok) throw new Error(`Error al obtener stats (HTTP ${res.status})`);
                 return res.json();
+            }).catch(err => {
+                // fetch() rechaza con TypeError ante fallos de red (offline, DNS, CORS) --
+                // se distingue así de un Error intencional lanzado arriba por un HTTP real (ej. 500),
+                // que sí debe seguir propagándose para no ocultar fallos genuinos del backend.
+                if (err instanceof TypeError) {
+                    console.error('❌ Error de red obteniendo /api/dashboard/stats:', err);
+                    return null;
+                }
+                throw err;
             });
 
             // RBAC: Solo cargar datos de Jefatura / Finanzas si es Admin, Gerencia o Comercial
@@ -243,13 +256,22 @@ window.ModuloDashboard = (function () {
                         credentials: 'include',
                         signal: controller.signal
                     }).then(async res => {
+                        if (res.status === 403) {
+                            console.warn('⚠️ Sin permisos (403) para /api/admin/dashboard. Se omite el panel de Jefatura.');
+                            return null;
+                        }
                         if (!res.ok) {
                             const msg = res.status === 401 ? 'Sesión expirada. Por favor recarga la página e inicia sesión.'
-                                      : res.status === 403 ? 'Sin permisos para el panel gerencial.'
                                       : `Error del servidor al obtener datos de Jefatura (${res.status})`;
                             throw new Error(msg);
                         }
                         return res.json();
+                    }).catch(err => {
+                        if (err instanceof TypeError) {
+                            console.error('❌ Error de red obteniendo /api/admin/dashboard:', err);
+                            return null;
+                        }
+                        throw err;
                     });
 
                     const ENABLE_CARTERA = false;
@@ -263,14 +285,22 @@ window.ModuloDashboard = (function () {
                     clearTimeout(timeoutId);
                     console.log("📊 Datos recibidos (Admin):", { result, jefaturaData, carteraData });
 
-                    if (result && result.status === 'success') {
-                        // Actualizar cache completo
-                        cachedStats = result.data;
+                    const statsOk = !!(result && result.status === 'success');
+                    if (statsOk || jefaturaData) {
+                        // Actualizar cache (stats y Jefatura se cachean de forma independiente)
+                        if (statsOk) {
+                            cachedStats = result.data;
+                            lastFetchTime = Date.now();
+                            lastCachedParams = currentParams;
+                        }
                         cachedJefatura = jefaturaData;
-                        lastFetchTime = Date.now();
-                        lastCachedParams = currentParams;
 
-                        renderizarTodo(result.data, jefaturaData, carteraData);
+                        // Paneles operativos (Inyección/Máquinas/Scrap) y Jefatura se pintan
+                        // cada uno por separado: renderizarTodo tolera que cualquiera de los
+                        // dos venga null (403/permiso o error de red) sin bloquear al otro.
+                        renderizarTodo(statsOk ? result.data : null, jefaturaData, carteraData);
+                    } else {
+                        console.warn("⚠️ Ni stats ni Jefatura disponibles (403/permiso o error de red). Nada que renderizar.");
                     }
                 } catch (fetchErr) {
                     clearTimeout(timeoutId);
@@ -292,8 +322,10 @@ window.ModuloDashboard = (function () {
                     cachedJefatura = null;
                     lastFetchTime = Date.now();
                     lastCachedParams = currentParams;
-                    
+
                     renderizarTodo(result.data, null, null);
+                } else {
+                    console.warn("⚠️ No hay datos operativos para renderizar (403/permiso o error de red en /api/dashboard/stats).");
                 }
             }
 
@@ -324,10 +356,16 @@ window.ModuloDashboard = (function () {
         // Limpiar cache de filas al renderizar datos nuevos
         tableRowCache = {};
 
-        if (!data || !data.kpis) {
-            console.error("❌ Error: Estructura de datos inválida para renderizarTodo. Faltan KPIs.", data);
-            // Intentamos seguir si al menos hay datos de Jefatura (para que no quede todo negro)
-            if (!jefaturaData) return;
+        // tieneDatosOperativos: gobierna KPIs/Inyección/Máquinas/Scrap/Pulido, todos
+        // provenientes de /api/dashboard/stats. jefaturaData (financiero) es independiente:
+        // cada bloque de abajo se pinta por su cuenta sin depender del éxito del otro.
+        const tieneDatosOperativos = !!(data && data.kpis);
+        if (!tieneDatosOperativos) {
+            console.warn("⚠️ Sin datos operativos (data.kpis ausente): se omiten KPIs/Inyección/Máquinas/Scrap/Pulido.", data);
+            if (!jefaturaData) {
+                console.error("❌ Tampoco hay datos de Jefatura. Nada que renderizar.");
+                return;
+            }
         }
 
         const safeSetText = (id, text) => {
@@ -340,23 +378,26 @@ window.ModuloDashboard = (function () {
         };
 
         try {
-            // 1. KPIs Principales
-            safeSetText('total-iny-piezas', `${(data.kpis.inyeccion_ok || 0).toLocaleString()} Pz`);
+            // 1. KPIs Principales (requieren datos operativos de /api/dashboard/stats)
+            let formatCOP_PNC = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(0);
+            if (tieneDatosOperativos) {
+                safeSetText('total-iny-piezas', `${(data.kpis.inyeccion_ok || 0).toLocaleString()} Pz`);
 
-            const valorPerdida = Number(data.kpis.perdida_calidad_dinero) || 0;
-            const formatCOP_PNC = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(valorPerdida);
-            safeSetText('perdida-calidad-val', formatCOP_PNC);
-            safeSetText('perdida-calidad-global', formatCOP_PNC);
-            safeSetText('pnc-dinero-val', formatCOP_PNC);
+                const valorPerdida = Number(data.kpis.perdida_calidad_dinero) || 0;
+                formatCOP_PNC = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(valorPerdida);
+                safeSetText('perdida-calidad-val', formatCOP_PNC);
+                safeSetText('perdida-calidad-global', formatCOP_PNC);
+                safeSetText('pnc-dinero-val', formatCOP_PNC);
 
-            safeSetText('pnc-global-val', (data.kpis.scrap_total || 0).toLocaleString());
-            safeSetText('pnc-porcentaje-val', (data.kpis.pct_pnc_total || 0).toFixed(2));
+                safeSetText('pnc-global-val', (data.kpis.scrap_total || 0).toLocaleString());
+                safeSetText('pnc-porcentaje-val', (data.kpis.pct_pnc_total || 0).toFixed(2));
+            }
 
             // 2. Insights IA Avanzados
             let smartInsights = [];
 
             // Insight Basico Fechas
-            smartInsights.push(`Analizando datos clave de producción y ventas: <strong>${data.rango?.desde || ''}</strong> al <strong>${data.rango?.hasta || ''}</strong>.`);
+            smartInsights.push(`Analizando datos clave de producción y ventas: <strong>${data?.rango?.desde || ''}</strong> al <strong>${data?.rango?.hasta || ''}</strong>.`);
 
             if (jefaturaData && jefaturaData.data) {
                 const jd = jefaturaData.data;
@@ -376,17 +417,17 @@ window.ModuloDashboard = (function () {
             }
 
             // Insight Calidad (Scrap)
-            if (data.kpis.perdida_calidad_dinero > 0) {
+            if (tieneDatosOperativos && data.kpis.perdida_calidad_dinero > 0) {
                 smartInsights.push(`<i class="fas fa-recycle text-secondary"></i> <strong>Alerta de Calidad:</strong> El acumulado de piezas rechazadas representa un costo hundido estimado en <b class="text-danger">${formatCOP_PNC}</b>. Revise los procesos de Pulido e Inyección.`);
             }
 
             // Avisos de Costos Faltantes
-            if (data.kpis.faltan_costos_pnc && data.kpis.faltan_costos_pnc.length > 0) {
+            if (tieneDatosOperativos && data.kpis.faltan_costos_pnc && data.kpis.faltan_costos_pnc.length > 0) {
                 smartInsights.push(`<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> <strong>Faltan Costos:</strong></span> Hay ${data.kpis.faltan_costos_pnc.length} referencias reportando scrap que no tienen costo asignado en DB_COSTOS. La Pérdida por Calidad mostrada es menor a la real.`);
             }
 
             // Darle formato visual ejecutivo al Reporte del Bot de Planta
-            const botInsightsFormatted = (data.insights_ia || []).map(item => {
+            const botInsightsFormatted = (data?.insights_ia || []).map(item => {
                 let tag = '';
                 let text = item;
                 if (typeof item === 'string' && item.includes('|')) {
@@ -422,9 +463,9 @@ window.ModuloDashboard = (function () {
             ];
             iniciarCarrouselBot();
 
-            // 3. Gráficos de Producción (Inyección)
+            // 3. Gráficos de Producción (Inyección) -- requiere datos operativos
             try {
-                if (data.rankings?.inyeccion_ops) {
+                if (tieneDatosOperativos && data.rankings?.inyeccion_ops) {
                     renderChartInyeccion(data.rankings.inyeccion_ops.slice(0, 10));
                     const btnVerTodosIny = document.getElementById('btn-ver-todos-iny');
                     if (btnVerTodosIny) {
@@ -432,7 +473,7 @@ window.ModuloDashboard = (function () {
                     }
                 }
 
-                if (data.maquinas) {
+                if (tieneDatosOperativos && data.maquinas) {
                     const maquinasArr = Array.isArray(data.maquinas) ? data.maquinas : Object.entries(data.maquinas || {}).map(([k, v]) => ({maquina: k, valor: v}));
                     if (maquinasArr.length > 0) renderChartMaquinas(maquinasArr);
                 }
@@ -440,25 +481,30 @@ window.ModuloDashboard = (function () {
                 console.error("⚠️ Error defensivo renderizando Inyección:", errIny);
             }
 
+            // 4. Scrap -- requiere datos operativos
             try {
-                if (data.tendencia && Array.isArray(data.tendencia) && data.tendencia.length > 0) renderChartTendencia(data.tendencia);
-                if (data.kpis?.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
-                renderScrapAlmacenDetalle(data.kpis?.scrap_almacen_desglose || []);
+                if (tieneDatosOperativos) {
+                    if (data.tendencia && Array.isArray(data.tendencia) && data.tendencia.length > 0) renderChartTendencia(data.tendencia);
+                    if (data.kpis?.scrap_detalle) renderChartPNC(data.kpis.scrap_detalle);
+                    renderScrapAlmacenDetalle(data.kpis?.scrap_almacen_desglose || []);
+                }
             } catch (errScrap) {
                 console.error("⚠️ Error defensivo renderizando Scrap:", errScrap);
             }
 
-            // 5. Tabla y Gráficos de Pulido
+            // 5. Tabla y Gráficos de Pulido -- requiere datos operativos
             try {
-                if (data.analytics_pulido) {
-                    cacheAnalyticsPulido = data.analytics_pulido;
-                    // Módulo dado de baja temporalmente (corrupción de datos backend): renderTablaEficienciaPulido deshabilitado.
-                    // if (data.analytics_pulido.eficiencia_referencia) {
-                    //     renderTablaEficienciaPulido(data.analytics_pulido.eficiencia_referencia);
-                    // }
+                if (tieneDatosOperativos) {
+                    if (data.analytics_pulido) {
+                        cacheAnalyticsPulido = data.analytics_pulido;
+                        // Módulo dado de baja temporalmente (corrupción de datos backend): renderTablaEficienciaPulido deshabilitado.
+                        // if (data.analytics_pulido.eficiencia_referencia) {
+                        //     renderTablaEficienciaPulido(data.analytics_pulido.eficiencia_referencia);
+                        // }
+                    }
+                    renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
+                    renderTablaPulido(data.rankings?.pulido_profundo || {});
                 }
-                renderChartPulidoRanking(data.rankings?.pulido_profundo || {});
-                renderTablaPulido(data.rankings?.pulido_profundo || {});
             } catch (errPulido) {
                 console.error("⚠️ Error defensivo renderizando Pulido:", errPulido);
             }

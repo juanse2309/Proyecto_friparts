@@ -15,6 +15,10 @@ ROL_OPERARIOS = ['INYECCION', 'PULIDO', 'ALISTAMIENTO', 'ENSAMBLE', 'AUXILIAR IN
 # Roles autorizados para omitir el Ownership Guard (ver AuditService._usuario_autenticado_puede_override).
 # Mantener sincronizado con los roles usados en @require_role de las rutas de validación.
 ROLES_VALIDACION_OVERRIDE = ROL_ADMINS + ROL_JEFES + ['AUXILIAR INVENTARIO', 'INVENTARIO', 'CALIDAD', 'STAFF FRIMETALS', 'SUPERVISOR']
+# Endpoints operativos del Dashboard IA (KPIs de producción, rankings, drill-down):
+# visibles para jefaturas de planta y calidad, no solo Admin/Comercial. Los endpoints
+# monetarios/financieros (cartera, ventas, rendimiento) permanecen en ROL_ADMINS + ROL_COMERCIALES.
+ROL_DASHBOARD_OPERATIVO = ROL_ADMINS + ROL_COMERCIALES + ROL_JEFES + ['CALIDAD']
 # Precalculado una sola vez al importar el módulo: require_role lo reutiliza
 # en cada request en vez de reconstruirlo (ver "God Mode" más abajo).
 _ROL_ADMINS_SET = set(r.strip().upper() for r in ROL_ADMINS)
