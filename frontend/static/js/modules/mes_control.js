@@ -1866,9 +1866,30 @@ window.ModuloMes = {
     }
 };
 
+// Roles con acceso a /api/mes/* en el backend (ver ROLES_PLANTA en
+// backend/routes/programacion_routes.py = ROL_ADMINS + ROL_JEFES + ROL_OPERARIOS).
+// '#inyeccion-page' SIEMPRE existe en el DOM de este SPA (oculto, no removido)
+// sin importar el rol, así que ese chequeo por sí solo no evitaba que roles
+// como COMERCIAL dispararan fetch a estos endpoints y recibieran 403 en cada carga.
+const ROLES_MES = [
+    'ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA',
+    'JEFE ALMACEN', 'JEFE INYECCION', 'JEFE PULIDO', 'JEFE DE PLANTA', 'JEFE ALISTAMIENTO',
+    'INYECCION', 'PULIDO', 'ALISTAMIENTO', 'ENSAMBLE', 'AUXILIAR INVENTARIO'
+];
+
 // Auto-inicializar cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', () => {
-    if (document.getElementById('inyeccion-page')) {
+    if (!document.getElementById('inyeccion-page')) return;
+
+    let rolActual = '';
+    try {
+        const stored = sessionStorage.getItem('friparts_user');
+        rolActual = stored ? (JSON.parse(stored).rol || '').toString().trim().toUpperCase() : '';
+    } catch (e) {
+        rolActual = '';
+    }
+
+    if (ROLES_MES.includes(rolActual)) {
         ModuloMes.init();
     }
 });
