@@ -140,7 +140,7 @@ const ModuloEnsamble = {
                 `;
                 row.appendChild(col);
                 btnPausar = document.getElementById('btn-pausar-ensamble-dinamico');
-                btnPausar.onclick = () => this.pausarProduccion();
+                btnPausar.onclick = () => this.pausarReporte();
             }
 
             if (btnPausar) {

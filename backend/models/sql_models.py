@@ -342,6 +342,12 @@ class Ensamble(db.Model):
     id             = db.Column(db.Integer, primary_key=True, autoincrement=True)
     id_ensamble    = db.Column(db.String(80),  nullable=True, default=lambda: uuid.uuid4().hex[:8]) # varchar
     id_codigo      = db.Column(db.Text,  index=True, nullable=True) # TEXT
+    # FK lógica (sin constraint formal, mismo patrón que buje_ensamble/id_ensamble
+    # en esta tabla) hacia programacion_ensamble.id_prog. Vincula este registro de
+    # producción con la meta específica que se reportó, para que el recálculo de
+    # cantidad_realizada en EnsambleService.reportar_multi no mezcle avance entre
+    # metas distintas del mismo producto (ver migrate_ensamble_add_id_prog.py).
+    id_prog        = db.Column(db.Integer, index=True, nullable=True)
     responsable    = db.Column(db.Text, nullable=True) # TEXT
     cantidad       = db.Column(db.Integer,     default=0)
     hora_inicio    = db.Column(db.DateTime,    nullable=True)

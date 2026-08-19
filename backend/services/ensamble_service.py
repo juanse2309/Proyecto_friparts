@@ -487,6 +487,15 @@ class EnsambleService:
                 registro.buje_ensamble = buje_detalle
                 registro.responsable = responsable
                 registro.cantidad = cantidad
+                # Solo el renglón "es_final" (producto terminado) representa
+                # producción real contra la meta -- los renglones de componentes
+                # del BOM comparten el mismo id_codigo "ancla" que el producto
+                # final (es el id_ensamble de sesión, no un id por renglón), así
+                # que si se les tagueara con id_prog también, el SUM de más abajo
+                # los contaría como si fueran unidades producidas.
+                if es_final_flag:
+                    id_prog_reg = reg_data.get('id_prog')
+                    registro.id_prog = int(id_prog_reg) if id_prog_reg else None
                 registro.qty = float(reg_data.get('qty', 1) or 1)
                 registro.estado = reg_data.get('estado', 'FINALIZADO')
                 registro.op_numero = reg_data.get('op_numero', '')
@@ -647,14 +656,22 @@ class EnsambleService:
                                 piezas_por_repartir = 0
 
             # --- Sincronizar Programación (recálculo SUM, seguro de re-ejecutar) ---
-            id_prog = main_reg.get('id_prog')
-            op_numero = main_reg.get('op_numero')
+            id_prog_raw = main_reg.get('id_prog')
+            id_prog = int(id_prog_raw) if id_prog_raw else None
             id_prod_final = main_reg.get('id_codigo')
 
             if id_prog:
+                # Filtrado por id_prog (la meta específica), no solo por
+                # (id_codigo, op_numero) -- ese filtro viejo sumaba producción
+                # histórica de CUALQUIER meta del mismo producto/OP (sobre todo
+                # con op_numero en blanco), haciendo que metas nuevas aparecieran
+                # ya completadas sin haber recibido un solo reporte. Se conserva
+                # el filtro por id_codigo para no contar aquí los renglones de
+                # consumo de componentes del BOM, que comparten el mismo id_prog
+                # pero no son producción del producto final.
                 total_realizado = db.session.query(db.func.sum(Ensamble.cantidad)).filter(
+                    Ensamble.id_prog == id_prog,
                     Ensamble.id_codigo == id_prod_final,
-                    Ensamble.op_numero == op_numero,
                     Ensamble.estado == 'FINALIZADO'
                 ).scalar() or 0
 

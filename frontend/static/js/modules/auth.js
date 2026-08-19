@@ -1029,6 +1029,16 @@ const AuthModule = {
     autoFillForms: function () {
         if (!this.currentUser) return;
 
+        // Fuente de verdad para módulos que leen el nombre completo del
+        // operario desde este hidden input (Ensamble, Pintura, Rayada,
+        // Hornos, Mes Control) en vez de depender de AppState directamente.
+        // Antes quedaba SIEMPRE vacío: el template lo renderizaba desde
+        // session['user_name'], una clave que ningún login del backend
+        // llega a escribir (todos usan session['user'], que además guarda
+        // el username, no el nombre completo).
+        const hiddenFullname = document.getElementById('current_user_fullname');
+        if (hiddenFullname) hiddenFullname.value = this.currentUser.nombre || '';
+
         // Bloquear selects para que nadie registre a nombre de otros
         const selects = document.querySelectorAll('select[id^="responsable-"]');
         selects.forEach(select => {

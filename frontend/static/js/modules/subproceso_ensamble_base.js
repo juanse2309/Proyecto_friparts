@@ -60,14 +60,24 @@ class SubprocesoEnsambleController {
                     const frag = document.createDocumentFragment();
 
                     items.forEach(p => {
-                        const codigo = p.id_codigo || p.codigo_sistema || p.codigo;
-                        if (!codigo) return;
+                        // codigo_sistema es la columna única/canónica de db_productos
+                        // (ver sql_models.py) -- es la que se muestra en el resto de
+                        // la app (ej. autocomplete de Ensamble). id_codigo es un campo
+                        // secundario que a veces coincide y a veces no (ej. FR-9380 vs
+                        // 9380 sin prefijo): si solo se acepta uno de los dos, el
+                        // operario que escribe la referencia "de siempre" (con
+                        // prefijo) se topa con "Referencia inválida" aunque el
+                        // producto exista. Se registran AMBAS formas como válidas.
+                        const codigoPrincipal = p.codigo_sistema || p.id_codigo || p.codigo;
+                        if (!codigoPrincipal) return;
 
-                        SubprocesoEnsambleController._referenciasValidas.add(String(codigo).trim().toUpperCase());
+                        [p.codigo_sistema, p.id_codigo, p.codigo].forEach(c => {
+                            if (c) SubprocesoEnsambleController._referenciasValidas.add(String(c).trim().toUpperCase());
+                        });
 
                         if (datalist) {
                             const opt = document.createElement('option');
-                            opt.value = codigo;
+                            opt.value = codigoPrincipal;
                             frag.appendChild(opt);
                         }
                     });
