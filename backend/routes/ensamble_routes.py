@@ -1,13 +1,10 @@
 from flask import Blueprint, request, session, current_app
-from datetime import datetime
 import logging
 from backend.core.sql_database import db
 from backend.core.responses import api_success, api_error
-from backend.models.sql_models import ProgramacionEnsamble, Ensamble, Producto
-from backend.services.bom_service import calcular_descuentos_ensamble
-from sqlalchemy import text
+from backend.models.sql_models import ProgramacionEnsamble, Ensamble
 from backend.services.audit_service import OwnershipMismatchException
-from backend.services.ensamble_service import EnsambleService, BomNoDisponibleException
+from backend.services.ensamble_service import EnsambleService, BomNoDisponibleException, StockInsuficienteException
 from backend.config.constants import FALLBACK_OPERARIO
 from backend.utils.auth_middleware import _obtener_usuario_activo, require_role, ROL_ADMINS, ROL_JEFES, ROL_OPERARIOS
 
@@ -80,85 +77,26 @@ def get_active_ensamble_session():
 @ensamble_bp.route('/api/ensamble/programacion', methods=['POST'])
 @require_role(ROLES_ENSAMBLE)
 def crear_programacion():
+    """Controlador puro: delega el UPSERT de programación en EnsambleService."""
+    data = request.get_json()
     try:
-        data = request.get_json()
-        if not data:
-            return api_error("No data provided", status_code=400)
-
-        id_codigo = data.get('id_codigo')
-        cantidad_objetivo = int(data.get('cantidad_objetivo', 0))
-        fecha_str = data.get('fecha_programada')
-
-        if not id_codigo or cantidad_objetivo <= 0 or not fecha_str:
-            return api_error("Datos incompletos", status_code=400)
-        
-        fecha_prog = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-        
-        from sqlalchemy.dialects.postgresql import insert
-        from sqlalchemy import text
-
-        stmt = insert(ProgramacionEnsamble).values(
-            id_codigo=id_codigo,
-            cantidad_objetivo=cantidad_objetivo,
-            op_numero=data.get('op_numero'),
-            fecha_programada=fecha_prog,
-            estado='PENDIENTE'
-        )
-
-        # UPSERT ante conflicto en uq_programacion_ensamble
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['fecha_programada', 'id_codigo', text("COALESCE(op_numero, '')")],
-            set_={
-                'cantidad_objetivo': stmt.excluded.cantidad_objetivo,
-                'estado': stmt.excluded.estado
-            }
-        ).returning(ProgramacionEnsamble.id_prog)
-
-        res = db.session.execute(stmt).fetchone()
-        db.session.commit()
-        
-        id_prog_val = res[0] if res else None
-        return api_success(data={'id_prog': id_prog_val})
+        resultado = EnsambleService.crear_o_actualizar_programacion(data)
+        return api_success(data=resultado)
+    except ValueError as e:
+        return api_error(str(e), status_code=400)
     except Exception as e:
-        db.session.rollback()
         logger.error(f"Error al crear programación ensamble: {e}")
         return api_error(str(e), status_code=500)
 
 @ensamble_bp.route('/api/ensamble/bom_stock/<id_codigo>', methods=['GET'])
 @require_role(ROLES_ENSAMBLE)
 def obtener_bom_con_stock(id_codigo):
+    """Controlador puro: delega el cálculo de BOM + stock en EnsambleService."""
     try:
-        # 1. Obtener la BOM
-        bom_res = calcular_descuentos_ensamble(id_codigo, 1) # Cantidad 1 para ver el ratio
-
-        if not bom_res.get('success'):
-            return api_error(bom_res.get('error') or 'BOM no disponible', status_code=404)
-        
-        componentes = bom_res.get('componentes', [])
-        resultado = []
-        
-        for comp in componentes:
-            codigo_inv = comp['codigo_inventario']
-            # 2. Consultar stock en db_productos
-            producto = Producto.query.filter_by(codigo_sistema=codigo_inv).first()
-            
-            stock = float(producto.p_terminado or 0) if producto else 0
-            # Cuántos alcanza a armar con ese stock (stock / cantidad_por_kit)
-            ratio = float(comp['cantidad_por_kit'])
-            alcanza = int(stock // ratio) if ratio > 0 else 0
-            
-            resultado.append({
-                'componente': comp['codigo_ficha'],
-                'codigo_inventario': codigo_inv,
-                'stock_almacen': stock,
-                'cantidad_por_unidad': ratio,
-                'alcanza_para': alcanza
-            })
-            
-        return api_success(data={
-            'id_codigo': id_codigo,
-            'componentes': resultado
-        })
+        resultado = EnsambleService.obtener_bom_con_stock(id_codigo)
+        return api_success(data=resultado)
+    except BomNoDisponibleException as e:
+        return api_error(e.message, status_code=404)
     except Exception as e:
         logger.error(f"Error al obtener BOM con stock: {e}")
         return api_error(str(e), status_code=500)
@@ -166,24 +104,10 @@ def obtener_bom_con_stock(id_codigo):
 @ensamble_bp.route('/api/ensamble/tareas_pendientes', methods=['GET'])
 @require_role(ROLES_ENSAMBLE)
 def tareas_pendientes():
+    """Controlador puro: delega el cálculo de faltantes en EnsambleService."""
     try:
-        tareas = ProgramacionEnsamble.query.filter(
-            ProgramacionEnsamble.estado != 'COMPLETADO'
-        ).order_by(ProgramacionEnsamble.fecha_programada.asc()).all()
-
-        res = []
-        for t in tareas:
-            faltante = max(0, t.cantidad_objetivo - t.cantidad_realizada)
-            res.append({
-                'id_prog': t.id_prog,
-                'id_codigo': t.id_codigo,
-                'cantidad_objetivo': t.cantidad_objetivo,
-                'cantidad_realizada': t.cantidad_realizada,
-                'faltante': faltante,
-                'fecha_programada': t.fecha_programada.strftime('%Y-%m-%d') if t.fecha_programada else '',
-                'estado': t.estado
-            })
-        return api_success(data=res)
+        resultado = EnsambleService.listar_tareas_pendientes()
+        return api_success(data=resultado)
     except Exception as e:
         logger.error(f"Error al listar tareas pendientes: {e}")
         return api_error(str(e), status_code=500)
@@ -275,6 +199,8 @@ def finalizar_ensamble():
         return api_error(str(e), status_code=400)
     except BomNoDisponibleException as e:
         return api_error(e.message, status_code=400)
+    except StockInsuficienteException as e:
+        return api_error(e.message, status_code=422)
     except Exception as e:
         logger.error(f"❌ Error en finalizar_ensamble: {e}")
         return api_error(str(e), status_code=500)

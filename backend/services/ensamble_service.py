@@ -7,7 +7,7 @@ import logging
 import uuid
 from datetime import datetime
 from backend.core.sql_database import db
-from backend.models.sql_models import Ensamble, OperacionLog, PncEnsamble, ProgramacionEnsamble
+from backend.models.sql_models import Ensamble, OperacionLog, PncEnsamble, ProgramacionEnsamble, Producto
 from backend.services.audit_service import AuditService, OwnershipMismatchException
 from backend.services.bom_service import calcular_descuentos_ensamble
 from backend.services.stock_service import StockService
@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 class BomNoDisponibleException(Exception):
     """Se lanza cuando calcular_descuentos_ensamble no puede resolver la BOM del producto."""
     def __init__(self, message="No se pudo calcular la BOM del producto"):
+        self.message = message
+        super().__init__(self.message)
+
+
+class StockInsuficienteException(Exception):
+    """Se lanza cuando StockService no puede completar el descuento de un componente del BOM (stock insuficiente o producto no encontrado en SQL)."""
+    def __init__(self, message="No se pudo descontar el stock de un componente del BOM"):
         self.message = message
         super().__init__(self.message)
 
@@ -48,6 +55,110 @@ class EnsambleService:
             }
             return {'codigo_sistema': codigo_sistema, 'opciones': [opcion]}
         return {'codigo_sistema': codigo_sistema, 'opciones': []}
+
+    @staticmethod
+    def crear_o_actualizar_programacion(data):
+        """
+        Crea o actualiza (UPSERT) una meta de programación de ensamble. Ante
+        conflicto en uq_programacion_ensamble (fecha_programada + id_codigo +
+        op_numero) actualiza cantidad_objetivo y estado.
+        """
+        if not data:
+            raise ValueError('No data provided')
+
+        id_codigo = data.get('id_codigo')
+        cantidad_objetivo = int(data.get('cantidad_objetivo', 0))
+        fecha_str = data.get('fecha_programada')
+
+        if not id_codigo or cantidad_objetivo <= 0 or not fecha_str:
+            raise ValueError('Datos incompletos')
+
+        fecha_prog = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+
+        from sqlalchemy.dialects.postgresql import insert
+        from sqlalchemy import text
+
+        stmt = insert(ProgramacionEnsamble).values(
+            id_codigo=id_codigo,
+            cantidad_objetivo=cantidad_objetivo,
+            op_numero=data.get('op_numero'),
+            fecha_programada=fecha_prog,
+            estado='PENDIENTE'
+        )
+
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['fecha_programada', 'id_codigo', text("COALESCE(op_numero, '')")],
+            set_={
+                'cantidad_objetivo': stmt.excluded.cantidad_objetivo,
+                'estado': stmt.excluded.estado
+            }
+        ).returning(ProgramacionEnsamble.id_prog)
+
+        try:
+            res = db.session.execute(stmt).fetchone()
+            db.session.commit()
+            return {'id_prog': res[0] if res else None}
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error al crear/actualizar programación ensamble: {e}")
+            raise
+
+    @staticmethod
+    def obtener_bom_con_stock(id_codigo):
+        """
+        Retorna el BOM de un producto con el stock actual de cada componente
+        en P. TERMINADO y cuántas unidades del producto final alcanza a armar
+        ese stock (stock_almacen // cantidad_por_kit).
+        """
+        bom_res = calcular_descuentos_ensamble(id_codigo, 1)  # Cantidad 1 para ver el ratio
+
+        if not bom_res.get('success'):
+            raise BomNoDisponibleException(bom_res.get('error') or 'BOM no disponible')
+
+        componentes = bom_res.get('componentes', [])
+        resultado = []
+
+        for comp in componentes:
+            codigo_inv = comp['codigo_inventario']
+            producto = Producto.query.filter_by(codigo_sistema=codigo_inv).first()
+
+            stock = float(producto.p_terminado or 0) if producto else 0
+            ratio = float(comp['cantidad_por_kit'])
+            alcanza = int(stock // ratio) if ratio > 0 else 0
+
+            resultado.append({
+                'componente': comp['codigo_ficha'],
+                'codigo_inventario': codigo_inv,
+                'stock_almacen': stock,
+                'cantidad_por_unidad': ratio,
+                'alcanza_para': alcanza
+            })
+
+        return {
+            'id_codigo': id_codigo,
+            'componentes': resultado
+        }
+
+    @staticmethod
+    def listar_tareas_pendientes():
+        """Lista programaciones no completadas con el cálculo de cantidad faltante."""
+        tareas = ProgramacionEnsamble.query.filter(
+            ProgramacionEnsamble.estado != 'COMPLETADO'
+        ).order_by(ProgramacionEnsamble.fecha_programada.asc()).all()
+
+        resultado = []
+        for t in tareas:
+            faltante = max(0, t.cantidad_objetivo - t.cantidad_realizada)
+            resultado.append({
+                'id_prog': t.id_prog,
+                'id_codigo': t.id_codigo,
+                'cantidad_objetivo': t.cantidad_objetivo,
+                'cantidad_realizada': t.cantidad_realizada,
+                'faltante': faltante,
+                'fecha_programada': t.fecha_programada.strftime('%Y-%m-%d') if t.fecha_programada else '',
+                'estado': t.estado
+            })
+        return resultado
 
     @staticmethod
     def iniciar(data):
@@ -148,10 +259,14 @@ class EnsambleService:
                 else:
                     almacen_a_descontar = 'P. TERMINADO'
 
-                exito, msg = StockService.registrar_salida(codigo_comp, comp['cantidad_total_descontar'], almacen_a_descontar)
-                if not exito:
-                    # Mantener By-pass: Solo advertir, no detener.
-                    logger.warning(f" ⚠️ [HIBRIDO-ENSAMBLE] {msg}")
+                res_salida = StockService.registrar_salida(codigo_comp, comp['cantidad_total_descontar'], almacen_a_descontar)
+                if "error" in res_salida:
+                    # Fuga de inventario eliminada: un fallo en el descuento de un
+                    # componente del BOM debe abortar TODA la transacción (el except
+                    # de abajo hace rollback), no solo loguear una advertencia.
+                    raise StockInsuficienteException(
+                        f"No se pudo descontar {comp['cantidad_total_descontar']} de {codigo_comp} en {almacen_a_descontar}: {res_salida['error']}"
+                    )
 
             # FASE 3: Ensamble (Mapeo completo de columnas SQL)
             id_ensamble_master = data.get('id_ensamble') or uuid.uuid4().hex[:8]
@@ -250,7 +365,7 @@ class EnsambleService:
             return {'id_ensamble': id_ensamble_master}
         except Exception as e:
             db.session.rollback()
-            if not isinstance(e, BomNoDisponibleException):
+            if not isinstance(e, (BomNoDisponibleException, StockInsuficienteException)):
                 logger.error(f"❌ Error en EnsambleService.finalizar: {e}")
             raise
 
@@ -321,10 +436,15 @@ class EnsambleService:
         main_reg = next((r for r in registros_data if r.get('es_final')), registros_data[0])
         estado_final = main_reg.get('estado', 'EN_PROCESO')
 
+        # .with_for_update(): bloquea la fila hasta el commit/rollback de esta
+        # transacción para que dos peticiones concurrentes (doble clic) no
+        # lean ambas 'estado != FINALIZADO' antes de que cualquiera confirme
+        # -- sin esto, la guardia de idempotencia de abajo es una condición de
+        # carrera TOCTOU (ambas pasan la validación y duplican stock/FIFO).
         registro_final_db = Ensamble.query.filter_by(
             id_ensamble=id_ensamble_global,
             buje_ensamble=main_reg.get('buje_ensamble')
-        ).first()
+        ).with_for_update().first()
 
         candidato_responsable = main_reg.get('responsable') or usuario_activo
         if not candidato_responsable or str(candidato_responsable).strip().upper() in ['', 'SISTEMA']:

@@ -9,6 +9,7 @@ const ModuloEnsamble = {
     currentTab: 'programacion',
     isManualMode: false,
     pncDetalles: [],
+    isSubmitting: false, // Guardia anti doble-clic para reportarAvance/pausarReporte
 
     // Estado de Sesión Persistente
     sessionId: null,
@@ -483,7 +484,34 @@ const ModuloEnsamble = {
         }
     },
 
+    // Deshabilita/rehabilita e inyecta estado de carga en los botones de
+    // acción del reporte (Finalizar/Pausar) mientras hay un envío en vuelo.
+    _setBotonesEnvioCargando: function (cargando) {
+        ['btn-reportar-avance', 'btn-pausar-ensamble-dinamico'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.disabled = cargando;
+            if (cargando) {
+                if (!btn.dataset.originalHtml) btn.dataset.originalHtml = btn.innerHTML;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Procesando...';
+            } else if (btn.dataset.originalHtml) {
+                btn.innerHTML = btn.dataset.originalHtml;
+                delete btn.dataset.originalHtml;
+            }
+        });
+    },
+
     reportarAvance: async function (estado = 'EN_PROCESO') {
+        // Guardia anti doble-clic/doble-envío: bloquea reentradas mientras
+        // una petición ya está en vuelo (evita duplicar descuentos de stock).
+        if (this.isSubmitting) {
+            console.warn('[Ensamble] Envío en curso, se ignora el clic duplicado.');
+            return;
+        }
+        this.isSubmitting = true;
+        this._setBotonesEnvioCargando(true);
+
+        try {
         const rawIdCodigo = document.getElementById('reporte-producto-manual').value;
         // Normalización: Eliminar prefijo FR-
         const idCodigo = rawIdCodigo.replace(/^FR-/i, '').trim();
@@ -657,9 +685,17 @@ const ModuloEnsamble = {
             console.error('[Ensamble] Error en reporte:', e);
             mostrarNotificacion('Error de conexión con el servidor', 'error');
         }
+        } finally {
+            this.isSubmitting = false;
+            this._setBotonesEnvioCargando(false);
+        }
     },
 
     pausarReporte: async function () {
+        if (this.isSubmitting) {
+            console.warn('[Ensamble] Envío en curso, se ignora el clic duplicado.');
+            return;
+        }
         const nuevoEstado = this.enPausa ? 'TRABAJANDO' : 'PAUSADO';
         await this.reportarAvance(nuevoEstado);
         this.enPausa = !this.enPausa;
