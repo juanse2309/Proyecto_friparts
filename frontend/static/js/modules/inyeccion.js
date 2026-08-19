@@ -1516,14 +1516,27 @@ const ModuloInyeccion = {
                 return;
             }
 
-            // Sin lote seleccionado no hay nada que auditar. La antigua "entrada
-            // manual" guardaba un lote directamente como VALIDADO por /lote,
-            // saltándose la firma de auditoría y la atribución de la merma.
-            Swal.fire(
-                'Selecciona un lote',
-                'La validación se hace siempre sobre un lote pendiente. Elige uno en el listado; si necesitas registrar producción nueva, usa el módulo de Reporte de Máquina.',
-                'warning'
-            );
+            // "Nuevo Manual": sin lote pendiente que auditar (ej. producto recién
+            // creado en el catálogo que no alcanzó a programarse a tiempo).
+            // /api/inyeccion/lote SIEMPRE deja el registro en PENDIENTE -- igual
+            // que Reporte de Máquina -- así que esto no salta la firma de
+            // auditoría (eso vive exclusivamente en /api/inyeccion/validar/<id>,
+            // ver InyeccionService.validar_lote). Es la vía que
+            // ROLES_INYECCION_ESCRITURA (calidad/inventario incluidos) tiene para
+            // dejar el registro cuando Producción no completó el ciclo normal.
+            const confirmManual = await Swal.fire({
+                title: 'Registrar producción nueva',
+                text: 'No seleccionaste un lote pendiente, así que esto se guardará como un nuevo registro de producción (quedará PENDIENTE de validación, igual que si viniera de Reporte de Máquina).',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, registrar',
+                cancelButtonText: 'Volver'
+            });
+
+            if (confirmManual.isConfirmed) {
+                this.esValidacionMode = true;
+                this.confirmarRegistroFinal();
+            }
             return;
         }
 
