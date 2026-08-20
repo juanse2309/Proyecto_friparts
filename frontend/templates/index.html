@@ -7,6 +7,7 @@
     <link rel="apple-touch-icon" href="/static/img/logo_friparts.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="color-scheme" content="light">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2873,16 +2874,19 @@
 
                     <!-- Tareas Disponibles -->
                     <div class="mb-4">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                             <h4 class="fw-bold mb-0"><i class="fas fa-tasks text-primary me-2"></i>Tareas de Ensamble Pendientes</h4>
-                            <div class="d-flex gap-2">
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-outline-success fw-bold shadow-sm" id="btn-ver-completadas" title="Ver metas completadas al 100%">
+                                    <i class="fas fa-check-circle me-2"></i> <span class="d-none d-sm-inline">Completadas</span>
+                                </button>
                                 <button class="btn fw-bold shadow-sm" id="btn-ia-voice-ensamble" style="background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%); color: white;" title="Registro por Voz con IA">
                                     <i class="fas fa-microphone"></i>
                                 </button>
                                 <button id="btn-cancelar-voz-ensamble" class="btn btn-danger d-none fw-bold shadow-sm"><i class="fas fa-times"></i> Cancelar</button>
                                 <button id="btn-forzar-relleno-ensamble" class="btn btn-warning d-none fw-bold shadow-sm"><i class="fas fa-redo"></i> Reincorporar Datos de Voz</button>
                                 <button class="btn btn-warning fw-bold shadow-sm" id="btn-manual-mode">
-                                    <i class="fas fa-plus-circle me-2"></i> ➕ Registro Manual (Directo)
+                                    <i class="fas fa-plus-circle me-2"></i> <span class="d-none d-sm-inline">Registro Manual (Directo)</span><span class="d-inline d-sm-none">Manual</span>
                                 </button>
                             </div>
                         </div>
@@ -2902,30 +2906,22 @@
                                 
                                 <div class="row g-3 mb-4">
                                     <!-- Fila 1: Temporal y Humano -->
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <label class="form-label fw-bold"><i class="fas fa-calendar-alt me-1"></i> Fecha</label>
                                         <input type="date" id="reporte-fecha" class="form-control">
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <label class="form-label fw-bold"><i class="fas fa-user-circle me-1"></i> Responsable</label>
                                         <input type="text" id="responsable" class="form-control" list="responsables-list" placeholder="Escribe o dicta nombre...">
                                         <datalist id="responsables-list"></datalist>
                                     </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label fw-bold"><i class="fas fa-clock me-1"></i> Hora Inicio (24h)</label>
-                                        <input type="time" id="reporte-hora-inicio" class="form-control">
-                                    </div>
 
-                                    <!-- Fila 2: Bujes y Tiempos -->
-                                    <div class="col-md-4">
-                                        <label class="form-label fw-bold"><i class="fas fa-clock me-1"></i> Hora Fin (24h)</label>
-                                        <input type="time" id="reporte-hora-fin" class="form-control">
-                                    </div>
-                                    <div class="col-md-4">
+                                    <!-- Fila 2: Bujes -->
+                                    <div class="col-md-6">
                                         <label class="form-label fw-bold"><i class="fas fa-box-open me-1"></i> Buje Componente (Origen)</label>
                                         <input type="text" id="reporte-buje-origen" class="form-control" placeholder="Ej: FR-9380">
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <label class="form-label fw-bold"><i class="fas fa-barcode me-1"></i> Código Ensamble (Producto Final)</label>
                                         <div class="input-group">
                                             <input type="text" id="reporte-producto-manual" class="form-control bg-light fw-bold text-primary" placeholder="Buscar producto...">
@@ -2936,32 +2932,17 @@
                                     </div>
                                 </div>
 
-                                <!-- BLOQUE BOM (Estructura) -->
-                                <div class="card border-primary border-opacity-25 bg-primary bg-opacity-10 mb-4 rounded-4">
-                                    <div class="card-body">
-                                        <h6 class="fw-bold mb-3"><i class="fas fa-layer-group me-2"></i>Estructura de Ensamble (BOM)</h6>
-                                        <div id="reporte-bom-check-container" class="row g-3">
-                                            <div class="col-12 text-center text-muted py-2">
-                                                Selecciona un producto para ver sus componentes.
-                                            </div>
-                                        </div>
-                                        <div class="mt-3 small text-muted">
-                                            <i class="fas fa-info-circle me-1"></i> Se descontará stock de todos los componentes marcados.
-                                        </div>
-                                    </div>
-                                </div>
+                                <!-- Contenedor oculto: sigue cargando el BOM del producto para calcular
+                                     el descuento de stock de componentes, sin mostrar los checkboxes en el formulario. -->
+                                <div id="reporte-bom-check-container" style="display: none;"></div>
 
                                 <!-- Fila 4: Logística e Inventario -->
                                 <div class="row g-3 mb-4">
-                                    <div class="col-md-4">
-                                        <label class="form-label fw-bold"><i class="fas fa-calculator me-1"></i> QTY (Bujes por Ensamble)</label>
-                                        <input type="number" id="reporte-qty" class="form-control" value="1">
-                                    </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <label class="form-label fw-bold"><i class="fas fa-hashtag me-1"></i> Cantidad a Ensamblar</label>
                                         <input type="number" id="reporte-cantidad" class="form-control form-control-lg fw-bold text-success" placeholder="0">
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <label class="form-label fw-bold"><i class="fas fa-warehouse me-1"></i> Almacén Origen (Bujes)</label>
                                         <select id="reporte-almacen-origen" class="form-select">
                                             <option value="P. TERMINADO">P. TERMINADO</option>
@@ -2985,10 +2966,10 @@
                                         <input type="text" id="reporte-op" class="form-control" placeholder="OP-2026-000">
                                     </div>
                                     <div class="col-md-4">
-                                        <label class="form-label fw-bold text-danger"><i class="fas fa-exclamation-circle me-1"></i> PNC</label>
+                                        <label class="form-label fw-bold text-muted"><i class="fas fa-exclamation-circle me-1"></i> PNC</label>
                                         <div class="input-group">
-                                            <input type="number" id="reporte-pnc" class="form-control bg-danger bg-opacity-10 text-danger fw-bold" value="0">
-                                            <button class="btn btn-danger" type="button" id="btn-detalle-pnc">
+                                            <input type="number" id="reporte-pnc" class="form-control fw-bold" value="0">
+                                            <button class="btn btn-outline-secondary" type="button" id="btn-detalle-pnc" title="Desglosar por componente">
                                                 <i class="fas fa-list-ul"></i>
                                             </button>
                                         </div>

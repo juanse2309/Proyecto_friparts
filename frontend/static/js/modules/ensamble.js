@@ -523,13 +523,6 @@ const ModuloEnsamble = {
             return;
         }
 
-        const horaInicio = document.getElementById('reporte-hora-inicio')?.value || '';
-        const horaFin = document.getElementById('reporte-hora-fin')?.value || '';
-        if (horaInicio && horaFin && horaFin <= horaInicio) {
-            mostrarNotificacion('La Hora Fin debe ser estrictamente posterior a la Hora Inicio', 'error');
-            return;
-        }
-
         // ID de Ensamble Único para la operación
         if (!this.sessionId) {
             this.sessionId = 'ENS-' + Math.random().toString(36).substr(2, 9).toUpperCase();
@@ -543,8 +536,6 @@ const ModuloEnsamble = {
             estado: estado,
             op_numero: document.getElementById('reporte-op').value,
             fecha: document.getElementById('reporte-fecha').value,
-            hora_inicio: document.getElementById('reporte-hora-inicio')?.value || null,
-            hora_fin: document.getElementById('reporte-hora-fin')?.value || null,
             pnc: parseInt(document.getElementById('reporte-pnc').value) || 0,
             pnc_detalles: this.pncDetalles,
             observaciones: document.getElementById('reporte-observaciones').value,
@@ -586,22 +577,6 @@ const ModuloEnsamble = {
         }
 
         try {
-            // ── BLOQUEO OBLIGATORIO DE PNC para PAUSADO y FINALIZADO ──
-            // El desglose se adjunta al payload principal (ver más abajo) para
-            // que viaje en la misma transacción atómica del backend, en vez de
-            // dispararse como un request HTTP independiente.
-            let defectosGenerales = null;
-            if (estado === 'PAUSADO' || estado === 'FINALIZADO') {
-                const pncData = await this._mostrarModalPncEnsamble(estado);
-                if (pncData === null) return; // Usuario canceló — bloquea el cambio de estado
-                defectosGenerales = pncData;
-            }
-
-            const registroFinalPayload = registrosPayload.find(r => r.es_final);
-            if (registroFinalPayload) {
-                registroFinalPayload.defectos_generales = defectosGenerales;
-            }
-
             console.log(`📤 [Ensamble] Enviando ${registrosPayload.length} registros`, registrosPayload);
 
             mostrarLoading(true, estado === 'FINALIZADO' ? 'Procesando multi-registro e inventario...' : 'Guardando avance...');
@@ -702,60 +677,6 @@ const ModuloEnsamble = {
         this.actualizarUIBotones();
     },
 
-    /**
-     * Muestra el modal obligatorio de PNC para Ensamble.
-     * Retorna un objeto con los defectos { criterio: cantidad } o null si canceló.
-     * @param {string} estado - 'PAUSADO' o 'FINALIZADO'
-     */
-    _mostrarModalPncEnsamble: async function (estado) {
-        const titulo = estado === 'FINALIZADO'
-            ? 'Reporte Final de PNC — Ensamble'
-            : 'Reportar PNC antes de Pausar — Ensamble';
-
-        const { value: formValues } = await Swal.fire({
-            title: titulo,
-            html: `
-                <div class="text-start mb-3">
-                    <p class="text-muted small mb-3">
-                        <i class="fas fa-info-circle me-1 text-primary"></i>
-                        Registra los defectos encontrados. Ingresa 0 si no hay defectos de ese tipo.
-                    </p>
-                    <div class="card p-3 border-0 shadow-sm" style="border-radius:12px; background:#fffafb; border:1px solid #fee2e2!important;">
-                        <div class="fw-bold text-danger mb-3" style="font-size:0.9rem">
-                            <i class="fas fa-exclamation-triangle me-1"></i> Criterios de Defecto - Área Ensamble
-                        </div>
-                        <div class="row g-3">
-                            <div class="col-6">
-                                <label for="pnc-ens-mal-ajuste" class="form-label small fw-bold text-muted mb-1">Mal Ajuste / Pieza Suelta</label>
-                                <input type="number" id="pnc-ens-mal-ajuste" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
-                            </div>
-                            <div class="col-6">
-                                <label for="pnc-ens-faltante" class="form-label small fw-bold text-muted mb-1">Componente Faltante</label>
-                                <input type="number" id="pnc-ens-faltante" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
-                            </div>
-                            <div class="col-12">
-                                <label for="pnc-ens-dano" class="form-label small fw-bold text-muted mb-1">Daño en Empaque / Fisura</label>
-                                <input type="number" id="pnc-ens-dano" class="form-control form-control-sm text-center fw-bold" min="0" value="0">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `,
-            showCancelButton: true,
-            confirmButtonText: '<i class="fas fa-check me-1"></i> Confirmar PNC',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#16a34a',
-            focusConfirm: false,
-            preConfirm: () => {
-                return {
-                    "Mal Ajuste / Pieza Suelta": parseInt(document.getElementById('pnc-ens-mal-ajuste').value) || 0,
-                    "Componente Faltante": parseInt(document.getElementById('pnc-ens-faltante').value) || 0,
-                    "Daño en Empaque / Fisura": parseInt(document.getElementById('pnc-ens-dano').value) || 0
-                };
-            }
-        });
-        return formValues ?? null;
-    },
 
     resetFormulario: function (fullReset = true) {
         if (fullReset) {
@@ -942,22 +863,27 @@ const ModuloEnsamble = {
                 return;
             }
 
-            let html = '<div class="row g-2">';
+            let html = '<div class="row g-3">';
             res.data.forEach(t => {
                 const porc = Math.round((t.cantidad_realizada / t.cantidad_objetivo) * 100);
+                const porcColor = porc >= 80 ? '#16a34a' : (porc >= 40 ? '#f8961e' : '#4361ee');
                 html += `
-                    <div class="col-md-6 col-lg-4">
-                        <div class="card shadow-sm border-0 rounded-4 hover-lift cursor-pointer bg-white" onclick="ModuloEnsamble.seleccionarTarea(${JSON.stringify(t).replace(/"/g, '&quot;')})">
+                    <div class="col-12 col-md-6 col-lg-4">
+                        <div class="card shadow-sm border-0 rounded-4 hover-lift cursor-pointer bg-white h-100" onclick="ModuloEnsamble.seleccionarTarea(${JSON.stringify(t).replace(/"/g, '&quot;')})">
                             <div class="card-body p-3">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill">TAREA #${t.id_prog}</span>
-                                    <small class="text-muted fw-bold">${porc}%</small>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="badge rounded-pill px-3 py-2" style="background:#4361ee; color:#fff; font-weight:600;">TAREA #${t.id_prog}</span>
+                                    <span class="badge rounded-pill px-3 py-2" style="background:${porcColor}; color:#fff; font-weight:600;">${porc}%</span>
                                 </div>
                                 <h5 class="fw-bold mb-1">${t.id_codigo}</h5>
-                                <div class="progress mb-2" style="height: 5px;">
-                                    <div class="progress-bar" style="width: ${porc}%"></div>
+                                <div class="progress mb-2" style="height: 8px; border-radius: 4px;">
+                                    <div class="progress-bar" style="width: ${porc}%; background:${porcColor};"></div>
                                 </div>
-                                <p class="small text-muted mb-0">Faltan: <span class="text-danger fw-bold">${t.faltante}</span> / Objetivo: ${t.cantidad_objetivo}</p>
+                                <p class="small text-muted mb-3">Faltan: <span class="text-danger fw-bold">${t.faltante}</span> / Objetivo: ${t.cantidad_objetivo}</p>
+                                <div class="d-flex align-items-center justify-content-between small fw-bold" style="color:#4361ee;">
+                                    <span><i class="fas fa-clipboard-check me-1"></i> Reportar avance</span>
+                                    <i class="fas fa-chevron-right"></i>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -966,6 +892,52 @@ const ModuloEnsamble = {
             html += '</div>';
             container.innerHTML = html;
         } catch (e) { console.error(e); }
+    },
+
+    // Muestra en un modal las metas de ensamble ya completadas al 100%
+    // (estado COMPLETADO), reutilizando el mismo listado de /api/ensamble/programacion.
+    mostrarCompletadas: async function () {
+        try {
+            mostrarLoading(true, 'Cargando metas completadas...');
+            const res = await fetchData('/api/ensamble/programacion');
+            mostrarLoading(false);
+            if (!res || !res.success) {
+                mostrarNotificacion('No se pudo cargar el listado', 'error');
+                return;
+            }
+
+            const completadas = res.data.filter(p => p.estado === 'COMPLETADO');
+
+            let html;
+            if (completadas.length === 0) {
+                html = '<div class="text-center text-muted py-4">Aún no hay metas completadas al 100%.</div>';
+            } else {
+                html = '<div class="table-responsive text-start"><table class="table table-sm align-middle"><thead><tr><th>Fecha</th><th>Código</th><th class="text-end">Objetivo</th><th class="text-end">Realizado</th></tr></thead><tbody>';
+                completadas.forEach(p => {
+                    html += `
+                        <tr>
+                            <td>${p.fecha_programada || '-'}</td>
+                            <td class="fw-bold">${p.id_codigo}</td>
+                            <td class="text-end">${p.cantidad_objetivo}</td>
+                            <td class="text-end text-success fw-bold">${p.cantidad_realizada}</td>
+                        </tr>
+                    `;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            Swal.fire({
+                title: `<i class="fas fa-check-circle text-success me-2"></i>Metas Completadas (${completadas.length})`,
+                html,
+                width: '700px',
+                confirmButtonText: 'Cerrar',
+                confirmButtonColor: '#16a34a'
+            });
+        } catch (e) {
+            mostrarLoading(false);
+            console.error(e);
+            mostrarNotificacion('Error consultando metas completadas', 'error');
+        }
     },
 
     listarProgramacion: async function () {
@@ -1024,6 +996,7 @@ const ModuloEnsamble = {
         document.getElementById('btn-manual-mode')?.addEventListener('click', () => this.abrirModalManual());
         document.getElementById('btn-detalle-pnc')?.addEventListener('click', () => this.abrirModalPNC());
         document.getElementById('btn-cancelar-reporte')?.addEventListener('click', () => this.resetFormulario(true));
+        document.getElementById('btn-ver-completadas')?.addEventListener('click', () => this.mostrarCompletadas());
 
         document.getElementById('btn-ia-voice-ensamble')?.addEventListener('click', () => this.toggleGrabacionVoz());
         document.getElementById('btn-cancelar-voz-ensamble')?.addEventListener('click', () => this.cancelarGrabacionVoz());
@@ -1031,6 +1004,16 @@ const ModuloEnsamble = {
             if (this.ultimoJsonVozEnsamble) {
                 this.poblarFormularioDesdeVoz(this.ultimoJsonVozEnsamble);
             }
+        });
+
+        // El campo PNC solo se pinta de alerta cuando de verdad hay defectos
+        // reportados (>0) -- en 0 se ve neutral para no alarmar por defecto.
+        document.getElementById('reporte-pnc')?.addEventListener('input', (e) => {
+            const conDefectos = (parseInt(e.target.value) || 0) > 0;
+            e.target.classList.toggle('border-danger', conDefectos);
+            e.target.classList.toggle('text-danger', conDefectos);
+            e.target.classList.toggle('bg-danger', conDefectos);
+            e.target.classList.toggle('bg-opacity-10', conDefectos);
         });
 
         document.getElementById('prog-cantidad')?.addEventListener('input', () => {

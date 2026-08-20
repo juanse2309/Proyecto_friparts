@@ -122,7 +122,17 @@ class EnsambleService:
             codigo_inv = comp['codigo_inventario']
             producto = Producto.query.filter_by(codigo_sistema=codigo_inv).first()
 
-            stock = float(producto.p_terminado or 0) if producto else 0
+            # La ficha técnica mezcla piezas físicas (bujes, carcazas) con
+            # insumos/químicos (pegantes, TPU, silicona) que no se llevan en
+            # db_productos -- estos últimos no tienen a qué almacén
+            # descontarles stock, así que se excluyen del BOM de ensamble en
+            # vez de generar un registro de consumo fantasma sin movimiento
+            # de inventario real detrás.
+            if not producto:
+                logger.debug(f"[ENSAMBLE-BOM] Excluyendo componente sin ficha de inventario: {codigo_inv} ({comp['codigo_ficha']})")
+                continue
+
+            stock = float(producto.p_terminado or 0)
             ratio = float(comp['cantidad_por_kit'])
             alcanza = int(stock // ratio) if ratio > 0 else 0
 
@@ -370,51 +380,14 @@ class EnsambleService:
             raise
 
     @staticmethod
-    def _registrar_pnc_general(id_ensamble, id_codigo, defectos, registro_ens):
-        """
-        Registra el desglose general de PNC (3 criterios fijos de Ensamble) para
-        una sesión + producto. Reemplaza al antiguo endpoint independiente
-        POST /api/pnc/registrar_ensamble (que corría en su propio commit HTTP,
-        desacoplado del reporte principal).
-
-        Idempotente por construcción: borra el desglose previo de esta
-        combinación (id_ensamble, id_codigo) antes de insertar el nuevo, así
-        que un reintento del cliente con el mismo payload no duplica filas.
-        No hace commit — se compone dentro de la transacción del caller.
-        """
-        db.session.query(PncEnsamble).filter_by(id_ensamble=id_ensamble, id_codigo=id_codigo).delete()
-
-        mal_ajuste = float(defectos.get("Mal Ajuste / Pieza Suelta", 0) or 0)
-        faltante = float(defectos.get("Componente Faltante", 0) or 0)
-        dano_emp = float(defectos.get("Daño en Empaque / Fisura", 0) or 0)
-        total_pnc = mal_ajuste + faltante + dano_emp
-
-        if total_pnc > 0:
-            criterio_str = (
-                f"Mal Ajuste: {int(mal_ajuste)}, "
-                f"Comp. Faltante: {int(faltante)}, "
-                f"Daño/Fisura: {int(dano_emp)}"
-            )
-            db.session.add(PncEnsamble(
-                id_pnc_ensamble=uuid.uuid4().hex[:8],
-                id_ensamble=id_ensamble,
-                id_codigo=id_codigo,
-                cantidad=total_pnc,
-                criterio=criterio_str,
-                codigo_ensamble=id_codigo
-            ))
-            if registro_ens:
-                registro_ens.pnc = int(round(total_pnc))
-
-    @staticmethod
     def reportar_multi(payload_completo, usuario_activo):
         """
         Procesa el reporte multi-registro de ensamble (producto final +
         componentes del BOM) en una única transacción atómica: upsert de
-        Ensamble, PNC (desglosado por componente y general), descuentos/
-        acreditaciones de stock, propagación FIFO a DistribucionOpPedidos y
-        sincronización de ProgramacionEnsamble. Un solo commit al final;
-        cualquier excepción hace rollback completo.
+        Ensamble, PNC (campo único del formulario, opcionalmente desglosado
+        por componente), descuentos/acreditaciones de stock, propagación
+        FIFO a DistribucionOpPedidos y sincronización de ProgramacionEnsamble.
+        Un solo commit al final; cualquier excepción hace rollback completo.
 
         Guardia de idempotencia: si el registro final de este id_ensamble ya
         estaba FINALIZADO antes de esta llamada, los efectos NO idempotentes
@@ -590,15 +563,6 @@ class EnsambleService:
                                         criterio=str(pnc_detalles_raw) or "Defecto general sin desglose",
                                         codigo_ensamble=id_codigo_ancla
                                     ))
-
-                    # PNC general (3 criterios fijos) — aplica en PAUSADO y FINALIZADO.
-                    # Idempotente por construcción (delete-then-insert en el helper),
-                    # así que no necesita la guardia de "ya_finalizado_previamente".
-                    defectos_generales = reg_data.get('defectos_generales')
-                    if defectos_generales:
-                        EnsambleService._registrar_pnc_general(
-                            id_ensamble_global, id_codigo_ancla, defectos_generales, registro
-                        )
 
             # --- Propagación de avances a cubetas FIFO (delta aditivo, NO idempotente) ---
             if not ya_finalizado_previamente:
