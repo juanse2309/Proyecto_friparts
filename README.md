@@ -187,8 +187,8 @@ Para mantener el repositorio limpio y el código en producción libre de archivo
 
 1.  **Clonar e ingresar al directorio del proyecto**:
     ```bash
-    git clone https://github.com/juanse2309/Proyecto_friparts.git
-    cd Proyecto_friparts
+    git clone https://github.com/juanse2309/fritech-mes.git
+    cd fritech-mes
     ```
 
 2.  **Crear el entorno virtual y activar**:
