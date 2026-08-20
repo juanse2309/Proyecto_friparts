@@ -599,11 +599,6 @@ window.applyRBACRules = function () {
     if (!canAccessVal) applyOverlay('#panel-legacy');
     else removeOverlay('#panel-legacy');
 
-    // Rule 4: Procura - Administración, Compras y Auxiliar Inventario
-    const canAccessProcura = ['ADMIN', 'ADMINISTRACION', 'ADMINISTRADOR', 'GERENCIA', 'COMPRAS', 'AUXILIAR INVENTARIO', 'JEFE AUXILIAR INVENTARIO'].includes(userRole) || userRole.includes('AUXILIAR INVENTARIO');
-    if (!canAccessProcura) applyOverlay('#procura-page');
-    else removeOverlay('#procura-page');
-
 };
 
 /**
@@ -652,8 +647,6 @@ function cargarPagina(nombrePagina, pushToHistory = true) {
         'admin-clientes': window.ModuloAdminClientes,
         'metals-produccion': window.ModuloMetals,
         'metals-dashboard': window.ModuloMetals,
-        'procura': window.ModuloProcura,
-        'rotacion': window.ModuloProcura, // Alias por si acaso
         'asistencia': window.ModuloAsistencia,
         'notificaciones': window.ModuloNotificaciones
     };
@@ -832,8 +825,6 @@ function inicializarModulo(nombrePagina) {
         'metals-zincado': window.ModuloMetals,
         'metals-horno': window.ModuloMetals,
         'metals-pulido-m': window.ModuloMetals,
-        'procura': window.ModuloProcura,
-        'rotacion': window.ModuloRotacion, // Este inicializa su propia lógica si existe
         'asistencia': window.ModuloAsistencia
     };
 
@@ -953,8 +944,6 @@ function inicializarModulo(nombrePagina) {
                 'admin-clientes': window.ModuloAdminClientes,
                 'metals-produccion': window.ModuloMetals,
                 'metals-dashboard': window.ModuloMetals,
-                'procura': window.ModuloProcura,
-                'rotacion': window.ModuloRotacion,
                 'asistencia': window.ModuloAsistencia,
                 'inyeccion': window.ModuloInyeccion // MAPEADO CORRECTO
             };

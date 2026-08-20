@@ -45,8 +45,6 @@ El sistema utiliza una **arquitectura 100% SQL-First**, empleando **PostgreSQL**
 | **⚙️ Frimetals** | Línea de negocio metalmecánica independiente: registro de producción, dashboard y catálogo propio. | `metals_routes.py`<br>`metals.js` |
 | **📦 Inventario** | Entradas, salidas, conteos físicos y gestión de fichas/moldes. | `inventario_routes.py`<br>`inventario.js` |
 | **🚚 Almacén / Alistamiento** | Flujo logístico interno con **Doble Check**: Alistamiento de mercancía (**Box** 📦) y confirmación de Despacho de camiones (**Truck** 🚚), con soporte para despachos parciales. | `pedidos_routes.py`<br>`almacen.js` |
-| **🔁 Rotación y Prioridades de Compra** | Prioriza qué insumos reponer según rotación real de inventario. | `procura_routes.py`<br>`rotacion.js` |
-| **🧾 Procura / Órdenes de Compra** | Gestión de proveedores, órdenes de compra y alertas de abastecimiento. | `procura_routes.py`<br>`procura.js` |
 
 ### 🛒 Comercial y Ventas
 

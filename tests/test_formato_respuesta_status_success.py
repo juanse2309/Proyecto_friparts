@@ -32,7 +32,6 @@ ARCHIVOS_A_VERIFICAR = [
     "backend/routes/inventario_routes.py",
     "backend/routes/inyeccion_routes.py",
     "backend/routes/pedidos_routes.py",
-    "backend/routes/procura_routes.py",
     "backend/routes/productos_routes.py",
     "backend/routes/programacion_routes.py",
     "backend/routes/wo_routes.py",

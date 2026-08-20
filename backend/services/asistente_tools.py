@@ -393,8 +393,9 @@ def _tool_pedidos_pendientes_facturacion(params, ctx):
 
 
 def _tool_alertas_abastecimiento(params, ctx):
-    # Misma consulta que /api/procura/alertas_abastecimiento (procura_routes.py):
-    # productos cuyo stock en bodega esta por debajo del minimo configurado.
+    # Productos cuyo stock en bodega esta por debajo del minimo configurado
+    # (la vertical de Procura que exponia esta misma consulta via endpoint
+    # propio fue retirada por no tener uso real -- ver commit de retiro).
     productos = Producto.query.all()
     alertas = []
     for p in productos:
@@ -858,7 +859,7 @@ TOOLS = {
         'handler': _tool_alertas_abastecimiento,
         'tipo_grafica': 'bar',
         'serie_grafica': _serie_alertas_abastecimiento,
-        'enlace': _enlace('procura', 'Ver módulo de Procura'),
+        'enlace': _enlace('inventario', 'Ver módulo de Inventario'),
     },
     'programacion_maquinas': {
         'description': "Estado actual de cada maquina de inyeccion: que esta trabajando ahora mismo y que hay en cola de programacion (MES). Usar para 'que esta programado/trabajando en las maquinas'.",

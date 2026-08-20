@@ -196,7 +196,6 @@ from backend.routes.imagenes_routes import imagenes_bp
 from backend.routes.facturacion_routes import facturacion_bp
 from backend.routes.inventario_routes import inventario_bp
 from backend.routes.metals_routes import metals_bp
-from backend.routes.procura_routes import procura_bp
 from backend.routes.dashboard_routes import dashboard_bp
 from backend.routes.admin_routes import admin_bp
 from backend.routes.inyeccion_routes import inyeccion_bp
@@ -233,7 +232,6 @@ app.register_blueprint(imagenes_bp, url_prefix='/imagenes')
 app.register_blueprint(facturacion_bp)
 app.register_blueprint(inventario_bp)
 app.register_blueprint(metals_bp)
-app.register_blueprint(procura_bp)
 app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
 app.register_blueprint(asistente_bp, url_prefix='/api/dashboard')
 app.register_blueprint(productos_bp, url_prefix='/api/productos')

@@ -767,6 +767,12 @@ class MetalsProducto(db.Model):
     precio          = db.Column(db.Integer, default=0)
 
 
+# VERTICAL RETIRADA (2026-08-20): DbProveedor y OrdenCompra respaldaban el
+# modulo Procura (backend/routes/procura_routes.py + frontend/.../procura.js
+# + rotacion.js), retirado por completo -- no tenia uso real en planta y
+# recibir_ingreso() mutaba stock/ordenes de compra sin autenticacion alguna.
+# Los modelos se conservan (no se borran) porque las tablas siguen en
+# Postgres con historico real; nada en el codigo activo las referencia hoy.
 class DbProveedor(db.Model):
     __tablename__ = 'db_proveedores'
     __table_args__ = {'extend_existing': True}
