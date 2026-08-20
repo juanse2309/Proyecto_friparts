@@ -971,6 +971,30 @@ class InventarioWO(db.Model):
     fecha_sincronizacion = db.Column(db.DateTime, nullable=True)
 
 
+class OpWoStaging(db.Model):
+    """
+    Staging de Ordenes de Produccion extraidas de World Office
+    (Tipo_de_Documento='OP' en Vista_Tabla_Encabezados). Fase 2 del plan de
+    conciliacion OP: tabla interna, poblada exclusivamente por
+    agente_wo_comercial.py via truncate+bulk insert directo (sin pasar por
+    ninguna ruta web -- no tiene dato financiero ni de cliente).
+
+    Grano: (numero_op, codigo_producto) -- una OP es una maquina/un dia y
+    agrupa varias referencias, nunca una sola.
+    """
+    __tablename__ = 'db_op_wo_staging'
+    __table_args__ = {'extend_existing': True}
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    numero_op       = db.Column(db.String(50),  index=True, nullable=True)
+    codigo_producto = db.Column(db.String(50),  index=True, nullable=True)
+    cantidad        = db.Column(db.Numeric(18, 2), default=0)
+    fecha           = db.Column(db.DateTime, nullable=True)
+    anulado         = db.Column(db.Boolean, default=False)
+    verificado      = db.Column(db.Boolean, default=False)
+    bodega          = db.Column(db.String(100), nullable=True)
+
+
 class AppConfig(db.Model):
     """
     Config clave/valor de propósito general. Primer uso: reemplaza el flag

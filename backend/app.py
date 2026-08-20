@@ -209,6 +209,7 @@ from backend.routes.rayada_routes import rayada_bp
 from backend.routes.hornos_routes import hornos_bp
 from backend.routes.ia_routes import ia_bp
 from backend.routes.gerencia_routes import gerencia_bp
+from backend.routes.auditoria_routes import auditoria_bp
 from backend.routes.wo_routes import wo_bp
 from backend.routes.comercial_routes import comercial_bp
 from backend.routes.programacion_routes import programacion_bp
@@ -248,6 +249,7 @@ app.register_blueprint(rayada_bp)
 app.register_blueprint(hornos_bp)
 app.register_blueprint(ia_bp)
 app.register_blueprint(gerencia_bp)
+app.register_blueprint(auditoria_bp)
 # Límite más estricto que el global: los agentes locales (agente_wo*.py)
 # sincronizan cada ~15 minutos según confirmó el usuario -- 20/min sigue
 # dejando margen amplio (300x) sin abrir la puerta a un agente en loop

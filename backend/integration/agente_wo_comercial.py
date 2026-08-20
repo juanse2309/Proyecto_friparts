@@ -42,6 +42,14 @@ API_KEY = os.getenv("WO_SYNC_API_KEY")
 if not API_KEY:
     raise RuntimeError("WO_SYNC_API_KEY no está configurada")
 
+# Fase 2 (conciliacion OP): permite `from backend.models.sql_models import
+# OpWoStaging` aunque este script se invoque como archivo suelto (python
+# backend/integration/agente_wo_comercial.py) desde cualquier cwd -- sin esto
+# el import falla porque "backend" no queda en sys.path. Ninguno de los otros
+# agente_wo*.py necesita esto porque nunca tocan Postgres directamente; este
+# si, exclusivamente para el staging de OP (ver guardar_staging_op).
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 # Construir el string de conexión a SQL Server exactamente como en agente_wo.py
 conn_str = (
     f"DRIVER={DB_DRIVER};"
@@ -80,6 +88,111 @@ def enviar_datos_por_lotes(datos, url_api, headers):
             if e.response is not None:
                 logger.error(e.response.text)
             raise e
+
+def extraer_ordenes_produccion(cursor, mapping):
+    """
+    Fase 2 del plan de conciliacion OP: extrae documentos
+    Tipo_de_Documento='OP' desde las MISMAS vistas de WO que ya usa la
+    extraccion comercial (Vista_Tabla_Encabezados + Movimientos_Inventario) --
+    no requiere conexion ni vista nueva.
+
+    Se mantiene como consulta separada de la comercial a proposito: el
+    SELECT/procesamiento de mas abajo esta modelado para ventas/pedidos
+    (cliente, IVA, vendedor) y viaja hacia recibir_comercial. Una OP no tiene
+    cliente real ni IVA -- meterla en ese mismo query corromperia lo que
+    recibir_comercial escribe en db_ventas/db_pedidos. Por eso esta funcion
+    no envia nada por HTTP: guardar_staging_op() la persiste directo.
+
+    `cursor` y `mapping` (Autonumerico -> Codigo_Producto) se reciben ya
+    abiertos/cargados desde ejecutar_extraccion() para no repetir el
+    round-trip de Vista_Tabla_Inventarios.
+    """
+    logger.info(">> Extrayendo Ordenes de Produccion (Tipo_de_Documento='OP')...")
+
+    sql_op = """
+    SELECT
+        E.prefijo,
+        E.Numero_de_Documento AS numero_documento,
+        E.Fecha AS fecha,
+        E.Anulado AS anulado,
+        E.Verificado AS verificado,
+        D.Producto AS producto_id,
+        CAST(D.Cantidad AS FLOAT) AS cantidad,
+        D.Bodega AS bodega
+    FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
+    INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D
+        ON E.Autonumerico = D.Pertenece_A
+    WHERE E.Tipo_de_Documento = 'OP'
+      AND YEAR(E.Fecha) >= 2024
+    """
+    cursor.execute(sql_op)
+    columnas = [c[0] for c in cursor.description]
+
+    registros = []
+    for row in cursor.fetchall():
+        item = dict(zip(columnas, row))
+
+        prefijo = str(item.get('prefijo') or '').strip()
+        numero_doc = item.get('numero_documento')
+        # Mismo formato ya observado en planta (db_inyeccion.orden_produccion,
+        # db_programacion.op_world_office, etc.): cuando WO no trae prefijo se
+        # reporta el numero puro, sin guion inventado.
+        numero_op = f"{prefijo}-{int(numero_doc)}" if prefijo else str(int(numero_doc))
+
+        # Mapeo de producto en memoria -- mismo criterio que la extraccion
+        # comercial: se asigna exactamente lo que devolvio el catalogo de WO
+        # (o el id crudo si no se halla), sin prefijos inventados.
+        prod_id = str(item.get('producto_id', '')).strip()
+        codigo_producto = str(mapping.get(prod_id, prod_id) or '').strip()
+
+        registros.append({
+            "numero_op": numero_op,
+            "codigo_producto": codigo_producto,
+            "cantidad": item.get('cantidad') or 0,
+            "fecha": item.get('fecha'),
+            "anulado": bool(item.get('anulado') or 0),
+            "verificado": bool(item.get('verificado') or 0),
+            "bodega": str(item.get('bodega') or '').strip() or None,
+        })
+
+    logger.info(f"[OK] {len(registros)} filas de OP extraidas de WO (documentos, no lineas por producto).")
+    return registros
+
+
+def guardar_staging_op(registros):
+    """
+    Persistencia directa a Postgres -- no pasa por recibir_comercial ni por
+    ninguna ruta web. db_op_wo_staging es una tabla interna de
+    diagnostico/conciliacion sin dato financiero ni de cliente, por lo que no
+    necesita el mismo envoltorio de seguridad (freno manual, chunking, API key)
+    que si aplica a la sync comercial.
+
+    Truncate + bulk insert dentro de UNA sola transaccion (engine.begin()):
+    si el insert falla, el truncate se revierte tambien -- la tabla nunca
+    queda vacia a medias.
+    """
+    from sqlalchemy import create_engine
+    from backend.models.sql_models import OpWoStaging
+
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        logger.error("[OP-STAGING] DATABASE_URL no configurada -- se omite la persistencia del staging de OP.")
+        return
+
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+    engine = create_engine(db_url)
+    try:
+        OpWoStaging.__table__.create(engine, checkfirst=True)
+        with engine.begin() as conn:
+            conn.execute(OpWoStaging.__table__.delete())
+            if registros:
+                conn.execute(OpWoStaging.__table__.insert(), registros)
+        logger.info(f"[OK] db_op_wo_staging actualizada: {len(registros)} OP (truncate+insert atomico).")
+    finally:
+        engine.dispose()
+
 
 def ejecutar_extraccion():
     logger.info("=" * 60)
@@ -135,6 +248,17 @@ def ejecutar_extraccion():
             mapping[str(row[0])] = row[1]
             if col_descripcion_inv:
                 descripciones[str(row[0])] = str(row[2] or '').strip()
+
+        # 1.a Fase 2 (conciliacion OP): extraer y persistir OP con el mismo
+        # cursor y el mismo mapping ya cargados. Aislado en su propio
+        # try/except -- un fallo aqui (ej. DATABASE_URL no disponible desde la
+        # maquina de planta) nunca debe tumbar la sync comercial que sigue
+        # abajo.
+        try:
+            registros_op = extraer_ordenes_produccion(cursor, mapping)
+            guardar_staging_op(registros_op)
+        except Exception as e:
+            logger.error(f"[OP-STAGING] Fallo extrayendo/guardando OP (no afecta la sync comercial): {e}")
 
         # 1.b Auto-detectar columna de IVA en el detalle y de identificación/NIT
         # del tercero externo en el encabezado. Mismo motivo: no hay forma de

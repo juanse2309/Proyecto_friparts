@@ -475,6 +475,7 @@
             <li class="menu-item" data-page="asistencia"> <a href="#"><i class="fas fa-user-clock"></i><span>Control de
                         Asistencia</span></a> </li>
             <li class="menu-item" id="nav-notificaciones" data-page="notificaciones"> <a href="#"><i class="fas fa-bullhorn"></i><span>Notificaciones Push</span></a> </li>
+            <li class="menu-item" data-page="auditoria-op"> <a href="#" onclick="cargarPagina('auditoria-op')"><i class="fas fa-clipboard-check text-warning"></i><span>Auditoría de OP</span></a> </li>
 
             <!-- SECCION FRIMETALS -->
             <li class="menu-item" data-page="metals-dashboard"> <a href="#"><i
@@ -525,6 +526,102 @@
             <!-- ============================================================ -->
             <div id="comercial-historico-page" class="page" style="display: none; width: 100%; height: 100vh; border: none; padding: 0;">
                 <iframe id="comercial-historico-iframe" src="/comercial/historico" style="width: 100%; height: 100%; border: none;"></iframe>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- AUDITORIA DE ORDENES DE PRODUCCION (OP) PAGE -->
+            <!-- Conciliacion World Office vs. reportes de planta. Consume -->
+            <!-- GET /api/auditoria/conciliacion-ops via window.ModuloAuditoriaOP -->
+            <!-- (frontend/static/js/modules/auditoria_op.js). Solo lectura. -->
+            <!-- ============================================================ -->
+            <div id="auditoria-op-page" class="page" style="display: none;">
+                <header class="top-bar">
+                    <button class="btn-icon" id="toggle-sidebar-auditoria-op">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1><i class="fas fa-clipboard-check"></i> Auditoría de Órdenes de Producción</h1>
+                        <p class="subtitle">Conciliación entre las OP reales de World Office y lo reportado en planta (Inyección, Pulido, Ensamble)</p>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm shadow-sm ms-auto" onclick="window.ModuloAuditoriaOP.cargar()">
+                        <i class="fas fa-sync-alt me-2"></i>Actualizar
+                    </button>
+                </header>
+
+                <div class="container-fluid py-4">
+                    <div class="row g-4">
+                        <!-- Tabla A: OPs Pendientes/Faltantes en Planta -->
+                        <div class="col-12 col-xl-7">
+                            <div class="card h-100 border-start border-warning border-4">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="card-title text-warning-emphasis mb-0">
+                                        <i class="fas fa-hourglass-half me-2"></i>OPs Pendientes / Faltantes en Planta
+                                    </h5>
+                                    <span class="badge bg-warning text-dark rounded-pill">
+                                        <span id="auditoria-op-faltantes-count">0</span> OP
+                                    </span>
+                                </div>
+                                <p class="text-muted small px-3 mb-2">OP registradas en World Office sin ningún reporte local. <strong>Bodega</strong> y <strong>Fecha</strong> ayudan a ubicar de dónde vino y cuándo se generó.</p>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                                        <table class="table table-hover mb-0 mx-3 my-2" style="width: calc(100% - 2rem)!important;" id="tabla-auditoria-op-faltantes">
+                                            <thead>
+                                                <tr>
+                                                    <th>OP (WO)</th>
+                                                    <th>Producto</th>
+                                                    <th class="text-center">Cant. WO</th>
+                                                    <th class="text-center">Bodega</th>
+                                                    <th class="text-center">Fecha</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="auditoria-op-faltantes-body">
+                                                <!-- Generado dinámicamente por auditoria_op.js -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="px-3 py-2 border-top" id="auditoria-op-faltantes-paginacion">
+                                        <!-- Controles de paginación generados por auditoria_op.js -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tabla B: Anomalías de Reporte -->
+                        <div class="col-12 col-xl-5">
+                            <div class="card h-100 border-start border-danger border-4">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="card-title text-danger mb-0">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>Anomalías de Reporte
+                                    </h5>
+                                    <span class="badge bg-danger rounded-pill">
+                                        <span id="auditoria-op-anomalias-count">0</span> registros
+                                    </span>
+                                </div>
+                                <p class="text-muted small px-3 mb-2">Reportes de planta con un número de OP que no existe en World Office.</p>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                                        <table class="table table-hover mb-0 mx-3 my-2" style="width: calc(100% - 2rem)!important;" id="tabla-auditoria-op-anomalias">
+                                            <thead>
+                                                <tr>
+                                                    <th>Origen</th>
+                                                    <th>OP Reportada</th>
+                                                    <th>Producto</th>
+                                                    <th>Responsable</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="auditoria-op-anomalias-body">
+                                                <!-- Generado dinámicamente por auditoria_op.js -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="px-3 py-2 border-top" id="auditoria-op-anomalias-paginacion">
+                                        <!-- Controles de paginación generados por auditoria_op.js -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- ============================================================ -->
@@ -4911,6 +5008,7 @@
 
     <!-- Funcionalidades de Módulos (IMPORTANTE: ui_ux debe ir ANTES) -->
     <script src="/static/js/modules/dashboard.js?v={{ RELEASE_VERSION }}"></script>
+    <script src="/static/js/modules/auditoria_op.js?v={{ RELEASE_VERSION }}"></script>
     <script src="/static/js/modules/asistente.js?v={{ RELEASE_VERSION }}"></script>
     <script src="/static/js/modules/dashboard_tour.js?v={{ RELEASE_VERSION }}"></script>
     <script>console.log("✅ dashboard.js cargado");</script>
