@@ -155,6 +155,7 @@ def extraer_ordenes_produccion(cursor, mapping):
             "verificado": bool(item.get('verificado') or 0),
             "bodega": str(item.get('bodega') or '').strip() or None,
             "cantidad_ept": None,   # se completa en _adjuntar_ept()
+            "numero_ept": None,     # se completa en _adjuntar_ept()
         })
 
     _adjuntar_ept(cursor, mapping, registros)
@@ -165,8 +166,9 @@ def extraer_ordenes_produccion(cursor, mapping):
 
 def _adjuntar_ept(cursor, mapping, registros):
     """
-    Completa `cantidad_ept` en cada fila de OP con lo que realmente ingreso a
-    inventario segun su EPT (Entrada de Producto Terminado).
+    Completa `cantidad_ept` y `numero_ept` en cada fila de OP con lo que
+    realmente ingreso a inventario segun su EPT (Entrada de Producto
+    Terminado).
 
     El vinculo EPT->OP no existe como columna en WO: vive en la nota del
     encabezado ("EPT GENERADA POR OP No 304048", o "... No EMP 500458"). Se
@@ -175,13 +177,19 @@ def _adjuntar_ept(cursor, mapping, registros):
     digitos porque la nota a veces trae el prefijo separado ("OP No EMP 500458")
     y otras no.
 
+    numero_ept es el propio identificador del documento EPT (prefijo+numero
+    de WO), para que planta lo pueda ubicar directo en World Office. Como una
+    OP casi siempre genera UNA sola EPT (3.562 EPT para 3.566 OP, verificado),
+    basta con quedarse con el primer numero de documento visto por esa clave.
+
     Se agrega por (numero_op_digitos, codigo_producto) para poder comparar
     linea a linea, no solo el total del documento.
     """
     logger.info(">> Extrayendo EPT (Entrada de Producto Terminado) para cruzar contra las OP...")
 
     cursor.execute("""
-        SELECT E.Nota AS nota, D.Producto AS producto_id, CAST(D.Cantidad AS FLOAT) AS cantidad
+        SELECT E.Nota AS nota, E.prefijo AS prefijo, E.Numero_de_Documento AS numero_documento,
+               D.Producto AS producto_id, CAST(D.Cantidad AS FLOAT) AS cantidad
         FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
         INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D
             ON E.Autonumerico = D.Pertenece_A
@@ -190,21 +198,28 @@ def _adjuntar_ept(cursor, mapping, registros):
           AND E.Anulado = 0
     """)
 
-    ept = {}
-    for nota, producto_id, cantidad in cursor.fetchall():
+    cantidades = {}
+    documentos = {}
+    for nota, prefijo, numero_documento, producto_id, cantidad in cursor.fetchall():
         numeros = re.findall(r'\d+', str(nota or ''))
         if not numeros:
             continue
         op_dig = numeros[-1]
         prod_id = str(producto_id or '').strip()
         codigo = str(mapping.get(prod_id, prod_id) or '').strip().upper()
-        ept[(op_dig, codigo)] = ept.get((op_dig, codigo), 0.0) + float(cantidad or 0)
+        clave = (op_dig, codigo)
+
+        cantidades[clave] = cantidades.get(clave, 0.0) + float(cantidad or 0)
+        if clave not in documentos:
+            pref = str(prefijo or '').strip()
+            documentos[clave] = f"{pref}-{int(numero_documento)}" if pref else str(int(numero_documento))
 
     con_ept = 0
     for r in registros:
         clave = (re.sub(r'\D', '', r["numero_op"]), (r["codigo_producto"] or '').upper())
-        if clave in ept:
-            r["cantidad_ept"] = ept[clave]
+        if clave in cantidades:
+            r["cantidad_ept"] = cantidades[clave]
+            r["numero_ept"] = documentos.get(clave)
             con_ept += 1
 
     logger.info(f"[OK] EPT cruzada: {con_ept} de {len(registros)} lineas de OP tienen entrada registrada.")
@@ -245,7 +260,7 @@ def guardar_staging_op(registros):
         # columna en vez de bloquear la sincronizacion.
         with engine.begin() as conn:
             conn.execute(text("SET lock_timeout = '10s'"))
-            for columna, tipo in (("cantidad_ept", "NUMERIC(18,2)"),):
+            for columna, tipo in (("cantidad_ept", "NUMERIC(18,2)"), ("numero_ept", "VARCHAR(50)")):
                 conn.execute(text(
                     f"ALTER TABLE db_op_wo_staging ADD COLUMN IF NOT EXISTS {columna} {tipo}"
                 ))

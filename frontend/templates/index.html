@@ -541,8 +541,8 @@
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="page-title">
-                        <h1><i class="fas fa-clipboard-check"></i> OP de Inyección sin Reportar</h1>
-                        <p class="subtitle">Órdenes de Producción de inyección que existen en World Office pero no tienen reporte en la app</p>
+                        <h1><i class="fas fa-clipboard-check"></i> Auditoría de OP — Inyección</h1>
+                        <p class="subtitle">Conciliación en las dos direcciones entre World Office y lo reportado en la app</p>
                     </div>
                     <button class="btn btn-outline-primary btn-sm shadow-sm ms-auto" onclick="window.ModuloAuditoriaOP.cargar()">
                         <i class="fas fa-sync-alt me-2"></i>Actualizar
@@ -588,6 +588,44 @@
                                         </table>
                                     </div>
                                     <div class="px-3 py-2 border-top" id="auditoria-op-faltantes-paginacion">
+                                        <!-- Controles de paginación generados por auditoria_op.js -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Vista inversa: reportado en la app, sin OP valida en World Office -->
+                        <div class="col-12">
+                            <div class="card border-start border-danger border-4">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="card-title text-danger mb-0">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>Reportado en la app sin OP válida en World Office
+                                    </h5>
+                                    <span class="badge bg-danger rounded-pill">
+                                        <span id="auditoria-op-sinwo-count">0</span> registros
+                                    </span>
+                                </div>
+                                <div class="px-3 pb-2">
+                                    <p class="text-muted small mb-0">Reportes de inyección con un número de OP que no existe en World Office — típicamente digitación, u OP inventada/sintética.</p>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                                        <table class="table table-hover mb-0 mx-3 my-2" style="width: calc(100% - 2rem)!important;" id="tabla-auditoria-op-sinwo">
+                                            <thead>
+                                                <tr>
+                                                    <th>OP Reportada</th>
+                                                    <th>Producto</th>
+                                                    <th class="text-center">Cantidad</th>
+                                                    <th>Responsable</th>
+                                                    <th class="text-center">Fecha</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="auditoria-op-sinwo-body">
+                                                <!-- Generado dinámicamente por auditoria_op.js -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="px-3 py-2 border-top" id="auditoria-op-sinwo-paginacion">
                                         <!-- Controles de paginación generados por auditoria_op.js -->
                                     </div>
                                 </div>

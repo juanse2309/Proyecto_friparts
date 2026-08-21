@@ -1,16 +1,23 @@
 // auditoria_op.js - Auditoría de Órdenes de Producción de INYECCIÓN
 // Consume GET /api/auditoria/conciliacion-ops (solo lectura). No escribe nada.
 //
-// Muestra las OP de inyección de World Office que no tienen reporte en la app,
-// con la señal EPT al lado: si World Office registró la entrada a inventario,
-// la producción sí ocurrió y lo que falta es el reporte en planta.
+// Dos direcciones:
+//   - Faltantes: OP de World Office que no tienen reporte en la app.
+//     Trae la señal EPT (entrada real a inventario) para saber si ya se
+//     produjo y solo falta el reporte, o si tampoco entró a inventario.
+//   - Reportadas sin OP: reportes de la app cuya OP no existe en World
+//     Office -- para detectar OP inventadas o mal digitadas por el operario.
 
 class AuditoriaOpModule {
     constructor() {
         this.endpoint = '/api/auditoria/conciliacion-ops';
-        this.filas = [];
         this.porPagina = 50;
-        this.pagina = 1;
+
+        this.faltantes = [];
+        this.paginaFaltantes = 1;
+
+        this.sinWo = [];
+        this.paginaSinWo = 1;
     }
 
     inicializar() {
@@ -38,18 +45,27 @@ class AuditoriaOpModule {
                 return;
             }
 
-            this.filas = payload.data.faltantes_inyeccion || [];
-            this.pagina = 1;
-            this._render();
+            this.faltantes = payload.data.faltantes_inyeccion || [];
+            this.paginaFaltantes = 1;
+            this.sinWo = payload.data.reportadas_sin_wo || [];
+            this.paginaSinWo = 1;
+
+            this._renderFaltantes();
+            this._renderSinWo();
         } catch (error) {
             console.error('❌ [AuditoriaOP] Error de red consultando conciliación de OP:', error);
             this._mostrarError('No se pudo contactar al servidor. Verifica tu conexión e intenta de nuevo.');
         }
     }
 
-    irAPagina(numero) {
-        this.pagina = numero;
-        this._render();
+    irAPaginaFaltantes(numero) {
+        this.paginaFaltantes = numero;
+        this._renderFaltantes();
+    }
+
+    irAPaginaSinWo(numero) {
+        this.paginaSinWo = numero;
+        this._renderSinWo();
     }
 
     // --- HTTP ---
@@ -64,60 +80,62 @@ class AuditoriaOpModule {
     // --- Estados ---
 
     _mostrarCargando() {
-        this._pintarFila('<i class="fas fa-spinner fa-spin fa-2x text-primary"></i>', 'text-muted');
-        this._limpiarPaginacion();
+        this._pintarFila('auditoria-op-faltantes-body', 6,
+            '<i class="fas fa-spinner fa-spin fa-2x text-primary"></i>', 'text-muted');
+        this._pintarFila('auditoria-op-sinwo-body', 5,
+            '<i class="fas fa-spinner fa-spin fa-2x text-primary"></i>', 'text-muted');
+        this._limpiarPaginacion('auditoria-op-faltantes-paginacion');
+        this._limpiarPaginacion('auditoria-op-sinwo-paginacion');
     }
 
     _mostrarError(mensaje) {
-        this._pintarFila(
-            `<i class="fas fa-exclamation-triangle me-2"></i>${this._escapar(mensaje)}`, 'text-danger');
-        this._actualizarContador('—');
-        this._limpiarPaginacion();
+        const contenido = `<i class="fas fa-exclamation-triangle me-2"></i>${this._escapar(mensaje)}`;
+        this._pintarFila('auditoria-op-faltantes-body', 6, contenido, 'text-danger');
+        this._pintarFila('auditoria-op-sinwo-body', 5, contenido, 'text-danger');
+        this._actualizarContador('auditoria-op-faltantes-count', '—');
+        this._actualizarContador('auditoria-op-sinwo-count', '—');
+        this._limpiarPaginacion('auditoria-op-faltantes-paginacion');
+        this._limpiarPaginacion('auditoria-op-sinwo-paginacion');
     }
 
-    _pintarFila(contenidoHtml, claseTexto) {
-        const tbody = document.getElementById('auditoria-op-faltantes-body');
+    _pintarFila(idTbody, colspan, contenidoHtml, claseTexto) {
+        const tbody = document.getElementById(idTbody);
         if (!tbody) return;
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-5 ${claseTexto}">${contenidoHtml}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center py-5 ${claseTexto}">${contenidoHtml}</td></tr>`;
     }
 
-    _actualizarContador(valor) {
-        const el = document.getElementById('auditoria-op-faltantes-count');
+    _actualizarContador(idBadge, valor) {
+        const el = document.getElementById(idBadge);
         if (el) el.textContent = valor;
     }
 
-    _limpiarPaginacion() {
-        const el = document.getElementById('auditoria-op-faltantes-paginacion');
+    _limpiarPaginacion(idContenedor) {
+        const el = document.getElementById(idContenedor);
         if (el) el.innerHTML = '';
     }
 
-    // --- Render ---
+    // --- Tabla A: OP de World Office sin reporte en planta ---
 
-    _render() {
-        this._actualizarContador(this.filas.length.toLocaleString('es-CO'));
+    _renderFaltantes() {
+        this._actualizarContador('auditoria-op-faltantes-count', this.faltantes.length.toLocaleString('es-CO'));
 
         const tbody = document.getElementById('auditoria-op-faltantes-body');
         if (!tbody) return;
 
-        if (this.filas.length === 0) {
+        if (this.faltantes.length === 0) {
             tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-success">
                 <i class="fas fa-check-circle me-2"></i>Todas las OP de inyección están reportadas.</td></tr>`;
-            this._limpiarPaginacion();
+            this._limpiarPaginacion('auditoria-op-faltantes-paginacion');
             return;
         }
 
-        const totalPaginas = Math.max(1, Math.ceil(this.filas.length / this.porPagina));
-        if (this.pagina > totalPaginas) this.pagina = totalPaginas;
-        if (this.pagina < 1) this.pagina = 1;
-
-        const inicio = (this.pagina - 1) * this.porPagina;
-        const visibles = this.filas.slice(inicio, inicio + this.porPagina);
-
-        tbody.innerHTML = visibles.map(f => this._fila(f)).join('');
-        this._renderPaginacion(totalPaginas);
+        const { visibles, totalPaginas } = this._paginar(this.faltantes, this.paginaFaltantes, v => this.paginaFaltantes = v);
+        tbody.innerHTML = visibles.map(f => this._filaFaltante(f)).join('');
+        this._renderPaginacion('auditoria-op-faltantes-paginacion', this.paginaFaltantes, totalPaginas,
+            this.faltantes.length, 'irAPaginaFaltantes', 'OP de inyección sin reportar');
     }
 
-    _fila(f) {
+    _filaFaltante(f) {
         const cant = Number(f.cantidad_wo || 0).toLocaleString('es-CO');
         return `
             <tr>
@@ -143,25 +161,79 @@ class AuditoriaOpModule {
      *  - COMPLETA -> World Office ya registró toda la entrada: se produjo, falta el reporte en la app.
      *  - PARCIAL / EXCEDE -> entró a inventario una cantidad distinta a la ordenada.
      *  - SIN_EPT -> no hay entrada registrada: posiblemente nunca se produjo.
+     * Se muestra el numero de documento EPT (si existe) para que planta lo
+     * pueda ubicar directo en World Office.
      */
     _badgeEpt(f) {
-        const ept = f.cantidad_ept === null || f.cantidad_ept === undefined
-            ? null : Number(f.cantidad_ept);
+        const numEpt = f.numero_ept ? ` <span class="text-muted small">(EPT ${this._escapar(f.numero_ept)})</span>` : '';
 
         if (f.estado_ept === 'SIN_EPT') {
             return '<span class="badge bg-secondary-subtle text-secondary border" title="World Office no registró entrada a inventario para esta OP">Sin EPT</span>';
         }
+
+        const ept = Number(f.cantidad_ept);
         if (f.estado_ept === 'COMPLETA') {
-            return `<span class="badge bg-success-subtle text-success border" title="World Office registró la entrada completa: se produjo, falta el reporte en la app">Entró ${ept.toLocaleString('es-CO')}</span>`;
+            return `<span class="badge bg-success-subtle text-success border" title="World Office registró la entrada completa: se produjo, falta el reporte en la app">Entró ${ept.toLocaleString('es-CO')}</span>${numEpt}`;
         }
         const dif = Number(f.diferencia_ept || 0);
         const signo = dif > 0 ? '+' : '';
         const clase = f.estado_ept === 'PARCIAL' ? 'warning' : 'info';
-        return `<span class="badge bg-${clase}-subtle text-${clase}-emphasis border" title="Cantidad que entró a inventario vs. la ordenada en la OP">${ept.toLocaleString('es-CO')} (${signo}${dif.toLocaleString('es-CO')})</span>`;
+        return `<span class="badge bg-${clase}-subtle text-${clase}-emphasis border" title="Cantidad que entró a inventario vs. la ordenada en la OP">${ept.toLocaleString('es-CO')} (${signo}${dif.toLocaleString('es-CO')})</span>${numEpt}`;
     }
 
-    _renderPaginacion(totalPaginas) {
-        const contenedor = document.getElementById('auditoria-op-faltantes-paginacion');
+    // --- Tabla B: reportado en la app, no existe en World Office ---
+
+    _renderSinWo() {
+        this._actualizarContador('auditoria-op-sinwo-count', this.sinWo.length.toLocaleString('es-CO'));
+
+        const tbody = document.getElementById('auditoria-op-sinwo-body');
+        if (!tbody) return;
+
+        if (this.sinWo.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-success">
+                <i class="fas fa-check-circle me-2"></i>Todo lo reportado en inyección tiene su OP en World Office.</td></tr>`;
+            this._limpiarPaginacion('auditoria-op-sinwo-paginacion');
+            return;
+        }
+
+        const { visibles, totalPaginas } = this._paginar(this.sinWo, this.paginaSinWo, v => this.paginaSinWo = v);
+        tbody.innerHTML = visibles.map(f => this._filaSinWo(f)).join('');
+        this._renderPaginacion('auditoria-op-sinwo-paginacion', this.paginaSinWo, totalPaginas,
+            this.sinWo.length, 'irAPaginaSinWo', 'reportes sin OP válida en World Office');
+    }
+
+    _filaSinWo(f) {
+        const cant = Number(f.cantidad_reportada || 0).toLocaleString('es-CO');
+        const responsable = this._escapar(f.responsable) || '<span class="text-muted">Sin asignar</span>';
+        return `
+            <tr>
+                <td class="fw-bold text-danger"><i class="fas fa-question-circle me-1"></i>${this._escapar(f.orden_produccion_reportada)}</td>
+                <td>${this._escapar(f.codigo_producto)}</td>
+                <td class="text-center">${cant}</td>
+                <td>${responsable}</td>
+                <td class="text-center">
+                    <span class="badge bg-light text-dark border">
+                        <i class="fas fa-calendar-alt me-1 text-secondary"></i>${this._escapar(f.fecha) || 'N/D'}
+                    </span>
+                </td>
+            </tr>`;
+    }
+
+    // --- Paginación (cliente, compartida por ambas tablas) ---
+
+    _paginar(lista, paginaActual, setPagina) {
+        const totalPaginas = Math.max(1, Math.ceil(lista.length / this.porPagina));
+        let pagina = paginaActual;
+        if (pagina > totalPaginas) pagina = totalPaginas;
+        if (pagina < 1) pagina = 1;
+        setPagina(pagina);
+
+        const inicio = (pagina - 1) * this.porPagina;
+        return { visibles: lista.slice(inicio, inicio + this.porPagina), totalPaginas };
+    }
+
+    _renderPaginacion(idContenedor, paginaActual, totalPaginas, totalItems, metodo, etiquetaTotal) {
+        const contenedor = document.getElementById(idContenedor);
         if (!contenedor) return;
 
         if (totalPaginas <= 1) {
@@ -171,27 +243,27 @@ class AuditoriaOpModule {
 
         const boton = (etiqueta, pagina, deshabilitado, activo = false) => `
             <li class="page-item ${deshabilitado ? 'disabled' : ''} ${activo ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="event.preventDefault(); window.ModuloAuditoriaOP.irAPagina(${pagina})">${etiqueta}</a>
+                <a class="page-link" href="#" onclick="event.preventDefault(); window.ModuloAuditoriaOP.${metodo}(${pagina})">${etiqueta}</a>
             </li>`;
 
         const RANGO = 1;
-        const desde = Math.max(1, this.pagina - RANGO);
-        const hasta = Math.min(totalPaginas, this.pagina + RANGO);
+        const desde = Math.max(1, paginaActual - RANGO);
+        const hasta = Math.min(totalPaginas, paginaActual + RANGO);
 
         let html = '<nav><ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">';
-        html += boton('&laquo;', this.pagina - 1, this.pagina === 1);
+        html += boton('&laquo;', paginaActual - 1, paginaActual === 1);
         if (desde > 1) {
             html += boton('1', 1, false);
             if (desde > 2) html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
         }
-        for (let p = desde; p <= hasta; p++) html += boton(String(p), p, false, p === this.pagina);
+        for (let p = desde; p <= hasta; p++) html += boton(String(p), p, false, p === paginaActual);
         if (hasta < totalPaginas) {
             if (hasta < totalPaginas - 1) html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
             html += boton(String(totalPaginas), totalPaginas, false);
         }
-        html += boton('&raquo;', this.pagina + 1, this.pagina === totalPaginas);
+        html += boton('&raquo;', paginaActual + 1, paginaActual === totalPaginas);
         html += '</ul></nav>';
-        html += `<p class="text-center text-muted small mt-2 mb-0">Página ${this.pagina} de ${totalPaginas} — ${this.filas.length.toLocaleString('es-CO')} OP de inyección sin reportar</p>`;
+        html += `<p class="text-center text-muted small mt-2 mb-0">Página ${paginaActual} de ${totalPaginas} — ${totalItems.toLocaleString('es-CO')} ${etiquetaTotal}</p>`;
 
         contenedor.innerHTML = html;
     }

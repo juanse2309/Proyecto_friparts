@@ -1003,6 +1003,9 @@ class OpWoStaging(db.Model):
     # entrada no se genera, o se genera por una cantidad distinta.
     # cantidad_ept queda en NULL cuando la OP no tiene EPT asociada.
     cantidad_ept    = db.Column(db.Numeric(18, 2), nullable=True)
+    # Numero de documento de la EPT en si (prefijo+consecutivo de WO), para
+    # que planta pueda ubicarla directamente en World Office sin adivinar.
+    numero_ept      = db.Column(db.String(50), nullable=True)
 
 
 class AppConfig(db.Model):
