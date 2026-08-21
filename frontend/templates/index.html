@@ -541,8 +541,8 @@
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="page-title">
-                        <h1><i class="fas fa-clipboard-check"></i> Auditoría de Órdenes de Producción</h1>
-                        <p class="subtitle">Conciliación entre las OP reales de World Office y lo reportado en planta (Inyección, Pulido, Ensamble)</p>
+                        <h1><i class="fas fa-clipboard-check"></i> OP de Inyección sin Reportar</h1>
+                        <p class="subtitle">Órdenes de Producción de inyección que existen en World Office pero no tienen reporte en la app</p>
                     </div>
                     <button class="btn btn-outline-primary btn-sm shadow-sm ms-auto" onclick="window.ModuloAuditoriaOP.cargar()">
                         <i class="fas fa-sync-alt me-2"></i>Actualizar
@@ -551,26 +551,33 @@
 
                 <div class="container-fluid py-4">
                     <div class="row g-4">
-                        <!-- Tabla A: OPs Pendientes/Faltantes en Planta -->
-                        <div class="col-12 col-xl-7">
-                            <div class="card h-100 border-start border-warning border-4">
+                        <div class="col-12">
+                            <div class="card border-start border-warning border-4">
                                 <div class="card-header d-flex justify-content-between align-items-center">
                                     <h5 class="card-title text-warning-emphasis mb-0">
-                                        <i class="fas fa-hourglass-half me-2"></i>OPs Pendientes / Faltantes en Planta
+                                        <i class="fas fa-hourglass-half me-2"></i>OP de Inyección sin reporte en planta
                                     </h5>
                                     <span class="badge bg-warning text-dark rounded-pill">
                                         <span id="auditoria-op-faltantes-count">0</span> OP
                                     </span>
                                 </div>
-                                <p class="text-muted small px-3 mb-2">OP registradas en World Office sin ningún reporte local. <strong>Bodega</strong> y <strong>Fecha</strong> ayudan a ubicar de dónde vino y cuándo se generó.</p>
+                                <div class="px-3 pb-2">
+                                    <p class="text-muted small mb-1">Solo inyección — las OP de ensamble y empaque (<code>ENS-</code>, <code>EMP-</code>) quedan fuera.</p>
+                                    <p class="text-muted small mb-0">
+                                        La columna <strong>EPT</strong> es la entrada a inventario que World Office registró para esa OP:
+                                        <span class="badge bg-success-subtle text-success border">Entró N</span> significa que sí se produjo y solo falta reportarlo en la app;
+                                        <span class="badge bg-secondary-subtle text-secondary border">Sin EPT</span> que World Office tampoco registró entrada.
+                                    </p>
+                                </div>
                                 <div class="card-body p-0">
-                                    <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                                    <div class="table-responsive" style="max-height: 560px; overflow-y: auto;">
                                         <table class="table table-hover mb-0 mx-3 my-2" style="width: calc(100% - 2rem)!important;" id="tabla-auditoria-op-faltantes">
                                             <thead>
                                                 <tr>
                                                     <th>OP (WO)</th>
                                                     <th>Producto</th>
-                                                    <th class="text-center">Cant. WO</th>
+                                                    <th class="text-center">Cant. OP</th>
+                                                    <th class="text-center">EPT (entrada real)</th>
                                                     <th class="text-center">Bodega</th>
                                                     <th class="text-center">Fecha</th>
                                                 </tr>
@@ -581,41 +588,6 @@
                                         </table>
                                     </div>
                                     <div class="px-3 py-2 border-top" id="auditoria-op-faltantes-paginacion">
-                                        <!-- Controles de paginación generados por auditoria_op.js -->
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tabla B: Anomalías de Reporte -->
-                        <div class="col-12 col-xl-5">
-                            <div class="card h-100 border-start border-danger border-4">
-                                <div class="card-header d-flex justify-content-between align-items-center">
-                                    <h5 class="card-title text-danger mb-0">
-                                        <i class="fas fa-exclamation-triangle me-2"></i>Anomalías de Reporte
-                                    </h5>
-                                    <span class="badge bg-danger rounded-pill">
-                                        <span id="auditoria-op-anomalias-count">0</span> registros
-                                    </span>
-                                </div>
-                                <p class="text-muted small px-3 mb-2">Reportes de planta con un número de OP que no existe en World Office.</p>
-                                <div class="card-body p-0">
-                                    <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
-                                        <table class="table table-hover mb-0 mx-3 my-2" style="width: calc(100% - 2rem)!important;" id="tabla-auditoria-op-anomalias">
-                                            <thead>
-                                                <tr>
-                                                    <th>Origen</th>
-                                                    <th>OP Reportada</th>
-                                                    <th>Producto</th>
-                                                    <th>Responsable</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="auditoria-op-anomalias-body">
-                                                <!-- Generado dinámicamente por auditoria_op.js -->
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div class="px-3 py-2 border-top" id="auditoria-op-anomalias-paginacion">
                                         <!-- Controles de paginación generados por auditoria_op.js -->
                                     </div>
                                 </div>

@@ -994,6 +994,16 @@ class OpWoStaging(db.Model):
     verificado      = db.Column(db.Boolean, default=False)
     bodega          = db.Column(db.String(100), nullable=True)
 
+    # --- Señal EPT (Entrada de Producto Terminado) ---
+    # En World Office cada OP genera una EPT que ingresa a inventario lo
+    # realmente producido; su encabezado la referencia en la nota
+    # ("EPT GENERADA POR OP No 304048" -- formato verificado, 100% parseable).
+    # Comparar la cantidad de la OP contra la de su EPT es lo que expone el
+    # descuadre de inventario que reporta planta: la OP se hace pero la
+    # entrada no se genera, o se genera por una cantidad distinta.
+    # cantidad_ept queda en NULL cuando la OP no tiene EPT asociada.
+    cantidad_ept    = db.Column(db.Numeric(18, 2), nullable=True)
+
 
 class AppConfig(db.Model):
     """

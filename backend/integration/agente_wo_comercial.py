@@ -1,6 +1,7 @@
 import os
 import sys
 import io
+import re
 import logging
 import pyodbc
 import requests
@@ -153,10 +154,60 @@ def extraer_ordenes_produccion(cursor, mapping):
             "anulado": bool(item.get('anulado') or 0),
             "verificado": bool(item.get('verificado') or 0),
             "bodega": str(item.get('bodega') or '').strip() or None,
+            "cantidad_ept": None,   # se completa en _adjuntar_ept()
         })
+
+    _adjuntar_ept(cursor, mapping, registros)
 
     logger.info(f"[OK] {len(registros)} filas de OP extraidas de WO (documentos, no lineas por producto).")
     return registros
+
+
+def _adjuntar_ept(cursor, mapping, registros):
+    """
+    Completa `cantidad_ept` en cada fila de OP con lo que realmente ingreso a
+    inventario segun su EPT (Entrada de Producto Terminado).
+
+    El vinculo EPT->OP no existe como columna en WO: vive en la nota del
+    encabezado ("EPT GENERADA POR OP No 304048", o "... No EMP 500458"). Se
+    verifico contra produccion que el 100% de las EPT (2024+) siguen ese
+    formato, por lo que basta tomar el ultimo numero de la nota. Se cruza por
+    digitos porque la nota a veces trae el prefijo separado ("OP No EMP 500458")
+    y otras no.
+
+    Se agrega por (numero_op_digitos, codigo_producto) para poder comparar
+    linea a linea, no solo el total del documento.
+    """
+    logger.info(">> Extrayendo EPT (Entrada de Producto Terminado) para cruzar contra las OP...")
+
+    cursor.execute("""
+        SELECT E.Nota AS nota, D.Producto AS producto_id, CAST(D.Cantidad AS FLOAT) AS cantidad
+        FROM [FRIPARTS2021].[dbo].[Vista_Tabla_Encabezados] E
+        INNER JOIN [FRIPARTS2021].[dbo].[Vista_Tabla_Movimientos_Inventario] D
+            ON E.Autonumerico = D.Pertenece_A
+        WHERE E.Tipo_de_Documento = 'EPT'
+          AND YEAR(E.Fecha) >= 2024
+          AND E.Anulado = 0
+    """)
+
+    ept = {}
+    for nota, producto_id, cantidad in cursor.fetchall():
+        numeros = re.findall(r'\d+', str(nota or ''))
+        if not numeros:
+            continue
+        op_dig = numeros[-1]
+        prod_id = str(producto_id or '').strip()
+        codigo = str(mapping.get(prod_id, prod_id) or '').strip().upper()
+        ept[(op_dig, codigo)] = ept.get((op_dig, codigo), 0.0) + float(cantidad or 0)
+
+    con_ept = 0
+    for r in registros:
+        clave = (re.sub(r'\D', '', r["numero_op"]), (r["codigo_producto"] or '').upper())
+        if clave in ept:
+            r["cantidad_ept"] = ept[clave]
+            con_ept += 1
+
+    logger.info(f"[OK] EPT cruzada: {con_ept} de {len(registros)} lineas de OP tienen entrada registrada.")
 
 
 def guardar_staging_op(registros):
@@ -171,7 +222,7 @@ def guardar_staging_op(registros):
     si el insert falla, el truncate se revierte tambien -- la tabla nunca
     queda vacia a medias.
     """
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
     from backend.models.sql_models import OpWoStaging
 
     db_url = os.getenv("DATABASE_URL")
@@ -185,6 +236,20 @@ def guardar_staging_op(registros):
     engine = create_engine(db_url)
     try:
         OpWoStaging.__table__.create(engine, checkfirst=True)
+
+        # create(checkfirst=True) NO agrega columnas nuevas a una tabla que ya
+        # existe. Sin esto, la primera corrida despues de ampliar el modelo
+        # falla al insertar cantidad_ept contra una tabla creada antes. El
+        # lock_timeout evita que el agente quede colgado indefinidamente si
+        # algo mas esta leyendo la tabla: si no consigue el lock, sigue sin la
+        # columna en vez de bloquear la sincronizacion.
+        with engine.begin() as conn:
+            conn.execute(text("SET lock_timeout = '10s'"))
+            for columna, tipo in (("cantidad_ept", "NUMERIC(18,2)"),):
+                conn.execute(text(
+                    f"ALTER TABLE db_op_wo_staging ADD COLUMN IF NOT EXISTS {columna} {tipo}"
+                ))
+
         with engine.begin() as conn:
             conn.execute(OpWoStaging.__table__.delete())
             if registros:
