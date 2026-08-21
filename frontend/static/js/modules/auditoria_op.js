@@ -1,23 +1,28 @@
 // auditoria_op.js - Auditoría de Órdenes de Producción de INYECCIÓN
 // Consume GET /api/auditoria/conciliacion-ops (solo lectura). No escribe nada.
 //
-// Dos direcciones:
+// Dos direcciones, agrupadas por OP (una OP trae varias referencias -- 379
+// OPs distintas explican las 1.021 filas de faltantes, promedio 2.7 c/u; una
+// llegó a traer 84). Cada grupo se despliega al hacer clic para ver el
+// detalle por producto:
 //   - Faltantes: OP de World Office que no tienen reporte en la app.
-//     Trae la señal EPT (entrada real a inventario) para saber si ya se
-//     produjo y solo falta el reporte, o si tampoco entró a inventario.
+//     Trae la señal EPT (entrada real a inventario) por item, y un resumen
+//     agregado en la fila colapsada.
 //   - Reportadas sin OP: reportes de la app cuya OP no existe en World
 //     Office -- para detectar OP inventadas o mal digitadas por el operario.
 
 class AuditoriaOpModule {
     constructor() {
         this.endpoint = '/api/auditoria/conciliacion-ops';
-        this.porPagina = 50;
+        this.porPagina = 50; // OPs por pagina, no filas -- ver _agruparPorOp
 
         this.faltantes = [];
         this.paginaFaltantes = 1;
+        this.expandidasFaltantes = new Set();
 
         this.sinWo = [];
         this.paginaSinWo = 1;
+        this.expandidasSinWo = new Set();
     }
 
     inicializar() {
@@ -47,8 +52,11 @@ class AuditoriaOpModule {
 
             this.faltantes = payload.data.faltantes_inyeccion || [];
             this.paginaFaltantes = 1;
+            this.expandidasFaltantes.clear();
+
             this.sinWo = payload.data.reportadas_sin_wo || [];
             this.paginaSinWo = 1;
+            this.expandidasSinWo.clear();
 
             this._renderFaltantes();
             this._renderSinWo();
@@ -66,6 +74,21 @@ class AuditoriaOpModule {
     irAPaginaSinWo(numero) {
         this.paginaSinWo = numero;
         this._renderSinWo();
+    }
+
+    toggleFaltante(numeroOp) {
+        this._toggle(this.expandidasFaltantes, numeroOp);
+        this._renderFaltantes();
+    }
+
+    toggleSinWo(numeroOp) {
+        this._toggle(this.expandidasSinWo, numeroOp);
+        this._renderSinWo();
+    }
+
+    _toggle(set, clave) {
+        if (set.has(clave)) set.delete(clave);
+        else set.add(clave);
     }
 
     // --- HTTP ---
@@ -114,6 +137,19 @@ class AuditoriaOpModule {
         if (el) el.innerHTML = '';
     }
 
+    // --- Agrupación por OP (compartida por ambas tablas) ---
+
+    _agruparPorOp(lista, campoOp) {
+        const grupos = new Map();
+        lista.forEach(item => {
+            const clave = item[campoOp];
+            if (!grupos.has(clave)) grupos.set(clave, []);
+            grupos.get(clave).push(item);
+        });
+        // Mantener el orden de aparicion (ya viene ordenado por fecha desde el backend)
+        return [...grupos.entries()].map(([numeroOp, items]) => ({ numeroOp, items }));
+    }
+
     // --- Tabla A: OP de World Office sin reporte en planta ---
 
     _renderFaltantes() {
@@ -129,17 +165,63 @@ class AuditoriaOpModule {
             return;
         }
 
-        const { visibles, totalPaginas } = this._paginar(this.faltantes, this.paginaFaltantes, v => this.paginaFaltantes = v);
-        tbody.innerHTML = visibles.map(f => this._filaFaltante(f)).join('');
+        const grupos = this._agruparPorOp(this.faltantes, 'numero_op');
+        const { visibles, totalPaginas } = this._paginar(grupos, this.paginaFaltantes, v => this.paginaFaltantes = v);
+
+        tbody.innerHTML = visibles.map(g => this._grupoFaltante(g)).join('');
         this._renderPaginacion('auditoria-op-faltantes-paginacion', this.paginaFaltantes, totalPaginas,
-            this.faltantes.length, 'irAPaginaFaltantes', 'OP de inyección sin reportar');
+            grupos.length, 'irAPaginaFaltantes', `OP (${this.faltantes.length.toLocaleString('es-CO')} referencias en total)`);
     }
 
-    _filaFaltante(f) {
+    _grupoFaltante(grupo) {
+        const { numeroOp, items } = grupo;
+        const expandido = this.expandidasFaltantes.has(numeroOp);
+
+        if (items.length === 1) {
+            return this._filaFaltanteDetalle(items[0], false);
+        }
+
+        const totalCant = items.reduce((s, f) => s + Number(f.cantidad_wo || 0), 0);
+        const resumenEpt = this._resumenEpt(items);
+        const primero = items[0];
+        const caret = expandido ? 'fa-chevron-down' : 'fa-chevron-right';
+
+        let html = `
+            <tr style="cursor: pointer;" onclick="window.ModuloAuditoriaOP.toggleFaltante('${this._escapar(numeroOp)}')">
+                <td class="fw-bold text-dark">
+                    <i class="fas ${caret} text-secondary me-2 small"></i>
+                    <i class="fas fa-hashtag text-secondary me-1"></i>${this._escapar(numeroOp)}
+                </td>
+                <td><span class="badge bg-light text-dark border">${items.length} productos</span></td>
+                <td class="text-center">${totalCant.toLocaleString('es-CO')}</td>
+                <td class="text-center">${resumenEpt}</td>
+                <td class="text-center">
+                    <span class="badge bg-light text-dark border">
+                        <i class="fas fa-warehouse me-1 text-secondary"></i>${this._escapar(primero.bodega) || 'N/D'}
+                    </span>
+                </td>
+                <td class="text-center">
+                    <span class="badge bg-light text-dark border">
+                        <i class="fas fa-calendar-alt me-1 text-secondary"></i>${this._escapar(primero.fecha) || 'N/D'}
+                    </span>
+                </td>
+            </tr>`;
+
+        if (expandido) {
+            html += items.map(f => this._filaFaltanteDetalle(f, true)).join('');
+        }
+        return html;
+    }
+
+    _filaFaltanteDetalle(f, esHijo) {
         const cant = Number(f.cantidad_wo || 0).toLocaleString('es-CO');
+        const claseHijo = esHijo ? ' bg-light bg-opacity-50' : '';
+        const opCelda = esHijo
+            ? `<span class="text-muted small ps-4"><i class="fas fa-level-up-alt fa-rotate-90 me-2"></i>${this._escapar(f.numero_op)}</span>`
+            : `<i class="fas fa-hashtag text-secondary me-1"></i>${this._escapar(f.numero_op)}`;
         return `
-            <tr>
-                <td class="fw-bold text-dark"><i class="fas fa-hashtag text-secondary me-1"></i>${this._escapar(f.numero_op)}</td>
+            <tr class="${claseHijo}">
+                <td class="${esHijo ? '' : 'fw-bold text-dark'}">${opCelda}</td>
                 <td>${this._escapar(f.codigo_producto)}</td>
                 <td class="text-center">${cant}</td>
                 <td class="text-center">${this._badgeEpt(f)}</td>
@@ -181,6 +263,19 @@ class AuditoriaOpModule {
         return `<span class="badge bg-${clase}-subtle text-${clase}-emphasis border" title="Cantidad que entró a inventario vs. la ordenada en la OP">${ept.toLocaleString('es-CO')} (${signo}${dif.toLocaleString('es-CO')})</span>${numEpt}`;
     }
 
+    /** Resumen compacto de estados EPT para la fila colapsada de un grupo. */
+    _resumenEpt(items) {
+        const conteo = { COMPLETA: 0, PARCIAL: 0, EXCEDE: 0, SIN_EPT: 0 };
+        items.forEach(f => { conteo[f.estado_ept] = (conteo[f.estado_ept] || 0) + 1; });
+
+        const partes = [];
+        if (conteo.COMPLETA) partes.push(`<span class="badge bg-success-subtle text-success border" title="World Office registró la entrada completa">${conteo.COMPLETA} completas</span>`);
+        if (conteo.PARCIAL) partes.push(`<span class="badge bg-warning-subtle text-warning-emphasis border" title="Entró menos de lo ordenado">${conteo.PARCIAL} parciales</span>`);
+        if (conteo.EXCEDE) partes.push(`<span class="badge bg-info-subtle text-info-emphasis border" title="Entró más de lo ordenado">${conteo.EXCEDE} exceden</span>`);
+        if (conteo.SIN_EPT) partes.push(`<span class="badge bg-secondary-subtle text-secondary border" title="Sin entrada registrada">${conteo.SIN_EPT} sin EPT</span>`);
+        return partes.join(' ');
+    }
+
     // --- Tabla B: reportado en la app, no existe en World Office ---
 
     _renderSinWo() {
@@ -196,18 +291,62 @@ class AuditoriaOpModule {
             return;
         }
 
-        const { visibles, totalPaginas } = this._paginar(this.sinWo, this.paginaSinWo, v => this.paginaSinWo = v);
-        tbody.innerHTML = visibles.map(f => this._filaSinWo(f)).join('');
+        const grupos = this._agruparPorOp(this.sinWo, 'orden_produccion_reportada');
+        const { visibles, totalPaginas } = this._paginar(grupos, this.paginaSinWo, v => this.paginaSinWo = v);
+
+        tbody.innerHTML = visibles.map(g => this._grupoSinWo(g)).join('');
         this._renderPaginacion('auditoria-op-sinwo-paginacion', this.paginaSinWo, totalPaginas,
-            this.sinWo.length, 'irAPaginaSinWo', 'reportes sin OP válida en World Office');
+            grupos.length, 'irAPaginaSinWo', `OP reportadas (${this.sinWo.length.toLocaleString('es-CO')} referencias en total)`);
     }
 
-    _filaSinWo(f) {
+    _grupoSinWo(grupo) {
+        const { numeroOp, items } = grupo;
+        const expandido = this.expandidasSinWo.has(numeroOp);
+
+        if (items.length === 1) {
+            return this._filaSinWoDetalle(items[0], false);
+        }
+
+        const totalCant = items.reduce((s, f) => s + Number(f.cantidad_reportada || 0), 0);
+        const primero = items[0];
+        const responsables = new Set(items.map(f => f.responsable).filter(Boolean));
+        const responsable = responsables.size === 1
+            ? this._escapar(primero.responsable)
+            : (responsables.size > 1 ? `${responsables.size} operarios` : '<span class="text-muted">Sin asignar</span>');
+        const caret = expandido ? 'fa-chevron-down' : 'fa-chevron-right';
+
+        let html = `
+            <tr style="cursor: pointer;" onclick="window.ModuloAuditoriaOP.toggleSinWo('${this._escapar(numeroOp)}')">
+                <td class="fw-bold text-danger">
+                    <i class="fas ${caret} text-secondary me-2 small"></i>
+                    <i class="fas fa-question-circle me-1"></i>${this._escapar(numeroOp)}
+                </td>
+                <td><span class="badge bg-light text-dark border">${items.length} productos</span></td>
+                <td class="text-center">${totalCant.toLocaleString('es-CO')}</td>
+                <td>${responsable}</td>
+                <td class="text-center">
+                    <span class="badge bg-light text-dark border">
+                        <i class="fas fa-calendar-alt me-1 text-secondary"></i>${this._escapar(primero.fecha) || 'N/D'}
+                    </span>
+                </td>
+            </tr>`;
+
+        if (expandido) {
+            html += items.map(f => this._filaSinWoDetalle(f, true)).join('');
+        }
+        return html;
+    }
+
+    _filaSinWoDetalle(f, esHijo) {
         const cant = Number(f.cantidad_reportada || 0).toLocaleString('es-CO');
         const responsable = this._escapar(f.responsable) || '<span class="text-muted">Sin asignar</span>';
+        const claseHijo = esHijo ? ' bg-light bg-opacity-50' : '';
+        const opCelda = esHijo
+            ? `<span class="text-muted small ps-4"><i class="fas fa-level-up-alt fa-rotate-90 me-2"></i>${this._escapar(f.orden_produccion_reportada)}</span>`
+            : `<i class="fas fa-question-circle me-1"></i>${this._escapar(f.orden_produccion_reportada)}`;
         return `
-            <tr>
-                <td class="fw-bold text-danger"><i class="fas fa-question-circle me-1"></i>${this._escapar(f.orden_produccion_reportada)}</td>
+            <tr class="${claseHijo}">
+                <td class="${esHijo ? '' : 'fw-bold text-danger'}">${opCelda}</td>
                 <td>${this._escapar(f.codigo_producto)}</td>
                 <td class="text-center">${cant}</td>
                 <td>${responsable}</td>
@@ -219,7 +358,7 @@ class AuditoriaOpModule {
             </tr>`;
     }
 
-    // --- Paginación (cliente, compartida por ambas tablas) ---
+    // --- Paginación (cliente, compartida por ambas tablas -- pagina por OPs, no por filas) ---
 
     _paginar(lista, paginaActual, setPagina) {
         const totalPaginas = Math.max(1, Math.ceil(lista.length / this.porPagina));
